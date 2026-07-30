@@ -116,7 +116,15 @@ export default defineConfig({
         entry: 'src/main/index.ts'
       },
       {
-        entry: 'src/preload/index.ts'
+        vite: {
+          build: {
+            lib: {
+              entry: 'src/preload/index.ts',
+              formats: ['cjs'],
+              fileName: () => 'preload.cjs'
+            }
+          }
+        }
       }
     ]),
     renderer()
@@ -327,6 +335,35 @@ pnpm add --save-dev electron electron-builder
 <script type="module" src="/src/renderer/main.tsx"></script>
 ```
 
+### 6. Colisão de saída entre main e preload
+
+**Problema:** `TypeError: Cannot read properties of undefined (reading 'exposeInMainWorld')` ao subir o app.
+
+Com `entry: 'src/main/index.ts'` e `entry: 'src/preload/index.ts'`, o `vite-plugin-electron` usa `[name].js` sobre `build.lib`. Os dois entries se chamam `index`, então o preload sobrescreve `dist-electron/index.js` e o Electron carrega o preload como main process — onde `contextBridge` não existe.
+
+**Solução:** dar nome próprio e formato CommonJS ao preload via `build.lib` (ver `vite.config.ts` acima) e apontar o `BrowserWindow` para o arquivo compilado:
+
+```typescript
+preload: path.join(__dirname, 'preload.cjs')
+```
+
+**Outputs esperados em `dist-electron/`:** `index.js` (main, ESM) e `preload.cjs` (preload, CommonJS).
+
+### 7. Caminho do renderer em produção
+
+**Problema:** janela em branco no app empacotado. O main carregava `file://` + `../../../dist/index.html`, que aponta para fora do `app.asar` (e monta URL inválida no Windows, com backslashes).
+
+**Solução:** com `files: ["dist-electron", "dist/**/*"]`, o HTML fica um nível acima do main. Usar `loadFile`, que resolve o path do asar sem montar URL na mão:
+
+```typescript
+if (isDev) {
+  mainWindow.loadURL('http://localhost:5173')
+  mainWindow.webContents.openDevTools()
+} else {
+  mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+}
+```
+
 ---
 
 ## Rodando o Projeto
@@ -414,6 +451,12 @@ server: {
 Preload foi recompilado como ESM. Verificar:
 1. `src/preload/index.ts` usa `require()`, não `import`
 2. Rodar `pnpm run build` novamente
+
+### "Cannot read properties of undefined (reading 'exposeInMainWorld')"
+
+O preload foi carregado como main process. Verificar em `vite.config.ts` se o preload emite `preload.cjs` (e não `index.js`, que é do main). Ver "Correções Aplicadas → 6".
+
+Se sobrou build antigo, apagar `dist-electron/` e rodar `pnpm dev` de novo.
 
 ### Electron não acha dist-electron/index.js
 

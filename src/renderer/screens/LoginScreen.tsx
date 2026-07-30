@@ -1,196 +1,285 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react'
+/**
+ * Tela #login — gate de cofre local.
+ * Fidelidade: docs/F01-vault-e-sessao-local/ui.md + copy.md
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement, SyntheticEvent } from 'react'
+import { BrandMark, BrandWordmark } from '../components/BrandMark'
+import { ButtonPrimary } from '../components/ButtonPrimary'
+import { ThemeControl } from '../components/ThemeControl'
 
-interface LoginState {
-  workspace: string
-  password: string
-  error: string | null
-  backoffMs: number
-  isLoading: boolean
+interface LoginScreenProps {
+  onUnlock?: () => void
 }
 
 interface VaultUnlockResponse {
   unlocked: boolean
   retryAfterMs?: number
+  error?: { code?: string; message?: string }
 }
 
-export const LoginScreen: React.FC = () => {
-  const [state, setState] = useState<LoginState>(() => ({
-    workspace: '',
-    password: '',
-    error: null,
-    backoffMs: 0,
-    isLoading: false
-  }))
+type ErrorKind = 'invalid' | 'corrupted' | 'backoff' | 'network' | null
 
-  const backoffTimerRef = useRef<NodeJS.Timeout | null>(null)
+/** Copy — docs/F01-vault-e-sessao-local/copy.md */
+const COPY = {
+  instruction:
+    'Desbloqueie o workspace local para abrir seus projetos e threads.',
+  labelWorkspace: 'Workspace',
+  hintWorkspace:
+    'Diretório raiz onde o EngrenaCode indexa seus repositórios.',
+  labelPassword: 'Senha do cofre local',
+  placeholderPassword: '••••••••',
+  ctaPrimary: 'Desbloquear workspace',
+  ctaLoading: 'Desbloqueando...',
+  footer:
+    'As chaves dos providers e o token do GitHub ficam apenas no filesystem local deste dispositivo.',
+  errorInvalid: 'Workspace ou senha inválidos.',
+  errorCorrupted:
+    'O cofre local está danificado ou ilegível. Restaure um backup ou recrie o workspace.',
+  errorNetwork:
+    'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
+} as const
 
-  const handleWorkspaceChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setState((prev) => ({ ...prev, workspace: e.target.value, error: null }))
-    },
-    []
-  )
+const GATE_BACKGROUND =
+  'radial-gradient(900px 500px at 50% -10%, rgba(255,107,0,0.08), transparent 60%)'
 
-  const handlePasswordChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setState((prev) => ({ ...prev, password: e.target.value, error: null }))
-    },
-    []
-  )
+const INPUT_BASE =
+  'w-full rounded-sm border bg-surface-2 px-md py-sm text-sm text-fg transition-colors placeholder:text-muted focus:outline-none focus:ring-2'
 
-  const startBackoff = useCallback((ms: number) => {
-    if (backoffTimerRef.current) {
-      clearInterval(backoffTimerRef.current)
+function messageForError(kind: ErrorKind, remainingMs: number): string | null {
+  switch (kind) {
+    case 'invalid':
+      return COPY.errorInvalid
+    case 'corrupted':
+      return COPY.errorCorrupted
+    case 'network':
+      return COPY.errorNetwork
+    case 'backoff':
+      return `Muitas tentativas. Tente novamente em ${Math.ceil(remainingMs / 1000)}s.`
+    default:
+      return null
+  }
+}
+
+function classifyUnlockFailure(
+  response: Response,
+  data: VaultUnlockResponse,
+): { kind: ErrorKind; retryMs: number } {
+  const errorCode = data.error?.code
+  if (errorCode === 'vault_corrupted' || response.status === 422) {
+    return { kind: 'corrupted', retryMs: 0 }
+  }
+
+  const retryMs =
+    typeof data.retryAfterMs === 'number' ? data.retryAfterMs : 0
+
+  if (response.status === 429 || retryMs > 0) {
+    return { kind: retryMs > 0 ? 'backoff' : 'invalid', retryMs }
+  }
+
+  return { kind: 'invalid', retryMs: 0 }
+}
+
+async function completeSessionUnlock(
+  onUnlock?: () => void,
+): Promise<ErrorKind | null> {
+  if (!window.electronAPI?.invoke) return 'network'
+  const token = await window.electronAPI.invoke('engrenacode:vault:get-session')
+  if (!token) return 'network'
+  localStorage.setItem('sessionToken', token as string)
+  window.location.hash = '#dashboard'
+  onUnlock?.()
+  return null
+}
+
+export function LoginScreen({
+  onUnlock,
+}: Readonly<LoginScreenProps>): ReactElement {
+  const [workspace, setWorkspace] = useState('~/dev')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [errorKind, setErrorKind] = useState<ErrorKind>(null)
+  const [backoffUntil, setBackoffUntil] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
     }
-
-    setState((prev) => ({ ...prev, backoffMs: ms }))
-
-    const startTime = Date.now()
-    backoffTimerRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTime
-      const remaining = Math.max(0, ms - elapsed)
-
-      setState((prev) => ({ ...prev, backoffMs: remaining }))
-
-      if (remaining <= 0 && backoffTimerRef.current) {
-        clearInterval(backoffTimerRef.current)
-        backoffTimerRef.current = null
-      }
-    }, 100)
   }, [])
 
+  useEffect(() => {
+    if (backoffUntil === null) return
+    const tick = (): void => setNow(Date.now())
+    tick()
+    const id = window.setInterval(tick, 500)
+    return () => window.clearInterval(id)
+  }, [backoffUntil])
+
+  const remainingMs =
+    backoffUntil !== null ? Math.max(0, backoffUntil - now) : 0
+  const inBackoff = remainingMs > 0
+
+  useEffect(() => {
+    if (backoffUntil !== null && remainingMs === 0) {
+      setBackoffUntil(null)
+      setErrorKind((kind) => (kind === 'backoff' ? null : kind))
+    }
+  }, [backoffUntil, remainingMs])
+
+  const trimmedWorkspace = workspace.trim()
+  const filled = trimmedWorkspace.length > 0 && password.length > 0
+  const submitDisabled = !filled || submitting || inBackoff
+  const errorMessage = messageForError(errorKind, remainingMs)
+  const passwordInvalid = errorKind !== null && errorKind !== 'backoff'
+
   const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
+    async (event: SyntheticEvent<HTMLFormElement>): Promise<void> => {
+      event.preventDefault()
+      if (submitDisabled) return
 
-      if (!state.workspace.trim() || !state.password) {
-        setState((prev) => ({
-          ...prev,
-          error: 'Workspace e senha são obrigatórios.'
-        }))
-        return
-      }
-
-      setState((prev) => ({ ...prev, isLoading: true, error: null }))
+      setSubmitting(true)
+      setErrorKind(null)
 
       try {
         const response = await fetch('http://127.0.0.1:5174/api/vault/unlock', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            workspace: state.workspace.trim(),
-            password: state.password
-          })
+            workspace: trimmedWorkspace,
+            password,
+          }),
         })
 
-        const data = (await response.json()) as VaultUnlockResponse
+        let data: VaultUnlockResponse
+        try {
+          data = (await response.json()) as VaultUnlockResponse
+        } catch {
+          if (mountedRef.current) setErrorKind('network')
+          return
+        }
+
+        if (!mountedRef.current) return
 
         if (response.ok && data.unlocked) {
-          // Success - obtained session token via preload IPC
-          if (window.electronAPI?.invoke) {
-            const token = await window.electronAPI.invoke('engrenacode:vault:get-session')
-            if (token) {
-              localStorage.setItem('sessionToken', token as string)
-              // Navigate to dashboard
-              window.location.hash = '#dashboard'
-            }
-          }
-        } else {
-          // Failure
-          const retryMs = data.retryAfterMs || 0
-          if (retryMs > 0) {
-            startBackoff(retryMs)
-            setState((prev) => ({
-              ...prev,
-              error: `Muitas tentativas. Tente novamente em ${Math.ceil(retryMs / 1000)}s.`,
-              isLoading: false
-            }))
-          } else {
-            setState((prev) => ({
-              ...prev,
-              error: 'Workspace ou senha inválidos.',
-              isLoading: false
-            }))
-          }
+          const sessionError = await completeSessionUnlock(onUnlock)
+          if (mountedRef.current && sessionError) setErrorKind(sessionError)
+          return
         }
-      } catch (err) {
-        setState((prev) => ({
-          ...prev,
-          error: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
-          isLoading: false
-        }))
+
+        const failure = classifyUnlockFailure(response, data)
+        if (failure.kind === 'backoff') {
+          setBackoffUntil(Date.now() + failure.retryMs)
+        }
+        setErrorKind(failure.kind)
+      } catch {
+        if (mountedRef.current) setErrorKind('network')
+      } finally {
+        if (mountedRef.current) setSubmitting(false)
       }
     },
-    [state.workspace, state.password, startBackoff]
-  )
-
-  const isButtonDisabled = useMemo(
-    () => state.isLoading || state.backoffMs > 0 || !state.workspace.trim() || !state.password,
-    [state.isLoading, state.backoffMs, state.workspace, state.password]
+    [onUnlock, password, submitDisabled, trimmedWorkspace],
   )
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">EngrenaCode</h1>
-          <p className="text-slate-400">IDE Local-First para Agentes de IA</p>
+    <section
+      id="login"
+      className="relative grid min-h-screen place-items-center bg-bg p-lg text-fg"
+      style={{ backgroundImage: GATE_BACKGROUND }}
+    >
+      <div className="absolute right-md top-md">
+        <ThemeControl />
+      </div>
+
+      <form
+        className="w-full max-w-[24rem] rounded-lg border border-border bg-surface p-lg shadow-[0_24px_60px_-28px_rgba(0,0,0,0.7)]"
+        onSubmit={handleSubmit}
+        noValidate
+      >
+        <div className="mb-xs flex items-center gap-sm">
+          <BrandMark size={30} />
+          <BrandWordmark className="text-lg font-semibold tracking-tight" />
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="workspace" className="block text-sm font-medium mb-2">
-              Workspace
-            </label>
-            <input
-              id="workspace"
-              type="text"
-              value={state.workspace}
-              onChange={handleWorkspaceChange}
-              placeholder="~/dev"
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              disabled={state.isLoading || state.backoffMs > 0}
-            />
-          </div>
+        <p className="mb-lg text-sm text-muted">{COPY.instruction}</p>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium mb-2">
-              Senha
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={state.password}
-              onChange={handlePasswordChange}
-              placeholder="••••••••"
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              disabled={state.isLoading || state.backoffMs > 0}
-            />
-          </div>
-
-          {state.error && (
-            <div className="p-3 bg-red-900/20 border border-red-700 rounded-lg text-red-200 text-sm">
-              {state.error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isButtonDisabled}
-            className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+        <div className="mb-md flex flex-col gap-xs">
+          <label
+            htmlFor="login-workspace"
+            className="text-sm font-medium text-fg"
           >
-            {state.isLoading
-              ? 'Desbloqueando...'
-              : state.backoffMs > 0
-                ? `Aguarde ${Math.ceil(state.backoffMs / 1000)}s`
-                : 'Desbloquear'}
-          </button>
-        </form>
+            {COPY.labelWorkspace}
+          </label>
+          <input
+            id="login-workspace"
+            name="workspace"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            value={workspace}
+            onChange={(e) => setWorkspace(e.target.value)}
+            className={`${INPUT_BASE} border-border font-mono focus:border-accent focus:ring-accent/40`}
+          />
+          <span className="text-xs text-muted">{COPY.hintWorkspace}</span>
+        </div>
 
-        <p className="text-slate-500 text-xs text-center mt-8">
-          Credenciais armazenadas localmente • Sem transmissão remota
+        <div className="mb-md flex flex-col gap-xs">
+          <label
+            htmlFor="login-password"
+            className="text-sm font-medium text-fg"
+          >
+            {COPY.labelPassword}
+          </label>
+          <input
+            id="login-password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            placeholder={COPY.placeholderPassword}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={passwordInvalid || undefined}
+            aria-describedby={errorMessage ? 'login-error' : undefined}
+            className={`${INPUT_BASE} ${
+              passwordInvalid
+                ? 'border-red focus:border-red focus:ring-red/40'
+                : 'border-border focus:border-accent focus:ring-accent/40'
+            }`}
+          />
+        </div>
+
+        {errorMessage ? (
+          <p id="login-error" role="alert" className="mb-md text-xs text-red">
+            {errorMessage}
+          </p>
+        ) : null}
+
+        <ButtonPrimary
+          type="submit"
+          block
+          loading={submitting}
+          loadingLabel={COPY.ctaLoading}
+          disabled={submitDisabled}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+          {COPY.ctaPrimary}
+        </ButtonPrimary>
+
+        <p className="mt-md text-center text-xs leading-relaxed text-muted">
+          {COPY.footer}
         </p>
-      </div>
-    </div>
+      </form>
+    </section>
   )
 }

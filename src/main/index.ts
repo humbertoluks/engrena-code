@@ -14,21 +14,19 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    backgroundColor: '#0a0a0b',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.ts'),
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true
     }
   })
 
-  const startUrl = isDev
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../../../dist/index.html')}`
-
-  mainWindow.loadURL(startUrl)
-
   if (isDev) {
+    mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
   mainWindow.on('closed', () => {
