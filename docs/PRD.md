@@ -112,6 +112,14 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero desbloquear o app com workspace e senha para obter sessão local e acessar rotas protegidas
 - Como sistema, quero bloquear rotas protegidas quando o cofre estiver travado para impedir uso sem unlock
 
+### F01.1 Design System
+- Como usuário, quero escolher tema claro, escuro ou seguir o sistema para trabalhar com o contraste que prefiro
+- Como usuário, quero que minha escolha de tema persista entre aberturas do app para não reconfigurar a cada sessão
+- Como usuário, quero que a troca de tema e o boot não pisquem cores erradas para a experiência parecer estável
+- Como desenvolvedor de UI, quero tokens semânticos (bg/surface/fg/accent/status) e escalas de spacing/radii fixas para telas novas ficarem consistentes sem hexes soltos
+- Como usuário do chat, quero código destacado (Shiki light/dark) e markdown com tipografia/cores do sistema para ler respostas com hierarquia clara
+- Como sistema, quero splash do shell alinhado ao fundo dark `#0a0a0b` para o boot Electron não flashar branco
+
 ### F02. Configuração MVP
 - Como usuário, quero autenticar o Claude por assinatura (Claude Code) e testar a conexão para garantir que o provider responde
 - Como usuário, quero ver o status das CLIs Claude, Codex e Kimi (instalado/logado) e testar conexões em lote
@@ -192,10 +200,51 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Server local indisponível → “Verifique se o EngrenaCode está em execução.”
 - Travamento durante uso → retorno imediato ao gate; 423/401 nas APIs
 
+### F01.1 Design System
+
+Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock LionClaw). Não é feature de fluxo de negócio.
+
+**Provê:**
+- Tokens semânticos de cor light/dark, spacing, radii e famílias tipográficas para todas as UIs do renderer (usado por F02, F03, F04, F05, F06, F07, F08, F09, F10, F11)
+- Runtime de tema `light` | `dark` | `system` com persistência e anti-flash (usado por F02, F03, F04)
+- Padrões de superfície (card, input, badge, modal, focus, markdown chat) e wiring Shiki/xterm ao tema (usado por F03)
+
+**Escopo Central:**
+- Paleta flat, spacing/radii travados, tipografia base, tema tri-modo, splash anti-flash, padrões de superfície e syntax highlight alinhado ao tema
+
+**Adições ao Escopo Completo:**
+- Type scale, shadows, z-index e motion tokenizados; breakpoints desktop formalizados (hoje Tailwind default)
+
+**Capacidades:**
+- Cores semânticas (sem escala 50–900): `bg`, `surface`, `surface-2`, `border`, `fg`, `muted`, `accent`, `accent-2`, `green`, `amber`, `red` + scrollbar
+- Light: bg `#f7f7f8`, surface `#ffffff`, surface-2 `#f1f1f3`, border `#e2e2e6`, fg `#1a1a1d`, muted `#6b6b73`
+- Dark (travado): bg `#0a0a0b`, surface `#121214`, surface-2 `#17171a`, border `#232327`, fg `#ededee`, muted `#a1a1aa`
+- Accent idêntico nos dois modos: `#ff6b00`; accent-2 `#ff8c2e`
+- Status: green light `#2e9e43` / dark `#3fb950`; amber `#b07d1f` / `#d2a23a`; red `#cf3b3b` / `#e05555`
+- Scrollbar thumb light `#c8c8d0` / dark `#3a3a42`; hover `#a8a8b2` / `#52525b`
+- Spacing: xs 4px, sm 8px, md 16px, lg 24px, xl 40px
+- Radii: sm 5px, md 8px, lg 12px
+- Fontes display/body: DM Sans Variable → Figtree Variable → system-ui; mono: JetBrains Mono Variable → JetBrains Mono → IBM Plex Mono
+- Tema runtime: exatamente `light` | `dark` | `system`; `darkMode: class`; classe `.dark` em `<html>`
+- Persistência: `localStorage` chave `engrenacode:theme` (identidade EngrenaCode; legado `lioncode:theme` não permanece)
+- Anti-flash: `.no-transitions` na troca; splash do shell `#0a0a0b`
+- Shiki: `github-light` / `github-dark` conforme tema resolvido; xterm lê `--bg`, `--fg`, `--accent`, `--border` + JetBrains Mono
+- Stack: Tailwind 3 + CSS variables + React no renderer; sem MUI, Chakra, Emotion, CSS Modules ou Storybook obrigatório
+- LionLabs Grotesk: experimento reversível (alias de DM Sans/Figtree); não sobrescreve mono; não é identidade tipográfica definitiva do produto
+- Fora do Design Lock (não contrato central): cores de diff/provider brands, overlay `bg-black/50`, CSS de `_reversa_docs`, palette do mascote satélite
+
+**Experiência:**
+- Boot → splash `#0a0a0b` → leitura de `engrenacode:theme` → se `system`, resolve via `prefers-color-scheme` → aplica/remove `.dark`
+- Preferência inválida ou ausente: fail-soft para `system` (sem bloquear a UI)
+- Troca de tema: suprime transições (`.no-transitions`, duração 0s), aplica tokens, remove a classe de anti-flash, persiste a escolha
+- Superfícies tipadas: card `rounded-lg border border-border bg-surface p-lg`; input com `border-border` / `focus:border-accent`; badge accent `bg-accent/20 font-mono text-accent`; modal `z-50` + `bg-surface shadow-lg`; focus `focus-visible:ring-2 focus-visible:ring-accent`; markdown via `.chat-markdown`
+- Utilitários canônicos: `bg-bg`, `bg-surface`, `text-fg`, `text-muted`, `border-border`, `bg-accent`, `ring-accent`, `p-md`/`p-lg`, `rounded-sm|md|lg`, `font-display`/`font-body`/`font-mono`
+
 ### F02. Configuração MVP
 
 **Consome:**
 - F01: armazenamento cifrado para gravar/ler status sensível e segredos de configuração
+- F01.1: tokens semânticos, tema runtime e padrões de superfície para a tela `#configuracao`
 
 **Provê:**
 - Status de providers CLI (Claude assinatura, Codex, Kimi), prompt global e flag de token GitHub (usado por F03, F04)
@@ -228,6 +277,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 ### F03. Workspace
 
 **Consome:**
+- F01.1: tokens, tema resolvido, padrões de superfície, Shiki/xterm e markdown chat
 - F02: status de providers e prompt global; token GitHub quando houver push/PR
 - F05: catálogo e content de skills vinculadas ao projeto
 - F06: bloco de rules resolvidas para o turno
@@ -266,6 +316,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 ### F04. Dashboard
 
 **Consome:**
+- F01.1: tokens semânticos, tema e padrões de superfície para cards e inbox
 - F02: saúde da config (Claude, CLIs, GitHub, prompt)
 - F03: projetos, threads running/error, diffs pendentes, atividade recente
 - F05: contagem de skills globais e vínculos
@@ -284,6 +335,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Empty: “Adicione um projeto…”, “Nada pendente…”, banner de setup incompleto
 
 ### F05. Skills
+
+**Consome:**
+- F01.1: tokens e padrões de superfície para a tela `#skills`
 
 **Provê:**
 - Catálogo (nome, description) e content carregável via load_skill, com vínculo por projeto (usado por F03)
@@ -306,6 +360,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 
 ### F06. Rules
 
+**Consome:**
+- F01.1: tokens e padrões de superfície para a tela `#rules`
+
 **Provê:**
 - Bloco markdown de rules do dono (globais e por projeto, com override) para injeção em todo turno (usado por F03)
 - Contagens para o dashboard (usado por F04)
@@ -325,6 +382,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Cofre travado → sem resolução de rules no turno
 
 ### F07. SubAgents
+
+**Consome:**
+- F01.1: tokens e padrões de superfície para a tela `#subagents` e timeline
 
 **Provê:**
 - Definições e runs efêmeros invocáveis (call_subagent), timeline aninhada e diffs do filho na revisão do pai (usado por F03)
@@ -349,6 +409,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 ### F08. Registros
 
 **Consome:**
+- F01.1: tokens e padrões de superfície para a tela `#registros`
 - F03: eventos de task (dispatch), tool e git (accept/reject, commit, push, PR) e ids de thread
 
 **Capacidades:**
@@ -369,6 +430,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 
 **Consome:**
 - F01: vault para secrets e tokens OAuth
+- F01.1: tokens e padrões de superfície para a UI de MCPs
 - F03: vínculo por projeto e injeção de tools no turno
 
 **Provê:**
@@ -398,6 +460,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 
 **Consome:**
 - F01: armazenamento cifrado no vault
+- F01.1: tokens e padrões de superfície para cards de API key
 - F02: superfície de configuração e cards de provider
 
 **Provê:**
@@ -422,6 +485,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 ### F11. Consumo
 
 **Consome:**
+- F01.1: tokens e padrões de superfície para a tela Consumo
 - F03: usage_events de turnos do agente (project, thread, turnId, tokens, billing mode)
 - F07: usage_events source=subagent com nome e custo separado
 
@@ -471,7 +535,10 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Export/purge de audit log, edição/apagar registro individual
 
 ### IDE completa e distribuição
-- File explorer rico tipo IDE, command palette avançada, temas profundos além de light/dark/system
+- File explorer rico tipo IDE, command palette avançada
+- Temas profundos / packs / custom themes além do tri-modo `light` | `dark` | `system` (o tri-modo entra em F01.1)
+- Type scale, shadows, z-index e motion tokenizados além do Escopo Central de F01.1
+- Storybook, MUI/Chakra e design-system package separado
 - Clientes mobile/web; instaladores store como entrega comercial (dev local ok)
 
 ## 8. Grafo de Dependências
@@ -479,20 +546,22 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 | # | Feature | Prioridade | Dependências |
 |---|---------|------------|--------------|
 | F01 | Vault e Sessão Local | 1 | Nenhuma |
-| F02 | Configuração MVP | 1 | F01 |
-| F05 | Skills | 1 | F01 |
-| F06 | Rules | 1 | F01 |
-| F07 | SubAgents | 1 | F01 |
-| F03 | Workspace | 1 | F02, F05, F06, F07 |
-| F04 | Dashboard | 1 | F02, F03, F05, F06, F07 |
-| F10 | API Keys dos Providers | 1 | F01, F02 |
-| F08 | Registros | 1 | F03 |
-| F09 | MCPs | 1 | F01, F03 |
-| F11 | Consumo | 2 | F03, F07 |
+| F01.1 | Design System | 1 | Nenhuma |
+| F02 | Configuração MVP | 1 | F01, F01.1 |
+| F05 | Skills | 1 | F01, F01.1 |
+| F06 | Rules | 1 | F01, F01.1 |
+| F07 | SubAgents | 1 | F01, F01.1 |
+| F03 | Workspace | 1 | F01.1, F02, F05, F06, F07 |
+| F04 | Dashboard | 1 | F01.1, F02, F03, F05, F06, F07 |
+| F10 | API Keys dos Providers | 1 | F01, F01.1, F02 |
+| F08 | Registros | 1 | F01.1, F03 |
+| F09 | MCPs | 1 | F01, F01.1, F03 |
+| F11 | Consumo | 2 | F01.1, F03, F07 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
 - **F01 Vault e Sessão Local** — scaffolding do app Electron (shell, server loopback, IPC), cofre cifrado e sessão
+- **F01.1 Design System** — tokens CSS/Tailwind, tipografia, spacing/radii, tema tri-modo e padrões de superfície do renderer
 - **F02 Configuração MVP** — wiring de credenciais/providers, prompt global e GitHub sobre o vault
 
 ### Ondas de Execução
@@ -500,12 +569,12 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 
 **Nota:** Features de fundação (veja "Features de Fundação" acima) não podem rodar em paralelo em um projeto greenfield mesmo aparecendo juntas em uma onda — elas compartilham arquivos de scaffolding e devem ser implementadas sequencialmente até a base estar no lugar.
 
-- **Onda 1**: F01
+- **Onda 1**: F01, F01.1
 - **Onda 2**: F02, F05, F06, F07
 - **Onda 3**: F03, F10
 - **Onda 4**: F04, F08, F09, F11
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11. Na Onda 2, F02 (fundação) serializa antes de F05–F07. F10 pode construir em paralelo com F03, mas só entra no release 1.0 após o MVP fechado.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11. Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07. F10 pode construir em paralelo com F03, mas só entra no release 1.0 após o MVP fechado.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -515,24 +584,34 @@ Release gates de produto (independentes do paralelismo mecânico): MVP = F01–F
 ```mermaid
 graph TD
   F01[Vault] --> F02[Config]
+  F011[DesignSys] --> F02
   F01 --> F05[Skills]
+  F011 --> F05
   F01 --> F06[Rules]
+  F011 --> F06
   F01 --> F07[SubAgents]
-  F02 --> F03[Workspace]
+  F011 --> F07
+  F011 --> F03[Workspace]
+  F02 --> F03
   F05 --> F03
   F06 --> F03
   F07 --> F03
-  F02 --> F04[Dashboard]
+  F011 --> F04[Dashboard]
+  F02 --> F04
   F03 --> F04
   F05 --> F04
   F06 --> F04
   F07 --> F04
   F01 --> F10[APIKeys]
+  F011 --> F10
   F02 --> F10
-  F03 --> F08[Registros]
+  F011 --> F08[Registros]
+  F03 --> F08
   F01 --> F09[MCPs]
+  F011 --> F09
   F03 --> F09
-  F03 --> F11[Consumo]
+  F011 --> F11[Consumo]
+  F03 --> F11
   F07 --> F11
 ```
 
@@ -544,6 +623,19 @@ graph TD
 - [ ] Senha inválida mostra mensagem genérica e não revela qual campo falhou
 - [ ] Após 5 falhas, botão fica bloqueado com backoff visível (até 60s)
 - [ ] Cofre travado bloqueia APIs protegidas (401/423) e devolve ao gate
+
+### F01.1 Design System
+- [ ] Tokens CSS `:root` / `.dark` cobrem bg, surface, surface-2, border, fg, muted, accent, accent-2, green, amber, red com os hexes light/dark da tabela mestra (accent `#ff6b00` e accent-2 `#ff8c2e` idênticos nos dois modos)
+- [ ] Spacing `xs|sm|md|lg|xl` = 4|8|16|24|40 px e radii `sm|md|lg` = 5|8|12 px expostos aos utilitários Tailwind
+- [ ] Tema runtime aceita exatamente `light` | `dark` | `system`; `system` segue `prefers-color-scheme`; dark aplica `.dark` em `<html>`
+- [ ] Preferência persiste em `localStorage` sob a chave `engrenacode:theme`
+- [ ] Preferência ausente ou inválida faz fail-soft para `system` sem bloquear a UI
+- [ ] Troca de tema aplica anti-flash (`.no-transitions` / duração 0s) sem flash perceptível
+- [ ] Shell splash usa `#0a0a0b` (paridade dark `--bg`)
+- [ ] Shiki usa `github-light` / `github-dark` conforme tema resolvido; xterm consome `--bg`, `--fg`, `--accent`, `--border` + mono JetBrains
+- [ ] Superfícies recorrentes (card, input, badge, modal, focus) usam os padrões de classes/tokens documentados
+- [ ] Stack tipográfica display/body e mono conforme tokens; monospace não é sobrescrita pelo experimento Grotesk
+- [ ] Não há dependência de MUI/Chakra/Emotion/CSS Modules nem Storybook obrigatório para cumprir F01.1
 
 ### F02. Configuração MVP
 - [ ] Card Claude detecta assinatura e “Testar conexão” distingue sucesso, sem login e rate limit
@@ -609,6 +701,10 @@ graph TD
 - [ ] Flags parcial/aproximado visíveis; empty e erro de load cobertos
 
 ### Integração Cross-Feature
+- [ ] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
+- [ ] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
+- [ ] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
+- [ ] Preferência `engrenacode:theme` (F01.1) persiste e é respeitada ao navegar entre `#dashboard`, `#configuracao` e `#workspace`
 - [ ] Status de providers/prompt/GitHub de F02 alimenta saúde do Dashboard (F04) e disponibilidade do Workspace (F03)
 - [ ] Prompt global de F02 é injetado nos turnos do Workspace (F03) a partir do próximo turno após salvar
 - [ ] Catálogo e content de Skills (F05) fluem para o turno do Workspace via load_skill
