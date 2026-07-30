@@ -1,0 +1,89 @@
+import http from 'http'
+import { vaultService } from '../vault/vault-service.js'
+
+interface VaultUnlockRequest {
+  workspace: string
+  password: string
+}
+
+interface VaultUnlockResponse {
+  unlocked: boolean
+  retryAfterMs?: number
+}
+
+export function createUnlockServer(port: number = 5174): http.Server {
+  const server = http.createServer(async (req, res) => {
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+    // CORS preflight
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200)
+      res.end()
+      return
+    }
+
+    // POST /api/vault/unlock
+    if (req.method === 'POST' && req.url === '/api/vault/unlock') {
+      let body = ''
+      req.on('data', (chunk) => {
+        body += chunk.toString()
+      })
+
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body) as VaultUnlockRequest
+
+          if (!data.workspace || !data.password) {
+            res.writeHead(400)
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'validation_error',
+                  message: 'workspace e password são obrigatórios'
+                }
+              })
+            )
+            return
+          }
+
+          const result = vaultService.unlock(data.workspace, data.password)
+          const response: VaultUnlockResponse = {
+            unlocked: result.unlocked
+          }
+
+          if (result.retryAfterMs !== undefined) {
+            response.retryAfterMs = result.retryAfterMs
+          }
+
+          res.writeHead(result.unlocked ? 200 : 200)
+          res.end(JSON.stringify(response))
+        } catch (err) {
+          console.error('Unlock error:', err)
+          res.writeHead(500)
+          res.end(
+            JSON.stringify({
+              error: {
+                code: 'internal_error',
+                message: 'Erro ao desbloquear cofre'
+              }
+            })
+          )
+        }
+      })
+      return
+    }
+
+    // 404
+    res.writeHead(404)
+    res.end(JSON.stringify({ error: 'Not found' }))
+  })
+
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`Unlock server listening on http://127.0.0.1:${port}`)
+  })
+
+  return server
+}
