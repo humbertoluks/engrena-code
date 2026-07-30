@@ -5,7 +5,16 @@ const api = {
   on: (channel: string, listener: (...args: unknown[]) => void) => {
     ipcRenderer.on(channel, (_event: any, ...args: unknown[]) => listener(...args))
   },
-  send: (channel: string, data?: unknown) => ipcRenderer.send(channel, data)
+  send: (channel: string, data?: unknown) => ipcRenderer.send(channel, data),
+  // Vault-specific handlers
+  vault: {
+    getSessionToken: () => ipcRenderer.invoke('engrenacode:vault:get-session'),
+    isLocked: () => ipcRenderer.invoke('engrenacode:vault:is-locked'),
+    lock: () => ipcRenderer.invoke('engrenacode:vault:lock'),
+    onLocked: (listener: () => void) => {
+      ipcRenderer.on('engrenacode:vault:locked', listener)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
