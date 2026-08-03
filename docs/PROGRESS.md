@@ -16,9 +16,9 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F02 | Configuração MVP | **Feito** | Commit `eaa9a0c`; `#configuracao`; `docs/F02-*/smoke-results.md` (2026-08-03) | Alimenta F03/F04 (deferred) |
 | F03 | Workspace | **Spec pronta** | `docs/F03-workspace/{ui,spec,plan}.md` — código ainda não iniciado | Implementar após stubs F05 ou com stubs |
 | F04 | Dashboard | **Não iniciado** | — | Após F03 + catálogo |
-| F05 | Skills | **Não iniciado** | — | Onda 2 (paralelo com F06/F07) |
-| F06 | Rules | **Spec pronta** | `docs/F06-rules/{ui,spec,plan}.md` | Implementar (Onda 2); soft cap ≤15 |
-| F07 | SubAgents | **Não iniciado** | — | Onda 2 |
+| F05 | Skills | **Spec pronta** | `docs/F05-skills/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤30 |
+| F06 | Rules | **Spec pronta** | `docs/F06-rules/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤15; hard 1 MiB |
+| F07 | SubAgents | **Spec pronta** | `docs/F07-subagents/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤10; idle 20 min |
 | F08 | Registros | **Não iniciado** | — | Release 1.0 / Onda 4 |
 | F09 | MCPs | **Não iniciado** | — | Release 1.0 / Onda 4 |
 | F10 | API Keys | **Não iniciado** | — | Pode paralelizar com F03; release 1.0 |
@@ -31,7 +31,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | Onda | Features | Estado |
 |------|----------|--------|
 | 1 | F01, F01.1 | **Completa** |
-| 2 | F02, F05, F06, F07 | **Parcial** — F02 feita; F06 spec pronta; F05/F07 pendentes |
+| 2 | F02, F05, F06, F07 | **Parcial** — F02 feita; F05+F06+F07 spec pronta; implementação catálogo pendente |
 | 3 | F03, F10 | **Bloqueada** até F05–F07 (F03 depende deles no grafo) |
 | 4 | F04, F08, F09, F11 | Pendente |
 
