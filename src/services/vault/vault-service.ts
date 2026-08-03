@@ -13,6 +13,7 @@ class VaultService {
   private sessionToken: string | null = null
   private secrets: Record<string, string> = {}
   private workspace: string = ''
+  private password: string = ''
   private lastFailureTime: Map<string, number> = new Map()
 
   unlock(workspace: string, password: string): { unlocked: boolean; retryAfterMs?: number } {
@@ -59,6 +60,7 @@ class VaultService {
       this.lastFailureTime.delete(failureCountKey)
 
       this.isUnlocked = true
+      this.password = password
       this.sessionToken = crypto.randomBytes(16).toString('hex')
 
       return { unlocked: true }
@@ -80,6 +82,7 @@ class VaultService {
     this.sessionToken = null
     this.secrets = {}
     this.workspace = ''
+    this.password = ''
   }
 
   getSessionToken(): string | null {
@@ -106,6 +109,12 @@ class VaultService {
     return { ...this.secrets }
   }
 
+  deleteSecret(key: string): void {
+    if (!this.isUnlocked) throw new Error('vault_locked')
+    delete this.secrets[key]
+    this.persist()
+  }
+
   private persist(): void {
     if (!this.isUnlocked) throw new Error('vault_locked')
 
@@ -116,9 +125,7 @@ class VaultService {
     }
 
     const plaintext = Buffer.from(JSON.stringify(vaultData), 'utf-8')
-    const password = this.workspace // Simplified for demo; should use actual password
-
-    const envelope = encrypt(plaintext, password)
+    const envelope = encrypt(plaintext, this.password)
     const serialized = vaultStore.serialize(envelope)
     vaultStore.write(serialized)
   }

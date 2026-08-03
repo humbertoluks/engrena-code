@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { deserializeEnvelope, serializeEnvelope, type CryptoEnvelope } from './crypto'
@@ -9,12 +9,20 @@ export interface VaultData {
   workspace: string
 }
 
+function resolveUserData(): string {
+  const override = process.env.ENGRENACODE_USER_DATA
+  if (override) {
+    mkdirSync(override, { recursive: true })
+    return override
+  }
+  return app.getPath('userData')
+}
+
 class VaultStore {
   private vaultPath: string
 
   constructor() {
-    const userData = app.getPath('userData')
-    this.vaultPath = join(userData, 'vault.enc')
+    this.vaultPath = join(resolveUserData(), 'vault.enc')
   }
 
   exists(): boolean {

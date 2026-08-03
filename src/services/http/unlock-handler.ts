@@ -1,5 +1,6 @@
 import http from 'http'
 import { vaultService } from '../vault/vault-service.js'
+import { handleConfigRequest } from './config-handler.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -8,6 +9,7 @@ interface VaultUnlockRequest {
 
 interface VaultUnlockResponse {
   unlocked: boolean
+  sessionToken?: string
   retryAfterMs?: number
 }
 
@@ -16,7 +18,7 @@ export function createUnlockServer(port: number = 5174): http.Server {
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-engrenacode-session')
 
     // CORS preflight
     if (req.method === 'OPTIONS') {
@@ -54,11 +56,16 @@ export function createUnlockServer(port: number = 5174): http.Server {
             unlocked: result.unlocked
           }
 
+          if (result.unlocked) {
+            const token = vaultService.getSessionToken()
+            if (token) response.sessionToken = token
+          }
+
           if (result.retryAfterMs !== undefined) {
             response.retryAfterMs = result.retryAfterMs
           }
 
-          res.writeHead(result.unlocked ? 200 : 200)
+          res.writeHead(200)
           res.end(JSON.stringify(response))
         } catch (err) {
           console.error('Unlock error:', err)
@@ -74,6 +81,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
         }
       })
       return
+    }
+
+    // Config routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/config/')) {
+      const handled = await handleConfigRequest(req, res)
+      if (handled) return
     }
 
     // 404

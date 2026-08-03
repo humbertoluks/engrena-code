@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build && electron-builder",
     "preview": "vite preview",
     "lint": "biome lint --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.2.8",
@@ -46,7 +47,8 @@
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vite-plugin-electron": "^1.1.0",
-    "vite-plugin-electron-renderer": "^1.0.0"
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^3.2.4"
   },
   "build": {
     "appId": "com.lukse.engrenacode",

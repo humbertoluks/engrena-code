@@ -14,6 +14,7 @@ interface LoginScreenProps {
 
 interface VaultUnlockResponse {
   unlocked: boolean
+  sessionToken?: string
   retryAfterMs?: number
   error?: { code?: string; message?: string }
 }
@@ -164,6 +165,12 @@ export function LoginScreen({
         if (!mountedRef.current) return
 
         if (response.ok && data.unlocked) {
+          if (typeof data.sessionToken === 'string' && data.sessionToken) {
+            localStorage.setItem('sessionToken', data.sessionToken)
+            window.location.hash = '#dashboard'
+            onUnlock?.()
+            return
+          }
           const sessionError = await completeSessionUnlock(onUnlock)
           if (mountedRef.current && sessionError) setErrorKind(sessionError)
           return

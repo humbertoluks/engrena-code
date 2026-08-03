@@ -1,8 +1,8 @@
 import crypto from 'crypto'
 
 const SCRYPT_PARAMS = {
-  N: 32768, // 2^15
-  r: 8,
+  N: 16384, // 2^14: ~16MB memory, balanced for Electron
+  r: 4,
   p: 1,
   keylen: 32
 }
