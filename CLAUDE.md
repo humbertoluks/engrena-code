@@ -7,7 +7,7 @@ Orientações para Claude Code ao trabalhar neste repositório.
 Leia este arquivo antes de qualquer tarefa. Aplique todas as regras em "REGRAS APRENDIDAS".
 Ao final de cada tarefa: se o usuário corrigiu algo ou você descobriu padrão não-óbvio, adicione regra.
 Regra: `Origem · Categoria · [Sempre/Nunca] X porque Y`.
-Limite deste arquivo: 120 linhas. Ao atingir 110, consolide regras antigas em `docs/archived/CLAUDE_ARCHIVE.md`.
+Limite deste arquivo: 220 linhas. Ao atingir 210, consolide regras antigas em `docs/archived/CLAUDE_ARCHIVE.md`.
 
 ### Quando ADICIONAR regra
 - Usuário corrigiu explicitamente
@@ -63,9 +63,30 @@ Tarefa concluída quando:
 
 ---
 
+## AMBIENTE
+
+- Vite port: a porta default 5173 costuma estar em uso; escolha a primeira livre a partir de 5173, **exceto 5174** (reservada ao unlock loopback). Atualize `VITE_DEV_SERVER_URL` em `.env.local` e alinhe o `loadURL` do Electron.
+- Unlock server: loopback `127.0.0.1:5174` (`createUnlockServer`). Não reutilize essa porta para o Vite.
+- Sem Postgres/Docker neste repo: app local-first; vault em `app.getPath('userData')/vault.enc`.
+- Dados de sessão: nunca apague/substitua o `vault.enc` ou userData do usuário. Remova só artefatos que você criou nesta sessão (ex.: `.playwright-cli/`, fixtures temporárias com prefixo `engrenacode_claude_<slug>`).
+- `.env.local`: antes de subir o ambiente, copie `.env.example` para `.env.local` e atualize `VITE_DEV_SERVER_URL` (e secrets só se a tarefa exigir; nunca commit).
+- `launch.json`: se criar, use a mesma porta do `.env.local`. Nunca commit (`.vscode/*` já está no `.gitignore`; verificar).
+- Setup completo: `docs/DEVELOPMENT.md`.
+
 ## DESENVOLVIMENTO
 - Sempre carregar a skill /vercel-react-best-practices no início de qualquer sessão que envolva código (TS/TSX, rotas, server actions, Prisma) porque performance e padrões React devem orientar geração e review desde o começo
 
+## TESTE
+
+- Unit (Vitest): rode `pnpm test` sempre que alterar código de produção coberto pela tarefa.
+- E2E / UI: obrigatório quando o critério de aceitação depende de DOM, navegação, formulários ou comportamento visual (qualquer frase do tipo "usuário consegue clicar / ver / enviar / navegar"). Critérios só de vault/crypto/IPC/API sem superfície UI não exigem E2E.
+- Como rodar E2E: tente via `launch.json` se existir e apontar para o app em preview/dev. Se falhar, carregue a skill `playwright-cli` e rode em headless.
+- Antes do E2E: `.env.local` ok; Vite na porta de `VITE_DEV_SERVER_URL`; unlock loopback em `127.0.0.1:5174` se a tela exigir sessão.
+- Artefatos: smoke/E2E sob `.playwright-cli/` (gitignored). Não grave dumps no vault/`userData` do usuário.
+
+## GIT
+
+- Depois de resolver conflitos de merge ou rebase, rode de novo os unit tests da área afetada (`pnpm test`). Se algum critério de aceitação impactado pelo conflito exigir interação de frontend, rode também o E2E correspondente antes de concluir.
 
 ## REGRAS APRENDIDAS
 

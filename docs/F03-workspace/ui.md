@@ -2,9 +2,9 @@
 
 **Feature:** F03-workspace  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** LionCodeLabs (`packages/renderer`) — anatomia/copy; destino greenfield em `src/renderer`  
 **Componente fonte:** `packages/renderer/src/screens/PrincipalScreen.tsx` (+ `usePrincipalWorkspace.ts`, `ProjectTree.tsx`, `AddProjectModal.tsx`, `TaskComposer.tsx`, `ChatHistory.tsx`, `DiffViewer.tsx`, `GitActions.tsx`, `WorkspaceSidebar.tsx`, `ComposerControlsMenu.tsx`)  
-**Componente destino (previsto):** `packages/renderer/src/screens/PrincipalScreen.tsx` (e satélites acima)  
+**Componente destino (previsto):** `src/renderer/screens/PrincipalScreen.tsx` (+ satélites equivalentes sob `src/renderer/`)  
 **Última atualização:** 2026-08-03
 
 ## Referência visual
@@ -290,11 +290,13 @@ Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no de
 
 ## Perguntas em aberto
 
-- **Accept/reject por arquivo vs conjunto:** a história F03 pede arquivo a arquivo; a fonte aplica Aceitar/Rejeitar ao lote pending. Qual contrato o EngrenaCode MVP deve seguir?
-- Soft vs hard exigência de `.git` no add project (fonte rejeita não-git; PRD menciona `git init` opcional no workspace).
-- Providers no picker do MVP: só Claude/Codex/Kimi (F02) ou catálogo legado completo na UI?
-- Chaves `localStorage` / fila: migrar `lioncode.*` → `engrenacode.*` nesta feature ou só em F01.1?
-- Mensagem `thread_busy`: manter ortografia da API (`esta em execucao` sem acentos) ou normalizar PT-BR na UI?
+Resolvidas na [`spec.md`](./spec.md) §3 (recomendações + referência LionCodeLabs):
+
+- Accept/reject **por arquivo** (PRD); API com subset; lote se omitido.
+- Add project **sem** `.git` obrigatório; gate `git-init` no composer.
+- Providers MVP: **Claude / Codex / Kimi** apenas.
+- localStorage: prefixo **`engrenacode.*`**.
+- `thread_busy`: `error.code` estável; mensagem UI em PT-BR acentuado.
 
 ## Relacionados
 

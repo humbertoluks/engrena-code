@@ -247,21 +247,47 @@ Copiar para `.env.local` (não versionado).
 
 ## Estrutura de Pastas
 
+**Decisão oficial: layout híbrido** (não Vertical Slice puro).
+
+Infra compartilhada e shell Electron ficam em camadas (`main` / `preload` / `renderer` / `services` / `db`). Features de produto (F03+) colocalizam UI + client HTTP + hooks em `src/features/<slug>/`. Domínio/HTTP cross-cutting permanece em `src/services/`. Specs e planos devem usar só paths sob `src/` (nunca `packages/`, salvo nota histórica do legado).
+
 ```bash
 mkdir -p src/{main,preload,renderer,db,services,features,hooks}
 mkdir -p src/db/{schemas,migrations}
-mkdir -p src/services/{vault,providers,github,mcps}
+mkdir -p src/services/{vault,providers,github,mcps,http}
 mkdir -p src/features/{workspace,dashboard,skills,rules,subagents,registros,consumo}
 ```
 
-**Organização:**
-- `src/main/` — Electron main process
-- `src/preload/` — Preload script (IPC bridge)
-- `src/renderer/` — React app (UI)
-- `src/db/` — Database schema e migrations
-- `src/services/` — Lógica de negócio (vault, providers, APIs)
-- `src/features/` — Componentes e lógica por feature (F01–F11)
-- `src/hooks/` — Custom React hooks
+| Pasta | Papel |
+|-------|--------|
+| `src/main/` | Electron main: janela, IPC, bootstrap do HTTP local |
+| `src/preload/` | Bridge IPC (`contextBridge`) |
+| `src/renderer/` | App React: screens de infra, components/tokens/theme do DS (F01.1), hooks compartilhados |
+| `src/renderer/screens/` | Telas de infra já entregues (ex.: Login F01, Configuração F02) |
+| `src/db/` | Schema e migrations |
+| `src/services/` | Infra/domínio compartilhado (vault, handlers HTTP, providers, github, mcps) |
+| `src/features/<slug>/` | Módulo de produto: UI + client + hooks **daquela** feature — não move vault/crypto/HTTP base para dentro da fatia |
+| `src/hooks/` | Hooks React cross-cutting (quando não cabem no DS nem numa feature) |
+
+**Mapa `features/<slug>` → PRD:**
+
+| Slug | Feature |
+|------|---------|
+| `workspace` | F03 |
+| `dashboard` | F04 |
+| `skills` | F05 |
+| `rules` | F06 |
+| `subagents` | F07 |
+| `registros` | F08 |
+| `consumo` | F11 |
+
+F01 (vault/sessão), F01.1 (design system) e F02 (configuração) vivem em `services` + `renderer`, não em `features/`. F09 (MCPs) e F10 (API keys) entram sobretudo em `src/services/` (+ UI em `renderer` ou `features` se houver superfície dedicada). Pastas vazias em `features/` são placeholders até a feature correspondente.
+
+**Checklist para specs/planos:**
+
+1. Listar paths só sob `src/`.
+2. Classificar cada artefato: infra (`services` / `renderer` compartilhado) vs fatia (`features/<slug>`).
+3. Declarar se a feature cria/usa pasta em `features/` ou só estende `services` / `screens`.
 
 ---
 
