@@ -26,7 +26,7 @@
 
 **O quê:** Fundação de estilo global do renderer EngrenaCode: tokens semânticos light/dark (Design Lock), spacing/radii/fonts, runtime de tema `light` | `dark` | `system` com persistência e anti-flash, splash do shell, padrões de superfície nas UIs já existentes, e contratos runtime Shiki/xterm para consumo futuro pelo Workspace.
 
-**Por quê:** F02+ precisa consumir utilitários semânticos (`bg-bg`, `p-md`, `rounded-md`, …) e tema tri-modo sem reinventar palette. O código hoje usa slate/blue ad-hoc; a documentação visual em `docs/design-system` ainda aponta paths LionCode/`packages/` e chave `lioncode:theme`.
+**Por quê:** F02+ precisa consumir utilitários semânticos (`bg-bg`, `p-md`, `rounded-md`, …) e tema tri-modo sem reinventar palette. Tokens e paths canônicos vivem em `docs/design-system` e `src/renderer` com chave `engrenacode:theme`.
 
 **Escopo — Incluído:**
 

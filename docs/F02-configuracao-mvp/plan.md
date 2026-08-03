@@ -2,8 +2,8 @@
 
 **Feature:** F02  
 **Complexidade:** Médio  
-**Fases:** 4  
-**Status:** Pronto para dev
+**Fases:** 5 (inclui fechamento)  
+**Status:** Fechado (2026-08-03) — smoke em `smoke-results.md`; commit `eaa9a0c`
 
 ---
 

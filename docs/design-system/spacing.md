@@ -1,4 +1,4 @@
-# Spacing, Grid & Breakpoints — LionCode
+# Spacing, Grid & Breakpoints — EngrenaCode
 
 > Fonte: `src/renderer/tokens/design-tokens.ts` + `@theme` em `src/renderer/index.css` (Tailwind 4). Confiança: 🟢 (escala) | 🟡 (breakpoints = Tailwind default)
 

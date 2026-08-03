@@ -2,10 +2,9 @@
 
 **Feature:** F01-vault-e-sessao-local  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer/src/screens/LoginScreen.tsx`)  
-**Componente fonte:** `packages/renderer/src/screens/LoginScreen.tsx` (+ `ButtonPrimary.tsx`, `BrandMark.tsx`)  
-**Componente destino (previsto):** `src/renderer/screens/LoginScreen.tsx`  
-**Última atualização:** 2026-07-30
+**Fonte de referência:** EngrenaCode (`src/renderer/screens/LoginScreen.tsx`)  
+**Componente:** `src/renderer/screens/LoginScreen.tsx` (+ `ButtonPrimary.tsx`, `BrandMark.tsx`)  
+**Última atualização:** 2026-08-03
 
 ## Referência visual
 
@@ -13,9 +12,9 @@
 |----------|---------|
 | Mock / screenshot canônico | `docs/F01-vault-e-sessao-local/ui/login-unlock.png` (TODO: versionar PNG do mock) |
 | Light (opcional) | N/A (fonte testada principalmente em dark) |
-| Dark (opcional) | Código-fonte LionCode + mock Workspace Unlock |
+| Dark (opcional) | `LoginScreen.tsx` EngrenaCode + mock Workspace Unlock |
 
-> Fonte de verdade visual = `LoginScreen.tsx` do LionCode. Anexar PNG em `docs/F01-vault-e-sessao-local/ui/` quando disponível.
+> Fonte de verdade visual = `src/renderer/screens/LoginScreen.tsx`. Anexar PNG em `docs/F01-vault-e-sessao-local/ui/` quando disponível.
 
 ## Escopo
 
@@ -56,20 +55,20 @@ Ordem obrigatória de renderização no viewport principal:
 | Focus | `focus:ring-2 focus:ring-accent/40` (inputs); `focus-visible:ring-2 focus-visible:ring-accent` (botão) | |
 | Erro | `text-xs text-red`; input senha com `border-red` + `ring-red/40` quando inválido | Slot fora do Field de senha, acima do CTA |
 
-### Observado na fonte (opcional)
+### Observado na implementação
 
-| Item | Valor na fonte | Mapeamento destino |
-|------|----------------|--------------------|
-| Marca | LionCode + leão pixel (`BrandMark` / `BrandWordmark`) | EngrenaCode + marca própria ou wordmark; ver Perguntas |
-| Storage tema | `lioncode:theme` | `engrenacode:theme` (já no F01.1) |
-| CTA texto sobre accent | `text-bg` (escuro) | Manter `text-bg` (não branco) |
-| Default workspace | `~/dev` | Igual |
-| ThemeControl | Ausente no LoginScreen fonte | EngrenaCode tem seletor; manter fora do card se existir |
-| Acentos em strings de erro | Fonte sem acento (`invalidos`, `danificado`) | Destino F01: pt-BR acentuado (PRD/spec) |
+| Item | Valor |
+|------|-------|
+| Marca | EngrenaCode (`BrandMark` geométrico + `BrandWordmark`) |
+| Storage tema | `engrenacode:theme` (F01.1) |
+| CTA texto sobre accent | `text-bg` (escuro) — não branco |
+| Default workspace | `~/dev` |
+| ThemeControl | Canto superior direito, fora do card |
+| Acentos em strings de erro | pt-BR acentuado (PRD/spec) |
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino (acentos conforme F01 EngrenaCode).
+Células = texto final no produto. Marca: somente EngrenaCode.
 
 | Slot | Texto |
 |------|-------|
@@ -122,7 +121,7 @@ Compor a tela só com primitives compartilhados (não reinventar strings de clas
 
 ## Aceite visual
 
-- [ ] Bate com a referência (código LionCode / mock) em dark
+- [ ] Bate com a referência (`LoginScreen.tsx` / mock) em dark
 - [ ] Anatomia na ordem documentada; sem H1 centralizado de marca fora do padrão BrandMark+wordmark
 - [ ] Tabela de copy 100% aplicada (labels, hint, CTA longo, rodapé, erros)
 - [ ] CTA usa `text-bg` sobre `bg-accent`, ícone + “Desbloquear workspace”
@@ -131,16 +130,17 @@ Compor a tela só com primitives compartilhados (não reinventar strings de clas
 - [ ] Nenhum `max-w-*`/`w-*` com sufixo `xs|sm|md|lg|xl` (colide com `--spacing-*`)
 - [ ] Estados `loading`, `disabled`, `error` e `backoff` verificáveis
 - [ ] Tema via tokens (sem slate/blue ad-hoc)
+- [ ] Marca EngrenaCode apenas (zero marca legada na UI)
 
 ## Decisões fechadas
 
 | Tema | Decisão |
 |------|---------|
-| Linha de marca | Mantida (`BrandMark` + `BrandWordmark`), espelhando o componente fonte |
-| `BrandMark` | Mark geométrico próprio (sem o sprite do leão do LionCode) |
-| `ThemeControl` | Fora do card, canto superior direito (requisito F01.1, ausente na fonte) |
+| Linha de marca | Mantida (`BrandMark` + `BrandWordmark`) |
+| `BrandMark` | Mark geométrico próprio (hexágono) |
+| `ThemeControl` | Fora do card, canto superior direito (requisito F01.1) |
 | Inputs em loading/backoff | Permanecem editáveis; só o CTA bloqueia reentrada |
-| Acentuação | Tabela de copy deste doc prevalece sobre as strings sem acento da fonte |
+| Acentuação | Tabela de copy deste doc prevalece |
 
 ## Perguntas em aberto
 
@@ -156,4 +156,4 @@ Compor a tela só com primitives compartilhados (não reinventar strings de clas
 | `docs/F01-vault-e-sessao-local/copy.md` | Catálogo de microcopy |
 | `docs/design-system/` | Tokens e padrões de superfície |
 | `docs/F01.1-design-system/spec.md` | Tema, tokens, padrões de superfície |
-| LionCode `_reversa_sdd/renderer/vault-gate/` | Comportamento (não substitui este SDD) |
+| `_reversa_sdd/renderer/vault-gate/` | Comportamento legado (não substitui este SDD) |

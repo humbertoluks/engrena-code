@@ -1,4 +1,4 @@
-# Design Tokens — LionCode (tabela mestra)
+# Design Tokens — EngrenaCode (tabela mestra)
 
 > Fonte canônica: CSS vars em `index.css` + módulo `design-tokens.ts` + wiring Tailwind. Confiança: 🟢 salvo onde marcado.
 

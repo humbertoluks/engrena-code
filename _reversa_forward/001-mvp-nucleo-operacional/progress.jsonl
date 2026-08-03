@@ -1,0 +1,4 @@
+{"ts":"2026-07-31T11:00:00Z","event":"coding_start","feature":"001-mvp-nucleo-operacional","mode":"expresso","anchor":"mixed-legacy-greenfield"}
+{"ts":"2026-07-31T11:00:05Z","event":"legitimate_stop","reason":"non-destructive","detail":"packages/** already exists in sistema legado; T001-T016 would modify or collide with pre-existing application files","actions_done":0,"actions_total":18}
+{"ts":"2026-07-31T11:00:06Z","event":"artifacts_written","files":["legacy-impact.md","regression-watch.md","progress.jsonl"]}
+{"ts":"2026-08-03T20:15:00Z","event":"tracking_alignment","note":"EngrenaCode greenfield progress lives in docs/PROGRESS.md + docs/PRD.md §9; this forward track remains stopped. Done: F01, F01.1, F02. Not started: F03–F11. Do not treat actions.md checkboxes as product progress."}

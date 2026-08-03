@@ -1,4 +1,4 @@
-# Typography — LionCode (Design Lock LionClaw)
+# Typography — EngrenaCode (Design Lock LionClaw)
 
 > Fonte: `src/renderer/tokens/design-tokens.ts`, `src/renderer/index.css`, `src/renderer/main.tsx`. Confiança: 🟢
 

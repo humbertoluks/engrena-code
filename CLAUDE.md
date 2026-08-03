@@ -41,6 +41,7 @@ Leia apenas os arquivos relevantes para a tarefa em andamento:
 
 | Arquivo | Quando ler |
 |---------|------------|
+| `docs/PROGRESS.md` | Status real F01–F11 neste repo (feito vs pendente); não usar `_reversa_forward` actions como progresso |
 | `docs/PRD.md` | Visão completa, features F01–F11, critérios de aceitação |
 | `docs/DEVELOPMENT.md` | Setup inicial, deps, vite/biome/tsconfig, correções aplicadas, dev/build |
 | `docs/F01-vault-e-sessao-local/spec.md` | Spec de Vault: encryption, unlock gate, IPC, erro handling |

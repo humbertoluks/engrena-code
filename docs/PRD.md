@@ -226,7 +226,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - Radii: sm 5px, md 8px, lg 12px
 - Fontes display/body: DM Sans Variable → Figtree Variable → system-ui; mono: JetBrains Mono Variable → JetBrains Mono → IBM Plex Mono
 - Tema runtime: exatamente `light` | `dark` | `system`; `darkMode: class`; classe `.dark` em `<html>`
-- Persistência: `localStorage` chave `engrenacode:theme` (identidade EngrenaCode; legado `lioncode:theme` não permanece)
+- Persistência: `localStorage` chave `engrenacode:theme`
 - Anti-flash: `.no-transitions` na troca; splash do shell `#0a0a0b`
 - Shiki: `github-light` / `github-dark` conforme tema resolvido; xterm lê `--bg`, `--fg`, `--accent`, `--border` + JetBrains Mono
 - Stack: Tailwind 3 + CSS variables + React no renderer; sem MUI, Chakra, Emotion, CSS Modules ou Storybook obrigatório
@@ -617,32 +617,34 @@ graph TD
 
 ## 9. Critérios de Aceitação
 
+> Status operacional por feature: [`docs/PROGRESS.md`](./PROGRESS.md). Marcar `[x]` aqui ao fechar a feature no repo.
+
 ### F01. Vault e Sessão Local
-- [ ] Primeiro uso cria cofre com senha e exige unlock nas aberturas seguintes
-- [ ] Unlock com workspace+senha válidos emite sessão e libera rotas protegidas
-- [ ] Senha inválida mostra mensagem genérica e não revela qual campo falhou
-- [ ] Após 5 falhas, botão fica bloqueado com backoff visível (até 60s)
-- [ ] Cofre travado bloqueia APIs protegidas (401/423) e devolve ao gate
+- [x] Primeiro uso cria cofre com senha e exige unlock nas aberturas seguintes
+- [x] Unlock com workspace+senha válidos emite sessão e libera rotas protegidas
+- [x] Senha inválida mostra mensagem genérica e não revela qual campo falhou
+- [x] Após 5 falhas, botão fica bloqueado com backoff visível (até 60s)
+- [x] Cofre travado bloqueia APIs protegidas (401/423) e devolve ao gate
 
 ### F01.1 Design System
-- [ ] Tokens CSS `:root` / `.dark` cobrem bg, surface, surface-2, border, fg, muted, accent, accent-2, green, amber, red com os hexes light/dark da tabela mestra (accent `#ff6b00` e accent-2 `#ff8c2e` idênticos nos dois modos)
-- [ ] Spacing `xs|sm|md|lg|xl` = 4|8|16|24|40 px e radii `sm|md|lg` = 5|8|12 px expostos aos utilitários Tailwind
-- [ ] Tema runtime aceita exatamente `light` | `dark` | `system`; `system` segue `prefers-color-scheme`; dark aplica `.dark` em `<html>`
-- [ ] Preferência persiste em `localStorage` sob a chave `engrenacode:theme`
-- [ ] Preferência ausente ou inválida faz fail-soft para `system` sem bloquear a UI
-- [ ] Troca de tema aplica anti-flash (`.no-transitions` / duração 0s) sem flash perceptível
-- [ ] Shell splash usa `#0a0a0b` (paridade dark `--bg`)
-- [ ] Shiki usa `github-light` / `github-dark` conforme tema resolvido; xterm consome `--bg`, `--fg`, `--accent`, `--border` + mono JetBrains
-- [ ] Superfícies recorrentes (card, input, badge, modal, focus) usam os padrões de classes/tokens documentados
-- [ ] Stack tipográfica display/body e mono conforme tokens; monospace não é sobrescrita pelo experimento Grotesk
-- [ ] Não há dependência de MUI/Chakra/Emotion/CSS Modules nem Storybook obrigatório para cumprir F01.1
+- [x] Tokens CSS `:root` / `.dark` cobrem bg, surface, surface-2, border, fg, muted, accent, accent-2, green, amber, red com os hexes light/dark da tabela mestra (accent `#ff6b00` e accent-2 `#ff8c2e` idênticos nos dois modos)
+- [x] Spacing `xs|sm|md|lg|xl` = 4|8|16|24|40 px e radii `sm|md|lg` = 5|8|12 px expostos aos utilitários Tailwind
+- [x] Tema runtime aceita exatamente `light` | `dark` | `system`; `system` segue `prefers-color-scheme`; dark aplica `.dark` em `<html>`
+- [x] Preferência persiste em `localStorage` sob a chave `engrenacode:theme`
+- [x] Preferência ausente ou inválida faz fail-soft para `system` sem bloquear a UI
+- [x] Troca de tema aplica anti-flash (`.no-transitions` / duração 0s) sem flash perceptível
+- [x] Shell splash usa `#0a0a0b` (paridade dark `--bg`)
+- [x] Shiki usa `github-light` / `github-dark` conforme tema resolvido; xterm consome `--bg`, `--fg`, `--accent`, `--border` + mono JetBrains
+- [x] Superfícies recorrentes (card, input, badge, modal, focus) usam os padrões de classes/tokens documentados
+- [x] Stack tipográfica display/body e mono conforme tokens; monospace não é sobrescrita pelo experimento Grotesk
+- [x] Não há dependência de MUI/Chakra/Emotion/CSS Modules nem Storybook obrigatório para cumprir F01.1
 
 ### F02. Configuração MVP
-- [ ] Card Claude detecta assinatura e “Testar conexão” distingue sucesso, sem login e rate limit
-- [ ] Card CLIs lista Claude, Codex e Kimi com instalado/logado e teste X/3
-- [ ] Prompt global salva, restaura padrão e desliga com feedbacks específicos
-- [ ] Token GitHub rejeita espaços, curto demais e prefixo inválido; aceita `ghp_` / `github_pat_` válidos
-- [ ] Sem bloco de API keys nesta feature (fica em F10)
+- [x] Card Claude detecta assinatura e “Testar conexão” distingue sucesso, sem login e rate limit
+- [x] Card CLIs lista Claude, Codex e Kimi com instalado/logado e teste X/3
+- [x] Prompt global salva, restaura padrão e desliga com feedbacks específicos
+- [x] Token GitHub rejeita espaços, curto demais e prefixo inválido; aceita `ghp_` / `github_pat_` válidos
+- [x] Sem bloco de API keys nesta feature (fica em F10)
 
 ### F03. Workspace
 - [ ] Usuário cadastra projeto, cria thread com Claude|Codex|Kimi, access level e execution mode
@@ -701,7 +703,7 @@ graph TD
 - [ ] Flags parcial/aproximado visíveis; empty e erro de load cobertos
 
 ### Integração Cross-Feature
-- [ ] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
+- [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [ ] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
 - [ ] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
 - [ ] Preferência `engrenacode:theme` (F01.1) persiste e é respeitada ao navegar entre `#dashboard`, `#configuracao` e `#workspace`

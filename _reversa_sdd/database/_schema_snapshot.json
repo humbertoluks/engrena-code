@@ -1,0 +1,3864 @@
+{
+  "db_path": "c:\\Users\\Me\\AppData\\Roaming\\@lioncode\\shell\\lioncode.db",
+  "db_size_bytes": 1040384,
+  "page_count": 254,
+  "page_size": 4096,
+  "tables": [
+    {
+      "name": "app_config",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "value",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_app_config_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "key"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE app_config (\n        key        TEXT PRIMARY KEY,\n        value      TEXT NOT NULL,\n        updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )",
+      "checks": []
+    },
+    {
+      "name": "codegraph_runs",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "output",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "error",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "duration_ms",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "stats_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_codegraph_runs_project_created",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "project_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 8,
+              "name": "created_at"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE codegraph_runs (\n        id          TEXT PRIMARY KEY,\n        project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        kind        TEXT NOT NULL CHECK (kind IN ('build','reindex','update','repair')),\n        status      TEXT NOT NULL CHECK (status IN ('running','done','error','cancelled')),\n        output      TEXT,\n        error       TEXT,\n        duration_ms INTEGER,\n        stats_json  TEXT,\n        created_at  TEXT NOT NULL DEFAULT (datetime('now'))\n      )",
+      "checks": [
+        "CHECK (kind IN ('build','reindex','update','repair'))",
+        "CHECK (status IN ('running','done','error','cancelled'))"
+      ]
+    },
+    {
+      "name": "commands",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "prompt_template",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "skill_refs",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "subagent_refs",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "params",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "reasoning_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "access_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "mode_chat_plan",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "execution_strategy",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'prompt'",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "plan_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_commands_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "row_count": 3,
+      "sql": "CREATE TABLE commands (\n        id                 TEXT PRIMARY KEY,\n        name               TEXT NOT NULL,                 -- gatilho do slash (único global)\n        description        TEXT NOT NULL,                 -- descrição no menu do composer\n        prompt_template    TEXT NOT NULL,                 -- template do prompt do orquestrador\n        skill_refs         TEXT,                          -- TEXT JSON: string[] ou NULL (nenhuma)\n        subagent_refs      TEXT,                          -- TEXT JSON: string[] ou NULL (nenhum)\n        params             TEXT,                          -- TEXT JSON: Record<string,string> ou NULL\n        provider           TEXT,                          -- NULL = 'claude' (§6.3)\n        model              TEXT,                          -- NULL = default do provider\n        reasoning_level    TEXT,                          -- NULL = default do provider\n        access_level       TEXT,                          -- NULL = herda o composer (§6.7)\n        mode_chat_plan     TEXT,                          -- NULL = herda o composer (§6.7)\n        execution_strategy TEXT NOT NULL DEFAULT 'prompt',-- costura p/ 'pipeline' (§12)\n        category           TEXT,                          -- agrupamento no menu (opcional)\n        enabled            INTEGER NOT NULL DEFAULT 1,\n        created_at         TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at         TEXT NOT NULL DEFAULT (datetime('now')), plan_json TEXT,\n        UNIQUE(name)\n      )",
+      "checks": []
+    },
+    {
+      "name": "data_seeds",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "applied_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_data_seeds_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "id"
+            }
+          ]
+        }
+      ],
+      "row_count": 5,
+      "sql": "CREATE TABLE data_seeds (\n        id         TEXT PRIMARY KEY,\n        applied_at TEXT NOT NULL\n      )",
+      "checks": []
+    },
+    {
+      "name": "diffs",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "file",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "additions",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "deletions",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "hunks",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'pending'",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "worktree_path",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "review_cycle_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "snapshot_ref",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "review_head",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "review_branch",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "strategy",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_diffs_thread_review_cycle",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "thread_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 10,
+              "name": "review_cycle_id"
+            },
+            {
+              "seqno": 2,
+              "cid": 7,
+              "name": "status"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE diffs (\n        id            TEXT PRIMARY KEY,\n        thread_id     TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        file          TEXT NOT NULL,\n        additions     INTEGER NOT NULL DEFAULT 0,\n        deletions     INTEGER NOT NULL DEFAULT 0,\n        hunks         TEXT NOT NULL,\n        provider      TEXT NOT NULL,\n        status        TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN ('pending','accepted','rejected')),\n        worktree_path TEXT,\n        created_at    TEXT NOT NULL DEFAULT (datetime('now'))\n      , review_cycle_id TEXT, snapshot_ref TEXT, review_head TEXT, review_branch TEXT, strategy TEXT)",
+      "checks": [
+        "CHECK (status IN ('pending','accepted','rejected'))"
+      ]
+    },
+    {
+      "name": "feature_build_rounds",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "build_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "sprint_index",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "round",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 3
+        },
+        {
+          "cid": 3,
+          "name": "dev_output_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "verification_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "validator_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "run_refs_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'[]'",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "feature_builds",
+          "from": "build_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_feature_build_rounds_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "build_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 1,
+              "name": "sprint_index"
+            },
+            {
+              "seqno": 2,
+              "cid": 2,
+              "name": "round"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_build_rounds (\n        build_id          TEXT NOT NULL REFERENCES feature_builds(id) ON DELETE CASCADE,\n        sprint_index      INTEGER NOT NULL,\n        round             INTEGER NOT NULL,\n        dev_output_json   TEXT,\n        verification_json TEXT,\n        validator_json    TEXT,\n        status            TEXT NOT NULL,        -- FeatureBuildRoundStatus\n        created_at        TEXT NOT NULL,\n        updated_at        TEXT NOT NULL, run_refs_json TEXT NOT NULL DEFAULT '[]',\n        PRIMARY KEY (build_id, sprint_index, round)\n      )",
+      "checks": []
+    },
+    {
+      "name": "feature_build_sprints",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "build_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "sprint_index",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "build_sprint_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "round",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "det_fixes",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "checkpoint",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "quality",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'clean'",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "state_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "finished_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "feature_builds",
+          "from": "build_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_feature_build_sprints_2",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "build_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 1,
+              "name": "sprint_index"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_build_sprints (\n        build_id        TEXT NOT NULL REFERENCES feature_builds(id) ON DELETE CASCADE,\n        sprint_index    INTEGER NOT NULL,\n        build_sprint_id TEXT NOT NULL UNIQUE,\n        status          TEXT NOT NULL,          -- SprintItemStatus (§3)\n        round           INTEGER NOT NULL DEFAULT 0,\n        det_fixes       INTEGER NOT NULL DEFAULT 0,\n        checkpoint      TEXT,                   -- BuildSprintCheckpoint | NULL\n        quality         TEXT NOT NULL DEFAULT 'clean',\n        state_json      TEXT,\n        started_at      TEXT,\n        finished_at     TEXT,\n        PRIMARY KEY (build_id, sprint_index)\n      )",
+      "checks": []
+    },
+    {
+      "name": "feature_builds",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "slug",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "wave",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "quality",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'clean'",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "review_status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'pending'",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "reviewed_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "commands_hash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "error_detail",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "intervention_attempts",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "error_fact",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "authorized_artifacts",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_feature_builds_project_slug_active",
+          "unique": 1,
+          "origin": "c",
+          "partial": 1,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "project_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 3,
+              "name": "slug"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_builds (\n        id            TEXT PRIMARY KEY,\n        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        thread_id     TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        slug          TEXT NOT NULL,\n        status        TEXT NOT NULL,            -- FeatureBuildStatus (§3)\n        wave          INTEGER NOT NULL DEFAULT 0,\n        quality       TEXT NOT NULL DEFAULT 'clean',   -- 'clean'|'with-findings'\n        review_status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'accepted'|'rejected'\n        reviewed_at   TEXT,\n        commands_hash TEXT,                     -- confirmação do dono (§2.6)\n        error_detail  TEXT,\n        created_at    TEXT NOT NULL,\n        updated_at    TEXT NOT NULL\n      , intervention_attempts INTEGER NOT NULL DEFAULT 0, error_fact TEXT, authorized_artifacts TEXT)",
+      "checks": []
+    },
+    {
+      "name": "feature_pipeline_phases",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "pipeline_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "phase",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "rounds",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "detail",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "artifact_hashes_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "finished_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "feature_pipelines",
+          "from": "pipeline_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_feature_pipeline_phases_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "pipeline_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 1,
+              "name": "phase"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_pipeline_phases (\n        pipeline_id          TEXT NOT NULL REFERENCES feature_pipelines(id) ON DELETE CASCADE,\n        phase                TEXT NOT NULL,\n        status               TEXT NOT NULL,  -- 'pending'|'running'|'done'|'error'|'interrupted'\n        rounds               INTEGER NOT NULL DEFAULT 0,\n        detail               TEXT,\n        artifact_hashes_json TEXT,           -- no done da fase (não-clobber §9)\n        started_at           TEXT,\n        finished_at          TEXT,\n        PRIMARY KEY (pipeline_id, phase)\n      )",
+      "checks": []
+    },
+    {
+      "name": "feature_pipeline_rounds",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "pipeline_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "phase",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "round",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 3
+        },
+        {
+          "cid": 3,
+          "name": "collected_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "artifact_hashes_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "decision_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "fix_report_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "recollects",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "feature_pipelines",
+          "from": "pipeline_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_feature_pipeline_rounds_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "pipeline_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 1,
+              "name": "phase"
+            },
+            {
+              "seqno": 2,
+              "cid": 2,
+              "name": "round"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_pipeline_rounds (\n        pipeline_id          TEXT NOT NULL REFERENCES feature_pipelines(id) ON DELETE CASCADE,\n        phase                TEXT NOT NULL,\n        round                INTEGER NOT NULL,\n        collected_json       TEXT NOT NULL,  -- ValidatorOutput[] c/ IDs | ScoutSection[] (tech)\n        artifact_hashes_json TEXT NOT NULL,  -- hashes dos artefatos NO MOMENTO da coleta\n        decision_json        TEXT,           -- PipelineDecision (fechamento do turno)\n        fix_report_json      TEXT,           -- FixReport (fechamento do turno de fix)\n        status               TEXT NOT NULL,  -- 'collected'|'decided'|'fixed'\n        created_at           TEXT NOT NULL,\n        updated_at           TEXT NOT NULL, recollects INTEGER NOT NULL DEFAULT 0,\n        PRIMARY KEY (pipeline_id, phase, round)\n      )",
+      "checks": []
+    },
+    {
+      "name": "feature_pipelines",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "slug",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "phase",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "phase_status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "pending_resume",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "quality",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'clean'",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "error_detail",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_feature_pipelines_thread_active",
+          "unique": 1,
+          "origin": "c",
+          "partial": 1,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 2,
+              "name": "thread_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE feature_pipelines (\n        id             TEXT PRIMARY KEY,\n        project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        thread_id      TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        slug           TEXT NOT NULL,\n        title          TEXT NOT NULL,\n        phase          TEXT NOT NULL,\n        phase_status   TEXT NOT NULL,\n        pending_resume TEXT,                      -- NULL | phase-id | 'finalize'\n        quality        TEXT NOT NULL DEFAULT 'clean', -- 'clean'|'with-findings'\n        error_detail   TEXT,\n        created_at     TEXT NOT NULL,\n        updated_at     TEXT NOT NULL,\n        UNIQUE (project_id, slug)\n      )",
+      "checks": []
+    },
+    {
+      "name": "git_review_baselines",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "repo_path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "worktree_ref",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "index_ref",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "output_ref",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "head_sha",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "branch",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "strategy",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_git_review_baselines_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "thread_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE git_review_baselines (\n        id                TEXT PRIMARY KEY,\n        thread_id         TEXT NOT NULL UNIQUE\n                            REFERENCES threads(id) ON DELETE CASCADE,\n        repo_path         TEXT NOT NULL,\n        worktree_ref      TEXT NOT NULL,\n        index_ref         TEXT NOT NULL,\n        output_ref        TEXT,\n        created_at        TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at        TEXT NOT NULL DEFAULT (datetime('now'))\n      , head_sha TEXT, branch TEXT, strategy TEXT)",
+      "checks": []
+    },
+    {
+      "name": "log_entries",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "event",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "timestamp",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_log_entries_kind",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 2,
+              "name": "kind"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE log_entries (\n        id        TEXT PRIMARY KEY,\n        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        kind      TEXT NOT NULL CHECK (kind IN ('task','tool','git')),\n        event     TEXT NOT NULL,\n        timestamp TEXT NOT NULL DEFAULT (datetime('now'))\n      )",
+      "checks": [
+        "CHECK (kind IN ('task','tool','git'))"
+      ]
+    },
+    {
+      "name": "mcps",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "transport",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'stdio'",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "command",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "args_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "env_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "headers_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "preset_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "auth_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'secret'",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "oauth_status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "oauth_client_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_mcps_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE mcps (\n        id           TEXT PRIMARY KEY,\n        name         TEXT NOT NULL,               -- chave (vira a chave do mcpServers)\n        description  TEXT,                        -- opcional (ao contrário de skills)\n        transport    TEXT NOT NULL DEFAULT 'stdio'\n                       CHECK (transport IN ('stdio','http','sse')),\n        command      TEXT,                        -- stdio\n        args_json    TEXT,                        -- stdio: string[] (NULL = [])\n        env_json     TEXT,                        -- stdio: Record<string,string> (§12.2)\n        url          TEXT,                        -- http/sse\n        headers_json TEXT,                        -- http/sse: Record<string,string>\n        category     TEXT,\n        enabled      INTEGER NOT NULL DEFAULT 1,\n        created_at   TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at   TEXT NOT NULL DEFAULT (datetime('now')), preset_id TEXT, auth_mode TEXT NOT NULL DEFAULT 'secret', oauth_status TEXT, oauth_client_json TEXT,\n        UNIQUE(name)\n      )",
+      "checks": [
+        "CHECK (transport IN ('stdio','http','sse'))"
+      ]
+    },
+    {
+      "name": "messages",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "role",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "seq",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'complete'",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "images_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "synthetic",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_messages_thread_seq",
+          "unique": 1,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "thread_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 4,
+              "name": "seq"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE messages (\n        id         TEXT PRIMARY KEY,\n        thread_id  TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        role       TEXT NOT NULL CHECK (role IN ('user','assistant','system')),\n        content    TEXT NOT NULL,\n        seq        INTEGER NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      , status TEXT NOT NULL DEFAULT 'complete'\n            CHECK (status IN ('complete','interrompido')), images_json TEXT, synthetic TEXT)",
+      "checks": [
+        "CHECK (role IN ('user','assistant','system'))",
+        "CHECK (status IN ('complete','interrompido'))"
+      ]
+    },
+    {
+      "name": "model_pricing",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "input_per_mtok",
+          "type": "REAL",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "output_per_mtok",
+          "type": "REAL",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "cache_read_per_mtok",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "cache_write_per_mtok",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "approximate",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "source",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_model_pricing_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "provider"
+            },
+            {
+              "seqno": 1,
+              "cid": 2,
+              "name": "model"
+            }
+          ]
+        }
+      ],
+      "row_count": 15,
+      "sql": "CREATE TABLE model_pricing (\n        id                   TEXT PRIMARY KEY,\n        provider             TEXT NOT NULL,\n        model                TEXT NOT NULL,\n        input_per_mtok       REAL NOT NULL,\n        output_per_mtok      REAL NOT NULL,\n        cache_read_per_mtok  REAL,\n        cache_write_per_mtok REAL,\n        approximate          INTEGER NOT NULL DEFAULT 0,\n        source               TEXT,\n        created_at           TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at           TEXT NOT NULL DEFAULT (datetime('now')),\n        UNIQUE(provider, model)\n      )",
+      "checks": []
+    },
+    {
+      "name": "project_mcps",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "mcp_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "mcps",
+          "from": "mcp_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_project_mcps_project",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE project_mcps (\n        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        mcp_id     TEXT NOT NULL REFERENCES mcps(id)     ON DELETE CASCADE,\n        enabled    INTEGER NOT NULL DEFAULT 1,           -- liga/desliga POR projeto\n        sort_order INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (project_id, mcp_id)\n      )",
+      "checks": []
+    },
+    {
+      "name": "project_rules",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "rule_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "rules",
+          "from": "rule_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_project_rules_project",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE project_rules (\n        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        rule_id    TEXT NOT NULL REFERENCES rules(id)    ON DELETE CASCADE,\n        enabled    INTEGER NOT NULL DEFAULT 1,\n        sort_order INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (project_id, rule_id)\n      )",
+      "checks": []
+    },
+    {
+      "name": "project_skills",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "skill_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "skills",
+          "from": "skill_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_project_skills_project",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE project_skills (\n        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        skill_id   TEXT NOT NULL REFERENCES skills(id)   ON DELETE CASCADE,\n        enabled    INTEGER NOT NULL DEFAULT 1,           -- liga/desliga POR projeto\n        sort_order INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (project_id, skill_id)\n      )",
+      "checks": []
+    },
+    {
+      "name": "project_subagents",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "subagent_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "subagents",
+          "from": "subagent_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_project_subagents_project",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE project_subagents (\n        project_id   TEXT NOT NULL REFERENCES projects(id)  ON DELETE CASCADE,\n        subagent_id  TEXT NOT NULL REFERENCES subagents(id) ON DELETE CASCADE,\n        enabled      INTEGER NOT NULL DEFAULT 1,\n        sort_order   INTEGER NOT NULL DEFAULT 0,\n        created_at   TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (project_id, subagent_id)\n      )",
+      "checks": []
+    },
+    {
+      "name": "projects",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "codegraph_status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'absent'",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "codegraph_indexed_commit",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "codegraph_last_indexed_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "codegraph_stats_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "codegraph_offer_suppressed",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_projects_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 2,
+              "name": "path"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE projects (\n        id         TEXT PRIMARY KEY,\n        name       TEXT NOT NULL,\n        path       TEXT NOT NULL UNIQUE,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n      , codegraph_status TEXT NOT NULL\n        DEFAULT 'absent'\n        CHECK (codegraph_status IN ('absent','building','ready','stale','error')), codegraph_indexed_commit TEXT, codegraph_last_indexed_at TEXT, codegraph_stats_json TEXT, codegraph_offer_suppressed INTEGER NOT NULL DEFAULT 0)",
+      "checks": [
+        "CHECK (codegraph_status IN ('absent','building','ready','stale','error'))"
+      ]
+    },
+    {
+      "name": "quick_actions",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "label",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "command",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "keybinding",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_quick_actions_project_id",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE quick_actions (\n        id         TEXT PRIMARY KEY,\n        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        label      TEXT NOT NULL,\n        command    TEXT NOT NULL,\n        keybinding TEXT,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )",
+      "checks": []
+    },
+    {
+      "name": "rules",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "is_global",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_rules_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "row_count": 6,
+      "sql": "CREATE TABLE rules (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,               -- entra no delimitador do bloco (D5)\n        description TEXT,\n        content     TEXT NOT NULL,               -- a instrução (markdown)\n        category    TEXT,\n        is_global   INTEGER NOT NULL DEFAULT 0,  -- 1 = todo projeto (default-on)\n        enabled     INTEGER NOT NULL DEFAULT 1,  -- kill-switch global\n        created_at  TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at  TEXT NOT NULL DEFAULT (datetime('now')),\n        UNIQUE(name)\n      )",
+      "checks": []
+    },
+    {
+      "name": "schema_migrations",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "applied_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 62,
+      "sql": "CREATE TABLE schema_migrations (\n      id         INTEGER PRIMARY KEY,\n      name       TEXT NOT NULL,\n      applied_at TEXT NOT NULL DEFAULT (datetime('now'))\n    )",
+      "checks": []
+    },
+    {
+      "name": "skills",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "trigger",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'auto'",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "locked",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_skills_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "row_count": 29,
+      "sql": "CREATE TABLE skills (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,                 -- chave de invocação (única global)\n        description TEXT NOT NULL,                 -- \"quando usar\" (vai no catálogo da tool)\n        content     TEXT NOT NULL,                 -- corpo markdown (entregue no load_skill)\n        category    TEXT,                          -- agrupamento no menu (opcional)\n        enabled     INTEGER NOT NULL DEFAULT 1,\n        created_at  TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at  TEXT NOT NULL DEFAULT (datetime('now')), \"trigger\" TEXT NOT NULL DEFAULT 'auto'\n            CHECK (\"trigger\" IN ('auto','command')), locked INTEGER NOT NULL DEFAULT 0,\n        UNIQUE(name)\n      )",
+      "checks": [
+        "CHECK (\"trigger\" IN ('auto','command'))"
+      ]
+    },
+    {
+      "name": "subagent_runs",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "child_thread_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "parent_thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "parent_tool_call_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "anchor_seq",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "subagent_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "text",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "usage_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "reasoning_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "duration_ms",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "isolation",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "stage_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "apply_status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "patch_files",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "patch_ref",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "retry_of",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "actions_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "action_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "parent_thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_subagent_runs_parent",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "parent_thread_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE subagent_runs (\n        child_thread_id     TEXT PRIMARY KEY,\n        parent_thread_id    TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        parent_tool_call_id TEXT,\n        anchor_seq          INTEGER NOT NULL,\n        subagent_name       TEXT NOT NULL,\n        provider            TEXT NOT NULL,\n        model               TEXT,\n        status              TEXT NOT NULL,\n        text                TEXT,\n        usage_json          TEXT,\n        created_at          TEXT NOT NULL DEFAULT (datetime('now'))\n      , reasoning_level TEXT, duration_ms INTEGER, isolation TEXT, stage_id TEXT, apply_status TEXT, patch_files TEXT, patch_ref TEXT, retry_of TEXT, actions_json TEXT, action_count INTEGER NOT NULL DEFAULT 0)",
+      "checks": []
+    },
+    {
+      "name": "subagents",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'inherit'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "reasoning_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "tools_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "skills_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "mcps_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "network_access",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "idle_timeout_minutes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'dev'",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_subagents_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "row_count": 34,
+      "sql": "CREATE TABLE \"subagents\" (\n        id              TEXT PRIMARY KEY,\n        name            TEXT NOT NULL,\n        description     TEXT NOT NULL,\n        prompt          TEXT NOT NULL,\n        provider        TEXT NOT NULL DEFAULT 'inherit',\n        model           TEXT,\n        reasoning_level TEXT,\n        tools_json      TEXT,\n        category        TEXT,\n        enabled         INTEGER NOT NULL DEFAULT 1,\n        created_at      TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at      TEXT NOT NULL DEFAULT (datetime('now')),\n        skills_json     TEXT,\n        mcps_json       TEXT, network_access INTEGER NOT NULL DEFAULT 0, idle_timeout_minutes INTEGER, kind TEXT NOT NULL DEFAULT 'dev',\n        UNIQUE(name)\n      )",
+      "checks": []
+    },
+    {
+      "name": "thread_context_window_snapshots",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "used_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "max_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "total_processed_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "input_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "output_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "cache_read_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "compacts_automatically",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "compacted",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "revision",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_thread_context_window_snapshots_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 0,
+              "name": "thread_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE thread_context_window_snapshots (\n        thread_id                 TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,\n        used_tokens               INTEGER NOT NULL,\n        max_tokens                INTEGER,\n        total_processed_tokens    INTEGER,\n        input_tokens              INTEGER,\n        output_tokens             INTEGER,\n        cache_read_tokens         INTEGER,\n        compacts_automatically    INTEGER,\n        compacted                 INTEGER NOT NULL DEFAULT 0,\n        updated_at                TEXT NOT NULL DEFAULT (datetime('now'))\n      , revision INTEGER NOT NULL DEFAULT 1)",
+      "checks": []
+    },
+    {
+      "name": "threads",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "state",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'idle'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "reasoning_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "mode_chat_plan",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "mode_full_supervised",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "access_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "fast_mode",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "system_prompt",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "branch",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "pr_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "error_message",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "session_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "context_window",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "execution_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'main'",
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "worktree_path",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "session_cwd",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "command_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_threads_project_id",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 1,
+              "name": "project_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE \"threads\" (\n        id                   TEXT PRIMARY KEY,\n        project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        title                TEXT NOT NULL,\n        provider             TEXT NOT NULL,\n        state                TEXT NOT NULL DEFAULT 'idle'\n                               CHECK (state IN ('idle','running','awaiting-review','committed','pr-open','pr-merged','pr-closed','error')),\n        reasoning_level      TEXT,\n        mode_chat_plan       TEXT CHECK (mode_chat_plan IN ('chat','plan')),\n        mode_full_supervised TEXT,\n        access_level         TEXT,\n        fast_mode            INTEGER,\n        system_prompt        TEXT,\n        branch               TEXT,\n        pr_url               TEXT,\n        error_message        TEXT,\n        model                TEXT,\n        session_id           TEXT,\n        created_at           TEXT NOT NULL DEFAULT (datetime('now')),\n        updated_at           TEXT NOT NULL DEFAULT (datetime('now')),\n        context_window       INTEGER,\n        execution_mode       TEXT NOT NULL DEFAULT 'main',\n        worktree_path        TEXT,\n        session_cwd          TEXT,\n        command_name         TEXT\n      )",
+      "checks": [
+        "CHECK (state IN ('idle','running','awaiting-review','committed','pr-open','pr-merged','pr-closed','error'))",
+        "CHECK (mode_chat_plan IN ('chat','plan'))"
+      ]
+    },
+    {
+      "name": "tool_calls",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "tool_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "params",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "result",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "seq",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'done'",
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "messages",
+          "from": "message_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "threads",
+          "from": "thread_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_tool_calls_message_id",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 2,
+              "name": "message_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE tool_calls (\n        id         TEXT PRIMARY KEY,\n        thread_id  TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,\n        message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,\n        tool_name  TEXT NOT NULL,\n        params     TEXT,\n        result     TEXT,\n        seq        INTEGER NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      , status TEXT NOT NULL DEFAULT 'done'\n            CHECK (status IN ('done','interrompido')))",
+      "checks": [
+        "CHECK (status IN ('done','interrompido'))"
+      ]
+    },
+    {
+      "name": "usage_events",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "order_id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "turn_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "thread_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "child_thread_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "subagent_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "parent_tool_call_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "provider",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "billing_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "reasoning_level",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "fast_mode",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "context_window",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "input_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "cache_read_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "cache_creation_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "output_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "total_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "cost_usd",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "cost_source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'table'",
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "cost_approximate",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 23,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 24,
+          "name": "reasoning_tokens",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 25,
+          "name": "repo_graph_calls",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "projects",
+          "from": "project_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_usage_events_thread_order",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0,
+          "columns": [
+            {
+              "seqno": 0,
+              "cid": 4,
+              "name": "thread_id"
+            },
+            {
+              "seqno": 1,
+              "cid": 0,
+              "name": "order_id"
+            }
+          ]
+        }
+      ],
+      "row_count": 0,
+      "sql": "CREATE TABLE usage_events (\n        order_id              INTEGER PRIMARY KEY AUTOINCREMENT,\n        id                    TEXT NOT NULL UNIQUE,\n        turn_id               TEXT NOT NULL,\n        project_id            TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n        thread_id             TEXT NOT NULL,\n        source                TEXT NOT NULL CHECK (source IN ('agent','subagent')),\n        child_thread_id       TEXT,\n        subagent_name         TEXT,\n        parent_tool_call_id   TEXT,\n        provider              TEXT NOT NULL,\n        model                 TEXT NOT NULL,\n        billing_mode          TEXT NOT NULL,\n        reasoning_level       TEXT,\n        fast_mode             INTEGER,\n        context_window        INTEGER,\n        input_tokens          INTEGER NOT NULL,\n        cache_read_tokens     INTEGER,\n        cache_creation_tokens INTEGER,\n        output_tokens         INTEGER NOT NULL,\n        total_tokens          INTEGER NOT NULL,\n        cost_usd              REAL,\n        cost_source           TEXT NOT NULL DEFAULT 'table',\n        cost_approximate      INTEGER NOT NULL DEFAULT 0,\n        created_at            TEXT NOT NULL DEFAULT (datetime('now'))\n      , reasoning_tokens INTEGER, repo_graph_calls TEXT)",
+      "checks": [
+        "CHECK (source IN ('agent','subagent'))"
+      ]
+    }
+  ],
+  "views": [],
+  "triggers": [
+    {
+      "name": "trg_commands_updated_at",
+      "tbl": "commands",
+      "sql": "CREATE TRIGGER trg_commands_updated_at\n        AFTER UPDATE ON commands\n        FOR EACH ROW\n        WHEN NEW.updated_at = OLD.updated_at\n        BEGIN\n          UPDATE commands SET updated_at = datetime('now') WHERE id = OLD.id;\n        END"
+    },
+    {
+      "name": "trg_mcps_updated_at",
+      "tbl": "mcps",
+      "sql": "CREATE TRIGGER trg_mcps_updated_at\n        AFTER UPDATE ON mcps\n        FOR EACH ROW\n        WHEN NEW.updated_at = OLD.updated_at\n        BEGIN\n          UPDATE mcps SET updated_at = datetime('now') WHERE id = OLD.id;\n        END"
+    },
+    {
+      "name": "trg_model_pricing_updated_at",
+      "tbl": "model_pricing",
+      "sql": "CREATE TRIGGER trg_model_pricing_updated_at\n      AFTER UPDATE ON model_pricing\n      FOR EACH ROW\n      WHEN NEW.updated_at = OLD.updated_at\n      BEGIN\n        UPDATE model_pricing SET updated_at = datetime('now') WHERE id = OLD.id;\n      END"
+    },
+    {
+      "name": "trg_projects_updated_at",
+      "tbl": "projects",
+      "sql": "CREATE TRIGGER trg_projects_updated_at\n      AFTER UPDATE ON projects\n      FOR EACH ROW\n      WHEN NEW.updated_at = OLD.updated_at\n      BEGIN\n        UPDATE projects SET updated_at = datetime('now') WHERE id = OLD.id;\n      END"
+    },
+    {
+      "name": "trg_rules_updated_at",
+      "tbl": "rules",
+      "sql": "CREATE TRIGGER trg_rules_updated_at\n        AFTER UPDATE ON rules\n        FOR EACH ROW\n        WHEN NEW.updated_at = OLD.updated_at\n        BEGIN\n          UPDATE rules SET updated_at = datetime('now') WHERE id = OLD.id;\n        END"
+    },
+    {
+      "name": "trg_skills_updated_at",
+      "tbl": "skills",
+      "sql": "CREATE TRIGGER trg_skills_updated_at\n        AFTER UPDATE ON skills\n        FOR EACH ROW\n        WHEN NEW.updated_at = OLD.updated_at\n        BEGIN\n          UPDATE skills SET updated_at = datetime('now') WHERE id = OLD.id;\n        END"
+    },
+    {
+      "name": "trg_subagents_updated_at",
+      "tbl": "subagents",
+      "sql": "CREATE TRIGGER trg_subagents_updated_at\n      AFTER UPDATE ON subagents\n      FOR EACH ROW\n      WHEN NEW.updated_at = OLD.updated_at\n      BEGIN\n        UPDATE subagents SET updated_at = datetime('now') WHERE id = OLD.id;\n      END"
+    },
+    {
+      "name": "trg_threads_updated_at",
+      "tbl": "threads",
+      "sql": "CREATE TRIGGER trg_threads_updated_at\n      AFTER UPDATE ON threads\n      FOR EACH ROW\n      WHEN NEW.updated_at = OLD.updated_at\n      BEGIN\n        UPDATE threads SET updated_at = datetime('now') WHERE id = OLD.id;\n      END"
+    }
+  ]
+}
