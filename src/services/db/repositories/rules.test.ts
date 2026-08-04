@@ -14,6 +14,7 @@ const {
   setProjectRuleLink,
   unlinkProjectRule,
   resolveForTurn,
+  getCounts,
   RuleError,
 } = await import('./rules.js')
 
@@ -129,5 +130,20 @@ describe('deleteRule', () => {
     const row = getDb().prepare('SELECT * FROM project_rules WHERE rule_id = ?').get(rule.id)
     expect(row).toBeUndefined()
     expect(listRules().map((r) => r.id)).not.toContain(rule.id)
+  })
+})
+
+describe('getCounts', () => {
+  it('counts enabled globals and active rules per project with a project_rules row', () => {
+    const global1 = createRule({ name: 'g1', content: 'a', isGlobal: true })
+    createRule({ name: 'g2', content: 'a', isGlobal: true, enabled: false })
+    const local1 = createRule({ name: 'l1', content: 'a', isGlobal: false })
+
+    setProjectRuleLink('project-a', local1.id, { enabled: true })
+    setProjectRuleLink('project-a', global1.id, { enabled: false })
+
+    const counts = getCounts()
+    expect(counts.global).toBe(1)
+    expect(counts.activeByProject['project-a']).toBe(1)
   })
 })
