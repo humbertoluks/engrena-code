@@ -10,8 +10,11 @@ const { getDb, closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { getThread } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
+const { listToolCallsForThread } = await import('../db/repositories/messages.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
+const { skillsRepository } = await import('../db/repositories/skills.js')
+const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
 const {
   dispatchNewThread,
   dispatchFollowUp,
@@ -45,6 +48,9 @@ beforeEach(() => {
   getDb().exec('DELETE FROM projects')
   getDb().exec('DELETE FROM project_rules')
   getDb().exec('DELETE FROM rules')
+  getDb().exec('DELETE FROM project_subagents')
+  getDb().exec('DELETE FROM subagents')
+  skillsRepository._resetCache()
   clearAllLeases()
   vaultService.lock()
   vaultService.unlock('workspace-teste', 'senha-forte-123')
@@ -162,6 +168,66 @@ describe('dispatchNewThread', () => {
     await waitForState(thread.id, ['idle', 'error'])
     expect(capturedSystemPrompt).toContain('Responda em PT-BR.')
     expect(capturedSystemPrompt).toContain(rule.name)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('resolves the linked skills and subagents catalog into the system prompt', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    const skill = skillsRepository.create({ name: 'skill-turno', description: 'ajuda no turno', content: '# conteudo' })
+    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+
+    const subagentsRepo = createSubagentsRepository(getDb())
+    const subagent = subagentsRepo.create({
+      name: 'subagent-turno',
+      description: 'delega revisao',
+      prompt: 'voce revisa codigo',
+      provider: 'inherit',
+    })
+    subagentsRepo.upsertProjectLink(project.id, subagent.id, { enabled: true })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(capturedSystemPrompt).toContain(skill.name)
+    expect(capturedSystemPrompt).toContain(subagent.name)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('blocks call_subagent for a Codex parent without full-access and records the tool call as an error', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'tool_1', name: 'mcp__engrenacode__call_subagent', params: { name: 'x' } })
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'delega isso',
+      provider: 'codex',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const toolCalls = listToolCallsForThread(thread.id)
+    const call = toolCalls.find((t) => t.name === 'mcp__engrenacode__call_subagent')
+    expect(call?.status).toBe('error')
     rmSync(dir, { recursive: true, force: true })
   })
 

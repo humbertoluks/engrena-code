@@ -243,6 +243,36 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('rejects a follow-up body carrying executionMode with 400 (execution mode locked after first send)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq(
+      'POST',
+      `/api/threads/${created.thread.id}/messages`,
+      { prompt: 'de novo', executionMode: 'worktree' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('returns history and diffs for a thread', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
