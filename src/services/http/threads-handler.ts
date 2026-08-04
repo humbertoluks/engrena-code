@@ -11,6 +11,7 @@ import {
   type DispatchFollowUpInput,
   type DispatchNewThreadInput,
 } from '../runner/dispatch.js'
+import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { LeaseBusyError } from '../runner/project-execution.js'
 import { emit } from '../runner/ws-hub.js'
 
@@ -87,6 +88,25 @@ function handleDispatchError(res: ServerResponse, err: unknown): void {
     return
   }
   console.error('[threads-handler] Unhandled dispatch error:', err)
+  sendError(res, 500, 'internal_error', 'Erro interno.')
+}
+
+function handleAcceptError(res: ServerResponse, err: unknown): void {
+  if (err instanceof LeaseBusyError) {
+    sendError(res, 409, 'thread_busy', err.message, threadBusyDetails(err))
+    return
+  }
+  if (err instanceof ApplyDiffValidationError) {
+    const status =
+      err.code === 'thread_not_found' || err.code === 'project_not_found' || err.code === 'diff_not_found'
+        ? 404
+        : err.code === 'diff_apply_failed'
+          ? 409
+          : 400
+    sendError(res, status, err.code, err.message)
+    return
+  }
+  console.error('[threads-handler] Unhandled accept-diff error:', err)
   sendError(res, 500, 'internal_error', 'Erro interno.')
 }
 
@@ -213,6 +233,33 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   sendJson(res, 200, { resolved: true })
 }
 
+interface AcceptBody {
+  action?: string
+  ids?: string[]
+  paths?: string[]
+}
+
+async function handleAccept(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const data = parseBody<AcceptBody>(await readBody(req))
+  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+
+  if (data.action !== undefined && data.action !== 'accept' && data.action !== 'reject') {
+    return sendError(res, 400, 'validation_error', 'action deve ser "accept" ou "reject".')
+  }
+
+  const input: AcceptDiffInput = { threadId }
+  if (data.action !== undefined) input.action = data.action as AcceptDiffInput['action']
+  if (data.ids !== undefined) input.ids = data.ids
+  if (data.paths !== undefined) input.paths = data.paths
+
+  try {
+    const result = await applyDiffAction(input)
+    sendJson(res, 200, result)
+  } catch (err) {
+    handleAcceptError(res, err)
+  }
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 const CREATE_THREAD_RE = /^\/api\/projects\/([^/]+)\/threads$/
@@ -221,6 +268,7 @@ const HISTORY_RE = /^\/api\/threads\/([^/]+)\/history$/
 const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
+const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = (req.url ?? '').split('?')[0]
@@ -232,7 +280,8 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     HISTORY_RE.test(url) ||
     DIFFS_RE.test(url) ||
     CANCEL_RE.test(url) ||
-    PERMISSION_RE.test(url)
+    PERMISSION_RE.test(url) ||
+    ACCEPT_RE.test(url)
 
   if (!matchesThreadsRoute) return false
 
@@ -272,6 +321,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const permissionMatch = PERMISSION_RE.exec(url)
     if (permissionMatch && method === 'POST') {
       await handlePermission(req, res, permissionMatch[1])
+      return true
+    }
+
+    const acceptMatch = ACCEPT_RE.exec(url)
+    if (acceptMatch && method === 'POST') {
+      await handleAccept(req, res, acceptMatch[1])
       return true
     }
   } catch (err) {

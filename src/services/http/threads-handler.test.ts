@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
@@ -301,6 +301,67 @@ describe('handleThreadsRequest', () => {
     expect((body as { resolved: boolean }).resolved).toBe(true)
 
     await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('accepts a pending diff via POST /api/threads/:id/accept and moves the thread to committed', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async (input) => {
+      writeFileSync(join(input.cwd, 'gerado.txt'), 'conteudo\n')
+      return { text: 'ok' }
+    })
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'crie um arquivo', provider: 'claude', accessLevel: 'full-access', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq('POST', `/api/threads/${created.thread.id}/accept`, {}, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect((body as { applied: boolean; acceptedIds: string[] }).acceptedIds).toHaveLength(1)
+    expect(getThread(created.thread.id)?.state).toBe('committed')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejects accept body with both ids and paths (400 validation_error)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq(
+      'POST',
+      `/api/threads/${created.thread.id}/accept`,
+      { ids: ['diff_x'], paths: ['a.txt'] },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
     rmSync(dir, { recursive: true, force: true })
   })
 })

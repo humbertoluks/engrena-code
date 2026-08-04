@@ -6,6 +6,7 @@ import { handleSkillsRequest } from './skills-handler.js'
 import { handleRulesRequest } from './rules-handler.js'
 import { handleProjectsRequest } from './projects-handler.js'
 import { handleThreadsRequest } from './threads-handler.js'
+import { handleGitRequest } from './git-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 
 interface VaultUnlockRequest {
@@ -104,6 +105,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Threads routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/threads') || req.url?.startsWith('/api/projects/')) {
       const handled = await handleThreadsRequest(req, res)
+      if (handled) return
+    }
+
+    // Git mutable routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/threads/')) {
+      const handled = await handleGitRequest(req, res)
       if (handled) return
     }
 

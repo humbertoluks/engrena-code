@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import axios from 'axios'
 
 const execFileAsync = promisify(execFile)
 
@@ -109,11 +110,27 @@ export async function gitCommit(cwd: string, subject: string, body?: string): Pr
   return { sha: stdout.trim() }
 }
 
-export async function gitPush(cwd: string): Promise<{ branch: string }> {
+export function injectTokenIntoHttpsUrl(remoteUrl: string, token: string): string | null {
+  if (!remoteUrl.startsWith('https://')) return null
+  const withoutScheme = remoteUrl.slice('https://'.length)
+  const hostAndPath = withoutScheme.includes('@') ? withoutScheme.split('@').slice(1).join('@') : withoutScheme
+  return `https://x-access-token:${token}@${hostAndPath}`
+}
+
+/** Push via URL autenticada com o PAT (quando presente) em vez de depender do credential helper do SO. */
+export async function gitPush(cwd: string, token?: string | null): Promise<{ branch: string }> {
   const { stdout: branchOut } = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   const branch = branchOut.trim()
+
+  const remoteUrl = token ? await getRemoteOriginUrl(cwd) : null
+  const authedUrl = remoteUrl && token ? injectTokenIntoHttpsUrl(remoteUrl, token) : null
+
   try {
-    await git(cwd, ['push', '-u', 'origin', branch])
+    if (authedUrl) {
+      await git(cwd, ['push', '-u', authedUrl, `HEAD:refs/heads/${branch}`])
+    } else {
+      await git(cwd, ['push', '-u', 'origin', branch])
+    }
   } catch (err) {
     throw new GitError('git_push_failed', 'Não foi possível fazer push das alterações.')
   }
@@ -133,6 +150,96 @@ export function parseGithubRemote(url: string): { owner: string; repo: string } 
   const httpsMatch = /github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/.exec(url)
   if (!httpsMatch) return null
   return { owner: httpsMatch[1], repo: httpsMatch[2] }
+}
+
+/** Restaura (reject) um arquivo pending: reverte para HEAD se rastreado, remove do disco se era novo. */
+export async function discardFile(cwd: string, file: string): Promise<void> {
+  try {
+    await git(cwd, ['reset', '--', file])
+  } catch {
+    // arquivo pode não estar no index — segue
+  }
+
+  let existsInHead = true
+  try {
+    await git(cwd, ['cat-file', '-e', `HEAD:${file}`])
+  } catch {
+    existsInHead = false
+  }
+
+  try {
+    if (existsInHead) {
+      await git(cwd, ['checkout', 'HEAD', '--', file])
+    } else {
+      await git(cwd, ['clean', '-f', '--', file])
+    }
+  } catch (err) {
+    throw new GitError('diff_apply_failed', `Não foi possível restaurar "${file}".`)
+  }
+}
+
+export interface CreatePullRequestInput {
+  branch?: string
+  base?: string
+  title: string
+  body?: string
+}
+
+export interface PullRequestResult {
+  url: string
+  number: number
+  existing: boolean
+}
+
+function githubAuthHeaders(token: string): Record<string, string> {
+  return { Authorization: `token ${token}`, Accept: 'application/vnd.github+json' }
+}
+
+export async function createPullRequest(cwd: string, token: string, input: CreatePullRequestInput): Promise<PullRequestResult> {
+  const remoteUrl = await getRemoteOriginUrl(cwd)
+  if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
+
+  const parsed = parseGithubRemote(remoteUrl)
+  if (!parsed) throw new GitError('pr_not_github', 'Remote origin não aponta para o GitHub.')
+
+  const head = input.branch ?? (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+
+  let base = input.base
+  if (!base) {
+    try {
+      const repoInfo = await axios.get<{ default_branch: string }>(
+        `https://api.github.com/repos/${parsed.owner}/${parsed.repo}`,
+        { headers: githubAuthHeaders(token) }
+      )
+      base = repoInfo.data.default_branch
+    } catch {
+      throw new GitError('pr_create_failed', 'Falha ao abrir o PR.')
+    }
+  }
+
+  try {
+    const res = await axios.post<{ html_url: string; number: number }>(
+      `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls`,
+      { title: input.title, head, base, body: input.body },
+      { headers: githubAuthHeaders(token) }
+    )
+    return { url: res.data.html_url, number: res.data.number, existing: false }
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 422) {
+      try {
+        const list = await axios.get<Array<{ html_url: string; number: number }>>(
+          `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls`,
+          { headers: githubAuthHeaders(token), params: { head: `${parsed.owner}:${head}`, state: 'open' } }
+        )
+        if (Array.isArray(list.data) && list.data.length > 0) {
+          return { url: list.data[0].html_url, number: list.data[0].number, existing: true }
+        }
+      } catch {
+        // segue para o erro genérico abaixo
+      }
+    }
+    throw new GitError('pr_create_failed', 'Falha ao abrir o PR.')
+  }
 }
 
 export interface DiffHunk {
