@@ -4,6 +4,7 @@ import { handleConfigRequest } from './config-handler.js'
 import { handleSubagentsRequest } from './subagents-handler.js'
 import { handleSkillsRequest } from './skills-handler.js'
 import { handleRulesRequest } from './rules-handler.js'
+import { handleProjectsRequest } from './projects-handler.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -89,6 +90,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Config routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/config/')) {
       const handled = await handleConfigRequest(req, res)
+      if (handled) return
+    }
+
+    // Projects routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/projects')) {
+      const handled = await handleProjectsRequest(req, res)
       if (handled) return
     }
 
