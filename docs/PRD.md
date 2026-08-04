@@ -647,12 +647,12 @@ graph TD
 - [x] Sem bloco de API keys nesta feature (fica em F10)
 
 ### F03. Workspace
-- [ ] Usuário cadastra projeto, cria thread com Claude|Codex|Kimi, access level e execution mode
-- [ ] Execution mode trava após o primeiro envio
-- [ ] Streaming, tool status e histórico persistem; follow-up enfileira com thread ocupada
-- [ ] Accept/reject por arquivo; git mutável bloqueado com thread running
-- [ ] Segunda execução no mesmo projeto retorna thread_busy
-- [ ] Skills, rules e subagents vinculados participam do turno conforme F05–F07
+- [x] Usuário cadastra projeto, cria thread com Claude|Codex|Kimi, access level e execution mode
+- [x] Execution mode trava após o primeiro envio
+- [x] Streaming, tool status e histórico persistem; follow-up enfileira com thread ocupada
+- [x] Accept/reject por arquivo; git mutável bloqueado com thread running
+- [x] Segunda execução no mesmo projeto retorna thread_busy
+- [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07
 
 ### F04. Dashboard
 - [ ] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
@@ -704,7 +704,7 @@ graph TD
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
-- [ ] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
+- [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
 - [ ] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
 - [ ] Preferência `engrenacode:theme` (F01.1) persiste e é respeitada ao navegar entre `#dashboard`, `#configuracao` e `#workspace`
 - [ ] Status de providers/prompt/GitHub de F02 alimenta saúde do Dashboard (F04) e disponibilidade do Workspace (F03)

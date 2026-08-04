@@ -14,6 +14,10 @@ const api = {
     onLocked: (listener: () => void) => {
       ipcRenderer.on('engrenacode:vault:locked', listener)
     }
+  },
+  dialog: {
+    openFolder: (): Promise<{ canceled: boolean; path: string | null }> =>
+      ipcRenderer.invoke('engrenacode:dialog:open-folder')
   }
 }
 

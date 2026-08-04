@@ -4,6 +4,7 @@ import { join } from 'path'
 import { app } from 'electron'
 import * as migration001Subagents from './migrations/001_subagents.js'
 import * as migration001Rules from './migrations/001_rules.js'
+import * as migration002WorkspaceCore from './migrations/002_workspace_core.js'
 
 interface Migration {
   id: string
@@ -13,6 +14,7 @@ interface Migration {
 const MIGRATIONS: Migration[] = [
   { id: migration001Subagents.id, sql: migration001Subagents.sql },
   { id: migration001Rules.id, sql: migration001Rules.sql },
+  { id: migration002WorkspaceCore.id, sql: migration002WorkspaceCore.sql },
 ]
 
 function resolveUserData(): string {

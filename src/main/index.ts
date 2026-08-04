@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
@@ -64,4 +64,11 @@ ipcMain.handle('engrenacode:vault:lock', () => {
   vaultService.lock()
   mainWindow?.webContents.send('engrenacode:vault:locked')
   return true
+})
+
+// Workspace IPC handlers
+ipcMain.handle('engrenacode:dialog:open-folder', async () => {
+  if (!mainWindow) return { canceled: true, path: null }
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
+  return { canceled: result.canceled, path: result.canceled ? null : (result.filePaths[0] ?? null) }
 })

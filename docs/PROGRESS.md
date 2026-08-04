@@ -3,7 +3,7 @@
 Fonte de verdade operacional do que está **feito neste repo** (`main`), versus o PRD e o plano Reversa (`_reversa_forward`). Atualizar ao fechar cada feature (spec + smoke + merge).
 
 **Atualizado:** 2026-08-04  
-**HEAD de referência:** `eaa9a0c` (feat F02) + F05 + smoke F06/F07 (2026-08-04)
+**HEAD de referência:** `0a6fe61` (test F03: execution-mode lock + F05/F07 catalog resolution) — F03 implementada via `implement-feature`
 
 ---
 
@@ -14,7 +14,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F01 | Vault e Sessão Local | **Feito** | Branch `f01-vault-e-sessao-local` → merge; `LoginScreen`, vault, session middleware, IPC `engrenacode` | Manter estável |
 | F01.1 | Design System | **Feito** | Branch `f01.1-design-system` → merge; tokens CSS, `useTheme`, splash `#0a0a0b` | Consumido por telas novas |
 | F02 | Configuração MVP | **Feito** | Commit `eaa9a0c`; `#configuracao`; `docs/F02-*/smoke-results.md` (2026-08-03) | Alimenta F03/F04 |
-| F03 | Workspace | **Spec pronta** | `docs/F03-workspace/{ui,copy,spec,plan}.md` regenerados 2026-08-04 (Central; F05–F07 reais; `node:sqlite`; WS; `#principal`); PNG em `ui/principal-referencia.png`; código ainda não iniciado | Implementar via `implement-feature` |
+| F03 | Workspace | **Feito (core + unitários); smoke visual pendente** | 5 commits `feat(F03)`/`test(F03)` (persistência, dispatch/lease/WS hub, diffs por arquivo + git, UI `#principal`); 197 testes verdes; `pnpm build`/`tsc -b`/electron-builder verdes; §9 F03 `[x]` no PRD | Rodar smoke manual 7.2 (unlock→dispatch→diff→git) com Electron real; ver `Esclarecimentos` |
 | F04 | Dashboard | **Não iniciado** | — | Após F03 + catálogo |
 | F05 | Skills | **Feito** | CRUD `#skills` + vínculo + `skill-registry`; `ProjectSkillsModal`; unitários verdes | Montar no Repo Harness F03 |
 | F06 | Rules | **Feito (catálogo)** | `#rules` + handlers + SQLite + registries; `docs/F06-rules/smoke-results.md` (2026-08-04); §9 override + CR/LF `[x]`; bloco no turno deferred F03 | Consumido por F03 no dispatch |
@@ -32,18 +32,18 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 |------|----------|--------|
 | 1 | F01, F01.1 | **Completa** |
 | 2 | F02, F05, F06, F07 | **Completa (catálogo)** — F02+F05+F06+F07 smoke; integração no turno fica no F03 |
-| 3 | F03, F10 | **Pronta para implementar F03** (spec + deps de catálogo); F10 paralelo |
+| 3 | F03, F10 | **F03 feita (core + unitários)**; F10 não iniciado, paralelo |
 | 4 | F04, F08, F09, F11 | Pendente |
 
-**Próxima frente de produto:** implementar F03 Workspace (`#principal`).
+**Próxima frente de produto:** smoke manual F03 (7.2) e então F04 Dashboard (consome F03).
 
 ---
 
 ## Esclarecimentos
 
-### F03 não está feita
+### F03 — feita, com ressalva de smoke visual
 
-Workspace completo no `_reversa_sdd` descreve o **sistema legado**, não o greenfield EngrenaCode. Spec/plan/ui/copy em `docs/F03-workspace/` são o alvo EngrenaCode. Não confundir análise Reversa com entrega neste `src/`.
+Implementada via `implement-feature` a partir de `docs/F03-workspace/{spec,plan,ui,copy}.md` (alvo EngrenaCode, não o `_reversa_sdd` legado). Gate técnico fechado: 197 testes unit/integração verdes cobrindo dispatch, lease/`thread_busy`, accept/reject por arquivo, git commit/push/PR, WS auth, resolução F05–F07; build (`tsc -b` + `vite build` + `electron-builder`) verde. Não executado nesta sessão (sem ferramenta de automação de browser/Electron disponível): smoke interativo 7.2 completo (unlock → adicionar pasta → dispatch → diff → git) e conferência visual light/dark vs `ui/principal-referencia.png`. Deviations conhecidas vs `ui.md`/`copy.md`: `GitActions` não tem botão único "Commit, push & PR" nem "Ver PR" nem confirmação de push em branch default (capacidade existe, só espalhada entre composer/GitActions/DiffViewer); banners `diff.after.accept`/`diff.after.reject` não renderizados.
 
 ### F06 / F07 “Feito (catálogo)”
 

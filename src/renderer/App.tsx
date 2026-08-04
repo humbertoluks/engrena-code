@@ -5,6 +5,7 @@ import { ConfiguracaoScreen } from './screens/ConfiguracaoScreen'
 import { SubagentsScreen } from './screens/SubagentsScreen'
 import { SkillsScreen } from './screens/SkillsScreen'
 import { RulesScreen } from './screens/RulesScreen'
+import { PrincipalScreen } from './screens/PrincipalScreen'
 
 function useHash(): string {
   const [hash, setHash] = useState(() => window.location.hash || '#dashboard')
@@ -57,6 +58,9 @@ function AuthenticatedApp(): React.ReactElement {
           <NavLink href="#dashboard" active={hash === '#dashboard' || hash === ''}>
             Dashboard
           </NavLink>
+          <NavLink href="#principal" active={hash === '#principal'}>
+            Workspace
+          </NavLink>
           <NavLink href="#configuracao" active={hash === '#configuracao'}>
             Configuração
           </NavLink>
@@ -73,7 +77,9 @@ function AuthenticatedApp(): React.ReactElement {
         <ThemeControl />
       </header>
       <main className="h-[calc(100vh-57px)] overflow-y-auto">
-        {hash === '#configuracao' ? (
+        {hash === '#principal' ? (
+          <PrincipalScreen />
+        ) : hash === '#configuracao' ? (
           <ConfiguracaoScreen />
         ) : hash === '#subagents' ? (
           <SubagentsScreen />

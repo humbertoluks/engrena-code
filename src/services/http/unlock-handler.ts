@@ -4,6 +4,10 @@ import { handleConfigRequest } from './config-handler.js'
 import { handleSubagentsRequest } from './subagents-handler.js'
 import { handleSkillsRequest } from './skills-handler.js'
 import { handleRulesRequest } from './rules-handler.js'
+import { handleProjectsRequest } from './projects-handler.js'
+import { handleThreadsRequest } from './threads-handler.js'
+import { handleGitRequest } from './git-handler.js'
+import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -92,6 +96,24 @@ export function createUnlockServer(port: number = 5174): http.Server {
       if (handled) return
     }
 
+    // Projects routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/projects')) {
+      const handled = await handleProjectsRequest(req, res)
+      if (handled) return
+    }
+
+    // Threads routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/threads') || req.url?.startsWith('/api/projects/')) {
+      const handled = await handleThreadsRequest(req, res)
+      if (handled) return
+    }
+
+    // Git mutable routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/threads/')) {
+      const handled = await handleGitRequest(req, res)
+      if (handled) return
+    }
+
     // SubAgents routes (async — must not mix with data event listeners)
     if (
       req.url?.startsWith('/api/subagents') ||
@@ -117,6 +139,13 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // 404
     res.writeHead(404)
     res.end(JSON.stringify({ error: 'Not found' }))
+  })
+
+  server.on('upgrade', (req, socket, head) => {
+    const handled = handleWorkspaceUpgrade(req, socket, head)
+    if (!handled) {
+      socket.destroy()
+    }
   })
 
   server.listen(port, '127.0.0.1', () => {
