@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ThemeControl } from './components/ThemeControl'
 import { LoginScreen } from './screens/LoginScreen'
 import { ConfiguracaoScreen } from './screens/ConfiguracaoScreen'
+import { SubagentsScreen } from './screens/SubagentsScreen'
 
 function useHash(): string {
   const [hash, setHash] = useState(() => window.location.hash || '#dashboard')
@@ -57,12 +58,17 @@ function AuthenticatedApp(): React.ReactElement {
           <NavLink href="#configuracao" active={hash === '#configuracao'}>
             Configuração
           </NavLink>
+          <NavLink href="#subagents" active={hash === '#subagents'}>
+            SubAgents
+          </NavLink>
         </nav>
         <ThemeControl />
       </header>
       <main className="h-[calc(100vh-57px)] overflow-y-auto">
         {hash === '#configuracao' ? (
           <ConfiguracaoScreen />
+        ) : hash === '#subagents' ? (
+          <SubagentsScreen />
         ) : (
           <DashboardPlaceholder />
         )}
