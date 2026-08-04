@@ -1,6 +1,7 @@
 import http from 'http'
 import { vaultService } from '../vault/vault-service.js'
 import { handleConfigRequest } from './config-handler.js'
+import { handleSubagentsRequest } from './subagents-handler.js'
 import { handleSkillsRequest } from './skills-handler.js'
 
 interface VaultUnlockRequest {
@@ -18,7 +19,7 @@ export function createUnlockServer(port: number = 5174): http.Server {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, PUT, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-engrenacode-session')
 
     // CORS preflight
@@ -90,6 +91,13 @@ export function createUnlockServer(port: number = 5174): http.Server {
       if (handled) return
     }
 
+    // SubAgents routes (async — must not mix with data event listeners)
+    if (
+      req.url?.startsWith('/api/subagents') ||
+      (req.url?.startsWith('/api/projects/') &&
+        (req.url.includes('/subagents') || req.url.endsWith('/catalog-order')))
+    ) {
+      const handled = await handleSubagentsRequest(req, res)
     // Skills routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/skills') || req.url?.startsWith('/api/projects/')) {
       const handled = await handleSkillsRequest(req, res)
