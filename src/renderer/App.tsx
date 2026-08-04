@@ -61,6 +61,7 @@ function AuthenticatedApp(): React.ReactElement {
           </NavLink>
           <NavLink href="#subagents" active={hash === '#subagents'}>
             SubAgents
+          </NavLink>
           <NavLink href="#skills" active={hash === '#skills'}>
             Skills
           </NavLink>
