@@ -34,9 +34,10 @@ A skill só precisa localizar dois arquivos e uma fonte de referência:
 ## SAÍDA
 
 - **Commits**: um Conventional Commit por fase do `plan.md`, no branch atual (sem criar branch, sem trocar de branch).
+- **`docs/PROGRESS.md` + checkboxes do PRD**: atualizados no Passo 6.6, só quando a execução fecha com status `success` e o arquivo existe no repositório-alvo.
 - **Relatório no chat** ao final: checklist de critérios de aceitação da feature marcada ✓ / ✗ / — contra os resultados reais dos testes, mais seções para Desvios, Soft-fails, Falhas pré-existentes, Overrides aplicados, Overrides ignorados e Status das fases.
 
-Nenhum arquivo é escrito além das mudanças de código e dos objetos de commit. O relatório no chat é efêmero.
+Nenhum outro arquivo é escrito além das mudanças de código, `docs/PROGRESS.md`/PRD no fechamento (Passo 6.6) e dos objetos de commit. O relatório no chat é efêmero.
 
 ---
 
@@ -208,6 +209,19 @@ O status final da execução é determinado por este passo, não por se as fases
 
 Nunca reporte `success` quando qualquer das checagens acima tiver falha não resolvida, mesmo que cada fase tenha commitado limpo individualmente.
 
+**6.6 — Fechar docs de progresso (só se status = `success`)**
+
+`docs/PROGRESS.md`, quando existir, é a fonte autoritativa de status real do repositório (ver `CLAUDE.md` → "Adaptação ao EngrenaCode") e sua própria nota de topo instrui: "Atualizar ao fechar cada feature" + "Ao fechar uma feature: marcar `[x]` lá [no PRD] **e** atualizar a tabela acima na mesma mudança." Os Passos 1–6 desta skill *leem* `PROGRESS.md` (Passo 4) mas nunca o escrevem — sem este passo o arquivo fica sistematicamente desatualizado mesmo em execuções `success`.
+
+Quando o Passo 6.5 resultar em `success`:
+
+- Atualize a linha da feita-feature na tabela "Resumo por feature" de `docs/PROGRESS.md` (status, evidência, próximo passo) e a linha de Onda correspondente, se existir.
+- No PRD, marque `[x]` nos itens de "Critérios de Aceitação" desta feature que passaram na re-checagem do Passo 6.3 (não marque os que ficaram `—` sem teste, nem os cobertos só por soft-fail/smoke pulado).
+- Faça stage só de `docs/PROGRESS.md` + `docs/PRD.md` e inclua num commit `docs(F<ID>): ...` separado dos commits de fase (ou junto do commit da última fase, se nenhum override desabilitou commits) — nunca misture com commits de código de outra fase.
+- Se `docs/PROGRESS.md` não existir neste repositório, pule silenciosamente (não é universal a todo projeto-alvo desta skill).
+
+Quando o status for `completed with regressions`, `incomplete` ou `aborted at phase <N>`, NÃO toque em `PROGRESS.md`/PRD — deixe-os refletindo o último estado fechado real.
+
 ### Passo 7: Relatório Final
 
 Saída do relatório no chat, em **português do Brasil** (rótulos de status e seções técnicas podem permanecer em inglês para estabilidade). O status vem do Passo 6.5, nunca de "acho que terminei":
@@ -278,6 +292,7 @@ Se abortado, o relatório ainda lista o que as fases commitadas alcançaram e ma
 - Para fases que tocam UI, verificar anatomia/tokens contra `ui.md` e strings literais contra `copy.md` antes de declarar feito.
 - Executar o Passo 6 (Verificação Final) por completo antes de reportar — re-run da suite completa, walk-through do Component Overview, re-checagem de AC, smoke check de ambiente.
 - Derivar o status final exclusivamente do Passo 6.5. Reportar `success` só quando toda checagem do Passo 6 estiver verde.
+- Quando o status final for `success` e `docs/PROGRESS.md` existir no repositório-alvo, executar o Passo 6.6 (atualizar a tabela de progresso + `[x]` no PRD) antes do relatório — nunca deixar o fechamento só no chat.
 - Comunicar com o usuário em português do Brasil.
 
 **Nunca:**
