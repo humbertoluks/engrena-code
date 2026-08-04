@@ -40,6 +40,7 @@ export interface RuleLinkState extends Omit<Rule, 'content'> {
   suppressedHere: boolean
   enabledInProject: boolean | null
   sortOrder: number | null
+  contentBytes: number
 }
 
 export interface ApiErrorBody {

@@ -21,6 +21,8 @@ export interface RuleLinkState extends Omit<Rule, 'content'> {
   suppressedHere: boolean
   enabledInProject: boolean | null
   sortOrder: number | null
+  /** Byte length of the omitted content, for the project overlay's KB aggregate footer. */
+  contentBytes: number
 }
 
 interface RuleWithLinkState extends Rule {
@@ -90,8 +92,8 @@ function toRuleWithLinkState(row: RuleLinkRow): RuleWithLinkState {
 }
 
 function stripContent(rule: RuleWithLinkState): RuleLinkState {
-  const { content: _content, ...rest } = rule
-  return rest
+  const { content, ...rest } = rule
+  return { ...rest, contentBytes: Buffer.byteLength(content, 'utf-8') }
 }
 
 function isControlOrNewline(value: string): boolean {
