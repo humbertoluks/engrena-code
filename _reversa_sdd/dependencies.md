@@ -10,7 +10,7 @@
 - Node **>= 20**
 - Builds nativos permitidos: `better-sqlite3`, `electron`, `esbuild`, `node-pty`
 
-## Root (`lioncode`)
+## Root (`sistema-legado`)
 
 | Pacote | Versão | Tipo |
 |--------|--------|------|
@@ -19,17 +19,17 @@
 
 Scripts principais: `build`, `typecheck`, `app`, `e2e:hermetic`, `e2e:live-smoke`, `validate`, `rebuild:electron`, `rebuild:node`.
 
-## `@lioncode/shared`
+## `@sistema-legado/shared`
 
 Sem runtime deps. Apenas `typescript` ^5.5.4 (dev).
 
-## `@lioncode/server`
+## `@sistema-legado/server`
 
 ### Runtime
 
 | Pacote | Versão | Papel |
 |--------|--------|-------|
-| `@lioncode/shared` | workspace:* | Contratos |
+| `@sistema-legado/shared` | workspace:* | Contratos |
 | `@anthropic-ai/claude-agent-sdk` | ^0.3.177 | Provider Claude / compat |
 | `@agentclientprotocol/sdk` | 1.2.1 | ACP (Grok/Kimi) |
 | `@modelcontextprotocol/sdk` | ^1.29.0 | MCP |
@@ -45,13 +45,13 @@ Sem runtime deps. Apenas `typescript` ^5.5.4 (dev).
 | `@types/better-sqlite3` | ^7.6.13 |
 | `@types/node` | ^20.14.0 |
 
-## `@lioncode/renderer`
+## `@sistema-legado/renderer`
 
 ### Runtime
 
 | Pacote | Versão | Papel |
 |--------|--------|-------|
-| `@lioncode/shared` | workspace:* | Contratos |
+| `@sistema-legado/shared` | workspace:* | Contratos |
 | `react` / `react-dom` | ^18.3.1 | UI |
 | `@xterm/xterm` | ^6.0.0 | Terminal embutido |
 | `@xterm/addon-fit` | ^0.11.0 | Fit do xterm |
@@ -76,14 +76,14 @@ Sem runtime deps. Apenas `typescript` ^5.5.4 (dev).
 | `jsdom` | ^25.0.1 | Ambiente de teste |
 | `typescript` | ^5.5.4 | Tipos |
 
-## `@lioncode/shell`
+## `@sistema-legado/shell`
 
 ### Runtime
 
 | Pacote | Versão |
 |--------|--------|
-| `@lioncode/server` | workspace:* |
-| `@lioncode/shared` | workspace:* |
+| `@sistema-legado/server` | workspace:* |
+| `@sistema-legado/shared` | workspace:* |
 
 ### Dev
 
@@ -100,13 +100,13 @@ Dependências comuns na maioria: `@modelcontextprotocol/sdk`, `zod`.
 
 | Pacote | Integração |
 |--------|------------|
-| `@lioncode/mcp-cartesia` | Cartesia (voz) |
-| `@lioncode/mcp-elevenlabs` | ElevenLabs (voz) |
-| `@lioncode/mcp-linear` | Linear |
-| `@lioncode/mcp-n8n` | n8n |
-| `@lioncode/mcp-slack` | Slack |
-| `@lioncode/mcp-secret-wrapper` | Wrapper de secrets (sem deps runtime listadas) |
-| `@lioncode/mcp-subagents-bridge` | Bridge de subagents do sistema legado |
+| `@sistema-legado/mcp-cartesia` | Cartesia (voz) |
+| `@sistema-legado/mcp-elevenlabs` | ElevenLabs (voz) |
+| `@sistema-legado/mcp-linear` | Linear |
+| `@sistema-legado/mcp-n8n` | n8n |
+| `@sistema-legado/mcp-slack` | Slack |
+| `@sistema-legado/mcp-secret-wrapper` | Wrapper de secrets (sem deps runtime listadas) |
+| `@sistema-legado/mcp-subagents-bridge` | Bridge de subagents do sistema legado |
 
 ## Dependências críticas (visão rápida)
 

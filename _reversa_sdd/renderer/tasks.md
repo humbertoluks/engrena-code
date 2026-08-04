@@ -5,8 +5,8 @@
 ## Pré-requisitos
 
 - [ ] Server loopback com vault unlock e rotas protegidas
-- [ ] Shell com preload `window.lioncode` (produção) ou Vite dev standalone
-- [ ] Pacote `@lioncode/shared` com contratos de API
+- [ ] Shell com preload `window.sistemaLegado` (produção) ou Vite dev standalone
+- [ ] Pacote `@sistema-legado/shared` com contratos de API
 - [ ] Build Vite → `packages/renderer/dist` para `app://bundle`
 
 ## Tarefas
@@ -18,7 +18,7 @@
 
 - [ ] T-02, `createApiClient` com session header e base URL configurável
   - Origem: `packages/renderer/src/api/client.ts`, `api/http.ts`
-  - Critério de pronto: header `X-sistema-legado-Session` quando token setado
+  - Critério de pronto: header `X-Sistema-Legado-Session` quando token setado
   - Confiança: 🟢
 
 - [ ] T-03, Rotas hash: `routes.ts` + `useHashRoute` com guard e intendedRef

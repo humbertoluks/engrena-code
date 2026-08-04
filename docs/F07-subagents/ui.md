@@ -2,7 +2,7 @@
 
 **Feature:** F07-subagents  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/SubagentsScreen.tsx` (+ `SubagentFormModal.tsx`, `subagentForm.logic.ts`, `ProjectSubagentsModal.tsx`; runtime: `SubagentActivity.tsx`, bloco aninhado em `ChatHistory.tsx`; acionador harness em `WorkspaceSidebar.tsx`)  
 **Componente destino (previsto):** `packages/renderer/src/screens/SubagentsScreen.tsx` (+ satélites de form, vínculo, activity e timeline)  
 **Última atualização:** 2026-08-03
@@ -154,7 +154,7 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca no erro de rede | LionCode | EngrenaCode |
+| Marca no erro de rede | sistema legado | EngrenaCode |
 | Providers form | inherit, claude, glm, minimax, codex, grok, kimi | MVP: inherit, Claude, Codex, Kimi |
 | Tools null / [] / lista | null=todas; []=nenhuma; lista=allowlist | manter semântica PRD |
 | Idle timeout | vazio → 20 min (1..480) | manter |
@@ -166,7 +166,7 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final no destino.
 
 ### Tela `#subagents`
 

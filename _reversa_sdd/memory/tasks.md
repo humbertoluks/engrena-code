@@ -12,7 +12,7 @@
 
 - [ ] T-01, FS base: ensure, anti-symlink, readBounded, writeAtomic
   - Origem no legado: `packages/server/src/memory/project-memory-fs.ts`
-  - Critério de pronto: `.lioncode/` criado; symlink rejeitado
+  - Critério de pronto: `.sistema-legado/` criado; symlink rejeitado
   - Confiança: 🟢
 
 - [ ] T-02, Journal: gramática, sanitize, rotação, append

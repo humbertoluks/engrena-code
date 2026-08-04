@@ -25,7 +25,7 @@
   - Critério de pronto: pós-5 falhas; skip password test em backoff
   - Confiança: 🟢
 
-- [ ] T-04, sessionAuth middleware valida `x-lioncode-session`
+- [ ] T-04, sessionAuth middleware valida `x-sistema-legado-session`
   - Origem no legado: `packages/server/src/middleware/session-auth.ts`
   - Critério de pronto: 401 sem header; timingSafeEqual
   - Confiança: 🟢

@@ -29,7 +29,7 @@ Retorno: `Promise<void>`; erros HTTP mapeados na rota chamadora. 🟢
 1. **scheduleDispatch** → tenta lease (`projectExecutionRegistry`) 🟢
 2. **runDispatch** inicia:
    - `turns.register(threadId, abortController)` 🟢
-   - Resolve `repoPath`: `main` cwd vivo ou worktree `lioncode/<thread>` 🟢
+   - Resolve `repoPath`: `main` cwd vivo ou worktree `sistema-legado/<thread>` 🟢
    - Snapshot registries (skills, subagents, MCPs) 🟢
    - Compõe blocos: rules, memory (pai only), codegraph tools 🟢
    - Prepara MCPs via vault secrets (`mcp-secrets.ts`) 🟢

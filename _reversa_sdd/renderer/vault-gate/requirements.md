@@ -6,7 +6,7 @@
 
 ## Visão Geral
 
-Tela **`#login`** e mecanismos associados que desbloqueiam o cofre cifrado local (workspace + senha) via HTTP no server. Não é autenticação remota multi-usuário: libera sessão efêmera (`X-sistema-legado-Session`) obtida depois via IPC. Enquanto travado, rotas protegidas redirecionam ao gate. 🟢
+Tela **`#login`** e mecanismos associados que desbloqueiam o cofre cifrado local (workspace + senha) via HTTP no server. Não é autenticação remota multi-usuário: libera sessão efêmera (`X-Sistema-Legado-Session`) obtida depois via IPC. Enquanto travado, rotas protegidas redirecionam ao gate. 🟢
 
 ## Responsabilidades
 

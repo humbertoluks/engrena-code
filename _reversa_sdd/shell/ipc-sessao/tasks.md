@@ -12,7 +12,7 @@
 
 - [ ] T-01, Definir constantes de canal espelhadas main ↔ preload
   - Origem no legado: `packages/shell/src/main.ts` (VAULT_SESSION_TOKEN_CHANNEL, VAULT_LOCKED_EVENT); `packages/shell/src/preload.ts`
-  - Critério de pronto: strings idênticas `lioncode:vault:session-token` e `lioncode:vault:locked`
+  - Critério de pronto: strings idênticas `sistema-legado:vault:session-token` e `sistema-legado:vault:locked`
   - Confiança: 🟢
 
 - [ ] T-02, Tipar `VaultSessionBridge` estrutural (sem import runtime do server)
@@ -32,7 +32,7 @@
 
 - [ ] T-05, Expor `getSessionToken` e `onVaultLocked` no `contextBridge`
   - Origem no legado: `packages/shell/src/preload.ts`
-  - Critério de pronto: `window.lioncode` tem ambos; unsubscribe remove listener
+  - Critério de pronto: `window.sistemaLegado` tem ambos; unsubscribe remove listener
   - Confiança: 🟢
 
 - [ ] T-06, Cleanup: `removeHandler` + `unsubscribeVaultLock` em shutdown
@@ -60,5 +60,5 @@
 
 ## Lacunas Pendentes (🔴)
 
-- Nome exacto do header HTTP no renderer/server (`X-sistema-legado-Session` inferido)
+- Nome exacto do header HTTP no renderer/server (`X-Sistema-Legado-Session` inferido)
 - Política se houver múltiplas BrowserWindows no futuro

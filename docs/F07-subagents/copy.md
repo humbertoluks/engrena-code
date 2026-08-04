@@ -1,8 +1,8 @@
 # Catálogo de copy: F07-subagents
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`packages/renderer` — `SubagentsScreen`, `SubagentFormModal`, `ProjectSubagentsModal`, `SubagentActivity`, `ChatHistory` SubagentBlock, harness em `WorkspaceSidebar`)  
-**Mapa de rename:** `LionCode → EngrenaCode`  
+**Fonte:** sistema legado (`packages/renderer` — `SubagentsScreen`, `SubagentFormModal`, `ProjectSubagentsModal`, `SubagentActivity`, `ChatHistory` SubagentBlock, harness em `WorkspaceSidebar`)  
+**Mapa de rename:** `sistema legado → EngrenaCode`  
 **Última atualização:** 2026-08-03
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.

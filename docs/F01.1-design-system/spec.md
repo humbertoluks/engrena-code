@@ -3,7 +3,7 @@
 **Complexidade:** médio  
 **Fonte PRD:** `docs/PRD.md` → F01.1  
 **Modo:** Escopo Central only; Adições ao Escopo Completo adiadas  
-**Fonte visual:** `docs/design-system/` (Design Lock LionClaw), paths de código alinhados ao layout real `src/`
+**Fonte visual:** `docs/design-system/` (Design Lock), paths de código alinhados ao layout real `src/`
 
 ## Assumptions / Decisions
 
@@ -14,7 +14,7 @@
 | Layout de pastas | Codebase | `src/renderer/`, `src/main/` (não `packages/renderer`) |
 | Shiki / xterm | Entrevista R3 | Contrato runtime + deps; sem chat, markdown de mensagem, dock, PTY |
 | Controle de tema | Entrevista R4 | `useTheme` + `engrenacode:theme`; seletor mínimo em `#login` e chrome pós-unlock |
-| Tipografia | Entrevista R5 | DM Sans + Figtree + JetBrains Mono; LionLabs Grotesk fora |
+| Tipografia | Entrevista R5 | DM Sans + Figtree + JetBrains Mono; experimento Grotesk fora |
 | Migração visual | Entrevista R6 | Infra + migrar superfícies existentes (`#login` + chrome); sem telas novas |
 | `.chat-markdown` | Entrevista R7 | Adiado com UI de chat; critério só na integração F03 |
 | Hexes / escalas | PRD + `docs/design-system` | Design Lock inalterado; só o mecanismo de exposição muda |
@@ -46,7 +46,7 @@
 - Type scale, shadows, z-index, motion e breakpoints custom tokenizados (Adições ao Escopo Completo)
 - `.chat-markdown` e qualquer UI de chat/markdown de mensagem
 - Dock de terminal, PTY, sessão xterm montada
-- LionLabs Grotesk
+- Experimento Grotesk
 - Storybook, MUI/Chakra/Emotion/CSS Modules
 - Temas profundos além de `light` | `dark` | `system`
 - Telas novas de produto (Config, Dashboard real, Workspace)

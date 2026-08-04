@@ -5,7 +5,7 @@
 
 ## Visão Geral
 
-Workspace **pnpm** de servidores MCP stdio do catálogo do sistema legado: integrações externas (Slack, Linear, n8n, Cartesia, ElevenLabs) e bridges internas (`lioncode-secret-wrapper`, `lioncode-subagents`). Cada pacote é processo separado spawnado pelo runner/provider; lógica testável em `protocol.ts`; entrypoint em `index.ts`. 🟢
+Workspace **pnpm** de servidores MCP stdio do catálogo do sistema legado: integrações externas (Slack, Linear, n8n, Cartesia, ElevenLabs) e bridges internas (`sistema-legado-secret-wrapper`, `sistema-legado-subagents`). Cada pacote é processo separado spawnado pelo runner/provider; lógica testável em `protocol.ts`; entrypoint em `index.ts`. 🟢
 
 ## Responsabilidades
 
@@ -13,7 +13,7 @@ Workspace **pnpm** de servidores MCP stdio do catálogo do sistema legado: integ
 - Resolver config/segredos de `process.env` no spawn (vault → runner) 🟢
 - Comunicar APIs remotas ou loopback do sistema legado via `fetch` injetável 🟢
 - Retornar JSON enxuto ou `isError`; nunca derrubar processo por falha de tool 🟢
-- TTS: gravar mp3 em `.lioncode/audio/` com git exclude 🟢
+- TTS: gravar mp3 em `.sistema-legado/audio/` com git exclude 🟢
 - Secret wrapper: pass-through stdio para server real sem vazar canal 🟢
 - Bridge subagents: proxy HTTP delegate/memory/repo-graph 🟢
 
@@ -25,7 +25,7 @@ Workspace **pnpm** de servidores MCP stdio do catálogo do sistema legado: integ
 - Erros de tool → `isError: true` + texto; processo continua 🟢
 - Wrapper: `specUrl` restrito a `127.0.0.1` 🟢
 - Bridge exige ≥1 capability (SUBAGENTS / MEMORY / REPO_GRAPH) 🟢
-- Sentinel spawn: `LIONCODE_MCP_SERVER_DIST:<pkg>` → dist/index.js 🟢
+- Sentinel spawn: `SISTEMA_LEGADO_MCP_SERVER_DIST:<pkg>` → dist/index.js 🟢
 
 ## Requisitos Funcionais
 
@@ -43,7 +43,7 @@ Workspace **pnpm** de servidores MCP stdio do catálogo do sistema legado: integ
 
 | Tipo | Requisito | Evidência | Confiança |
 |------|-----------|-----------|-----------|
-| Segurança | Env scrub `LIONCODE_MCP_*` no filho | secret-wrapper protocol | 🟢 |
+| Segurança | Env scrub `SISTEMA_LEGADO_MCP_*` no filho | secret-wrapper protocol | 🟢 |
 | Segurança | Token file burn-after-read | readAndBurnToken | 🟢 |
 | Testabilidade | fetch/fs injetáveis em protocol | protocol.ts deps | 🟢 |
 | Observabilidade | Logs só stderr | comentários index.ts | 🟢 |
@@ -59,7 +59,7 @@ Dado secret-wrapper com token file válido
 Quando fetchSpec retorna command/args/env
 Então filho spawna com stdio inherit e env limpo
 
-Dado bridge com LIONCODE_SUBAGENTS JSON
+Dado bridge com SISTEMA_LEGADO_SUBAGENTS JSON
 Quando call_subagent é invocada
 Então proxyDelegate POST ao endpoint loopback do driver
 
@@ -84,5 +84,5 @@ Então isError sem crash do processo MCP
 | `mcp-servers/n8n/` | n8n REST MCP | 🟢 |
 | `mcp-servers/cartesia/` | Cartesia TTS | 🟢 |
 | `mcp-servers/elevenlabs/` | ElevenLabs TTS | 🟢 |
-| `mcp-servers/lioncode-secret-wrapper/` | Pass-through spawn | 🟢 |
-| `mcp-servers/lioncode-subagents/` | Bridge lioncode | 🟢 |
+| `mcp-servers/sistema-legado-secret-wrapper/` | Pass-through spawn | 🟢 |
+| `mcp-servers/sistema-legado-subagents/` | Bridge sistema-legado | 🟢 |

@@ -39,7 +39,7 @@ Diagrama completo: [`c4-context.md`](./c4-context.md).
 | **Shell** | Electron 33 | Processo main: sobe server, janela, preload IPC (token, dialog, vault locked) | 🟢 |
 | **Renderer** | React 18 + Vite + Tailwind | UI: vault gate, workspace, streaming, catálogos, consumo | 🟢 |
 | **Server** | Node HTTP + WS | Domínio, rotas (~88), dispatch, SQLite, vault, PTY | 🟢 |
-| **Shared** | TS types only | Contratos únicos (`@lioncode/shared`) | 🟢 |
+| **Shared** | TS types only | Contratos únicos (`@sistema-legado/shared`) | 🟢 |
 | **SQLite** | better-sqlite3 | Persistência local (64 migrations) | 🟢 |
 | **Vault store** | ficheiros cifrados | Chaves/tokens (não SQLite) | 🟢 |
 | **MCP processes** | stdio MCP | Catálogo bundled + 3rd-party | 🟢 |
@@ -50,7 +50,7 @@ Diagrama completo: [`c4-context.md`](./c4-context.md).
 | De → Para | Canal | Confiança |
 |-----------|-------|-----------|
 | Renderer → Server | HTTP + WebSocket `localhost` (+ header sessão) | 🟢 |
-| Shell ↔ Renderer | IPC mínimo (`window.lioncode`) | 🟢 |
+| Shell ↔ Renderer | IPC mínimo (`window.sistemaLegado`) | 🟢 |
 | Shell → Server | mesmo processo / spawn bootstrap | 🟢 |
 | Server → Provider | SDK/CLI subprocess | 🟢 |
 | Server → MCP | spawn + secret-wrapper / bridge loopback | 🟢 |
@@ -158,7 +158,7 @@ erDiagram
 | Pipeline extra | `feature_pipeline_rounds`, concurrent/recollects | 🟢 |
 | Build extra | rounds, interventions, validator audits | 🟢 |
 | Codegraph | `codegraph_runs` (+ ficheiros `.codegraph/` no disco) | 🟢 |
-| Fora do SQLite | vault cifrado; `docs/features/<slug>/`; `.lioncode/audio/`; memory md | 🟢 |
+| Fora do SQLite | vault cifrado; `docs/features/<slug>/`; `.sistema-legado/audio/`; memory md | 🟢 |
 
 ---
 
@@ -167,7 +167,7 @@ erDiagram
 | Integração | Como | Confiança |
 |------------|------|-----------|
 | Claude | `@anthropic-ai/claude-agent-sdk` | 🟢 |
-| Codex | CLI `codex exec` + MCP TOML + bridge `lioncode` | 🟢 |
+| Codex | CLI `codex exec` + MCP TOML + bridge `sistema-legado` | 🟢 |
 | GLM / MiniMax | drivers no server | 🟢 |
 | Grok / Kimi | `@agentclientprotocol/sdk` | 🟢 |
 | GitHub | git + API PR/OAuth (vault VCS) | 🟢 |

@@ -86,7 +86,7 @@ F01 sessão `x-engrenacode-session` + 423 `vault_locked`; F01.1 tokens; F02/F05/
 | Copy | PT-BR acentuado | Byte-a-byte legado | EngrenaCode |
 | Runs | Persistidos SQLite (schema enxuto) | Só memória | Audit/replay |
 | Diffs filho | Mesmo cwd; diffs no fim do turno do pai | Worktree isolado | MVP simples |
-| Tool name | `mcp__engrenacode__call_subagent` | `mcp__lioncode__*` | Marca |
+| Tool name | `mcp__engrenacode__call_subagent` | prefixo MCP do sistema legado | Marca |
 | Codex gate | Full-access obrigatório se há subagents ativos | Degradar silencioso | Segurança |
 
 ### 3.3 Assumptions
@@ -95,7 +95,7 @@ F01 sessão `x-engrenacode-session` + 423 `vault_locked`; F01.1 tokens; F02/F05/
 |------------|--------|--------------------|
 | Pasta `docs/F07-subagents/` (kebab PRD “SubAgents”) — já correta | skill | sim |
 | Frontend = ui.md + copy.md | pedido usuário | não nesta spec |
-| Omit pipeline/MCPs/skills/extra providers; soft 10; hard 1 MiB; PT-BR; timeout na timeline | entrevista LionCodeLabs + PRD | sim |
+| Omit pipeline/MCPs/skills/extra providers; soft 10; hard 1 MiB; PT-BR; timeout na timeline | entrevista sistema legado + PRD | sim |
 | Prefixo `/api`; INTEGER ms | F05/F06 | não |
 | Wiring completo no turn-runner deferred até F03 existir | Onda 2/3 | sim |
 | Bootstrap SQLite se ainda ausente | codebase sem db | sim |
@@ -391,7 +391,7 @@ CREATE INDEX ix_subagent_runs_parent ON subagent_runs(parent_thread_id);
 | 7 | call_subagent (quando runner) | run na sidebar; bloco timeline |
 | 8 | Idle (ou simulado) | status `timeout` em activity **e** timeline |
 | 9 | Codex pai sem full-access | delegação bloqueada com mensagem |
-| 10 | Light/dark vs ui.md | EngrenaCode, sem LionCode |
+| 10 | Light/dark vs ui.md | EngrenaCode, sem sistema legado |
 
 ### 7.3 Cross-feature
 
@@ -406,7 +406,7 @@ CREATE INDEX ix_subagent_runs_parent ON subagent_runs(parent_thread_id);
 
 ### Critérios PRD §9
 
-- [ ] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
+- [x] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
 - [ ] call_subagent cria run efêmero; diffs do filho na revisão do pai
-- [ ] Codex pai sem full-access não delega
+- [x] Codex pai sem full-access não delega
 - [ ] Idle timeout default 20 min encerra run visível na UI

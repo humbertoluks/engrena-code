@@ -4,7 +4,7 @@
 
 ## Pré-requisitos
 
-- [ ] `@lioncode/server` com `createServer` (+ opcional `createE2eDriverRegistry`)
+- [ ] `@sistema-legado/server` com `createServer` (+ opcional `createE2eDriverRegistry`)
 - [ ] `renderer/dist` ou `RENDERER_DEV_SERVER_URL`
 - [ ] Ícones embutidos (tray/app data URLs) ou assets equivalentes
 - [ ] Specs pai `shell/design.md` alinhadas (canais IPC / scheme)

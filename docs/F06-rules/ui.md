@@ -2,7 +2,7 @@
 
 **Feature:** F06-rules  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/RulesScreen.tsx` (+ `components/rules/RuleFormModal.tsx`, `ruleForm.logic.ts`, `ProjectRulesModal.tsx`; acionador harness em `WorkspaceSidebar.tsx`)  
 **Componente destino (previsto):** `packages/renderer/src/screens/RulesScreen.tsx` (+ satélites de form e vínculo/override)  
 **Última atualização:** 2026-08-03
@@ -130,7 +130,7 @@ Pill/row “Rules” na seção Repo Harness da sidebar direita: abre `ProjectRu
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca no erro de rede | LionCode | EngrenaCode |
+| Marca no erro de rede | sistema legado | EngrenaCode |
 | Soft-warn por rule | 8 KB (`RULE_CONTENT_SOFT_WARN`) | manter |
 | Soft-warn agregado | 16 KB (`RULES_AGGREGATE_SOFT_WARN`) | manter |
 | Hard cap 1 MiB no form | ausente na fonte | destino: hard block UI+server (spec) |
@@ -140,7 +140,7 @@ Pill/row “Rules” na seção Repo Harness da sidebar direita: abre `ProjectRu
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final no destino.
 
 ### Tela `#rules`
 

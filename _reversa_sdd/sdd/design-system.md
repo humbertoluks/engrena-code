@@ -14,7 +14,7 @@
 🟡 Expor tokens semânticos light/dark, runtime de tema `light` | `dark` | `system` com persistência e anti-flash, e padrões de superfície para todas as UIs do renderer.
 
 ## 3. Não-objetivos
-🟡 Type scale / shadows / z-index / motion tokenizados; breakpoints desktop formalizados além do Tailwind default; MUI/Chakra/Emotion/CSS Modules/Storybook obrigatório; packs de tema custom; identidade tipográfica definitiva LionLabs Grotesk.
+🟡 Type scale / shadows / z-index / motion tokenizados; breakpoints desktop formalizados além do Tailwind default; MUI/Chakra/Emotion/CSS Modules/Storybook obrigatório; packs de tema custom; identidade tipográfica definitiva experimento Grotesk.
 
 ## 4. Requisitos funcionais
 - 🟡 **RF-01:** Tokens CSS `:root` / `.dark` cobrem bg, surface, surface-2, border, fg, muted, accent, accent-2, green, amber, red (+ scrollbar) com hexes do Design Lock.
@@ -44,7 +44,7 @@
 - 🟡 **Dado** troca de tema, **Quando** a classe muda, **Então** `.no-transitions` evita flash.
 
 ## 8. Questões em aberto
-- 🟡 ⚠️ ABERTO: se LionLabs Grotesk permanece como alias experimental ou é removido na 1.0.
+- 🟡 ⚠️ ABERTO: se experimento Grotesk permanece como alias experimental ou é removido na 1.0.
 
 ## 9. Relatório de avaliação
 ```

@@ -21,7 +21,7 @@ Camada que **binda** o server em loopback, **roteia** requisições REST JSON e 
 - Bind default `127.0.0.1` — sem exposição WAN implícita 🟢
 - Path desconhecido → 404; método errado → 405 🟢
 - `Content-Type: application/json` exigido para bodies parseados 🟡
-- WS: token de sessão via subprotocolo `lioncode-session`, **nunca** query string 🟢
+- WS: token de sessão via subprotocolo `sistema-legado-session`, **nunca** query string 🟢
 - Frames WS limitados (1 MiB/frame, 4 MiB mensagem agregada) 🟢
 
 ## Requisitos Funcionais
@@ -56,7 +56,7 @@ Dado POST com corpo > 1 MiB
 Quando readBody acumula chunks
 Então a resposta é erro de validação JSON sem processar handler
 
-Dado cliente WS com subprotocolo lioncode-session e token válido
+Dado cliente WS com subprotocolo sistema-legado-session e token válido
 Quando handshake upgrade para threadId=T
 Então eventos emit(T, event) chegam ao cliente inscrito
 

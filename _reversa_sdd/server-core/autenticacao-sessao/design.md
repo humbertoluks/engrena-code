@@ -8,10 +8,10 @@
 
 | Nome | Valor | Observação |
 |------|-------|------------|
-| `X-sistema-legado-Session` | token opaco | Lido como `x-lioncode-session` (lower case) 🟢 |
+| `X-Sistema-Legado-Session` | token opaco | Lido como `x-sistema-legado-session` (lower case) 🟢 |
 | Ausente / inválido | 401 `session_invalid` | Corpo JSON padronizado 🟢 |
 
-Constante exportada: `SESSION_HEADER = 'x-lioncode-session'`. 🟢
+Constante exportada: `SESSION_HEADER = 'x-sistema-legado-session'`. 🟢
 
 ### Vault (contrato usado pelos middlewares)
 
@@ -50,7 +50,7 @@ Constante exportada: `SESSION_HEADER = 'x-lioncode-session'`. 🟢
 ## Fluxo Alternativo (lock)
 
 1. Usuário trava cofre ou timeout 🟡
-2. `onLock` → shell emite `lioncode:vault:locked` 🟢
+2. `onLock` → shell emite `sistema-legado:vault:locked` 🟢
 3. Tokens anteriores invalidados 🟢
 4. WS connections dropadas no próximo emit/handshake 🟡
 

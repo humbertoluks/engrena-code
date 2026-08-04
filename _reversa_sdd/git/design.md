@@ -10,9 +10,9 @@
 |---------|------------|---------|-----------|
 | `createWorktree` | `(repoPath, threadId, branch?)` | `WorktreeHandle` | 🟢 |
 | `WorktreeHandle.path` | — | path em tmpdir | 🟢 |
-| `WorktreeHandle.branch` | — | `lioncode/<short>` | 🟢 |
+| `WorktreeHandle.branch` | — | `sistema-legado/<short>` | 🟢 |
 
-Path determinístico: `tmpdir/lioncode-worktrees/<threadId>` 🟢
+Path determinístico: `tmpdir/sistema-legado-worktrees/<threadId>` 🟢
 
 ### Review / Diff
 
@@ -87,7 +87,7 @@ Path determinístico: `tmpdir/lioncode-worktrees/<threadId>` 🟢
 | Worktree paths | filesystem tmpdir | map threadId→path |
 | repo-lock queue | in-memory por repo | Promise chain |
 | projectExecutionRegistry | in-memory | lease tokens |
-| refs/lioncode/* | git refs | GC scheduled |
+| refs/sistema-legado/* | git refs | GC scheduled |
 
 ## Observabilidade
 

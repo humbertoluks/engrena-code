@@ -44,13 +44,13 @@ Drivers **não** leem DB — snapshot vem no options.
 
 ## Fluxos por Família
 
-- **Claude-family:** Agent SDK `query()`, MCP in-process `lioncode`, `canUseTool` → brokers 🟢
+- **Claude-family:** Agent SDK `query()`, MCP in-process `sistema-legado`, `canUseTool` → brokers 🟢
 - **Codex:** app-server ou exec; MCP via proxy; usage cumulativo com delta 🟢
 - **ACP (grok/kimi):** spawn CLI → initialize → session → prompt; cancel SIGTERM/ACP 🟢
 
 ## Dependências
 
-- `@lioncode/shared` — Provider, RawStreamEvent, AccessLevel 🟢
+- `@sistema-legado/shared` — Provider, RawStreamEvent, AccessLevel 🟢
 - Claude Agent SDK — claude/glm/minimax 🟢
 - ACP SDK — grok/kimi 🟢
 - Consumido por `runner/dispatch.ts`, rotas config, `memory/consolidator` 🟢

@@ -4,7 +4,7 @@
 
 ## Interface
 
-### Bridge Electron (`window.lioncode`)
+### Bridge Electron (`window.sistemaLegado`)
 
 | Símbolo | Uso no renderer | Confiança |
 |---------|-----------------|-----------|
@@ -27,7 +27,7 @@
 
 | Módulo | Canal | Session |
 |--------|-------|---------|
-| `api/http.ts` | REST loopback | Header `X-sistema-legado-Session` 🟢 |
+| `api/http.ts` | REST loopback | Header `X-Sistema-Legado-Session` 🟢 |
 | `api/ws.ts` | WebSocket thread events | Subprotocolo / header 🟢 |
 | `api/pty.ts` | PTY interativo | Idem 🟢 |
 | `api/client.ts` | Facade `ApiClient` | `setSessionToken` in-memory 🟢 |
@@ -50,7 +50,7 @@
 
 ## Dependências
 
-- `@lioncode/shared` — tipos de domínio (Project, Thread, Message…) 🟢
+- `@sistema-legado/shared` — tipos de domínio (Project, Thread, Message…) 🟢
 - Server loopback — única fonte de dados 🟢
 - xterm.js, shiki, react-markdown — terminal e render 🟢
 - Tailwind — design tokens da IDE 🟢

@@ -36,7 +36,7 @@
   - Critério de pronto: retryAfterMs; rejeita sem testar senha em backoff
   - Confiança: 🟢
 
-- [ ] T-06, vaultGuard (423) + sessionAuth (401 header X-sistema-legado-Session)
+- [ ] T-06, vaultGuard (423) + sessionAuth (401 header X-Sistema-Legado-Session)
   - Origem no legado: `middleware/vault-guard.ts`, `session-auth.ts`
   - Critério de pronto: rotas public bypass; protegidas exigem unlock+token
   - Confiança: 🟢

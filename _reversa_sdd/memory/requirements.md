@@ -5,11 +5,11 @@
 
 ## Visão Geral
 
-Memória persistente por projeto em `<projeto>/.lioncode/`: `journal.md` (eventos git determinísticos) e `memory.md` (conteúdo curado). Injeção limitada no prompt do agente, tetos em bytes UTF-8, kill switches tri-state e dreaming/consolidação LLM fail-closed. 🟢
+Memória persistente por projeto em `<projeto>/.sistema-legado/`: `journal.md` (eventos git determinísticos) e `memory.md` (conteúdo curado). Injeção limitada no prompt do agente, tetos em bytes UTF-8, kill switches tri-state e dreaming/consolidação LLM fail-closed. 🟢
 
 ## Responsabilidades
 
-- FS seguro: ensure `.lioncode/`, anti-symlink, readBounded, writeAtomic 🟢
+- FS seguro: ensure `.sistema-legado/`, anti-symlink, readBounded, writeAtomic 🟢
 - Journal: gramática commit/push/pr; sanitize; rotação por entradas e bytes 🟢
 - Memory: template 3 seções (Decisões, Restrições, Pendências); dedupe 🟢
 - Head-delta: delta de HEAD no turno (ancestralidade, teto 20 commits) 🟢
@@ -23,7 +23,7 @@ Memória persistente por projeto em `<projeto>/.lioncode/`: `journal.md` (evento
 - Anomalia/truncado ⇒ `editable: false`, PUT/dream bloqueados 🟢
 - Só "Resetar journal" descarta verbatim do dono (P7) 🟢
 - Codex/grok fora do dreaming (sem modo sem tools) 🟢
-- `.lioncode/` no git exclude (ensure-once) 🟢
+- `.sistema-legado/` no git exclude (ensure-once) 🟢
 - Dreaming: trigger 80%, hard-reject output 75%, debounce 24h, fail streak 3 🟢
 
 ## Requisitos Funcionais
@@ -41,7 +41,7 @@ Memória persistente por projeto em `<projeto>/.lioncode/`: `journal.md` (evento
 
 | Tipo | Requisito | Evidência | Confiança |
 |------|-----------|-----------|-----------|
-| Segurança | Anti-symlink em `.lioncode/` | `project-memory-fs.ts` | 🟢 |
+| Segurança | Anti-symlink em `.sistema-legado/` | `project-memory-fs.ts` | 🟢 |
 | Integridade | CAS por hash SHA-256 | `memory-file.ts` | 🟢 |
 | Performance | Leitura bounded UTF-8 safe cut | `utf8BoundaryCut` | 🟢 |
 

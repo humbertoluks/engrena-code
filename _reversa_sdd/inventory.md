@@ -32,11 +32,11 @@ sistema-legado/
 ├── assets/                   # logos light/dark
 ├── docs/                     # DEVELOPMENT.md, write-parallel-live-smokes.md
 ├── scripts/                  # validate, rebuild-native, icons, linux desktop
-├── shared/                   # @lioncode/shared — contratos/tipos
+├── shared/                   # @sistema-legado/shared — contratos/tipos
 ├── packages/
-│   ├── shell/                # @lioncode/shell — Electron main/preload
-│   ├── server/               # @lioncode/server — HTTP+WS local + domínio
-│   └── renderer/             # @lioncode/renderer — React/Vite UI
+│   ├── shell/                # @sistema-legado/shell — Electron main/preload
+│   ├── server/               # @sistema-legado/server — HTTP+WS local + domínio
+│   └── renderer/             # @sistema-legado/renderer — React/Vite UI
 ├── mcp-servers/              # MCPs empacotados (Cartesia, ElevenLabs, Linear, n8n, Slack, bridges)
 ├── tests/                    # Playwright e2e
 ├── .agents/ / .claude/       # skills Reversa (instalação)
@@ -48,7 +48,7 @@ sistema-legado/
 | Módulo | Caminho | Papel |
 |--------|---------|-------|
 | `shell` | `packages/shell` | Processo Electron (main, preload, janela, tray) |
-| `shared` | `shared` | Tipos e contratos compartilhados (`@lioncode/shared`) |
+| `shared` | `shared` | Tipos e contratos compartilhados (`@sistema-legado/shared`) |
 | `server-core` | `packages/server/src` (server, http, middleware, db) | Bootstrap HTTP+WS, SQLite, auth de sessão |
 | `providers` | `packages/server/src/providers` | Drivers Claude, Codex, GLM, MiniMax, Grok, Kimi |
 | `runner` | `packages/server/src/runner` | Dispatch, subagents, feature pipeline/build, validators |
@@ -66,18 +66,18 @@ sistema-legado/
 
 | Pacote | Nome npm | Entry |
 |--------|----------|-------|
-| Root | `lioncode` | scripts de orquestração |
-| Shared | `@lioncode/shared` | `shared/src/index.ts` → dist |
-| Server | `@lioncode/server` | `packages/server/src/index.ts` / `server.ts` |
-| Renderer | `@lioncode/renderer` | `packages/renderer/src/main.tsx` |
-| Shell | `@lioncode/shell` | `packages/shell/src/main.ts` |
-| MCP Cartesia | `@lioncode/mcp-cartesia` | `mcp-servers/cartesia` |
-| MCP ElevenLabs | `@lioncode/mcp-elevenlabs` | `mcp-servers/elevenlabs` |
-| MCP Linear | `@lioncode/mcp-linear` | `mcp-servers/linear` |
-| MCP n8n | `@lioncode/mcp-n8n` | `mcp-servers/n8n` |
-| MCP Slack | `@lioncode/mcp-slack` | `mcp-servers/slack` |
-| Secret wrapper | `@lioncode/mcp-secret-wrapper` | `mcp-servers/lioncode-secret-wrapper` |
-| Subagents bridge | `@lioncode/mcp-subagents-bridge` | `mcp-servers/lioncode-subagents` |
+| Root | `sistema-legado` | scripts de orquestração |
+| Shared | `@sistema-legado/shared` | `shared/src/index.ts` → dist |
+| Server | `@sistema-legado/server` | `packages/server/src/index.ts` / `server.ts` |
+| Renderer | `@sistema-legado/renderer` | `packages/renderer/src/main.tsx` |
+| Shell | `@sistema-legado/shell` | `packages/shell/src/main.ts` |
+| MCP Cartesia | `@sistema-legado/mcp-cartesia` | `mcp-servers/cartesia` |
+| MCP ElevenLabs | `@sistema-legado/mcp-elevenlabs` | `mcp-servers/elevenlabs` |
+| MCP Linear | `@sistema-legado/mcp-linear` | `mcp-servers/linear` |
+| MCP n8n | `@sistema-legado/mcp-n8n` | `mcp-servers/n8n` |
+| MCP Slack | `@sistema-legado/mcp-slack` | `mcp-servers/slack` |
+| Secret wrapper | `@sistema-legado/mcp-secret-wrapper` | `mcp-servers/sistema-legado-secret-wrapper` |
+| Subagents bridge | `@sistema-legado/mcp-subagents-bridge` | `mcp-servers/sistema-legado-subagents` |
 
 ## Pontos de entrada
 

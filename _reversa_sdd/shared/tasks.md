@@ -1,10 +1,10 @@
 # shared, Tarefas de Implementação
 
-> Reimplementar o catálogo de contratos tipados `@lioncode/shared`.
+> Reimplementar o catálogo de contratos tipados `@sistema-legado/shared`.
 
 ## Pré-requisitos
 
-- [ ] Workspace TypeScript (pnpm) com path/`exports` para `@lioncode/shared`
+- [ ] Workspace TypeScript (pnpm) com path/`exports` para `@sistema-legado/shared`
 - [ ] Consumidores server/renderer prontos a apontar para o pacote
 
 ## Tarefas

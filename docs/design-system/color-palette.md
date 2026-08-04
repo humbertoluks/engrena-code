@@ -1,4 +1,4 @@
-# Color Palette — EngrenaCode (Design Lock LionClaw)
+# Color Palette — EngrenaCode (Design Lock)
 
 > Fonte: `src/renderer/index.css` (hexes) + `src/renderer/tokens/design-tokens.ts` (literais). Confiança: 🟢  
 > Ownership: `src/renderer`. Shell splash `#0a0a0b` em `src/main/index.ts`.
@@ -54,11 +54,11 @@ Trilho transparente; polegar ~4px via border clip.
 | Origem | Hex | Confiança | Nota |
 | ------ | --- | --------- | ---- |
 | Shell splash (`src/main/index.ts`) | `#0a0a0b` | 🟢 | Paridade com dark `--bg` (anti-flash Electron) |
-| LionSprite juba | `#ff7a00` | 🟢 | Brand mascote; **não** é `--accent` |
-| LionSprite face | `#1c140a` | 🟢 | |
-| LionSprite olhos | `#ffb347` | 🟢 | |
-| LionSprite nariz/boca | `#ff9d00` | 🟢 | |
-| LionSprite juba clara | `#ffcd80` | 🟢 | Frame opcional |
+| EngrenaSprite juba | `#ff7a00` | 🟢 | Brand mascote; **não** é `--accent` |
+| EngrenaSprite face | `#1c140a` | 🟢 | |
+| EngrenaSprite olhos | `#ffb347` | 🟢 | |
+| EngrenaSprite nariz/boca | `#ff9d00` | 🟢 | |
+| EngrenaSprite juba clara | `#ffcd80` | 🟢 | Frame opcional |
 | Inline code texto | `#ffffff` | 🟢 | Hardcoded em `.chat-markdown` |
 | Overlay modal | `bg-black/50` | 🟡 | Tailwind default, não tokenizado |
 | Diff add/remove | hexes locais em DiffViewer | 🟡 | Fora do design-tokens |

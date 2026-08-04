@@ -1,6 +1,6 @@
-# ERD — lioncode.db
+# ERD — sistema-legado.db
 
-> Fonte: DDL live `c:\Users\Me\AppData\Roaming\@lioncode\shell\lioncode.db` (somente leitura). Confianca: 🟢
+> Fonte: DDL live `c:\Users\Me\AppData\Roaming\@sistema-legado\shell\sistema-legado.db` (somente leitura). Confianca: 🟢
 > Snapshot: 2026-07-29 | 31 tabelas | 8 triggers | 28 FKs
 
 ## Visao geral (simplificada)

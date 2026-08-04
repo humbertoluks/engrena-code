@@ -81,7 +81,7 @@ F01 sessão `x-engrenacode-session`; F01.1 tokens; F02 padrões HTTP/erro; SQLit
 |------------|--------|
 | Pasta `docs/F05-skills/` (kebab PRD Skills) — já correta, sem rename | skill |
 | Frontend = ui.md + copy.md | pedido usuário |
-| Soft cap 30 + omit locked + PT-BR | Auto-Aceitar + agente LionCode |
+| Soft cap 30 + omit locked + PT-BR | Auto-Aceitar + agente sistema legado |
 | Substitui stubs F03 §5.5 de skills | handoff F03 |
 | Wiring tool no runner deferred até F03 runner existir | Onda 2/3 |
 
@@ -249,7 +249,7 @@ Não persistir `locked`. `trigger` opcional omitido (sempre auto).
 | 5 | Vincular + Ativo no projeto | entra no catálogo (quando runner) |
 | 6 | Desativar no projeto | some do catálogo |
 | 7 | >30 vínculos | `skillsLink.warn.cap`; API ok |
-| 8 | Light/dark vs ui.md | EngrenaCode, sem LionCode |
+| 8 | Light/dark vs ui.md | EngrenaCode, sem sistema legado |
 
 ### 7.3 Cross-feature
 

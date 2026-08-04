@@ -35,7 +35,7 @@
 | U4 | Prompt dirty → salvar / restaurar | badges Padrão/Customizado | pass (Customizado + salvo; restaurado ao padrão) |
 | U5 | Token reveal + validação inline | erros locais antes do POST | pass (`A chave não pode conter espaços.`) |
 | U6 | Light + dark | legível; tokens F01.1 | pass (Tema Escuro/Claro) |
-| U7 | Copy EngrenaCode (não LionCode) | vs `ui.md` | pass (0 matches LionCode) |
+| U7 | Copy EngrenaCode (não marca do sistema legado) | vs `ui.md` | pass (0 matches marca legado) |
 
 ## Unitário
 

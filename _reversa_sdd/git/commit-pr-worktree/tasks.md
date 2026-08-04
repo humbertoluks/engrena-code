@@ -10,9 +10,9 @@
 
 ## Tarefas
 
-- [ ] T-01, createWorktree path tmpdir/lioncode-worktrees/<threadId>
+- [ ] T-01, createWorktree path tmpdir/sistema-legado-worktrees/<threadId>
   - Origem no legado: `packages/server/src/git/worktree.ts`
-  - Critério de pronto: path fixo; branch lioncode/<short>; reuse
+  - Critério de pronto: path fixo; branch sistema-legado/<short>; reuse
   - Confiança: 🟢
 
 - [ ] T-02, Recriação worktree pós-sumiço mantendo threadId

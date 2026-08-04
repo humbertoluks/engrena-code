@@ -29,7 +29,7 @@ originGuard → errorHandler → vaultGuard → sessionAuth
 | `originGuard` | Host/Origin allowlist | 🟢 |
 | `errorHandler` | Erros → JSON padronizado | 🟢 |
 | `vaultGuard` | Cofre destravado | 🟢 |
-| `sessionAuth` | Header `X-sistema-legado-Session` | 🟢 |
+| `sessionAuth` | Header `X-Sistema-Legado-Session` | 🟢 |
 | `requestValidation` | Zod/schemas por rota | 🟢 |
 | `projectScope` | Resolve projeto/cwd | 🟢 |
 | `transactionWrapper` | BEGIN/COMMIT SQLite | 🟢 |
@@ -49,11 +49,11 @@ originGuard → errorHandler → vaultGuard → sessionAuth
 - **Testes:** `dbPath: ':memory:'`, `sessionPolicy.required: false` 🟢
 - **E2E hermético:** shell injeta driver registry fake via opções 🟡
 - **Boot parcial falho:** erro propagado; shell faz cleanup 🟡
-- **Upload/transcription:** timeouts dedicados de `@lioncode/shared` 🟢
+- **Upload/transcription:** timeouts dedicados de `@sistema-legado/shared` 🟢
 
 ## Dependências
 
-- `@lioncode/shared` — contratos, limites, modelos 🟢
+- `@sistema-legado/shared` — contratos, limites, modelos 🟢
 - `better-sqlite3` — persistência síncrona 🟢
 - Submódulos: `providers`, `runner`, `vault`, `git`, `mcp`, `memory`, `codegraph`, `ws`, `routes` 🟢
 
@@ -86,4 +86,4 @@ originGuard → errorHandler → vaultGuard → sessionAuth
 
 - 🔴 Matriz completa de quais rotas usam `transactionWrapper` vs read-only
 - 🟡 Tempo máximo de reconciliação no boot em repos grandes
-- 🟡 Política exata quando `LIONCODE_LOCAL_HOST` ≠ loopback
+- 🟡 Política exata quando `SISTEMA_LEGADO_LOCAL_HOST` ≠ loopback

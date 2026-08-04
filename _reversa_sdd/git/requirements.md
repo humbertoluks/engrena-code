@@ -5,16 +5,16 @@
 
 ## Visão Geral
 
-Infraestrutura Git do sistema legado: worktrees persistentes por thread (`lioncode/<short>`), baselines de review, diffs, apply accept/reject, repo-lock, lease de execução longa, refs duráveis (`refs/lioncode/*`), child-worktrees efêmeros e PR/push multi-provider (GitHub/GitLab/Bitbucket/Azure) com allowlist de hosts. 🟢
+Infraestrutura Git do sistema legado: worktrees persistentes por thread (`sistema-legado/<short>`), baselines de review, diffs, apply accept/reject, repo-lock, lease de execução longa, refs duráveis (`refs/sistema-legado/*`), child-worktrees efêmeros e PR/push multi-provider (GitHub/GitLab/Bitbucket/Azure) com allowlist de hosts. 🟢
 
 ## Responsabilidades
 
-- Criar/reusar worktrees determinísticos em `tmpdir/lioncode-worktrees/<threadId>` 🟢
+- Criar/reusar worktrees determinísticos em `tmpdir/sistema-legado-worktrees/<threadId>` 🟢
 - Capturar review baselines imutáveis para accept/reject 🟢
 - Gerar diffs worktree e entre refs 🟢
 - Apply accept no main com dry-run, rollback, finalize 🟢
 - Mutex curto (`repo-lock`) e lease longa (`projectExecutionRegistry`) 🟢
-- Gerir refs `refs/lioncode/*` + GC 🟢
+- Gerir refs `refs/sistema-legado/*` + GC 🟢
 - Child-worktrees efêmeros + reconciliação pós-crash 🟢
 - VCS providers + `assertHostAllowed` 🟢
 
@@ -33,7 +33,7 @@ Infraestrutura Git do sistema legado: worktrees persistentes por thread (`lionco
 
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
-| RF-01 | createWorktree path determinístico + branch lioncode/<thread> | Must | cwd estável por threadId |
+| RF-01 | createWorktree path determinístico + branch sistema-legado/<thread> | Must | cwd estável por threadId |
 | RF-02 | captureReviewBaseline antes do turno | Must | refs sob baselines/<id>/ |
 | RF-03 | generateDiffs / generateDiffsBetweenRefs → pending diffs | Must | paths relativos seguros |
 | RF-04 | accept: dry-run --check → commit worktree → apply main sob repo-lock | Must | rollback em falha |
@@ -48,7 +48,7 @@ Infraestrutura Git do sistema legado: worktrees persistentes por thread (`lionco
 |------|--------------------|---------------------|-----------|
 | Segurança | Host allowlist sem override | `host-allowlist.ts` | 🟢 |
 | Concorrência | repo-lock 30s timeout | `repo-lock.ts` | 🟢 |
-| Durabilidade | Refs lioncode + GC (forks 24h, backups 30d) | `fork-refs.ts` | 🟢 |
+| Durabilidade | Refs sistema-legado + GC (forks 24h, backups 30d) | `fork-refs.ts` | 🟢 |
 | Disponibilidade | Child pre-flight Git≥2.40 + disco | `child-worktree.ts` | 🟢 |
 
 ## Critérios de Aceitação
@@ -56,7 +56,7 @@ Infraestrutura Git do sistema legado: worktrees persistentes por thread (`lionco
 ```gherkin
 Dado thread em executionMode worktree
 Quando dispatch resolve cwd
-Então reusa worktree activo ou cria em tmpdir/lioncode-worktrees/<threadId>
+Então reusa worktree activo ou cria em tmpdir/sistema-legado-worktrees/<threadId>
 
 Dado turno concluído com alterações
 Quando generateDiffs corre

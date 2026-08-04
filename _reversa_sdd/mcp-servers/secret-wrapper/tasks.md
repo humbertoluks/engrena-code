@@ -1,6 +1,6 @@
 # secret-wrapper, Tarefas de Implementação
 
-> Sequência para reimplementar o lioncode-secret-wrapper.
+> Sequência para reimplementar o sistema-legado-secret-wrapper.
 
 ## Pré-requisitos
 
@@ -11,32 +11,32 @@
 ## Tarefas
 
 - [ ] T-01, Implementar parseArgs com regex 127.0.0.1
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/protocol.ts`
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/protocol.ts`
   - Critério de pronto: URLs externas rejeitadas; 3 posicionais OK
   - Confiança: 🟢
 
 - [ ] T-02, Implementar readAndBurnToken com fs injetável
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/protocol.ts`
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/protocol.ts`
   - Critério de pronto: lê UTF-8 trim; unlink best-effort; vazio throw
   - Confiança: 🟢
 
 - [ ] T-03, Implementar fetchSpec com validação ServerSpec
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/protocol.ts`
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/protocol.ts`
   - Critério de pronto: Bearer header; JSON command/args/env
   - Confiança: 🟢
 
-- [ ] T-04, Implementar buildChildEnv scrub LIONCODE_* channels
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/protocol.ts`
+- [ ] T-04, Implementar buildChildEnv scrub SISTEMA_LEGADO_* channels
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/protocol.ts`
   - Critério de pronto: filho não herda vars de entrega
   - Confiança: 🟢
 
 - [ ] T-05, Entry index: spawn inherit + signal forward + exit propagate
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/index.ts`
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/index.ts`
   - Critério de pronto: SIGTERM/SIGINT chegam ao filho; exit code espelhado
   - Confiança: 🟢
 
 - [ ] T-06, Testes protocol.test.ts (mock fetch/fs)
-  - Origem: `mcp-servers/lioncode-secret-wrapper/test/protocol.test.ts`
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/test/protocol.test.ts`
   - Critério de pronto: casos burn, scrub, parse cobertos
   - Confiança: 🟢
 

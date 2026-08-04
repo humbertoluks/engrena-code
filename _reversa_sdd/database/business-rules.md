@@ -1,4 +1,4 @@
-# Business Rules (no banco) — lioncode.db
+# Business Rules (no banco) — sistema-legado.db
 
 > Fonte: DDL live + triggers. Confianca: 🟢 (CHECK/trigger) | 🟡 (inferido de naming/seed)
 

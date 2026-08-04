@@ -14,11 +14,11 @@ Catálogo first-party de presets MCP, CRUD de definições globais, OAuth 2.1 pa
 - OAuth: discovery em camadas, PKCE, loopback, refresh mutex 🟢
 - Registry live (`resolveForProject` / `resolveByIds`) sem cache de boot 🟢
 - SecretResolver + wrapper anti-leak para stdio com secretRef 🟢
-- Sentinelas `LIONCODE_NODE` e `LIONCODE_MCP_SERVER_DIST:<pkg>` 🟢
+- Sentinelas `SISTEMA_LEGADO_NODE` e `SISTEMA_LEGADO_MCP_SERVER_DIST:<pkg>` 🟢
 
 ## Regras de Negócio
 
-- Nome `lioncode` reservado (broker interno); regex `^[a-z0-9][a-z0-9_-]*$` 🟢
+- Nome `sistema-legado` reservado (broker interno); regex `^[a-z0-9][a-z0-9_-]*$` 🟢
 - `{secretRef}` em headers rejeitado (vazaria em `--mcp-config`/argv) 🟢
 - Install não cria placeholder no vault 🟢
 - MCP omitido do dispatch se cofre travado / secret ausente / OAuth indisponível (não derruba turno) 🟢

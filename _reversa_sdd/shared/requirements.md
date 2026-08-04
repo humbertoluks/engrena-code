@@ -1,6 +1,6 @@
 # shared
 
-> Spec de requisitos do pacote `@lioncode/shared`.  
+> Spec de requisitos do pacote `@sistema-legado/shared`.  
 > Nível: essencial · Confiança: afirmações marcadas 🟢/🟡/🔴
 
 ## Visão Geral
@@ -23,14 +23,14 @@ Catálogo de tipos, constantes e validadores compartilhados entre shell, server 
 - `executionMode` e `accessLevel` são enums fechados em `thread.ts` 🟢
 - Transições de Feature Build / Build Sprint via `canTransition*` 🟢
 - Limites: `DISPATCH_PROMPT_MAX_CHARS`, `DISPATCH_IMAGE_MAX_COUNT` 🟢
-- Session header documentado no domínio como `X-sistema-legado-Session` 🟢
+- Session header documentado no domínio como `X-Sistema-Legado-Session` 🟢
 - Completeness do barrel `index.ts` vs todos os módulos internos 🟡
 
 ## Requisitos Funcionais
 
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
-| RF-01 | Exportar tipos e constantes usados por server e renderer | Must | Import de `@lioncode/shared` resolve sem erro |
+| RF-01 | Exportar tipos e constantes usados por server e renderer | Must | Import de `@sistema-legado/shared` resolve sem erro |
 | RF-02 | Validar provider contra catálogo | Must | `isProvider('claude')` true; valor inválido false |
 | RF-03 | Parse/validate de dispatch task request | Must | Body inválido lança/retorna erro tipado |
 | RF-04 | Funções de transição Feature Build | Must | Transições ilegais retornam false |
@@ -61,7 +61,7 @@ Quando canTransitionFeatureBuild é avaliado
 Então retorna false
 
 Dado server e renderer no mesmo monorepo
-Quando ambos importam ThreadState de @lioncode/shared
+Quando ambos importam ThreadState de @sistema-legado/shared
 Então usam o mesmo conjunto de literais
 ```
 

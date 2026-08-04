@@ -5,11 +5,11 @@
 
 ## Visão Geral
 
-Garantir que threads em modo `worktree` tenham cwd estável em `tmpdir/lioncode-worktrees/<threadId>`, que commits e pushes para PR ocorram sob repo-lock com autenticação efêmera, e que `assertHostAllowed` bloqueie exfiltração de token para hosts não autorizados. 🟢
+Garantir que threads em modo `worktree` tenham cwd estável em `tmpdir/sistema-legado-worktrees/<threadId>`, que commits e pushes para PR ocorram sob repo-lock com autenticação efêmera, e que `assertHostAllowed` bloqueie exfiltração de token para hosts não autorizados. 🟢
 
 ## Responsabilidades
 
-- `createWorktree`: path fixo + branch `lioncode/<short>` 🟢
+- `createWorktree`: path fixo + branch `sistema-legado/<short>` 🟢
 - Reutilizar worktree activo ou recriar pós-sumiço 🟢
 - Commit interno no worktree antes de push 🟢
 - `assertHostAllowed` antes de qualquer push 🟢
@@ -19,8 +19,8 @@ Garantir que threads em modo `worktree` tenham cwd estável em `tmpdir/lioncode-
 
 ## Regras de Negócio
 
-- Path determinístico: tmpdir/lioncode-worktrees/<threadId> 🟢
-- Branch nomeada `lioncode/<short>` (derivada do thread) 🟢
+- Path determinístico: tmpdir/sistema-legado-worktrees/<threadId> 🟢
+- Branch nomeada `sistema-legado/<short>` (derivada do thread) 🟢
 - Worktree persiste entre turnos; não removido ao fim do turno 🟢
 - Token VCS **nunca** enviado a host fora da allowlist 🟢
 - Sem override da allowlist 🟢
@@ -32,7 +32,7 @@ Garantir que threads em modo `worktree` tenham cwd estável em `tmpdir/lioncode-
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
 | RF-01 | createWorktree em tmpdir com path por threadId | Must | cwd estável |
-| RF-02 | Branch lioncode/<short> criada/reusada | Must | isolamento por thread |
+| RF-02 | Branch sistema-legado/<short> criada/reusada | Must | isolamento por thread |
 | RF-03 | Commit no worktree sob repo-lock | Must | serializado |
 | RF-04 | assertHostAllowed antes de push | Must | host inválido → erro |
 | RF-05 | Push autenticado efêmero com token vault | Must | token não logado |
@@ -52,7 +52,7 @@ Garantir que threads em modo `worktree` tenham cwd estável em `tmpdir/lioncode-
 ```gherkin
 Dado thread worktree sem worktree existente
 Quando createWorktree é chamado
-Então diretório criado em tmpdir/lioncode-worktrees/<threadId> com branch lioncode/<short>
+Então diretório criado em tmpdir/sistema-legado-worktrees/<threadId> com branch sistema-legado/<short>
 
 Dado worktree existente para threadId
 Quando dispatch resolve cwd

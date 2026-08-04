@@ -4,7 +4,7 @@
 
 ## Pré-requisitos
 
-- [ ] Pacote `@lioncode/shared` com contratos de rotas, providers e eventos WS
+- [ ] Pacote `@sistema-legado/shared` com contratos de rotas, providers e eventos WS
 - [ ] Migrations SQLite 001–062 reproduzíveis
 - [ ] Shell Electron chama `createServer({ userDataPath })` in-process
 - [ ] Sub-unidades `http-ws-bootstrap` e `autenticacao-sessao` especificadas
@@ -13,7 +13,7 @@
 
 - [ ] T-01, Implementar `loadServerConfig` com default `127.0.0.1:4477` e validação de porta
   - Origem no legado: `packages/server/src/config.ts`
-  - Critério de pronto: env `LIONCODE_LOCAL_*` e overrides funcionam; porta inválida falha no boot
+  - Critério de pronto: env `SISTEMA_LEGADO_LOCAL_*` e overrides funcionam; porta inválida falha no boot
   - Confiança: 🟢
 
 - [ ] T-02, Implementar `resolveDatabasePath` + `openDatabase` (PRAGMAs, migrations)
@@ -55,7 +55,7 @@
 
 ## Tarefas de Migração de Dados
 
-- [ ] TM-01, Aplicar migrations sequenciais preservando `lioncode.db` do userData
+- [ ] TM-01, Aplicar migrations sequenciais preservando `sistema-legado.db` do userData
 - [ ] TM-02, `applyDataSeeds` idempotente pós-migration
 
 ## Ordem Sugerida

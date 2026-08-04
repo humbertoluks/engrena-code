@@ -5,7 +5,7 @@
 
 ## Visão Geral
 
-Após o unlock HTTP bem-sucedido, o renderer obtém o token de sessão só pelo canal IPC dedicado (`lioncode:vault:session-token`) e anexa-o às chamadas protegidas. Quando o cofre trava, o main faz push de `lioncode:vault:locked` para o renderer descartar o token. 🟢
+Após o unlock HTTP bem-sucedido, o renderer obtém o token de sessão só pelo canal IPC dedicado (`sistema-legado:vault:session-token`) e anexa-o às chamadas protegidas. Quando o cofre trava, o main faz push de `sistema-legado:vault:locked` para o renderer descartar o token. 🟢
 
 ## Responsabilidades
 
@@ -28,9 +28,9 @@ Após o unlock HTTP bem-sucedido, o renderer obtém o token de sessão só pelo 
 
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
-| RF-01 | `window.lioncode.getSessionToken()` invoca o canal de sessão | Must | Promise resolve string ou null |
+| RF-01 | `window.sistemaLegado.getSessionToken()` invoca o canal de sessão | Must | Promise resolve string ou null |
 | RF-02 | Handler main devolve token vigente do vault in-process | Must | Após unlock HTTP, IPC devolve o mesmo token que o server considera válido |
-| RF-03 | Em lock, main emite `lioncode:vault:locked` ao renderer | Must | Callback `onVaultLocked` dispara |
+| RF-03 | Em lock, main emite `sistema-legado:vault:locked` ao renderer | Must | Callback `onVaultLocked` dispara |
 | RF-04 | `onVaultLocked` permite cancelar a inscrição | Must | Após unsubscribe, novos locks não chamam o cb |
 | RF-05 | Preload não expõe Node nem APIs de vault além do bridge mínimo | Must | Só pickDirectory + sessão + versions (+ appName) |
 
@@ -46,12 +46,12 @@ Após o unlock HTTP bem-sucedido, o renderer obtém o token de sessão só pelo 
 
 ```gherkin
 Dado o cofre desbloqueado via HTTP e o server com token vigente
-Quando o renderer chama window.lioncode.getSessionToken()
-Então recebe uma string não vazia para usar em X-sistema-legado-Session
+Quando o renderer chama window.sistemaLegado.getSessionToken()
+Então recebe uma string não vazia para usar em X-Sistema-Legado-Session
 
 Dado o cofre acaba de ser travado no server
 Quando vault.onLock dispara
-Então o renderer recebe lioncode:vault:locked e getSessionToken passa a devolver null
+Então o renderer recebe sistema-legado:vault:locked e getSessionToken passa a devolver null
 
 Dado o renderer cancelou onVaultLocked
 Quando ocorre um novo lock

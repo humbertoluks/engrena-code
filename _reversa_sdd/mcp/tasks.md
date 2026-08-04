@@ -22,7 +22,7 @@
 
 - [ ] T-03, CRUD `/mcps` com validação de nome regex e transport
   - Origem no legado: `packages/server/src/routes/mcps.ts`
-  - Critério de pronto: nome `lioncode` rejeitado; CRUD completo
+  - Critério de pronto: nome `sistema-legado` rejeitado; CRUD completo
   - Confiança: 🟢
 
 - [ ] T-04, `McpOauthManager`: discovery, PKCE, loopback, refresh mutex

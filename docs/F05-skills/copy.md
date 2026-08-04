@@ -1,8 +1,8 @@
 # Catálogo de copy: F05-skills
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`packages/renderer` — `SkillsScreen`, `SkillFormModal`, `ProjectSkillsModal`)  
-**Mapa de rename:** `LionCode → EngrenaCode`  
+**Fonte:** sistema legado (`packages/renderer` — `SkillsScreen`, `SkillFormModal`, `ProjectSkillsModal`)  
+**Mapa de rename:** `sistema legado → EngrenaCode`  
 **Última atualização:** 2026-08-03
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.

@@ -67,7 +67,7 @@ F01 sessão `x-engrenacode-session` + `vault_locked` 423; F01.1 tokens/superfíc
 
 | Decisão | Escolhida | Alternativa | Trade-off |
 |---------|-----------|-------------|-----------|
-| Cap ≤15 ativas | Soft warn UI `rulesLink.warn.activeCap` | Hard 400 / omitir | PRD “recomendação”; LionCode não tinha warn de count |
+| Cap ≤15 ativas | Soft warn UI `rulesLink.warn.activeCap` | Hard 400 / omitir | PRD “recomendação”; sistema legado não tinha warn de count |
 | Content 8 KB | Soft warn âmbar | Hard | Custo de contexto sem bloquear edição |
 | Content 1 MiB | Hard block UI+server | Só soft 8 KB (legado) | Alinha PRD “~1 MiB” + Skills; teto HTTP |
 | Agregado 16 KB | Soft warn rodapé/harness | Hard | Aviso de turno gordo |
@@ -85,7 +85,7 @@ F01 sessão `x-engrenacode-session` + `vault_locked` 423; F01.1 tokens/superfíc
 |------------|--------|--------------------|
 | Pasta `docs/F06-rules/` (kebab PRD “Rules”) — já correta | skill sanitizar kebab | sim |
 | Frontend = ui.md + copy.md (anatomia, estados, ids) | pedido usuário | não nesta spec |
-| Soft cap 15 + hard 1 MiB + PT-BR + sem copy CLAUDE.md na UI | entrevista via agente LionCodeLabs + PRD | sim |
+| Soft cap 15 + hard 1 MiB + PT-BR + sem copy CLAUDE.md na UI | entrevista via agente sistema legado + PRD | sim |
 | Timestamps INTEGER epoch ms (não TEXT `datetime('now')` do legado) | padrão F05 greenfield | sim |
 | Prefixo `/api` nos paths (não `/rules` bare do legado) | padrão EngrenaCode F02/F05 | não |
 | Substitui stubs F03 de rules quando existirem | handoff F03 | sim |
@@ -305,7 +305,7 @@ CREATE INDEX ix_project_rules_project ON project_rules(project_id);
 | `kill_switch_excludes_everywhere` | `rules.enabled=0` fora |
 | `content_soft_warn_does_not_block` | submit ok >8 KB <1 MiB |
 | `compose_block_order_project_after_global` | ordem estável |
-| `compose_block_brand_engrenacode` | sem LionCode |
+| `compose_block_brand_engrenacode` | sem sistema legado |
 
 ### 7.2 Smoke / Aceitação
 
@@ -320,7 +320,7 @@ CREATE INDEX ix_project_rules_project ON project_rules(project_id);
 | 7 | Não-global: vincular + on | entra no agregado; harness count |
 | 8 | >15 ativas no projeto | `rulesLink.warn.activeCap`; API ok |
 | 9 | Agregado >16 KB | rodapé `aggregateHot` |
-| 10 | Light/dark vs ui.md | EngrenaCode, sem LionCode |
+| 10 | Light/dark vs ui.md | EngrenaCode, sem sistema legado |
 
 ### 7.3 Cross-feature
 
@@ -335,6 +335,6 @@ CREATE INDEX ix_project_rules_project ON project_rules(project_id);
 
 ### Critérios PRD §9
 
-- [ ] Rules globais e por projeto resolvem com override de supressão
+- [x] Rules globais e por projeto resolvem com override de supressão
 - [ ] Bloco de rules aparece em todo turno com precedência projeto > global > arquivos do repo
-- [ ] Name com CR/LF é rejeitado
+- [x] Name com CR/LF é rejeitado

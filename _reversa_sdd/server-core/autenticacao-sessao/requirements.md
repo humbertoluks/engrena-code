@@ -5,7 +5,7 @@
 
 ## Visão Geral
 
-Gate de **credenciais em repouso** (`vaultGuard`) e **autenticidade do cliente local** (`sessionAuth`) via header `X-sistema-legado-Session`. Rotas marcadas `public` bypassam ambos os gates de sessão, mas não o `originGuard`. 🟢
+Gate de **credenciais em repouso** (`vaultGuard`) e **autenticidade do cliente local** (`sessionAuth`) via header `X-Sistema-Legado-Session`. Rotas marcadas `public` bypassam ambos os gates de sessão, mas não o `originGuard`. 🟢
 
 ## Responsabilidades
 
@@ -31,7 +31,7 @@ Gate de **credenciais em repouso** (`vaultGuard`) e **autenticidade do cliente l
 |----|-----------|------------|-------------------|
 | RF-01 | Cofre travado → rotas não-public retornam VaultLockedError | Must | Antes de sessionAuth |
 | RF-02 | POST unlock (`public`) destrava e emite token de sessão | Must | Renderer obtém token |
-| RF-03 | Header `X-sistema-legado-Session` válido em rotas protegidas | Must | 401 se ausente/inválido |
+| RF-03 | Header `X-Sistema-Legado-Session` válido em rotas protegidas | Must | 401 se ausente/inválido |
 | RF-04 | Rotas `public` passam vaultGuard e sessionAuth | Must | Unlock acessível travado |
 | RF-05 | Lock do cofre invalida sessões existentes | Must | UI volta ao gate |
 | RF-06 | WS exige mesma sessão válida no handshake | Must | Sem token → upgrade negado |
@@ -53,12 +53,12 @@ Dado cofre travado
 Quando GET /projects é chamado sem unlock
 Então vaultGuard bloqueia com erro de cofre travado
 
-Dado cofre destravado e sem header X-sistema-legado-Session
+Dado cofre destravado e sem header X-Sistema-Legado-Session
 Quando GET /projects é chamado
 Então sessionAuth retorna 401 session_invalid
 
 Dado unlock bem-sucedido com token T
-Quando request inclui X-sistema-legado-Session: T
+Quando request inclui X-Sistema-Legado-Session: T
 Então handler da rota executa normalmente
 
 Dado rota vault-unlock marcada public

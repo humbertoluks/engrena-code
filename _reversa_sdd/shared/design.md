@@ -1,6 +1,6 @@
 # shared, Design Técnico
 
-> Como o catálogo `@lioncode/shared` é organizado e consumido.
+> Como o catálogo `@sistema-legado/shared` é organizado e consumido.
 
 ## Interface
 
@@ -8,7 +8,7 @@
 
 | Símbolo | Papel | Confiança |
 |---------|-------|-----------|
-| `@lioncode/shared` | Entry `shared/src/index.ts` reexporta domínio | 🟢 |
+| `@sistema-legado/shared` | Entry `shared/src/index.ts` reexporta domínio | 🟢 |
 
 ### Domínios exportados (amostra)
 

@@ -1,4 +1,4 @@
-# Typography — EngrenaCode (Design Lock LionClaw)
+# Typography — EngrenaCode (Design Lock)
 
 > Fonte: `src/renderer/tokens/design-tokens.ts`, `src/renderer/index.css`, `src/renderer/main.tsx`. Confiança: 🟢
 
@@ -12,7 +12,7 @@
 
 `body` em `index.css` usa a mesma stack display/body (sem classe Tailwind).
 
-## LionLabs Grotesk
+## Experimento Grotesk
 
 Fora do Escopo Central F01.1 (EngrenaCode). Tipografia canônica = DM Sans + Figtree + JetBrains Mono; sem alias Grotesk no boot.
 

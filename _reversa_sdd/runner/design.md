@@ -39,7 +39,7 @@
 
 1. Rota monta `DispatchContext` → `scheduleDispatch` adquire lease de projeto 🟢
 2. `runDispatch`: registra turno (`TurnRegistry` + AbortController) 🟢
-3. Resolve cwd: `main` = repo vivo; `worktree` = branch `lioncode/<thread>` 🟢
+3. Resolve cwd: `main` = repo vivo; `worktree` = branch `sistema-legado/<thread>` 🟢
 4. Snapshot catálogos; compõe rules/memory/codegraph; prepara MCPs (secrets vault) 🟢
 5. Se comando: despacha motor adequado (workflow / pipeline / build) 🟢
 6. `driver.dispatch` → loop allocate-then-emit (`seq` em text blocks e `tool_call.start`) 🟢

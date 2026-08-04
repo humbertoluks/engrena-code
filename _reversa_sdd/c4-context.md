@@ -11,7 +11,7 @@ C4Context
 
   Person(owner, "Dono / Desenvolvedor", "Único usuário local da IDE desktop")
 
-  System(lioncode, "sistema legado", "IDE Electron local-first: chat com agentes, git, pipeline/build, MCP, memória e codegraph")
+  System(sistema_legado, "sistema legado", "IDE Electron local-first: chat com agentes, git, pipeline/build, MCP, memória e codegraph")
 
   System_Ext(claude, "Claude / Anthropic", "Agent SDK / CLI")
   System_Ext(codex, "Codex CLI", "OpenAI Codex exec + MCP TOML")
@@ -27,20 +27,20 @@ C4Context
   System_Ext(elevenlabs, "ElevenLabs TTS", "MCP first-party")
   System_Ext(mcp3p, "MCP 3rd-party", "Servers stdio/http/sse do catálogo do usuário")
 
-  Rel(owner, lioncode, "Usa UI; unlock vault; aprova tools; revisa diffs")
-  Rel(lioncode, claude, "Dispatch / tools / streaming")
-  Rel(lioncode, codex, "codex exec + bridge MCP")
-  Rel(lioncode, glm, "Dispatch")
-  Rel(lioncode, minimax, "Dispatch")
-  Rel(lioncode, grok, "ACP")
-  Rel(lioncode, kimi, "ACP")
-  Rel(lioncode, github, "push / PR / OAuth")
-  Rel(lioncode, slack, "MCP tools")
-  Rel(lioncode, linear, "MCP tools")
-  Rel(lioncode, n8n, "MCP tools")
-  Rel(lioncode, cartesia, "TTS → .lioncode/audio")
-  Rel(lioncode, elevenlabs, "TTS → .lioncode/audio")
-  Rel(lioncode, mcp3p, "Spawn com secrets do vault")
+  Rel(owner, sistema_legado, "Usa UI; unlock vault; aprova tools; revisa diffs")
+  Rel(sistema_legado, claude, "Dispatch / tools / streaming")
+  Rel(sistema_legado, codex, "codex exec + bridge MCP")
+  Rel(sistema_legado, glm, "Dispatch")
+  Rel(sistema_legado, minimax, "Dispatch")
+  Rel(sistema_legado, grok, "ACP")
+  Rel(sistema_legado, kimi, "ACP")
+  Rel(sistema_legado, github, "push / PR / OAuth")
+  Rel(sistema_legado, slack, "MCP tools")
+  Rel(sistema_legado, linear, "MCP tools")
+  Rel(sistema_legado, n8n, "MCP tools")
+  Rel(sistema_legado, cartesia, "TTS → .sistema-legado/audio")
+  Rel(sistema_legado, elevenlabs, "TTS → .sistema-legado/audio")
+  Rel(sistema_legado, mcp3p, "Spawn com secrets do vault")
 ```
 
 ## Personas

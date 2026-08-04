@@ -26,11 +26,11 @@ ADRs retroativos via Git **não são viáveis** neste nível com tão pouca hist
 | **Project** | Diretório/repositório local registrado no sistema legado (`projects.path` UNIQUE). Âncora de cwd, vault secrets, MCP, memory e codegraph. | 🟢 |
 | **Thread** | Unidade de execução conversacional ligada a um projeto: provider, modelo, lifecycle (`ThreadState`), access level e modo de execução. | 🟢 |
 | **Vault** | Cofre cifrado local de chaves/tokens. Unlock libera a sessão; não é autenticação remota multi-usuário. | 🟢 |
-| **Session** | Token efêmero pós-unlock (`X-sistema-legado-Session`) para HTTP/WS no loopback. | 🟢 |
+| **Session** | Token efêmero pós-unlock (`X-Sistema-Legado-Session`) para HTTP/WS no loopback. | 🟢 |
 | **Dispatch** | Orquestração ponta a ponta de um turno (driver → persistência → WS). | 🟢 |
 | **Provider** | Runtime de IA: `claude \| codex \| glm \| minimax \| grok \| kimi`. | 🟢 |
 | **AccessLevel** | Quanto o *agente* pode fazer sem pedir: `supervised \| auto-accept-edits \| full-access`. | 🟢 |
-| **ExecutionMode** | Isolamento: `main` (cwd vivo) ou `worktree` (branch `lioncode/<thread>`). Travado após criação. | 🟢 |
+| **ExecutionMode** | Isolamento: `main` (cwd vivo) ou `worktree` (branch `sistema-legado/<thread>`). Travado após criação. | 🟢 |
 | **Subagent** | Definição global invocável; runs filhos são efêmeros (sem row em `threads`). | 🟢 |
 | **Skill** | Prompt markdown catalogável; não executa código. | 🟢 |
 | **Command** | Template slash com strategy (`prompt \| pipeline \| workflow \| feature-pipeline \| feature-build`). | 🟢 |
@@ -53,7 +53,7 @@ ADRs retroativos via Git **não são viáveis** neste nível com tão pouca hist
 | # | Regra | Evidência | Confiança |
 |---|-------|-----------|-----------|
 | R1 | Cofre travado bloqueia rotas/ações (exceto surface `public`). | `vault-guard` | 🟢 |
-| R2 | Após unlock, cliente envia `X-sistema-legado-Session` (nunca query string). | session auth + renderer | 🟢 |
+| R2 | Após unlock, cliente envia `X-Sistema-Legado-Session` (nunca query string). | session auth + renderer | 🟢 |
 | R3 | App é **single-user local**: sem papéis/usuários no DB. “Permission” = aprovação de tools + vault. | ausência de RBAC tables | 🟢 |
 | R4 | `AccessLevel` controla autonomia do agente, não papéis humanos. | `shared/src/thread.ts` | 🟢 |
 

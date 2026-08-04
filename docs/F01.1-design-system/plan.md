@@ -14,7 +14,7 @@
 
 **2. Ponte Tailwind 4** - Mapear cores, spacing, radii e font families aos utilitários via `@theme` (ou equivalente v4), de modo que `bg-bg`, `p-md`, `rounded-md`, `font-mono` etc. resolvam as mesmas vars. Sem `tailwind.config.ts` clássico.
 
-**3. Fontes do contrato** - Adicionar e importar DM Sans Variable, Figtree Variable e JetBrains Mono Variable no boot do renderer. Não incluir LionLabs Grotesk.
+**3. Fontes do contrato** - Adicionar e importar DM Sans Variable, Figtree Variable e JetBrains Mono Variable no boot do renderer. Não incluir experimento Grotesk.
 
 ### Fase 2: Runtime de tema e shell
 

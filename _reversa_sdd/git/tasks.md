@@ -5,15 +5,15 @@
 ## Pré-requisitos
 
 - [ ] Git CLI ≥2.40 no PATH (child-worktrees)
-- [ ] `@lioncode/shared` tipos diff/thread
+- [ ] `@sistema-legado/shared` tipos diff/thread
 - [ ] Vault com vcsTokens por provider
 - [ ] tmpdir writable para worktrees
 
 ## Tarefas
 
-- [ ] T-01, `createWorktree` path determinístico tmpdir/lioncode-worktrees/<threadId>
+- [ ] T-01, `createWorktree` path determinístico tmpdir/sistema-legado-worktrees/<threadId>
   - Origem no legado: `packages/server/src/git/worktree.ts`
-  - Critério de pronto: branch lioncode/<short>; recriação pós-sumiço
+  - Critério de pronto: branch sistema-legado/<short>; recriação pós-sumiço
   - Confiança: 🟢
 
 - [ ] T-02, `captureReviewBaseline` + refs baselines/<id>/

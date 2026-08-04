@@ -64,8 +64,8 @@
 
 | Estado | Onde | Notas |
 |--------|------|-------|
-| `.lioncode/journal.md` | FS projeto | append-only gerenciado |
-| `.lioncode/memory.md` | FS projeto | 3 seções + CAS |
+| `.sistema-legado/journal.md` | FS projeto | append-only gerenciado |
+| `.sistema-legado/memory.md` | FS projeto | 3 seções + CAS |
 | dreamer-state | memória server | por projectId 🟢 |
 
 ## Riscos e Lacunas

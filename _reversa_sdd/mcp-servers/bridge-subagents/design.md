@@ -1,16 +1,16 @@
 # bridge-subagents, Design Técnico
 
-> Bridge MCP stdio lioncode-subagents.
+> Bridge MCP stdio sistema-legado-subagents.
 
 ## Interface ENV (`BridgeConfig`)
 
 | Variável | Obrigatório | Papel |
 |----------|-------------|-------|
-| `LIONCODE_DELEGATE_URL` | Sim* | Endpoint loopback delegate 🟢 |
-| `LIONCODE_DELEGATE_TOKEN` | Sim* | Bearer uso único 🟢 |
-| `LIONCODE_SUBAGENTS` | Cap opcional | JSON `[{name,description}]` 🟢 |
-| `LIONCODE_MEMORY` | Cap opcional | `1` habilita save_memory 🟢 |
-| `LIONCODE_REPO_GRAPH` | Cap opcional | `1` habilita repo_graph_* 🟢 |
+| `SISTEMA_LEGADO_DELEGATE_URL` | Sim* | Endpoint loopback delegate 🟢 |
+| `SISTEMA_LEGADO_DELEGATE_TOKEN` | Sim* | Bearer uso único 🟢 |
+| `SISTEMA_LEGADO_SUBAGENTS` | Cap opcional | JSON `[{name,description}]` 🟢 |
+| `SISTEMA_LEGADO_MEMORY` | Cap opcional | `1` habilita save_memory 🟢 |
+| `SISTEMA_LEGADO_REPO_GRAPH` | Cap opcional | `1` habilita repo_graph_* 🟢 |
 
 \* Obrigatórios se alguma cap ativa; ≥1 cap required 🟢
 
@@ -44,7 +44,7 @@ Espelham família Claude; caps server-side no engine 🟢 (`index.ts` registerRe
 
 ## proxyDelegate
 
-- POST `LIONCODE_DELEGATE_URL` 🟢
+- POST `SISTEMA_LEGADO_DELEGATE_URL` 🟢
 - Header `Authorization: Bearer <token>` 🟢
 - Body: subagentName, task, context? 🟢
 - Ligado ao AbortController do turno pai no driver 🟢
@@ -52,8 +52,8 @@ Espelham família Claude; caps server-side no engine 🟢 (`index.ts` registerRe
 ## Integração Provider (Codex)
 
 ```toml
-mcp_servers.lioncode.command = "<node>"
-mcp_servers.lioncode.args = ["<.../dist/index.js>"]
+mcp_servers.sistemaLegado.command = "<node>"
+mcp_servers.sistemaLegado.args = ["<.../dist/index.js>"]
 ```
 
 Montado por `CodexCliDriver` com escaping TOML 🟡

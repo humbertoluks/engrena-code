@@ -5,7 +5,7 @@
 
 ## Visão Geral
 
-Permitir que o renderer desbloqueie o cofre via HTTP (`POST /vault/unlock` → `{ unlocked, retryAfterMs? }`), obtenha o session token efêmero via IPC shell (`getSessionToken`) para autenticar requests com header `x-lioncode-session`, e garantir que credenciais nunca trafeguem pelo bridge IPC (shell só repassa token). 🟢 [Revisão]
+Permitir que o renderer desbloqueie o cofre via HTTP (`POST /vault/unlock` → `{ unlocked, retryAfterMs? }`), obtenha o session token efêmero via IPC shell (`getSessionToken`) para autenticar requests com header `x-sistema-legado-session`, e garantir que credenciais nunca trafeguem pelo bridge IPC (shell só repassa token). 🟢 [Revisão]
 
 ## Responsabilidades
 
@@ -36,7 +36,7 @@ Permitir que o renderer desbloqueie o cofre via HTTP (`POST /vault/unlock` → `
 | RF-03 | Falha senha: unlocked=false (sem leak corrompido) | Must | anti-enumeração |
 | RF-04 | Backoff: retryAfterMs após threshold | Must | não testa senha em backoff |
 | RF-05 | Rate limit global na rota unlock | Must | 429 ou equivalente |
-| RF-06 | Cliente usa header `x-lioncode-session` | Must | SESSION_HEADER em session-auth.ts |
+| RF-06 | Cliente usa header `x-sistema-legado-session` | Must | SESSION_HEADER em session-auth.ts |
 | RF-07 | Shell getSessionToken IPC (não secrets) | Must | preload bridge |
 
 ## Requisitos Não Funcionais
@@ -52,7 +52,7 @@ Permitir que o renderer desbloqueie o cofre via HTTP (`POST /vault/unlock` → `
 ```gherkin
 Dado cofre travado e senha correcta
 Quando renderer POST /vault/unlock e depois getSessionToken via IPC
-Então unlocked true e token utilizável em x-lioncode-session
+Então unlocked true e token utilizável em x-sistema-legado-session
 
 Dado senha incorrecta
 Quando POST /vault/unlock
@@ -84,6 +84,6 @@ Então getSessionToken retorna null; evento vault:locked no renderer
 | `packages/server/src/routes/vault-unlock.ts` | POST /vault/unlock | 🟢 |
 | `packages/server/src/vault/vault.ts` | unlock, token | 🟢 |
 | `packages/server/src/http/rate-limiter.ts` | rate limit | 🟢 |
-| `packages/server/src/middleware/session-auth.ts` | X-sistema-legado-Session | 🟢 |
+| `packages/server/src/middleware/session-auth.ts` | X-Sistema-Legado-Session | 🟢 |
 | `packages/shell/src/preload.ts` | getSessionToken | 🟢 |
 | `packages/shell/src/main.ts` | IPC session token | 🟢 |

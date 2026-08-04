@@ -4,14 +4,14 @@
 
 ## Pré-requisitos
 
-- [ ] Pacote `@lioncode/server` (ou equivalente) exporta `createServer` ESM com vault + projects repo
+- [ ] Pacote `@sistema-legado/server` (ou equivalente) exporta `createServer` ESM com vault + projects repo
 - [ ] Build do renderer em `packages/renderer/dist` (produção) ou `RENDERER_DEV_SERVER_URL` (dev)
 - [ ] Electron com suporte a `protocol.handle` / schemes privilegiados
 - [ ] Dependência estrutural dos contratos de sessão alinhada ao server (token + onLock)
 
 ## Tarefas
 
-- [ ] T-01, Registrar scheme privilegiado `app` e Linux `class=lioncode` antes de `ready`
+- [ ] T-01, Registrar scheme privilegiado `app` e Linux `class=sistema-legado` antes de `ready`
   - Origem no legado: `packages/shell/src/main.ts` (LINUX_APP_ID, APP_SCHEME)
   - Critério de pronto: scheme registado; no Linux WM_CLASS/`StartupWMClass` coerente
   - Confiança: 🟢
@@ -21,12 +21,12 @@
   - Critério de pronto: server escuta em loopback; handle expõe `vault` e `repositories.projects`
   - Confiança: 🟢
 
-- [ ] T-03, IPC `lioncode:dialog:open-directory` → dialog nativo; retorna path ou `null`
+- [ ] T-03, IPC `sistema-legado:dialog:open-directory` → dialog nativo; retorna path ou `null`
   - Origem no legado: `packages/shell/src/main.ts` + `preload.ts`
   - Critério de pronto: invoke do preload devolve string|null
   - Confiança: 🟢
 
-- [ ] T-04, IPC session token + push `lioncode:vault:locked` ligado a `vault.onLock`
+- [ ] T-04, IPC session token + push `sistema-legado:vault:locked` ligado a `vault.onLock`
   - Origem no legado: `packages/shell/src/main.ts` (VAULT_SESSION_TOKEN_CHANNEL, VAULT_LOCKED_EVENT)
   - Critério de pronto: getSessionToken reflete lock; evento chega ao renderer
   - Confiança: 🟢
@@ -36,7 +36,7 @@
   - Critério de pronto: index.html e assets OK; `../` fora do dist rejeitado
   - Confiança: 🟢
 
-- [ ] T-06, `serveMedia`: `app://media/<projectId>/<rel>` sob `.lioncode/audio/`, realpath anti-symlink, Range 200/206/416
+- [ ] T-06, `serveMedia`: `app://media/<projectId>/<rel>` sob `.sistema-legado/audio/`, realpath anti-symlink, Range 200/206/416
   - Origem no legado: `packages/shell/src/main.ts` (`serveMedia`)
   - Critério de pronto: áudio válido serve; symlink escape e path inválido falham
   - Confiança: 🟢
@@ -46,7 +46,7 @@
   - Critério de pronto: load `app://bundle/index.html` ou Vite; https externo no browser do SO
   - Confiança: 🟢
 
-- [ ] T-08, Preload `contextBridge.exposeInMainWorld('lioncode', …)` sem Node no renderer
+- [ ] T-08, Preload `contextBridge.exposeInMainWorld('sistema-legado', …)` sem Node no renderer
   - Origem no legado: `packages/shell/src/preload.ts`
   - Critério de pronto: API pickDirectory / getSessionToken / onVaultLocked / versions disponível
   - Confiança: 🟢
@@ -56,7 +56,7 @@
   - Critério de pronto: quit encerra server sem órfãos
   - Confiança: 🟢
 
-- [ ] T-10, Bootstrap cleanup em falha de boot + modo `LIONCODE_E2E_HERMETIC`
+- [ ] T-10, Bootstrap cleanup em falha de boot + modo `SISTEMA_LEGADO_E2E_HERMETIC`
   - Origem no legado: `packages/shell/src/bootstrap-cleanup.ts`, `main.ts` (E2E)
   - Critério de pronto: falha parcial não deixa protocol/server a meio; hermético no-op openExternal
   - Confiança: 🟢

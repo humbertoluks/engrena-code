@@ -17,14 +17,14 @@ Corrupted: `VaultCorruptedError` → HTTP distinto 🟢
 
 ### Header autenticado
 
-`x-lioncode-session: <token>` (`SESSION_HEADER` em `session-auth.ts:19`) — nunca query string 🟢
+`x-sistema-legado-session: <token>` (`SESSION_HEADER` em `session-auth.ts:19`) — nunca query string 🟢
 
 ### Shell IPC
 
 | Canal | Direção | Payload | Confiança |
 |-------|---------|---------|-----------|
-| `lioncode:vault:session-token` | invoke | token \| null | 🟢 |
-| `lioncode:vault:locked` | push | void | 🟢 |
+| `sistema-legado:vault:session-token` | invoke | token \| null | 🟢 |
+| `sistema-legado:vault:locked` | push | void | 🟢 |
 
 **Proibido:** provider keys, mcpSecrets via IPC 🟢
 
@@ -40,7 +40,7 @@ Corrupted: `VaultCorruptedError` → HTTP distinto 🟢
    - Normaliza payload legado 🟢
    - Gera session token 32B hex in-process (não serializado na resposta HTTP) 🟢
 5. Renderer chama `getSessionToken` via IPC e guarda em memória 🟢
-6. Requests subsequentes: header `x-lioncode-session` 🟢
+6. Requests subsequentes: header `x-sistema-legado-session` 🟢
 7. Pós-reload: preload `getSessionToken` re-sincroniza token 🟢
 
 ## Fluxos Alternativos

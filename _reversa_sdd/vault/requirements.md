@@ -13,7 +13,7 @@ Cofre local cifrado em repouso (`vault.enc`): desbloqueio por senha, credenciais
 - Cifra: scrypt KDF + AES-256-GCM 🟢
 - Persistência: envelope JSON, write atômico (temp+fsync+rename), perms 0600 🟢
 - `vaultGuard`: bloqueia rotas não-`public` se travado (423) 🟢
-- `sessionAuth`: exige header `X-sistema-legado-Session` (401 se inválido) 🟢
+- `sessionAuth`: exige header `X-Sistema-Legado-Session` (401 se inválido) 🟢
 - Rate limit global de unlock 🟢
 - `onLock`: invalida token, WS 1008 + IPC shell 🟢
 
@@ -24,7 +24,7 @@ Cofre local cifrado em repouso (`vault.enc`): desbloqueio por senha, credenciais
 - Anti-enumeração: senha errada ≠ cofre corrompido 🟢
 - Rate limit global complementa (não substitui) backoff por workspace 🟢
 - `claudeAuthMode` default = subscription; só `api-key` explícito muda 🟢
-- Token nunca em query string; só header `X-sistema-legado-Session` 🟢
+- Token nunca em query string; só header `X-Sistema-Legado-Session` 🟢
 - Namespace OAuth MCP separado de `mcpSecrets` 🟢
 - Credenciais shell: **somente** session token IPC, não secrets 🟢
 
@@ -59,7 +59,7 @@ Então vaultGuard retorna 423
 
 Dado unlock com senha correcta
 Quando POST /vault/unlock completa
-Então session token emitido; rotas aceitam X-sistema-legado-Session
+Então session token emitido; rotas aceitam X-Sistema-Legado-Session
 
 Dado senha incorrecta repetida
 Quando falhas >= 5

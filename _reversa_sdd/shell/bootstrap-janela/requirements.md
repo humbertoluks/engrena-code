@@ -11,7 +11,7 @@ Garantir que, ao abrir o sistema legado, o processo main configure identidade Li
 
 - Fixar `LINUX_APP_ID` / WM_CLASS antes de `ready` 🟢
 - Registar scheme `app` privilegiado 🟢
-- Subir `@lioncode/server` com `userDataPath` e `openExternal` 🟢
+- Subir `@sistema-legado/server` com `userDataPath` e `openExternal` 🟢
 - Registar protocol handler bundle (e media, necessário ao protocol único) 🟢
 - Criar e mostrar `BrowserWindow` (1280×800, sandbox, title travado) 🟢
 - Tray e ícone de dock (macOS) quando aplicável 🟢
@@ -30,7 +30,7 @@ Garantir que, ao abrir o sistema legado, o processo main configure identidade Li
 
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
-| RF-01 | Antes de ready: Linux class + schemes privilegiados | Must | Sem warning de scheme; app_id `lioncode` no Linux |
+| RF-01 | Antes de ready: Linux class + schemes privilegiados | Must | Sem warning de scheme; app_id `sistema-legado` no Linux |
 | RF-02 | whenReady inicia server com userData do Electron | Must | HTTP loopback responde |
 | RF-03 | Protocolo `app://bundle` serve `renderer/dist` | Must | `index.html` carrega na janela |
 | RF-04 | createMainWindow com isolation/sandbox e load URL correcta (prod vs dev) | Must | Janela visível; title `sistema legado` |
@@ -58,7 +58,7 @@ Dado RENDERER_DEV_SERVER_URL definido e app não empacotada
 Quando a janela é criada
 Então loadURL usa o Vite e isInAppNavigation aceita essa origin
 
-Dado LIONCODE_E2E_HERMETIC=1 sem createE2eDriverRegistry no server
+Dado SISTEMA_LEGADO_E2E_HERMETIC=1 sem createE2eDriverRegistry no server
 Quando startLocalServer corre
 Então o bootstrap falha com erro explícito e regista log
 

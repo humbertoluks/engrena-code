@@ -4,7 +4,7 @@
 
 ## Pré-requisitos
 
-- [ ] Pacote `@lioncode/shared` com tipos Thread, Command, FeaturePipeline/Build
+- [ ] Pacote `@sistema-legado/shared` com tipos Thread, Command, FeaturePipeline/Build
 - [ ] Drivers de provider (`packages/server/src/providers`)
 - [ ] Módulos `git`, `vault`, `memory`, `codegraph` operacionais
 - [ ] Repositories SQLite para messages, tool_calls, diffs, pipelines/builds

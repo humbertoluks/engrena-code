@@ -2,7 +2,7 @@
 
 **Feature:** F05-skills  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/SkillsScreen.tsx` (+ `SkillFormModal.tsx`, `skillForm.logic.ts`, `ProjectSkillsModal.tsx`, `linking/ProjectLinkingModal.tsx`)  
 **Componente destino (previsto):** `src/renderer/screens/SkillsScreen.tsx` (+ satélites de form e vínculo sob `src/renderer/`)  
 **Última atualização:** 2026-08-03
@@ -39,7 +39,7 @@ Não exigir no aceite visual Central:
 
 1. Checkbox **“Template do pipeline (apenas marcador; não bloqueia edição)”** / campo `locked` — PRD F05 não lista; legado de pipeline fora do MVP.
 2. Matriz completa `ProviderCapabilityBadges` além do slot de compatibilidade (manter se F02/capabilities já existirem; não é Must de copy F05).
-3. Nome interno da tool `mcp__lioncode__load_skill` — rename técnico `lioncode` → `engrenacode` é contrato de runtime (spec), não copy de tela.
+3. Nome interno da tool no sistema legado — rename técnico do prefixo MCP → `mcp__engrenacode__load_skill` é contrato de runtime (spec), não copy de tela.
 
 ## Anatomia (topo → base)
 
@@ -113,15 +113,15 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca no erro de rede | LionCode | EngrenaCode |
-| Tool name timeline | `mcp__lioncode__load_skill` | `mcp__engrenacode__load_skill` (spec runtime) |
+| Marca no erro de rede | sistema legado | EngrenaCode |
+| Tool name timeline | prefixo MCP do sistema legado | `mcp__engrenacode__load_skill` (spec runtime) |
 | Type sizes | 26 / 17 / 15 / 13 / 12.5 / 11.5 px | papéis display/title/body/caption |
 | Soft cap description | 200 chars (aviso) | manter |
 | Hard cap content | ~1 MiB (`CONTENT_PRACTICAL_LIMIT`) | manter |
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final no destino.
 
 ### Tela `#skills`
 
@@ -269,7 +269,7 @@ Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no de
 
 ## Perguntas em aberto
 
-Resolvidas na [`spec.md`](./spec.md) §3 (recomendações + LionCodeLabs):
+Resolvidas na [`spec.md`](./spec.md) §3 (recomendações + sistema legado):
 
 - **`locked` / pipeline:** omitir no MVP EngrenaCode.
 - **≤30 vínculos:** soft warning na UI do overlay (não hard fail).

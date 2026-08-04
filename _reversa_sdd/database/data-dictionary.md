@@ -1,6 +1,6 @@
-# Data Dictionary — lioncode.db
+# Data Dictionary — sistema-legado.db
 
-> Fonte: DDL live `c:\Users\Me\AppData\Roaming\@lioncode\shell\lioncode.db` (somente leitura). Confianca: 🟢
+> Fonte: DDL live `c:\Users\Me\AppData\Roaming\@sistema-legado\shell\sistema-legado.db` (somente leitura). Confianca: 🟢
 > DDL autoritativo tambem em `packages/server/src/db/migrations/`.
 
 ## Metadata
@@ -8,8 +8,8 @@
 | Campo | Valor |
 | ----- | ----- |
 | Engine | SQLite (better-sqlite3) |
-| Nome logico | `lioncode.db` |
-| Path snapshot | `c:\Users\Me\AppData\Roaming\@lioncode\shell\lioncode.db` |
+| Nome logico | `sistema-legado.db` |
+| Path snapshot | `c:\Users\Me\AppData\Roaming\@sistema-legado\shell\sistema-legado.db` |
 | Tamanho logico | 1016.0 KiB (1,040,384 bytes) |
 | page_count × page_size | 254 × 4096 |
 | Tabelas | 31 |

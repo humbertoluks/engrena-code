@@ -5,12 +5,12 @@
 
 ## Visão Geral
 
-Processo **main** do Electron que hospeda o server do sistema legado in-process, serve o renderer pelo scheme `app://` (bundle + mídia de áudio) e expõe um bridge IPC mínimo ao preload (`window.lioncode`). Não manipula credenciais do cofre: só entrega token de sessão e notifica lock. 🟢
+Processo **main** do Electron que hospeda o server do sistema legado in-process, serve o renderer pelo scheme `app://` (bundle + mídia de áudio) e expõe um bridge IPC mínimo ao preload (`window.sistemaLegado`). Não manipula credenciais do cofre: só entrega token de sessão e notifica lock. 🟢
 
 ## Responsabilidades
 
 - Bootstrap da app (scheme privilegiado, Linux app id, `whenReady`) 🟢
-- Subir e encerrar o server local (`@lioncode/server`) 🟢
+- Subir e encerrar o server local (`@sistema-legado/server`) 🟢
 - Servir UI empacotada (`app://bundle/…`) e áudio (`app://media/…`) com guards anti-traversal 🟢
 - Criar `BrowserWindow` com isolamento de contexto e navegação restrita 🟢
 - IPC: `pickDirectory`, `getSessionToken`, `onVaultLocked`, `versions` 🟢
@@ -23,8 +23,8 @@ Processo **main** do Electron que hospeda o server do sistema legado in-process,
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` 🟢
 - Navegação in-app só `app://bundle/` ou URL Vite de dev; https externo → browser do sistema 🟢
 - Path traversal bloqueado em `serveBundle` / `serveMedia` (prefixo + `realpath` anti-symlink) 🟢
-- `serveMedia` sob `.lioncode/audio/` com suporte a `Range` (200/206/416) 🟢
-- E2E hermético: `LIONCODE_E2E_HERMETIC=1` injeta driver registry e `openExternal` no-op 🟢
+- `serveMedia` sob `.sistema-legado/audio/` com suporte a `Range` (200/206/416) 🟢
+- E2E hermético: `SISTEMA_LEGADO_E2E_HERMETIC=1` injeta driver registry e `openExternal` no-op 🟢
 - Comportamento exato do tray por OS (menus) 🟡
 
 ## Requisitos Funcionais
@@ -32,7 +32,7 @@ Processo **main** do Electron que hospeda o server do sistema legado in-process,
 | ID | Requisito | Prioridade | Critério de Aceite |
 |----|-----------|------------|-------------------|
 | RF-01 | Ao iniciar, registrar scheme `app` e subir server local antes da janela | Must | Server responde em localhost; janela carrega UI |
-| RF-02 | Expor `window.lioncode` via preload com pickDirectory, getSessionToken, onVaultLocked, versions | Must | Renderer obtém token sem Node no renderer |
+| RF-02 | Expor `window.sistemaLegado` via preload com pickDirectory, getSessionToken, onVaultLocked, versions | Must | Renderer obtém token sem Node no renderer |
 | RF-03 | Servir assets de `renderer/dist` em `app://bundle/` sem path escape | Must | Request fora do dist → erro; UI carrega |
 | RF-04 | Servir áudio de projeto em `app://media/<projectId>/<rel>` com Range | Should | Player inline reproduz; symlink escape rejeitado |
 | RF-05 | Em vault lock, notificar renderer via IPC | Must | UI volta ao gate de login |
@@ -58,13 +58,13 @@ Então o server local está escutando e a janela principal carrega app://bundle/
 
 Dado o renderer autenticado com sessão
 Quando o vault é travado no server
-Então o shell emite lioncode:vault:locked e o renderer perde o token de sessão
+Então o shell emite sistema-legado:vault:locked e o renderer perde o token de sessão
 
 Dado um request app://bundle/../../etc/passwd
 Quando serveBundle processa a URL
 Então o acesso é rejeitado (sem ler fora de renderer/dist)
 
-Dado áudio em .lioncode/audio/ de um projectId válido
+Dado áudio em .sistema-legado/audio/ de um projectId válido
 Quando o player pede app://media/<projectId>/audio/<file>.mp3 com Range
 Então a resposta é 206 (ou 200) com bytes corretos e sem escape de diretório
 ```

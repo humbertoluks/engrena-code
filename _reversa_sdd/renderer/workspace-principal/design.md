@@ -66,7 +66,7 @@ Confiança layout: 🟢
 ## Dependências
 
 - API server: projects, threads, messages, diffs, dispatch, git, pty 🟢
-- `@lioncode/shared` types 🟢
+- `@sistema-legado/shared` types 🟢
 - `useVcsStatus`, `useTerminalSessions`, `useMessageQueue` 🟢
 - CommandPalette ← WorkspaceContext 🟢
 

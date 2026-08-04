@@ -4,7 +4,7 @@
 
 ## Pré-requisitos
 
-- [ ] Contratos `@lioncode/shared` (Provider, RawStreamEvent)
+- [ ] Contratos `@sistema-legado/shared` (Provider, RawStreamEvent)
 - [ ] Vault com resolvers de key (`resolveClaudeKey`, glm, minimax)
 - [ ] Runner pronto para consumir AsyncIterable e chamar cancel
 - [ ] Sub-unidade `dispatch-provider` para contrato dispatch/cancel
@@ -23,7 +23,7 @@
 
 - [ ] T-03, `ClaudeAgentDriver` (claude + compat glm/minimax)
   - Origem no legado: `packages/server/src/providers/claude-agent.ts`
-  - Critério de pronto: dispatch SDK; MCP lioncode; path-guard D13
+  - Critério de pronto: dispatch SDK; MCP sistema-legado; path-guard D13
   - Confiança: 🟢
 
 - [ ] T-04, `CodexCliDriver` (app-server + exec fallback)

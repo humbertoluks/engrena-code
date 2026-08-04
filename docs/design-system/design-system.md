@@ -1,4 +1,4 @@
-# Design System — EngrenaCode (Design Lock LionClaw)
+# Design System — EngrenaCode (Design Lock)
 
 Documento consolidado do sistema visual do renderer. Artefatos detalhados:
 
@@ -12,7 +12,7 @@ Documento consolidado do sistema visual do renderer. Artefatos detalhados:
 ## Resumo executivo
 
 EngrenaCode UI vive em **`src/renderer`**: Tailwind 4 + CSS variables + React.  
-Não há MUI/Chakra/Emotion/CSS Modules. O **Design Lock LionClaw** trava hexes do tema escuro e a ponte de tokens.
+Não há MUI/Chakra/Emotion/CSS Modules. O **Design Lock** trava hexes do tema escuro e a ponte de tokens.
 
 ### Arquitetura de tokens
 
@@ -70,7 +70,7 @@ Padrões recorrentes 🟡:
 | Font families (3) | documentados | 🟢 |
 | Theme runtime | documentado | 🟢 |
 | Type scale / shadows / z-index | ausentes como tokens (Adiado) | 🔴 |
-| LionLabs Grotesk | fora do Escopo Central F01.1 | 🟢 |
+| experimento Grotesk | fora do Escopo Central F01.1 | 🟢 |
 | Brand satélite | palette própria | 🟢 |
 
 ## Como regenerar / validar

@@ -33,7 +33,7 @@
 
 - [ ] T-05, Implementar `createWebSocketHub` (handshake, frames, subscribe)
   - Origem no legado: `packages/server/src/ws/server.ts`
-  - Critério de pronto: upgrade 101; subprotocol `lioncode-session`; emit por thread
+  - Critério de pronto: upgrade 101; subprotocol `sistema-legado-session`; emit por thread
   - Confiança: 🟢
 
 - [ ] T-06, Autenticação WS: origin + vault unlocked + verifySessionToken

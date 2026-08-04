@@ -10,7 +10,7 @@
 |-----------|------|-------|-----------|
 | `repoPath` | string | repo principal | 🟢 |
 | `threadId` | string | chave path | 🟢 |
-| `branch?` | string | default lioncode/<short> | 🟢 |
+| `branch?` | string | default sistema-legado/<short> | 🟢 |
 
 Retorno `WorktreeHandle { path, repoPath, branch }` 🟢
 

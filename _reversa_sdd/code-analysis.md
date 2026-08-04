@@ -22,15 +22,15 @@ Monorepo TypeScript (pnpm) que empacota uma IDE desktop Electron: o **shell** so
 | Arquivo | Papel |
 |---------|-------|
 | `packages/shell/src/main.ts` | Bootstrap, server, protocol `app://`, tray, IPC |
-| `packages/shell/src/preload.ts` | `contextBridge` → `window.lioncode` |
+| `packages/shell/src/preload.ts` | `contextBridge` → `window.sistemaLegado` |
 | `packages/shell/src/window.ts` | `BrowserWindow` + guards de navegação |
 | `packages/shell/src/bootstrap-cleanup.ts` | Cleanup parcial em falha de boot |
 
 ### Fluxo de controle (texto)
 
-1. Antes de `ready`: fixa `LINUX_APP_ID = 'lioncode'` (WM_CLASS) e registra scheme privilegiado `app`.
-2. `app.whenReady` → `startLocalServer()` (dynamic import ESM de `@lioncode/server`) → IPC de session token + dialog de diretório → `registerAppProtocol()` → `createMainWindow()` → tray.
-3. Credenciais do cofre: **somente HTTP** (renderer ↔ server). Shell só entrega `getSessionToken` por IPC e push `lioncode:vault:locked`.
+1. Antes de `ready`: fixa `LINUX_APP_ID = 'sistema-legado'` (WM_CLASS) e registra scheme privilegiado `app`.
+2. `app.whenReady` → `startLocalServer()` (dynamic import ESM de `@sistema-legado/server`) → IPC de session token + dialog de diretório → `registerAppProtocol()` → `createMainWindow()` → tray.
+3. Credenciais do cofre: **somente HTTP** (renderer ↔ server). Shell só entrega `getSessionToken` por IPC e push `sistema-legado:vault:locked`.
 4. Shutdown: remove handlers, unhandle protocol, `server.close()`.
 
 ### Algoritmos / lógica não-trivial
@@ -38,7 +38,7 @@ Monorepo TypeScript (pnpm) que empacota uma IDE desktop Electron: o **shell** so
 | Nome | Local | Descrição | Confiança |
 |------|-------|-----------|-----------|
 | `serveBundle` | `main.ts` | Mapeia `app://bundle/<path>` → `renderer/dist`, bloqueia path traversal | 🟢 |
-| `serveMedia` | `main.ts` | Serve áudio em `app://media/<projectId>/<rel>` sob `.lioncode/audio/`, com rejeição sintática, prefixo normalizado + `realpath` (anti-symlink), e suporte a `Range` (200/206/416) | 🟢 |
+| `serveMedia` | `main.ts` | Serve áudio em `app://media/<projectId>/<rel>` sob `.sistema-legado/audio/`, com rejeição sintática, prefixo normalizado + `realpath` (anti-symlink), e suporte a `Range` (200/206/416) | 🟢 |
 | `importEsmModule` | `main.ts` | `Function('specifier','return import(specifier)')` para importar ESM do server a partir do shell CJS | 🟢 |
 | `isInAppNavigation` | `window.ts` | Só permite navegar em `app://bundle/` ou Vite dev URL; https externo vai ao browser do sistema | 🟢 |
 
@@ -46,7 +46,7 @@ Monorepo TypeScript (pnpm) que empacota uma IDE desktop Electron: o **shell** so
 
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`
 - Origin estável `app://bundle` (evita `Origin: null` de `file://`)
-- E2E hermético: `LIONCODE_E2E_HERMETIC=1` injeta `createE2eDriverRegistry` e `openExternal` no-op
+- E2E hermético: `SISTEMA_LEGADO_E2E_HERMETIC=1` injeta `createE2eDriverRegistry` e `openExternal` no-op
 
 ### Dados / estruturas
 
@@ -64,7 +64,7 @@ Monorepo TypeScript (pnpm) que empacota uma IDE desktop Electron: o **shell** so
 
 ## Módulo: `shared`
 
-**Path:** `shared` (`@lioncode/shared`)  
+**Path:** `shared` (`@sistema-legado/shared`)  
 **Propósito:** Fonte de verdade dos contratos tipados entre shell, server e renderer (sem runtime deps).  
 **Complexidade:** medium  
 **Confiança:** 🟢 CONFIRMADO
@@ -127,8 +127,8 @@ Nenhuma runtime. Consumido por `server`, `renderer`, `shell`.
 
 ### Fluxo de bootstrap (texto)
 
-1. Resolve config (`127.0.0.1:4477` default; `LIONCODE_LOCAL_HOST` / `LIONCODE_LOCAL_PORT`).
-2. Abre SQLite (`LIONCODE_DB_PATH` > `userData/lioncode.db` > fallback SO), PRAGMAs + migrations.
+1. Resolve config (`127.0.0.1:4477` default; `SISTEMA_LEGADO_LOCAL_HOST` / `SISTEMA_LEGADO_LOCAL_PORT`).
+2. Abre SQLite (`SISTEMA_LEGADO_DB_PATH` > `userData/sistema-legado.db` > fallback SO), PRAGMAs + migrations.
 3. Cria vault, registries (providers, skills, MCPs, rules, subagents, turns), brokers, codegraph, dreamer, transcription.
 4. Monta router com `routes` + middleware; sobe HTTP + WebSocket hub.
 5. Reconcilia pipelines/builds e faz GC de worktrees/refs no boot (quando habilitado).
@@ -179,10 +179,10 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 | Variável | Default | Uso |
 |----------|---------|-----|
-| `LIONCODE_LOCAL_HOST` | `127.0.0.1` | Bind |
-| `LIONCODE_LOCAL_PORT` | `4477` | Porta |
-| `LIONCODE_DB_PATH` | userData | Path do SQLite |
-| `LIONCODE_E2E_HERMETIC` | — | Fake drivers (shell) |
+| `SISTEMA_LEGADO_LOCAL_HOST` | `127.0.0.1` | Bind |
+| `SISTEMA_LEGADO_LOCAL_PORT` | `4477` | Porta |
+| `SISTEMA_LEGADO_DB_PATH` | userData | Path do SQLite |
+| `SISTEMA_LEGADO_E2E_HERMETIC` | — | Fake drivers (shell) |
 
 ### Dependências
 
@@ -208,7 +208,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 | `codex.ts` | `CodexCliDriver` (app-server preferido, fallback `exec`) |
 | `grok-acp.ts` / `kimi-acp.ts` | Drivers ACP (Agent Client Protocol / stdio) |
 | `acp-shared.ts` | Helpers ACP: fila, `composePrompt`, normalização de tools |
-| `subagent-bridge.ts` | Proxy HTTP + MCP stdio `lioncode-subagents` |
+| `subagent-bridge.ts` | Proxy HTTP + MCP stdio `sistema-legado-subagents` |
 | `subagent-caller-gate.ts` | Gates estáticos/runtime de caller e allowlist |
 | `cli-resolver.ts` | Resolve spawn shell-free (Windows unwrap de shims npm) |
 | `claude-usage.ts` / `kimi-session-usage.ts` / `memory-session.ts` | Usage parsing e gate de re-injeção de memória |
@@ -216,7 +216,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 ### Fluxo de controle (texto)
 
 1. Runner chama `registry.get(provider).dispatch(prompt, options)`.
-2. **Família Claude:** monta MCP in-process `lioncode`, `canUseTool`, env nativo ou compat (`ANTHROPIC_BASE_URL` + token); `query()` do Agent SDK; resume com fallback se sessão missing.
+2. **Família Claude:** monta MCP in-process `sistema-legado`, `canUseTool`, env nativo ou compat (`ANTHROPIC_BASE_URL` + token); `query()` do Agent SDK; resume com fallback se sessão missing.
 3. **Codex:** valida access (só full-access no contrato comum); transport app-server ou exec; bridge MCP via proxy HTTP; usage cumulativo com delta em resume.
 4. **Grok/Kimi ACP:** spawn CLI → `initialize` → session new/load → `prompt`; permissões via ACP; usage Grok de `_meta`, Kimi de `wire.jsonl`.
 5. Cancel: `AbortController` do turno (Claude) ou SIGTERM/cancel ACP (Codex/Grok/Kimi) → `DispatchCancelledError`.
@@ -291,7 +291,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 ### Fluxo de controle (texto)
 
 1. Rota monta `DispatchContext` → lease de projeto → `runDispatch`.
-2. Registra turno (`TurnRegistry` + `AbortController`); resolve worktree (`main` = cwd vivo; `worktree` = branch `lioncode/<thread>`).
+2. Registra turno (`TurnRegistry` + `AbortController`); resolve worktree (`main` = cwd vivo; `worktree` = branch `sistema-legado/<thread>`).
 3. Snapshot de catálogos; compõe rules/memory/codegraph; prepara MCPs (secrets).
 4. Se comando: despacha motor (workflow / feature-pipeline / feature-build).
 5. `driver.dispatch` → loop allocate-then-emit (`seq` em text blocks e `tool_call.start`).
@@ -343,7 +343,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 ## Módulo: `git`
 
 **Path:** `packages/server/src/git`  
-**Propósito:** Infraestrutura Git do servidor: worktrees persistentes por thread, baselines de review, diffs, apply accept/reject, repo-lock, lease de execução longa, refs duráveis (`refs/lioncode/*`), child-worktrees e PR/push multi-provider (GitHub/GitLab/Bitbucket/Azure) com allowlist de hosts.  
+**Propósito:** Infraestrutura Git do servidor: worktrees persistentes por thread, baselines de review, diffs, apply accept/reject, repo-lock, lease de execução longa, refs duráveis (`refs/sistema-legado/*`), child-worktrees e PR/push multi-provider (GitHub/GitLab/Bitbucket/Azure) com allowlist de hosts.  
 **Complexidade:** high  
 **Confiança:** 🟢 CONFIRMADO
 
@@ -351,13 +351,13 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 | Arquivo | Papel |
 |---------|-------|
-| `worktree.ts` / `worktree-remove.ts` | Worktrees persistentes `lioncode/<short>` + remoção 2 camadas |
+| `worktree.ts` / `worktree-remove.ts` | Worktrees persistentes `sistema-legado/<short>` + remoção 2 camadas |
 | `child-worktree.ts` / `child-reconciliation.ts` | Children efêmeros + reconciliação pós-crash |
 | `diff.ts` | Diffs worktree e entre refs + parse unified |
 | `review-baseline.ts` / `tree-snapshot.ts` | Snapshots imutáveis para accept/reject |
 | `apply.ts` | Apply no main com dry-run, rollback, finalize |
 | `repo-lock.ts` / `project-execution.ts` | Mutex curto + lease longa (1 exec/repo) |
-| `fork-refs.ts` / `conflict-patches.ts` | Refs `refs/lioncode/*` + GC |
+| `fork-refs.ts` / `conflict-patches.ts` | Refs `refs/sistema-legado/*` + GC |
 | `pr.ts` / `vcs-provider.ts` / `vcs-registry.ts` | Commit → push → PR/MR |
 | `providers/*` + `host-allowlist.ts` | Drivers VCS + bloqueio de exfiltração de token |
 | `exec.ts` / `status.ts` / `branches.ts` | Exec git, status, branches |
@@ -365,7 +365,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 ### Fluxo de controle (texto)
 
 1. Dispatch: lease → modo `main` (cwd vivo) ou `worktree` (reusa path ativo ou `createWorktree`).
-2. Path determinístico em `tmpdir/lioncode-worktrees/<threadId>` (cwd estável = resume de sessão).
+2. Path determinístico em `tmpdir/sistema-legado-worktrees/<threadId>` (cwd estável = resume de sessão).
 3. Review: `captureReviewBaseline` → turno → `generateDiffs` / `generateDiffsBetweenRefs` → diffs pending.
 4. Accept: dry-run `--check` → commit interno no worktree → apply no main sob `withRepoLock`.
 5. PR: resolve provider → `assertHostAllowed` → commit sob lock → push autenticado efêmero → openChangeRequest.
@@ -424,7 +424,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 | `vault/store.ts` | Envelope JSON, write atômico (temp+fsync+rename), perms 0600 |
 | `vault/index.ts` | Barrel de exports |
 | `middleware/vault-guard.ts` | Bloqueia rotas não-`public` se cofre travado (423) |
-| `middleware/session-auth.ts` | Exige header `X-sistema-legado-Session` (401 se inválido) |
+| `middleware/session-auth.ts` | Exige header `X-Sistema-Legado-Session` (401 se inválido) |
 | `routes/vault-unlock.ts` | `POST /vault/unlock` (única rota pública de negócio) |
 | `http/rate-limiter.ts` | Teto global de unlock (janela fixa) |
 
@@ -502,7 +502,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 1. Install preset → cria def em `mcps` (OAuth: `headers.Authorization = {oauthRef}`; stdio: `{secretRef}` / `{literal}` no env). Sem placeholder no vault.
 2. OAuth Connect: rate/vault check → discovery (WWW-Authenticate → RFC 9728 → RFC 8414) → client (static/CIMD/DCR/manual) → PKCE + loopback → tokens no vault; status público no DB.
 3. Dispatch: registry (defs com refs) → SecretResolver (resolve secrets/OAuth, omite se ausente) → stdio com secretRef vira wrapper via loopback efêmero (segredo fora de argv/ps).
-4. Sentinelas: `LIONCODE_NODE` → `execPath`; `LIONCODE_MCP_SERVER_DIST:<pkg>` → `mcp-servers/<pkg>/dist/index.js`.
+4. Sentinelas: `SISTEMA_LEGADO_NODE` → `execPath`; `SISTEMA_LEGADO_MCP_SERVER_DIST:<pkg>` → `mcp-servers/<pkg>/dist/index.js`.
 
 ### Algoritmos / lógica não-trivial
 
@@ -520,7 +520,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 | Regra | Confiança |
 |-------|-----------|
-| Nome `lioncode` reservado (broker); regex `^[a-z0-9][a-z0-9_-]*$` | 🟢 |
+| Nome `sistema-legado` reservado (broker); regex `^[a-z0-9][a-z0-9_-]*$` | 🟢 |
 | `{secretRef}` em headers rejeitado (vaza em `--mcp-config`/argv) | 🟢 |
 | Token/client_secret nunca em log, DB público ou HTTP response | 🟢 |
 | Install não cria placeholder no vault | 🟢 |
@@ -549,7 +549,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 ## Módulo: `memory`
 
 **Path:** `packages/server/src/memory` (+ rota + injeção no runner)  
-**Propósito:** Memória de projeto em `<projeto>/.lioncode/`: journal determinístico (git events), `memory.md` curado (tool/UI), e dreaming/consolidação LLM fail-closed com CAS e backups.  
+**Propósito:** Memória de projeto em `<projeto>/.sistema-legado/`: journal determinístico (git events), `memory.md` curado (tool/UI), e dreaming/consolidação LLM fail-closed com CAS e backups.  
 **Complexidade:** high  
 **Confiança:** 🟢 CONFIRMADO
 
@@ -595,7 +595,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 | Anomalia/truncado ⇒ `editable: false`, PUT/dream bloqueados | 🟢 |
 | Codex/grok fora do dreaming (sem modo sem tools) | 🟢 |
 | Conteúdo do memory é DADO, nunca instrução (boundary sanitize) | 🟢 |
-| `.lioncode/` no git exclude (ensure-once) | 🟢 |
+| `.sistema-legado/` no git exclude (ensure-once) | 🟢 |
 
 ### Dados / estruturas
 
@@ -830,8 +830,8 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 ## Módulo: `renderer`
 
-**Path:** `packages/renderer` (`@lioncode/renderer`)  
-**Propósito:** UI React/Vite/Tailwind da IDE desktop: gate de cofre, workspace de três painéis (chat/streaming/diff/terminal), telas de catálogo (subagents/skills/mcps/rules), consumo/métricas e configuração. Fala só com o server local (HTTP+WS) e com o bridge Electron (`window.lioncode`).  
+**Path:** `packages/renderer` (`@sistema-legado/renderer`)  
+**Propósito:** UI React/Vite/Tailwind da IDE desktop: gate de cofre, workspace de três painéis (chat/streaming/diff/terminal), telas de catálogo (subagents/skills/mcps/rules), consumo/métricas e configuração. Fala só com o server local (HTTP+WS) e com o bridge Electron (`window.sistemaLegado`).  
 **Complexidade:** high  
 **Confiança:** 🟢 CONFIRMADO
 
@@ -853,7 +853,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 ### Fluxo de controle (texto)
 
-1. Boot: tema em `useTheme` (antes do render) → LoginScreen (unlock vault) → IPC `getSessionToken` → `X-sistema-legado-Session` → lazy AppShell.
+1. Boot: tema em `useTheme` (antes do render) → LoginScreen (unlock vault) → IPC `getSessionToken` → `X-Sistema-Legado-Session` → lazy AppShell.
 2. Hash: rotas protegidas com cofre travado → `#login` (memoriza intended); unlock → resume.
 3. Principal: seleciona projeto → lista threads; abre thread → `useThreadConversation` (history + `subscribeThread`); composer → dispatch/follow-up; WS eventos → reducer; meta (state/diff) sobe para pills/sidebar.
 4. Reconexão WS: backoff + re-hidrata history; dedupe `message.delta` por high-water `seq`; tool calls idempotentes no reducer.
@@ -880,7 +880,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 | Badge sintético pipeline/build usa campo `synthetic`, não matching de prefixo | 🟢 |
 | Tool call status explícito (`running`/`done`/`interrompido`), não inferido de result null | 🟢 |
 | Fila de follow-up: falha retém item; sem retry otimista após reload | 🟢 |
-| Defaults API `localhost:4477` (CSP); override `VITE_LIONCODE_*` | 🟢 |
+| Defaults API `localhost:4477` (CSP); override `VITE_SISTEMA_LEGADO_*` | 🟢 |
 | `terminalRunning` no WorkspaceContext sempre false (dívida pós-PTY) | 🟢 |
 
 ### Dados / estruturas (UI)
@@ -898,14 +898,14 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 ### Dependências
 
-→ `shared`, server local (HTTP/WS), shell bridge (`window.lioncode`); xterm, shiki, react-markdown, Tailwind
+→ `shared`, server local (HTTP/WS), shell bridge (`window.sistemaLegado`); xterm, shiki, react-markdown, Tailwind
 
 ---
 
 ## Módulo: `mcp-servers`
 
 **Path:** `mcp-servers/*` (workspace pnpm)  
-**Propósito:** Pacotes MCP stdio first-party do catálogo do sistema legado: bridge interna (`lioncode` / secret-wrapper) e integrações externas (Slack, Linear, n8n, Cartesia, ElevenLabs). Cada pacote é processo separado spawnado pelo runner/provider; lógica pura em `protocol.ts` (testável sem stdio/rede).  
+**Propósito:** Pacotes MCP stdio first-party do catálogo do sistema legado: bridge interna (`sistema-legado` / secret-wrapper) e integrações externas (Slack, Linear, n8n, Cartesia, ElevenLabs). Cada pacote é processo separado spawnado pelo runner/provider; lógica pura em `protocol.ts` (testável sem stdio/rede).  
 **Complexidade:** medium  
 **Confiança:** 🟢 CONFIRMADO
 
@@ -913,12 +913,12 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 | Pacote | Nome npm | Papel |
 |--------|----------|-------|
-| `lioncode-secret-wrapper` | `@lioncode/mcp-secret-wrapper` | Pass-through: lê/apaga token file → GET loopback mcp-spec → spawna server real |
-| `lioncode-subagents` | `@lioncode/mcp-subagents-bridge` | Bridge `lioncode`: `call_subagent`, `save_memory`, `repo_graph_*` via HTTP loopback |
+| `sistema-legado-secret-wrapper` | `@sistema-legado/mcp-secret-wrapper` | Pass-through: lê/apaga token file → GET loopback mcp-spec → spawna server real |
+| `sistema-legado-subagents` | `@sistema-legado/mcp-subagents-bridge` | Bridge `sistema-legado`: `call_subagent`, `save_memory`, `repo_graph_*` via HTTP loopback |
 | `slack` | MCP `slack` | Canais / mensagens / post (Slack Web API) |
 | `linear` | MCP `linear` | Issues/projects (GraphQL Linear) |
 | `n8n` | MCP `n8n` | Workflows/execuções/webhook (REST v1) |
-| `cartesia` | MCP `cartesia` | TTS → `.lioncode/audio/<uuid>.mp3` |
+| `cartesia` | MCP `cartesia` | TTS → `.sistema-legado/audio/<uuid>.mp3` |
 | `elevenlabs` | MCP `elevenlabs` | TTS (mesmo contrato de áudio) |
 
 ### Arquivos primários
@@ -931,10 +931,10 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 
 ### Fluxo de controle (texto)
 
-1. **Secret wrapper:** `parseArgs` (3 posicionais; `specUrl` só `127.0.0.1`) → `readAndBurnToken` → `fetchSpec` Bearer → `spawn(command,args)` com env limpo (sem `LIONCODE_MCP_*` / `LIONCODE_SECRET_*`) + `stdio: inherit` → encaminha SIGTERM/SIGINT.
+1. **Secret wrapper:** `parseArgs` (3 posicionais; `specUrl` só `127.0.0.1`) → `readAndBurnToken` → `fetchSpec` Bearer → `spawn(command,args)` com env limpo (sem `SISTEMA_LEGADO_MCP_*` / `SISTEMA_LEGADO_SECRET_*`) + `stdio: inherit` → encaminha SIGTERM/SIGINT.
 2. **Bridge subagents:** `resolveBridgeConfig` (exige URL+token e ≥1 capability) → registra tools condicionais → proxy `POST /delegate|/save-memory|/repo-graph` → resultado texto / `isError` (nunca derruba o server).
 3. **Catálogo externo:** resolve ENV (boot fail se segredo ausente) → tools Zod → API remota com `fetch` injetável → JSON enxuto ou `isError`; stdout = JSON-RPC, logs só stderr.
-4. **TTS (Cartesia/ElevenLabs):** resolve voz (arg > ENV) → `performTts` → grava mp3 em `.lioncode/audio/` → `ensureGitExcluded` (`/.lioncode/`) → payload `{ audioRelPath, mimeType, text, durationSec }`.
+4. **TTS (Cartesia/ElevenLabs):** resolve voz (arg > ENV) → `performTts` → grava mp3 em `.sistema-legado/audio/` → `ensureGitExcluded` (`/.sistema-legado/`) → payload `{ audioRelPath, mimeType, text, durationSec }`.
 
 ### Algoritmos / lógica não-trivial
 
@@ -946,7 +946,7 @@ Tabelas criadas/evoluídas via migrations (lista não exaustiva; Data Master apr
 | Proxy delegate/cancel | `proxyDelegate` | Endpoint efêmero ligado ao AbortController do turno pai | 🟢 |
 | get_issue fallback | `linear/protocol.ts` | `issue(id:)` → se falhar, `issueSearch` | 🟢 |
 | stateName→stateId | `updateIssue` | Resolve nos states do team da issue (case-insensitive) | 🟢 |
-| Contrato de áudio | cartesia/elevenlabs | Rel-path sob `.lioncode/`; duração estimada CBR; git exclude idempotente | 🟢 |
+| Contrato de áudio | cartesia/elevenlabs | Rel-path sob `.sistema-legado/`; duração estimada CBR; git exclude idempotente | 🟢 |
 | Dados enxutos | slack/linear/n8n | `clampLimit` ≤50; `truncateText`; erros sem ecoar segredo | 🟢 |
 
 ### Regras de negócio (amostra)

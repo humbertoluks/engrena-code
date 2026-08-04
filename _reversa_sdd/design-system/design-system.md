@@ -1,4 +1,4 @@
-# Design System — sistema legado (Design Lock LionClaw)
+# Design System — sistema legado (Design Lock)
 
 Documento consolidado do sistema visual do renderer. Artefatos detalhados:
 
@@ -12,7 +12,7 @@ Documento consolidado do sistema visual do renderer. Artefatos detalhados:
 ## Resumo executivo
 
 A UI do sistema legado vive em **`packages/renderer`**: Tailwind 3 + CSS variables + React.  
-Não há MUI/Chakra/Emotion/CSS Modules. O **Design Lock LionClaw (SPEC 4.4)** trava hexes do tema escuro e a ponte de tokens.
+Não há MUI/Chakra/Emotion/CSS Modules. O **Design Lock (SPEC 4.4)** trava hexes do tema escuro e a ponte de tokens.
 
 ### Arquitetura de tokens
 
@@ -31,7 +31,7 @@ flowchart LR
 2. **Accent laranja** `#ff6b00` / `#ff8c2e` idêntico em light e dark.
 3. **Dark hexes travados** (comentário "NAO alterar" no CSS).
 4. **Spacing 4–8–16–24–40** e **radius 5–8–12** literais no TS.
-5. **Tema tri-modo** com persistência `lioncode:theme` e anti-flash (módulo + `.no-transitions` + splash Electron).
+5. **Tema tri-modo** com persistência `sistema-legado:theme` e anti-flash (módulo + `.no-transitions` + splash Electron).
 
 ### Componentes / superfícies tipadas pelo sistema
 
@@ -70,8 +70,8 @@ Padrões recorrentes 🟡:
 | Font families (3) | documentados | 🟢 |
 | Theme runtime | documentado | 🟢 |
 | Type scale / shadows / z-index | ausentes como tokens | 🔴 |
-| LionLabs Grotesk override | ativo no boot | 🟢 arquivo / 🟡 intenção permanente |
-| Brand lion sprite | palette própria | 🟢 |
+| experimento Grotesk override | ativo no boot | 🟢 arquivo / 🟡 intenção permanente |
+| EngrenaSprite (mascote) | palette própria | 🟢 |
 
 ## Como regenerar / validar
 

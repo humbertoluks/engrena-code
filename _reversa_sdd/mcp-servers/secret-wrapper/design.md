@@ -40,7 +40,7 @@ Confiança: 🟢 (`index.ts` + `protocol.ts`)
 ## buildChildEnv
 
 1. Copia `process.env` 🟢
-2. Remove chaves `LIONCODE_MCP_*` e `LIONCODE_SECRET_*` 🟢
+2. Remove chaves `SISTEMA_LEGADO_MCP_*` e `SISTEMA_LEGADO_SECRET_*` 🟢
 3. Overlay `spec.env` do runner 🟢
 
 ## Fluxos Alternativos

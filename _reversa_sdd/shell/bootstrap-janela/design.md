@@ -10,7 +10,7 @@
 |-------|------|--------|-----------|
 | `app.isPackaged` | boolean | Prod vs possível Vite | 🟢 |
 | `RENDERER_DEV_SERVER_URL` | env string? | Load Vite se não empacotado | 🟢 |
-| `LIONCODE_E2E_HERMETIC` | `'1'` | Drivers fake + openExternal no-op | 🟢 |
+| `SISTEMA_LEGADO_E2E_HERMETIC` | `'1'` | Drivers fake + openExternal no-op | 🟢 |
 | `app.getPath('userData')` | path | Passado a `createServer` | 🟢 |
 
 ### Funções principais
@@ -32,9 +32,9 @@
 ## Fluxo Principal
 
 1. Single-instance lock; se perder → `app.quit()` 🟢
-2. Pré-ready: Linux `class=lioncode`; `protocol.registerSchemesAsPrivileged` 🟢
+2. Pré-ready: Linux `class=sistema-legado`; `protocol.registerSchemesAsPrivileged` 🟢
 3. `whenReady` → `bootstrap()`:
-   1. `startLocalServer()` (import ESM `@lioncode/server`) 🟢
+   1. `startLocalServer()` (import ESM `@sistema-legado/server`) 🟢
    2. `registerDialogIpc()` 🟢
    3. `registerAppProtocol()` 🟢
    4. macOS: `dock.setIcon` 🟢
@@ -54,7 +54,7 @@
 
 ## Dependências
 
-- `@lioncode/server.createServer` — HTTP/WS/vault/SQLite 🟢
+- `@sistema-legado/server.createServer` — HTTP/WS/vault/SQLite 🟢
 - Electron `app`, `protocol`, `BrowserWindow`, `Tray`, `dialog`, `shell` 🟢
 - `bootstrap-cleanup.ts` — destroy seguro de recursos parciais 🟢
 - Build `renderer/dist` em produção 🟢

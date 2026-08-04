@@ -202,7 +202,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 
 ### F01.1 Design System
 
-Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock LionClaw). Não é feature de fluxo de negócio.
+Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock). Não é feature de fluxo de negócio.
 
 **Provê:**
 - Tokens semânticos de cor light/dark, spacing, radii e famílias tipográficas para todas as UIs do renderer (usado por F02, F03, F04, F05, F06, F07, F08, F09, F10, F11)
@@ -230,7 +230,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - Anti-flash: `.no-transitions` na troca; splash do shell `#0a0a0b`
 - Shiki: `github-light` / `github-dark` conforme tema resolvido; xterm lê `--bg`, `--fg`, `--accent`, `--border` + JetBrains Mono
 - Stack: Tailwind 3 + CSS variables + React no renderer; sem MUI, Chakra, Emotion, CSS Modules ou Storybook obrigatório
-- LionLabs Grotesk: experimento reversível (alias de DM Sans/Figtree); não sobrescreve mono; não é identidade tipográfica definitiva do produto
+- Experimento Grotesk: experimento reversível (alias de DM Sans/Figtree); não sobrescreve mono; não é identidade tipográfica definitiva do produto
 - Fora do Design Lock (não contrato central): cores de diff/provider brands, overlay `bg-black/50`, CSS de `_reversa_docs`, palette do mascote satélite
 
 **Experiência:**
@@ -667,14 +667,14 @@ graph TD
 - [x] load_skill entrega content sob demanda; skill não roda sozinha
 
 ### F06. Rules
-- [ ] Rules globais e por projeto resolvem com override de supressão
+- [x] Rules globais e por projeto resolvem com override de supressão
 - [ ] Bloco de rules aparece em todo turno com precedência projeto > global > arquivos do repo
-- [ ] Name com CR/LF é rejeitado
+- [x] Name com CR/LF é rejeitado
 
 ### F07. SubAgents
-- [ ] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
+- [x] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
 - [ ] call_subagent cria run efêmero; diffs do filho na revisão do pai
-- [ ] Codex pai sem full-access não delega
+- [x] Codex pai sem full-access não delega
 - [ ] Idle timeout default 20 min encerra run visível na UI
 
 ### F08. Registros

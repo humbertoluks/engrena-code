@@ -9,10 +9,10 @@
 | `slack/` | slack | Slack Web API 🟢 |
 | `linear/` | linear | GraphQL Linear 🟢 |
 | `n8n/` | n8n | REST v1 🟢 |
-| `cartesia/` | cartesia | TTS → `.lioncode/audio/` 🟢 |
+| `cartesia/` | cartesia | TTS → `.sistema-legado/audio/` 🟢 |
 | `elevenlabs/` | elevenlabs | TTS (mesmo contrato) 🟢 |
-| `lioncode-secret-wrapper/` | (wrapper) | Loopback mcp-spec 🟢 |
-| `lioncode-subagents/` | lioncode | HTTP delegate bridge 🟢 |
+| `sistema-legado-secret-wrapper/` | (wrapper) | Loopback mcp-spec 🟢 |
+| `sistema-legado-subagents/` | sistema-legado | HTTP delegate bridge 🟢 |
 
 ## Padrão de Arquivos
 
@@ -21,7 +21,7 @@
 | `src/index.ts` | McpServer + StdioServerTransport ou spawn wrapper 🟢 |
 | `src/protocol.ts` | Config ENV, HTTP, helpers puros 🟢 |
 | `test/protocol.test.ts` | node:test sem stdio 🟢 |
-| `package.json` | `@lioncode/mcp-*` naming 🟢 |
+| `package.json` | `@sistema-legado/mcp-*` naming 🟢 |
 
 ## Fluxo Spawn (runner → MCP)
 
@@ -44,12 +44,12 @@ Confiança: 🟢 (slack/index.ts padrão ok/fail)
 
 | Campo | Descrição |
 |-------|-----------|
-| `audioRelPath` | Sob `.lioncode/audio/<uuid>.mp3` 🟢 |
+| `audioRelPath` | Sob `.sistema-legado/audio/<uuid>.mp3` 🟢 |
 | `mimeType` | audio/mpeg 🟢 |
 | `text` | Texto sintetizado 🟢 |
 | `durationSec` | Estimativa CBR 🟢 |
 
-Pós-gravação: `ensureGitExcluded('/.lioncode/')` 🟢
+Pós-gravação: `ensureGitExcluded('/.sistema-legado/')` 🟢
 
 ## Dependências
 

@@ -4,13 +4,13 @@
 
 ## Interface
 
-### Bridge preload → renderer (`window.lioncode`)
+### Bridge preload → renderer (`window.sistemaLegado`)
 
 | Símbolo | Assinatura | Retorno | Observação |
 |---------|------------|---------|------------|
 | `pickDirectory` | `()` | `Promise<string \| null>` | Dialog nativo; `null` se cancelado 🟢 |
-| `getSessionToken` | `()` | `Promise<string \| null>` | IPC `lioncode:vault:session-token`; `null` se travado 🟢 |
-| `onVaultLocked` | `(cb: () => void)` | `() => void` | Unsubscribe; evento `lioncode:vault:locked` 🟢 |
+| `getSessionToken` | `()` | `Promise<string \| null>` | IPC `sistema-legado:vault:session-token`; `null` se travado 🟢 |
+| `onVaultLocked` | `(cb: () => void)` | `() => void` | Unsubscribe; evento `sistema-legado:vault:locked` 🟢 |
 | `versions` | — | `{ node, chrome, electron }` | Somente leitura 🟢 |
 | `appName` | — | `'sistema legado'` | Constante 🟢 |
 
@@ -18,16 +18,16 @@
 
 | Canal | Direção | Papel | Confiança |
 |-------|---------|-------|-----------|
-| `lioncode:dialog:open-directory` | invoke | Seletor de diretório | 🟢 |
-| `lioncode:vault:session-token` | invoke | Entrega token de sessão | 🟢 |
-| `lioncode:vault:locked` | push main→renderer | Invalida sessão na UI | 🟢 |
+| `sistema-legado:dialog:open-directory` | invoke | Seletor de diretório | 🟢 |
+| `sistema-legado:vault:session-token` | invoke | Entrega token de sessão | 🟢 |
+| `sistema-legado:vault:locked` | push main→renderer | Invalida sessão na UI | 🟢 |
 
 ### Protocolo `app://`
 
 | Método | Caminho | Entrada | Saída | Status |
 |--------|---------|---------|-------|--------|
 | GET | `app://bundle/<path>` | path relativo a `renderer/dist` | asset estático | 200 / erro se traversal 🟢 |
-| GET | `app://media/<projectId>/<rel>` | projectId + rel sob `.lioncode/audio/` | bytes áudio + Range | 200 / 206 / 416 / 4xx 🟢 |
+| GET | `app://media/<projectId>/<rel>` | projectId + rel sob `.sistema-legado/audio/` | bytes áudio + Range | 200 / 206 / 416 / 4xx 🟢 |
 
 ### Server handle (estrutural)
 
@@ -40,9 +40,9 @@
 
 ## Fluxo Principal
 
-1. Antes de `ready`: Linux `class=lioncode`; `protocol.registerSchemesAsPrivileged(['app'])` 🟢 (`main.ts`)
-2. `app.whenReady` → `startLocalServer()` via `importEsmModule('@lioncode/server')` → `createServer({ userDataPath, openExternal, … })` 🟢
-3. Registra IPC (dialog + session token) e `vault.onLock` → emite `lioncode:vault:locked` 🟢
+1. Antes de `ready`: Linux `class=sistema-legado`; `protocol.registerSchemesAsPrivileged(['app'])` 🟢 (`main.ts`)
+2. `app.whenReady` → `startLocalServer()` via `importEsmModule('@sistema-legado/server')` → `createServer({ userDataPath, openExternal, … })` 🟢
+3. Registra IPC (dialog + session token) e `vault.onLock` → emite `sistema-legado:vault:locked` 🟢
 4. `registerAppProtocol()` (`serveBundle` / `serveMedia`) 🟢
 5. `createMainWindow()` → load `app://bundle/index.html` (ou Vite dev URL) 🟢
 6. Tray + handlers de ciclo de vida; em quit: cleanup handlers, protocol, `server.close()` 🟢
@@ -50,17 +50,17 @@
 ## Fluxos Alternativos
 
 - **Dev:** `RENDERER_DEV_SERVER_URL` → janela carrega Vite; navegação in-app inclui essa origin 🟢
-- **E2E hermético:** `LIONCODE_E2E_HERMETIC=1` → `createE2eDriverRegistry` + `openExternal` no-op 🟢
+- **E2E hermético:** `SISTEMA_LEGADO_E2E_HERMETIC=1` → `createE2eDriverRegistry` + `openExternal` no-op 🟢
 - **Falha de boot:** `writeBootstrapFailure` + `bootstrap-cleanup` remove recursos parciais 🟢
 - **Link https / open:** `setWindowOpenHandler` e `will-navigate` abrem no browser do sistema e negam in-app 🟢
 - **Clique em `app://media` (download):** navegação bloqueada; download real via fetch+blob no renderer 🟢
 
 ## Dependências
 
-- `@lioncode/server` — processo de domínio in-process (ESM importado do shell CJS) 🟢
+- `@sistema-legado/server` — processo de domínio in-process (ESM importado do shell CJS) 🟢
 - Electron (`app`, `BrowserWindow`, `ipcMain`, `protocol`, `Tray`, `dialog`, `shell`) 🟢
 - FS Node — `realpath` / streams para mídia segura 🟢
-- `@lioncode/shared` — acoplamento tipado mínimo (estrutural no shell) 🟡
+- `@sistema-legado/shared` — acoplamento tipado mínimo (estrutural no shell) 🟡
 
 ## Decisões de Design Identificadas
 

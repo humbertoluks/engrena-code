@@ -1,6 +1,6 @@
 # bridge-subagents, Tarefas de Implementação
 
-> Sequência para reimplementar o lioncode-subagents bridge.
+> Sequência para reimplementar o sistema-legado-subagents bridge.
 
 ## Pré-requisitos
 
@@ -11,41 +11,41 @@
 ## Tarefas
 
 - [ ] T-01, resolveBridgeConfig: parse ENV + validar ≥1 capability
-  - Origem: `mcp-servers/lioncode-subagents/src/protocol.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/protocol.ts`
   - Critério de pronto: throw descritivo se config inválida
   - Confiança: 🟢
 
 - [ ] T-02, proxyDelegate / proxySaveMemory / proxyRepoGraph
-  - Origem: `mcp-servers/lioncode-subagents/src/protocol.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/protocol.ts`
   - Critério de pronto: Bearer header; fetch injetável; ok/error shape
   - Confiança: 🟢
 
 - [ ] T-03, registerRepoGraphTools (7 tools + schemas Zod)
-  - Origem: `mcp-servers/lioncode-subagents/src/index.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/index.ts`
   - Critério de pronto: cada tool proxy com isError em falha
   - Confiança: 🟢
 
 - [ ] T-04, call_subagent com z.enum(names) + buildToolDescription
-  - Origem: `mcp-servers/lioncode-subagents/src/index.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/index.ts`
   - Critério de pronto: nomes fora do enum rejeitados pelo schema
   - Confiança: 🟢
 
 - [ ] T-05, Registro condicional save_memory (MEMORY=1)
-  - Origem: `mcp-servers/lioncode-subagents/src/index.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/index.ts`
   - Critério de pronto: sem ENV ⇒ tool ausente no list_tools
   - Confiança: 🟢
 
 - [ ] T-06, main: McpServer + StdioServerTransport + boot fail stderr
-  - Origem: `mcp-servers/lioncode-subagents/src/index.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/src/index.ts`
   - Critério de pronto: stdout limpo; erro boot exit 1 stderr
   - Confiança: 🟢
 
 - [ ] T-07, Testes protocol.test.ts
-  - Origem: `mcp-servers/lioncode-subagents/test/protocol.test.ts`
+  - Origem: `mcp-servers/sistema-legado-subagents/test/protocol.test.ts`
   - Critério de pronto: config, proxy mocks, enum parsing
   - Confiança: 🟢
 
-- [ ] T-08, Wiring CodexCliDriver TOML mcp_servers.lioncode
+- [ ] T-08, Wiring CodexCliDriver TOML mcp_servers.sistema-legado
   - Origem: `packages/server/src/providers/` (Codex driver)
   - Critério de pronto: codex exec carrega MCP e invoca call_subagent
   - Confiança: 🟡

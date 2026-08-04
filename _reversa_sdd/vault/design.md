@@ -33,7 +33,7 @@ providerKeys, vcsTokens, claudeAuthMode, mcpSecrets, mcpOauth, transcriptionKeys
 1. Boot `server.ts`: `createVault({ vaultDir })` 🟢
 2. Cadeia HTTP: `vaultGuard` → `sessionAuth` → handler 🟢
 3. Unlock (rota pública): rate limit → backoff → derive key → decrypt → normalize legacy → emit token 🟢
-4. Requests autenticados: header `X-sistema-legado-Session` 🟢
+4. Requests autenticados: header `X-Sistema-Legado-Session` 🟢
 5. Reads/writes credenciais exigem unlocked; persist re-cifra envelope 🟢
 6. Lock: zero key memory, invalidate token, onLock callbacks 🟢
 

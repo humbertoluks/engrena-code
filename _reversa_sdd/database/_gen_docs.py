@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Reversa Data Master docs from live lioncode.db (read-only)."""
+"""Generate Reversa Data Master docs from live sistema-legado.db (read-only)."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB = Path(r"c:\Users\Me\AppData\Roaming\@lioncode\shell\lioncode.db")
+DB = Path(r"c:\Users\Me\AppData\Roaming\@sistema-legado\shell\sistema-legado.db")
 OUT = Path(__file__).resolve().parent
 
 DOMAIN = {
@@ -181,7 +181,7 @@ def gen_erd(data: dict) -> str:
         by_domain[DOMAIN.get(t["name"], "Other")].append(t)
 
     lines = [
-        "# ERD — lioncode.db",
+        "# ERD — sistema-legado.db",
         "",
         f"> Fonte: DDL live `{data['db_path']}` (somente leitura). Confianca: 🟢",
         f"> Snapshot: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} | "
@@ -257,7 +257,7 @@ def gen_data_dictionary(data: dict) -> str:
     total_rows = sum(t["row_count"] for t in data["tables"])
 
     lines = [
-        "# Data Dictionary — lioncode.db",
+        "# Data Dictionary — sistema-legado.db",
         "",
         f"> Fonte: DDL live `{data['db_path']}` (somente leitura). Confianca: 🟢",
         "> DDL autoritativo tambem em `packages/server/src/db/migrations/`.",
@@ -267,7 +267,7 @@ def gen_data_dictionary(data: dict) -> str:
         "| Campo | Valor |",
         "| ----- | ----- |",
         "| Engine | SQLite (better-sqlite3) |",
-        "| Nome logico | `lioncode.db` |",
+        "| Nome logico | `sistema-legado.db` |",
         f"| Path snapshot | `{data['db_path']}` |",
         f"| Tamanho logico | {data['db_size_bytes'] / 1024:.1f} KiB "
         f"({data['db_size_bytes']:,} bytes) |",
@@ -378,7 +378,7 @@ def gen_data_dictionary(data: dict) -> str:
 
 def gen_relationships(data: dict) -> str:
     lines = [
-        "# Relationships — lioncode.db",
+        "# Relationships — sistema-legado.db",
         "",
         f"> Fonte: `PRAGMA foreign_key_list` + DDL live. Confianca: 🟢",
         "",
@@ -467,7 +467,7 @@ def gen_relationships(data: dict) -> str:
 
 def gen_business_rules(data: dict) -> str:
     lines = [
-        "# Business Rules (no banco) — lioncode.db",
+        "# Business Rules (no banco) — sistema-legado.db",
         "",
         f"> Fonte: DDL live + triggers. Confianca: 🟢 (CHECK/trigger) | 🟡 (inferido de naming/seed)",
         "",
@@ -557,7 +557,7 @@ def gen_business_rules(data: dict) -> str:
 def gen_procedures(data: dict) -> str:
     return "\n".join(
         [
-            "# Procedures & Functions — lioncode.db",
+            "# Procedures & Functions — sistema-legado.db",
             "",
             f"> Fonte: `sqlite_master` live. Confianca: 🟢",
             "",

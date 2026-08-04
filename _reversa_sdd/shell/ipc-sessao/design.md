@@ -8,10 +8,10 @@
 
 | Canal | Tipo Electron | Payload | Confiança |
 |-------|---------------|---------|-----------|
-| `lioncode:vault:session-token` | `ipcMain.handle` / `invoke` | retorno `string \| null` | 🟢 |
-| `lioncode:vault:locked` | `webContents.send` / `ipcRenderer.on` | sem args | 🟢 |
+| `sistema-legado:vault:session-token` | `ipcMain.handle` / `invoke` | retorno `string \| null` | 🟢 |
+| `sistema-legado:vault:locked` | `webContents.send` / `ipcRenderer.on` | sem args | 🟢 |
 
-### Preload (`window.lioncode`)
+### Preload (`window.sistemaLegado`)
 
 | Símbolo | Assinatura | Retorno |
 |---------|------------|---------|
@@ -34,7 +34,7 @@ interface VaultSessionBridge {
 2. Regista `ipcMain.handle(VAULT_SESSION_TOKEN_CHANNEL, () => localServer?.vault.getSessionToken() ?? null)` 🟢
 3. `unsubscribeVaultLock = vault.onLock(() => mainWindow?.webContents.send(VAULT_LOCKED_EVENT))` 🟢  
    - Closure lê `mainWindow` **tarde** (janela criada depois no bootstrap) 🟢
-4. Renderer, pós-unlock HTTP: `await window.lioncode.getSessionToken()` → guarda em memória → header `X-sistema-legado-Session` 🟢 (renderer; contrato)
+4. Renderer, pós-unlock HTTP: `await window.sistemaLegado.getSessionToken()` → guarda em memória → header `X-Sistema-Legado-Session` 🟢 (renderer; contrato)
 5. Em lock: push IPC → renderer descarta token e bloqueia rotas protegidas 🟢
 
 ## Fluxos Alternativos
@@ -46,7 +46,7 @@ interface VaultSessionBridge {
 
 ## Dependências
 
-- Vault do `@lioncode/server` (emissão de token e eventos de lock) 🟢
+- Vault do `@sistema-legado/server` (emissão de token e eventos de lock) 🟢
 - Electron `ipcMain` / `ipcRenderer` / `contextBridge` 🟢
 - Renderer: fluxo unlock HTTP + consumo do header (fora do shell) 🟢
 
@@ -73,6 +73,6 @@ interface VaultSessionBridge {
 
 ## Riscos e Lacunas
 
-- 🟢 Nome exacto do header HTTP: `x-lioncode-session` (`SESSION_HEADER` em `packages/server/src/middleware/session-auth.ts:19`) [Revisão]
+- 🟢 Nome exacto do header HTTP: `x-sistema-legado-session` (`SESSION_HEADER` em `packages/server/src/middleware/session-auth.ts:19`) [Revisão]
 - 🟡 Corrida: lock entre invoke e uso do token no renderer (mitigado por push + descarte)
 - 🟡 Múltiplas janelas futuras: hoje só `mainWindow` recebe o push

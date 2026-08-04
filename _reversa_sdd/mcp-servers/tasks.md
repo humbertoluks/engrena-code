@@ -35,13 +35,13 @@
   - Critério de pronto: AudioResultPayload; git exclude
   - Confiança: 🟢
 
-- [ ] T-06, lioncode-secret-wrapper (parseArgs, burn, fetch, spawn)
-  - Origem: `mcp-servers/lioncode-secret-wrapper/src/*`
+- [ ] T-06, sistema-legado-secret-wrapper (parseArgs, burn, fetch, spawn)
+  - Origem: `mcp-servers/sistema-legado-secret-wrapper/src/*`
   - Critério de pronto: stdio inherit; signal forward; env scrub
   - Confiança: 🟢
 
-- [ ] T-07, lioncode-subagents bridge (caps + proxy tools)
-  - Origem: `mcp-servers/lioncode-subagents/src/*`
+- [ ] T-07, sistema-legado-subagents bridge (caps + proxy tools)
+  - Origem: `mcp-servers/sistema-legado-subagents/src/*`
   - Critério de pronto: tools condicionais; isError em falha
   - Confiança: 🟢
 
@@ -66,4 +66,4 @@
 
 ## Lacunas Pendentes (🔴)
 
-- Documentação de registro no runner (`LIONCODE_MCP_SERVER_DIST`)
+- Documentação de registro no runner (`SISTEMA_LEGADO_MCP_SERVER_DIST`)

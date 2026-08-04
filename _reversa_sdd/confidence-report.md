@@ -84,7 +84,7 @@ Pergunta crítica resolvida: ver `questions.md#pergunta-1` (`pr-merged`/`pr-clos
 | De | Para | Afirmação | Evidência |
 |----|------|-----------|-----------|
 | 🟢 (errado) | 🟢 corrigido | Token no body de `POST /vault/unlock` | `shared/src/vault.ts`; `vault-unlock.ts` — só `{ unlocked }` |
-| 🔴 | 🟢 | Header HTTP de sessão | `session-auth.ts:19` → `x-lioncode-session` |
+| 🔴 | 🟢 | Header HTTP de sessão | `session-auth.ts:19` → `x-sistema-legado-session` |
 | 🟡 | 🟢 | Campo `workspace` no unlock | `vault-unlock.ts` `requireNonEmptyString` |
 | 🟢 (errado) | 🟢 corrigido | MCP link `POST .../link` | `routes/mcps.ts` → `PUT /projects/:id/mcps/:mcpId` |
 | 🟢 (errado) | 🟢 corrigido | Journal clear `POST .../clear` | `project-memory.ts` → `DELETE /projects/:id/journal` |

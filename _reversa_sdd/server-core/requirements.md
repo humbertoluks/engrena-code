@@ -59,7 +59,7 @@ Dado uma requisição HTTP com método e path não registrados
 Quando o router processa
 Então a resposta é JSON 404 ou 405 sem exceção não tratada
 
-Dado LIONCODE_DB_PATH apontando para arquivo válido
+Dado SISTEMA_LEGADO_DB_PATH apontando para arquivo válido
 Quando openDatabase roda
 Então migrations pendentes são aplicadas e PRAGMAs de integridade ativos
 

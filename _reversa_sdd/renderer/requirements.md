@@ -5,14 +5,14 @@
 
 ## Visão Geral
 
-Frontend **React 18 + Vite + Tailwind** da IDE desktop do sistema legado. SPA servida pelo shell (`app://bundle/` ou Vite dev); comunica com o server local via HTTP e WebSocket no loopback; usa `window.lioncode` (IPC) para token de sessão, dialog nativo e evento de vault lock. Roteamento por **hash** (`#login`, `#principal`, …). 🟢
+Frontend **React 18 + Vite + Tailwind** da IDE desktop do sistema legado. SPA servida pelo shell (`app://bundle/` ou Vite dev); comunica com o server local via HTTP e WebSocket no loopback; usa `window.sistemaLegado` (IPC) para token de sessão, dialog nativo e evento de vault lock. Roteamento por **hash** (`#login`, `#principal`, …). 🟢
 
 ## Responsabilidades
 
 - Bootstrap da app (`main.tsx`, `App.tsx`): tema, client API, estado unlocked 🟢
 - Gate de cofre (`LoginScreen`) antes do shell autenticado 🟢
 - Roteamento hash + guarda de rotas protegidas (`routes.ts`, `useHashRoute`) 🟢
-- Client tipado HTTP/WS/PTY com header `X-sistema-legado-Session` 🟢
+- Client tipado HTTP/WS/PTY com header `X-Sistema-Legado-Session` 🟢
 - Workspace principal e telas lazy (consumo, catálogos, config) via `AppShell` 🟢
 - Streaming de conversa, diffs, terminal dock, command palette 🟢
 
@@ -22,7 +22,7 @@ Frontend **React 18 + Vite + Tailwind** da IDE desktop do sistema legado. SPA se
 - Rotas protegidas inacessíveis com cofre travado; hash desconhecido → `#login` 🟢
 - Após unlock: IPC `getSessionToken` → injeta no client **antes** do AppShell 🟢
 - Vault lock IPC descarta token e força retorno ao gate 🟢
-- Defaults API `localhost:4477`; override `VITE_LIONCODE_*` 🟢
+- Defaults API `localhost:4477`; override `VITE_SISTEMA_LEGADO_*` 🟢
 - Sem bridge Electron (Vite puro): rotas públicas OK; token opcional 🟡
 
 ## Requisitos Funcionais
@@ -55,10 +55,10 @@ Quando useHashRoute avalia a rota
 Então a UI exibe LoginScreen e memoriza a rota pretendida
 
 Dado unlock bem-sucedido via HTTP
-Quando handleUnlocked obtém token via window.lioncode.getSessionToken
+Quando handleUnlocked obtém token via window.sistemaLegado.getSessionToken
 Então api.setSessionToken é chamado antes de montar AppShell
 
-Dado sessão ativa e evento lioncode:vault:locked
+Dado sessão ativa e evento sistema-legado:vault:locked
 Quando o IPC dispara
 Então token vira null, unlocked=false e LoginScreen reaparece
 

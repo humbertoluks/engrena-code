@@ -62,7 +62,7 @@ useTheme.ts                   ← toggles .dark / light / system
 
 | Token / chave | Valor | Arquivo |
 | ------------- | ----- | ------- |
-| `STORAGE_KEY` | `lioncode:theme` | `useTheme.ts` |
+| `STORAGE_KEY` | `sistema-legado:theme` | `useTheme.ts` |
 | Theme values | `light` \| `dark` \| `system` | `useTheme.ts` |
 | `darkMode` | `'class'` | `tailwind.config.ts` |
 | Shell splash | `#0a0a0b` | `packages/shell/src/window.ts` |

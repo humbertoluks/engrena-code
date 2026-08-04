@@ -1,6 +1,6 @@
 # secret-wrapper
 
-> Spec de requisitos do wrapper MCP (`lioncode-secret-wrapper`).  
+> Spec de requisitos do wrapper MCP (`sistema-legado-secret-wrapper`).  
 > Nível: essencial · Confiança: afirmações marcadas 🟢/🟡/🔴  
 > Unit aninhada de: `mcp-servers`
 
@@ -22,7 +22,7 @@ Processo **pass-through** spawnado como `command` do MCP no provider (Claude SDK
 
 - argv contém só paths/nomes; conteúdo sensível só no arquivo 🟢
 - Token válido no loopback até fim do dispatch; arquivo é canal de entrega 🟢
-- Vars `LIONCODE_MCP_*` / `LIONCODE_SECRET_*` **não** passam ao filho 🟢
+- Vars `SISTEMA_LEGADO_MCP_*` / `SISTEMA_LEGADO_SECRET_*` **não** passam ao filho 🟢
 - Filho herda stdio; wrapper transparente ao protocolo 🟢
 - Falha fetch/spawn → exit 1 com mensagem stderr 🟢
 
@@ -58,7 +58,7 @@ Então retorna token trimado e arquivo não existe mais
 
 Dado fetchSpec 200 com command e args
 Quando spawn executa
-Então filho herda stdio e env sem LIONCODE_SECRET_*
+Então filho herda stdio e env sem SISTEMA_LEGADO_SECRET_*
 
 Dado provider envia SIGTERM ao wrapper
 Quando handler forward dispara
@@ -76,6 +76,6 @@ Então filho recebe SIGTERM
 
 | Arquivo | Papel | Cobertura |
 |---------|-------|-----------|
-| `mcp-servers/lioncode-secret-wrapper/src/index.ts` | Entry spawn + signals | 🟢 |
-| `mcp-servers/lioncode-secret-wrapper/src/protocol.ts` | parseArgs, burn, fetch, buildChildEnv | 🟢 |
-| `mcp-servers/lioncode-secret-wrapper/test/protocol.test.ts` | Testes puros | 🟢 |
+| `mcp-servers/sistema-legado-secret-wrapper/src/index.ts` | Entry spawn + signals | 🟢 |
+| `mcp-servers/sistema-legado-secret-wrapper/src/protocol.ts` | parseArgs, burn, fetch, buildChildEnv | 🟢 |
+| `mcp-servers/sistema-legado-secret-wrapper/test/protocol.test.ts` | Testes puros | 🟢 |

@@ -18,7 +18,7 @@ Constantes: `MAX_BODY_BYTES = 1024 * 1024` (1 MiB). 🟢
 | Conceito | Detalhe | Confiança |
 |----------|---------|-----------|
 | Handshake | RFC 6455; valida Origin + vault + sessão | 🟢 |
-| Auth WS | `Sec-WebSocket-Protocol: lioncode-session, <token>` | 🟢 |
+| Auth WS | `Sec-WebSocket-Protocol: sistema-legado-session, <token>` | 🟢 |
 | Subscribe | Query `?threadId=` ou mensagem `subscribe` | 🟢 |
 | `emit(threadId, event)` | Fan-out `StreamEvent` ordenado | 🟢 |
 | PTY | `spawnPty` para sessão terminal | 🟢 |

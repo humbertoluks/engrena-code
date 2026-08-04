@@ -1,4 +1,4 @@
-# Relationships — lioncode.db
+# Relationships — sistema-legado.db
 
 > Fonte: `PRAGMA foreign_key_list` + DDL live. Confianca: 🟢
 

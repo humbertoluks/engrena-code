@@ -1,6 +1,6 @@
-# Typography — sistema legado (Design Lock LionClaw)
+# Typography — sistema legado (Design Lock)
 
-> Fonte: `design-tokens.ts`, `index.css`, `main.tsx`, `lionlabs-grotesk.css`. Confiança: 🟢
+> Fonte: `design-tokens.ts`, `index.css`, `main.tsx`, `experimento-grotesk.css`. Confiança: 🟢
 
 ## Famílias
 
@@ -12,12 +12,12 @@
 
 `body` em `index.css` usa a mesma stack display/body (sem classe Tailwind).
 
-## Experimento LionLabs Grotesk (ativo, reversível)
+## Experimento Grotesk (ativo, reversível)
 
-Arquivo: `packages/renderer/src/assets/fonts/lionlabs-grotesk/lionlabs-grotesk.css`  
+Arquivo: `packages/renderer/src/assets/fonts/experimento-grotesk/experimento-grotesk.css`  
 Importado em `main.tsx` com comentário de rollback.
 
-- Alias `@font-face` redireciona `"DM Sans Variable"` e `"Figtree Variable"` → LionLabs Grotesk (Regular/Medium/Bold).
+- Alias `@font-face` redireciona `"DM Sans Variable"` e `"Figtree Variable"` → experimento Grotesk (Regular/Medium/Bold).
 - **Não** altera monospace.
 - Derivada de Hanken Grotesk (OFL 1.1).
 - Confiança: 🟢 presença no boot; 🟡 se é permanente vs teste (comentário diz "teste reversível").
