@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { vaultService } from '../vault/vault-service.js'
-import { getThread } from '../db/repositories/threads.js'
+import { getThread, listThreadsForProject } from '../db/repositories/threads.js'
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
 import { listDiffsForThread } from '../db/repositories/diffs.js'
 import {
@@ -193,6 +193,10 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
   }
 }
 
+function handleListThreads(_req: IncomingMessage, res: ServerResponse, projectId: string): void {
+  sendJson(res, 200, { threads: listThreadsForProject(projectId) })
+}
+
 function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
@@ -291,6 +295,10 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const createMatch = CREATE_THREAD_RE.exec(url)
     if (createMatch && method === 'POST') {
       await handleCreateThread(req, res, createMatch[1])
+      return true
+    }
+    if (createMatch && method === 'GET') {
+      handleListThreads(req, res, createMatch[1])
       return true
     }
 

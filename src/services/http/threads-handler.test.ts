@@ -140,6 +140,32 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('lists threads for a project (GET)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq('GET', `/api/projects/${project.id}/threads`, undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect((body as { threads: Array<{ id: string }> }).threads.some((t) => t.id === created.thread.id)).toBe(true)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('rejects invalid provider with 400 validation_error', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
