@@ -134,3 +134,63 @@ export function parseGithubRemote(url: string): { owner: string; repo: string } 
   if (!httpsMatch) return null
   return { owner: httpsMatch[1], repo: httpsMatch[2] }
 }
+
+export interface DiffHunk {
+  header: string
+  lines: string[]
+}
+
+export interface WorkingTreeDiffFile {
+  file: string
+  additions: number
+  deletions: number
+  hunks: DiffHunk[]
+}
+
+function parseHunks(unifiedDiff: string): DiffHunk[] {
+  const lines = unifiedDiff.split('\n')
+  const hunks: DiffHunk[] = []
+  let current: DiffHunk | null = null
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      if (current) hunks.push(current)
+      current = { header: line, lines: [] }
+    } else if (current) {
+      current.lines.push(line)
+    }
+  }
+  if (current) hunks.push(current)
+  return hunks
+}
+
+/** Diff da working tree (dirty files) vs HEAD — inclui não-rastreados via intent-to-add. Usado para popular a tabela `diffs` pós-turno. */
+export async function diffWorkingTree(cwd: string): Promise<WorkingTreeDiffFile[]> {
+  const hasHead = await hasGitHead(cwd)
+  if (!hasHead) return []
+
+  try {
+    await git(cwd, ['add', '-A', '-N', '.'])
+  } catch {
+    // sem alterações para marcar intent-to-add
+  }
+
+  const { stdout: numstatOut } = await git(cwd, ['diff', 'HEAD', '--numstat'])
+  const results: WorkingTreeDiffFile[] = []
+
+  for (const line of numstatOut.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const [addRaw, delRaw, ...fileParts] = trimmed.split('\t')
+    const file = fileParts.join('\t')
+    if (!file) continue
+
+    const additions = Number.isNaN(Number(addRaw)) ? 0 : Number(addRaw)
+    const deletions = Number.isNaN(Number(delRaw)) ? 0 : Number(delRaw)
+
+    const { stdout: diffOut } = await git(cwd, ['diff', 'HEAD', '--', file])
+    results.push({ file, additions, deletions, hunks: parseHunks(diffOut) })
+  }
+
+  return results
+}
