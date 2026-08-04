@@ -1,6 +1,7 @@
 import http from 'http'
 import { vaultService } from '../vault/vault-service.js'
 import { handleConfigRequest } from './config-handler.js'
+import { handleSkillsRequest } from './skills-handler.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -17,7 +18,7 @@ export function createUnlockServer(port: number = 5174): http.Server {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, PUT, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-engrenacode-session')
 
     // CORS preflight
@@ -86,6 +87,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Config routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/config/')) {
       const handled = await handleConfigRequest(req, res)
+      if (handled) return
+    }
+
+    // Skills routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/skills') || req.url?.startsWith('/api/projects/')) {
+      const handled = await handleSkillsRequest(req, res)
       if (handled) return
     }
 

@@ -662,9 +662,9 @@ graph TD
 - [ ] Dashboard não aceita diff nem dispara turno
 
 ### F05. Skills
-- [ ] CRUD global com name único; conflito rejeitado
-- [ ] Vínculo por projeto controla presença no catálogo do turno
-- [ ] load_skill entrega content sob demanda; skill não roda sozinha
+- [x] CRUD global com name único; conflito rejeitado
+- [x] Vínculo por projeto controla presença no catálogo do turno
+- [x] load_skill entrega content sob demanda; skill não roda sozinha
 
 ### F06. Rules
 - [ ] Rules globais e por projeto resolvem com override de supressão
