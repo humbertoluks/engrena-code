@@ -3,6 +3,7 @@ import { vaultService } from '../vault/vault-service.js'
 import { handleConfigRequest } from './config-handler.js'
 import { handleSubagentsRequest } from './subagents-handler.js'
 import { handleSkillsRequest } from './skills-handler.js'
+import { handleRulesRequest } from './rules-handler.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -98,6 +99,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
         (req.url.includes('/subagents') || req.url.endsWith('/catalog-order')))
     ) {
       const handled = await handleSubagentsRequest(req, res)
+      if (handled) return
+    }
+
+    // Rules routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/rules') || req.url?.startsWith('/api/projects/')) {
+      const handled = await handleRulesRequest(req, res)
       if (handled) return
     }
 
