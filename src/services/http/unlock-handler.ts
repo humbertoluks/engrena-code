@@ -1,6 +1,7 @@
 import http from 'http'
 import { vaultService } from '../vault/vault-service.js'
 import { handleConfigRequest } from './config-handler.js'
+import { handleSubagentsRequest } from './subagents-handler.js'
 
 interface VaultUnlockRequest {
   workspace: string
@@ -86,6 +87,16 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Config routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/config/')) {
       const handled = await handleConfigRequest(req, res)
+      if (handled) return
+    }
+
+    // SubAgents routes (async — must not mix with data event listeners)
+    if (
+      req.url?.startsWith('/api/subagents') ||
+      (req.url?.startsWith('/api/projects/') &&
+        (req.url.includes('/subagents') || req.url.endsWith('/catalog-order')))
+    ) {
+      const handled = await handleSubagentsRequest(req, res)
       if (handled) return
     }
 
