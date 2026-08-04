@@ -16,7 +16,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F02 | Configuração MVP | **Feito** | Commit `eaa9a0c`; `#configuracao`; `docs/F02-*/smoke-results.md` (2026-08-03) | Alimenta F03/F04 (deferred) |
 | F03 | Workspace | **Spec pronta** | `docs/F03-workspace/{ui,spec,plan}.md` — código ainda não iniciado | Implementar após stubs F05 ou com stubs |
 | F04 | Dashboard | **Não iniciado** | — | Após F03 + catálogo |
-| F05 | Skills | **Spec pronta** | `docs/F05-skills/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤30 |
+| F05 | Skills | **Feito** | CRUD `#skills` + vínculo por projeto + `skill-registry` (load_skill snapshot); persistência JSON em vez de SQLite (sem native module neste repo) | Overlay `ProjectSkillsModal` pronto, aguardando F03 (Repo Harness) montar |
 | F06 | Rules | **Spec pronta** | `docs/F06-rules/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤15; hard 1 MiB |
 | F07 | SubAgents | **Spec pronta** | `docs/F07-subagents/{ui,copy,spec,plan}.md` | Implementar (Onda 2); soft cap ≤10; idle 20 min |
 | F08 | Registros | **Não iniciado** | — | Release 1.0 / Onda 4 |
@@ -31,7 +31,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | Onda | Features | Estado |
 |------|----------|--------|
 | 1 | F01, F01.1 | **Completa** |
-| 2 | F02, F05, F06, F07 | **Parcial** — F02 feita; F05+F06+F07 spec pronta; implementação catálogo pendente |
+| 2 | F02, F05, F06, F07 | **Parcial** — F02 e F05 feitas; F06+F07 spec pronta |
 | 3 | F03, F10 | **Bloqueada** até F05–F07 (F03 depende deles no grafo) |
 | 4 | F04, F08, F09, F11 | Pendente |
 
