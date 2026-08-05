@@ -679,9 +679,9 @@ graph TD
 
 ### F08. Registros
 - [x] Eventos task/tool/git aparecem automaticamente após uso do workspace
-- [ ] Filtro e paginação 100/página funcionam; empty states distintos
-- [ ] Clique no thread id abre a thread no workspace
-- [ ] UI não permite editar/apagar registro individual nem exportar
+- [x] Filtro e paginação 100/página funcionam; empty states distintos
+- [x] Clique no thread id abre a thread no workspace
+- [x] UI não permite editar/apagar registro individual nem exportar
 
 ### F09. MCPs
 - [x] Preset e custom (stdio/http/sse) salvam; nome inválido/`engrenacode` rejeitados
@@ -714,7 +714,7 @@ graph TD
 - [ ] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão
 - [x] Projetos/threads/diffs de F03 alimentam cards e inbox do Dashboard (F04)
 - [x] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
-- [ ] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
+- [x] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
 - [ ] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
 - [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
 - [ ] usage_events do Workspace (F03) e de SubAgents (F07) agregam corretamente na tela Consumo (F11)
