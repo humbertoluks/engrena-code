@@ -19,7 +19,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F05 | Skills | **Feito** | CRUD `#skills` + vínculo + `skill-registry`; `ProjectSkillsModal`; unitários verdes | Montar no Repo Harness F03 |
 | F06 | Rules | **Feito (catálogo)** | `#rules` + handlers + SQLite + registries; `docs/F06-rules/smoke-results.md` (2026-08-04); §9 override + CR/LF `[x]`; bloco no turno deferred F03 | Consumido por F03 no dispatch |
 | F07 | SubAgents | **Feito (catálogo)** | `#subagents` + handlers + gate/idle unit; `docs/F07-subagents/smoke-results.md` (2026-08-04); §9 CRUD/providers + Codex gate `[x]`; call_subagent/idle UI deferred F03 | Consumido por F03 no dispatch |
-| F08 | Registros | **Não iniciado** | — | Release 1.0 / Onda 4 |
+| F08 | Registros | **Feito (core + unitários); smoke visual pendente** | 3 commits `feat(F08)` (schema `log_entries` + recovery de boot, endpoint `GET /api/logs` + wiring automático task/tool/git, tela `#registros` com `LogTable`); 47 testes novos/estendidos verdes (`log-entries.test.ts`, `threads.test.ts`, `logs-handler.test.ts`, `unlock-handler.test.ts`, extensões em `dispatch.test.ts`/`git-handler.test.ts`/`apply-diff.test.ts`); suite completa 323 testes verdes; `tsc -b`/`vite build` verdes; §9 primeiro AC `[x]` no PRD | Rodar smoke manual (unlock→turno→#registros→filtro/paginação→clique thread) com Electron real; ver `Esclarecimentos` |
 | F09 | MCPs | **Não iniciado** | — | Release 1.0 / Onda 4 |
 | F10 | API Keys dos Providers | **Feito** | 4 commits `feat(F10)`; vault (`keys:claude/codex/minimax`), endpoints `/api/config/keys/save` + status/mode/test estendidos, `ThreadProvider` += minimax com driver HTTP + injeção de key no runner, card "API keys dos providers" + toggle real Assinatura/API key em `#configuracao`, composer com Minimax; 241 testes verdes; smoke real via Electron+Playwright (vault isolado) confirmou save parcial, badges, erro de formato, toggle assinatura/api-key e Minimax indisponível→disponível no composer; §9 F10 `[x]` no PRD | Manter estável |
 | F11 | Consumo | **Não iniciado** | — | Versão 1.1 |
@@ -33,9 +33,9 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | 1 | F01, F01.1 | **Completa** |
 | 2 | F02, F05, F06, F07 | **Completa (catálogo)** — F02+F05+F06+F07 smoke; integração no turno fica no F03 |
 | 3 | F03, F10 | **Completa** — F03 feita (core + unitários); F10 feita (ver ressalva de smoke) |
-| 4 | F04, F08, F09, F11 | Pendente — F04 feita; F08/F09/F11 seguem |
+| 4 | F04, F08, F09, F11 | Pendente — F04 e F08 feitas (core); F09/F11 seguem |
 
-**Próxima frente de produto:** F04 fechada. Restam F08 (Registros), F09 (MCPs) e F11 (Consumo) na Onda 4.
+**Próxima frente de produto:** F04 e F08 fechadas (core). Restam F09 (MCPs) e F11 (Consumo) na Onda 4; smoke visual manual de F08 fica pendente.
 
 ---
 
@@ -60,6 +60,16 @@ Implementada via `implement-feature` a partir de `docs/F04-dashboard/{spec,plan,
 Smoke visual executado via `pnpm dev` (Electron + Vite reais) + `playwright-cli`, com `ENGRENACODE_USER_DATA` apontando para diretório isolado e um projeto fixture dentro do próprio repo (nenhum dado de sessão real tocado). Com threads/diffs semeados diretamente no SQLite do fixture (sem disparar turno real), confirmado: pós-unlock abre `#dashboard` (não o workspace) com saúde da config (4 dots) e os 4 metric cards; inbox mostra os 4 kinds na ordem de prioridade (`setup incompleto` → `erro` → `diff pendente` → `running`); clique em `diff pendente` navega para `#principal?project=...&thread=...&tab=diff` e a aba **Diff** abre já selecionada com o diff certo (arquivo, +12/-4, Aceitar/Rejeitar); clique no contador SubAgents do catálogo navega para `#subagents`; grade de projetos e atividade recente populadas corretamente; zero erros/warnings no console; light e dark conferidos contra os tokens de `ui.md`.
 
 Deviations vs `ui.md`/`copy.md`: os slots de copy ainda `TODO` em `copy.md` (`dashboard.subtitle`, `dashboard.banner.setupIncomplete`, `dashboard.section.health`, `dashboard.section.projects`, `dashboard.section.catalog`, `dashboard.section.recent`, `dashboard.error.generic`) receberam texto provisório funcional no código para a tela não ficar com strings vazias — não estão fechados como copy final, pendente de uma passada de copy review antes do release. `PrincipalScreen.tsx` ganhou um efeito novo, fora do escopo original da spec de F04, para consumir o deep-link `?project=&thread=&tab=` na primeira carga — sem ele a rota `#principal` não tinha como saber qual thread/aba abrir vindo do Dashboard (F03 não lia query string nenhuma antes desta mudança); é aditivo, não muda o comportamento de navegação manual dentro do Workspace, e foi verificado no smoke acima. Critério cross-feature de persistência de tema entre `#dashboard`/`#configuracao`/`#principal` (PRD §9, linha "Preferência `engrenacode:theme`...") não foi re-verificado nesta sessão após a troca de tela (só dentro do próprio `#dashboard`) — deixado sem marcar `[x]`.
+
+### F08 — feita (core), com ressalva de smoke visual
+
+Implementada via `implement-feature` a partir de `docs/F08-registros/{spec,plan,ui,copy}.md`. Gate técnico fechado: 47 testes novos/estendidos verdes cobrindo o repositório `log_entries` (create/list/filtro/paginação/ordenação DESC/cascade), `recoverRunningThreads` (reconciliação de boot), o endpoint `GET /api/logs` (guards 401/423, validação de `kind`/`limit`/`offset`, filtro, paginação), e os 4 pontos de escrita automática (`tool-result` em `dispatch.ts`, commit/push/PR — sucesso e falha de PR — em `git-handler.ts`, accept/reject em `apply-diff.ts`, recovery de boot em `unlock-handler.ts`); suite completa do repo (323 testes) e `tsc -b`/`vite build` verdes.
+
+Não executado nesta sessão: smoke interativo real (Electron + Playwright) de `#registros` — havia uma instância do EngrenaCode já rodando localmente (porta `5174` ocupada) no momento da execução, e abrir uma segunda instância isolada exigiria derrubar a sessão ativa do usuário ou colidir na porta do unlock server (fixa, não reutilizável — ver `CLAUDE.md`). Não interrompida sem confirmação. Fica pendente: filtro/paginação/empty-states na UI real, clique no thread id abrindo `#principal` com a thread certa, e conferência visual light/dark vs `ui/registros-referencia.png`.
+
+Decisão de escopo tomada nesta sessão (confirmada com o usuário): `kind='task'` só é gravado via reconciliação de boot (threads presas em `running` após restart do app viram `error` + 1 `log_entries`), espelhando fielmente o comportamento da fonte LionCodeLabs — EngrenaCode não tinha esse mecanismo antes de F08. Dispatch normal não grava `kind='task'`.
+
+Deviations vs `spec.md`: migração nomeada `004_log_entries.ts` (não `003`, já ocupado por `003_mcps.ts` de F09 em progresso na mesma working tree); `gitCommit()` não retorna `branch`, então o evento de commit descreve só sha+subject; `LogEntry` ganhou `projectId` (JOIN com `threads`, não previsto na spec original) porque o deep-link do thread id para o Workspace precisa de `project` **e** `thread` no query string (`PrincipalScreen` não resolve o projeto a partir só da thread).
 
 ### F06 / F07 “Feito (catálogo)”
 

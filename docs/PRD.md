@@ -678,7 +678,7 @@ graph TD
 - [ ] Idle timeout default 20 min encerra run visível na UI
 
 ### F08. Registros
-- [ ] Eventos task/tool/git aparecem automaticamente após uso do workspace
+- [x] Eventos task/tool/git aparecem automaticamente após uso do workspace
 - [ ] Filtro e paginação 100/página funcionam; empty states distintos
 - [ ] Clique no thread id abre a thread no workspace
 - [ ] UI não permite editar/apagar registro individual nem exportar
