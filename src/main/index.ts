@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
@@ -35,6 +35,7 @@ function createWindow() {
 }
 
 app.on('ready', () => {
+  Menu.setApplicationMenu(null)
   createUnlockServer(5174)
   createWindow()
 })

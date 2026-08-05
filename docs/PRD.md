@@ -686,7 +686,7 @@ graph TD
 ### F09. MCPs
 - [x] Preset e custom (stdio/http/sse) salvam; nome inválido/`engrenacode` rejeitados
 - [x] HTTPS obrigatório em remoto; HTTP não-loopback rejeitado
-- [ ] Secret ausente omite MCP sem abortar o turno; OAuth Connect funciona em server suportado (secret ausente `[x]` verificado; OAuth Connect live não verificado — ver `PROGRESS.md`)
+- [x] Secret ausente omite MCP sem abortar o turno; OAuth Connect funciona em server suportado (ambas as metades verificadas ponta a ponta — OAuth live confirmado contra Linear em 2026-08-05, ver `PROGRESS.md`)
 - [x] Tools `mcp__…` disponíveis no turno quando vinculado e resolvido
 
 ### F10. API Keys dos Providers
