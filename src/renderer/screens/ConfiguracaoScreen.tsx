@@ -7,10 +7,14 @@ import type { FeedbackVariant } from '../components/InlineFeedback'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { StatusDot } from '../components/StatusDot'
 import type { DotVariant } from '../components/StatusDot'
+import { Card, CardHeader } from '../components/Card'
+import { Badge } from '../components/Badge'
+import { Field } from '../components/Field'
 import {
   configuracaoService,
   type CLIStatusData,
   type ConfigStatus,
+  type ProviderKeyName,
 } from '../services/configuracao-service'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
@@ -29,7 +33,8 @@ const COPY = {
   claudeStatusMissing:
     'Assinatura selecionada, mas não detectei login do Claude Code. Rode `claude` no terminal para autenticar.',
   claudeStatusApiKeyWarn: '⚠ Usando API key — isto cobra por uso da API Anthropic.',
-  claudeApiKeyDisabledHint: 'Disponível após configurar API keys.',
+  claudeApiKeyDisabledHint: 'Salve uma key Claude abaixo para habilitar.',
+  claudeStatusApiKeyNoKey: 'Nenhuma key salva: os turnos vão falhar. Volte para Assinatura ou salve a key abaixo.',
   claudeTestError: 'Não foi possível testar a conexão agora.',
 
   clisTitle: 'CLIs de assinatura',
@@ -70,6 +75,29 @@ const COPY = {
   githubHide: 'Ocultar token',
   githubBadgePresent: 'Customizado',
   githubBadgeEmpty: 'Não configurado',
+
+  keysTitle: 'API keys dos providers',
+  keysSubtitle:
+    'Claude, Codex e Minimax guardam a key no cofre local. Claude só cobra em modo API key (na assinatura a key fica inerte). Codex e Minimax usam a key quando configurada.',
+  keysSaveCta: 'Salvar chaves',
+  keysSaveLoading: 'Salvando...',
+  keysSuccess: 'Chaves salvas localmente (não validadas com o provider).',
+  keysBadgeConfigured: 'configurada',
+  keysBadgeMissing: 'não configurada',
+  keysLabelClaude: 'Claude',
+  keysPlaceholderClaude: 'sk-ant-…',
+  keysErrorClaudeFormat: 'Formato inválido. Esperado: sk-ant-…',
+  keysLabelCodex: 'Codex',
+  keysPlaceholderCodex: 'sk-codex-…',
+  keysErrorCodexFormat: 'Formato inválido. Esperado: sk-… ou sk-codex-…',
+  keysLabelMinimax: 'Minimax',
+  keysPlaceholderMinimax: 'mm-…',
+  keysErrorSpaces: 'A chave não pode conter espaços.',
+  keysErrorShort: 'Chave muito curta para ser válida.',
+  keysErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
+  keysErrorGeneric: 'Não foi possível salvar. Tente novamente.',
+  keysReveal: (label: string) => `Revelar ${label}`,
+  keysHide: (label: string) => `Ocultar ${label}`,
 } as const
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -82,39 +110,6 @@ const TEXTAREA_BASE =
 
 // ── Sub-components (defined outside parent to satisfy rerender-no-inline-components) ──
 
-interface CardProps {
-  children: React.ReactNode
-}
-
-function Card({ children }: CardProps): ReactElement {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-lg">
-      {children}
-    </div>
-  )
-}
-
-interface CardHeaderProps {
-  title: string
-  subtitle?: string
-  dot?: DotVariant
-  dotTitle?: string
-}
-
-function CardHeader({ title, subtitle, dot, dotTitle }: CardHeaderProps): ReactElement {
-  return (
-    <div className="mb-md">
-      <div className="flex items-center gap-sm">
-        {dot !== undefined ? <StatusDot variant={dot} title={dotTitle} /> : null}
-        <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
-      </div>
-      {subtitle !== undefined ? (
-        <p className="mt-xs text-[12.5px] text-muted">{subtitle}</p>
-      ) : null}
-    </div>
-  )
-}
-
 interface Feedback {
   variant: FeedbackVariant
   message: string
@@ -125,21 +120,24 @@ interface Feedback {
 interface ClaudeCardProps {
   mode: 'subscription' | 'api-key'
   subscriptionOk: boolean
+  hasApiKey: boolean
   onModeChange: (mode: 'subscription' | 'api-key') => Promise<void>
   onTest: () => Promise<void>
   testLoading: boolean
   feedback: Feedback | null
 }
 
-const CLAUDE_MODE_OPTIONS = [
-  { value: 'subscription', label: 'Assinatura' },
-  {
-    value: 'api-key',
-    label: 'API key',
-    disabled: true,
-    disabledTitle: COPY.claudeApiKeyDisabledHint,
-  },
-]
+function claudeModeOptions(hasApiKey: boolean): Array<{ value: string; label: string; disabled?: boolean; disabledTitle?: string }> {
+  return [
+    { value: 'subscription', label: 'Assinatura' },
+    {
+      value: 'api-key',
+      label: 'API key',
+      disabled: !hasApiKey,
+      disabledTitle: hasApiKey ? undefined : COPY.claudeApiKeyDisabledHint,
+    },
+  ]
+}
 
 function claudeDot(mode: 'subscription' | 'api-key', subscriptionOk: boolean): DotVariant {
   if (mode === 'subscription') return subscriptionOk ? 'ok' : 'warn'
@@ -156,6 +154,7 @@ function claudeStatusMessage(mode: 'subscription' | 'api-key', subscriptionOk: b
 function ClaudeCard({
   mode,
   subscriptionOk,
+  hasApiKey,
   onModeChange,
   onTest,
   testLoading,
@@ -163,6 +162,7 @@ function ClaudeCard({
 }: Readonly<ClaudeCardProps>): ReactElement {
   const dot = claudeDot(mode, subscriptionOk)
   const statusMsg = claudeStatusMessage(mode, subscriptionOk)
+  const showNoKeyWarning = mode === 'api-key' && !hasApiKey
 
   return (
     <Card>
@@ -175,13 +175,16 @@ function ClaudeCard({
       <div className="flex flex-col gap-md">
         <SegmentedControl
           name="Claude auth mode"
-          options={CLAUDE_MODE_OPTIONS}
+          options={claudeModeOptions(hasApiKey)}
           value={mode}
           onChange={(v) => { void onModeChange(v as 'subscription' | 'api-key') }}
         />
         <p className={`text-[12.5px] ${dot === 'ok' ? 'text-green' : 'text-amber'}`}>
           {statusMsg}
         </p>
+        {showNoKeyWarning ? (
+          <p className="text-[12.5px] text-red">{COPY.claudeStatusApiKeyNoKey}</p>
+        ) : null}
         <div className="flex items-center gap-md">
           <ButtonPrimary loading={testLoading} loadingLabel={COPY.claudeTestLoading} onClick={() => { void onTest() }}>
             {COPY.claudeTestCta}
@@ -377,6 +380,146 @@ function PromptCard({
   )
 }
 
+// ── Keys Card ─────────────────────────────────────────────────────────────────
+
+function validateClaudeKeyLocal(v: string): string | null {
+  if (v === '') return null
+  if (/\s/.test(v)) return COPY.keysErrorSpaces
+  if (v.length < 8) return COPY.keysErrorShort
+  if (!v.startsWith('sk-ant-')) return COPY.keysErrorClaudeFormat
+  return null
+}
+
+function validateCodexKeyLocal(v: string): string | null {
+  if (v === '') return null
+  if (/\s/.test(v)) return COPY.keysErrorSpaces
+  if (v.length < 8) return COPY.keysErrorShort
+  if (!v.startsWith('sk-')) return COPY.keysErrorCodexFormat
+  return null
+}
+
+function validateMinimaxKeyLocal(v: string): string | null {
+  if (v === '') return null
+  if (/\s/.test(v)) return COPY.keysErrorSpaces
+  if (v.length < 8) return COPY.keysErrorShort
+  return null
+}
+
+interface KeyRowState {
+  draft: string
+  revealed: boolean
+  error: string | null
+}
+
+function emptyKeyRow(): KeyRowState {
+  return { draft: '', revealed: false, error: null }
+}
+
+interface KeyRowDef {
+  name: ProviderKeyName
+  label: string
+  placeholder: string
+  validate: (v: string) => string | null
+}
+
+const KEY_ROWS: KeyRowDef[] = [
+  { name: 'claude', label: COPY.keysLabelClaude, placeholder: COPY.keysPlaceholderClaude, validate: validateClaudeKeyLocal },
+  { name: 'codex', label: COPY.keysLabelCodex, placeholder: COPY.keysPlaceholderCodex, validate: validateCodexKeyLocal },
+  { name: 'minimax', label: COPY.keysLabelMinimax, placeholder: COPY.keysPlaceholderMinimax, validate: validateMinimaxKeyLocal },
+]
+
+interface KeysCardProps {
+  keysStatus: ConfigStatus['keys'] | null
+  onSave: (fields: Partial<Record<ProviderKeyName, string>>) => Promise<void>
+  saveLoading: boolean
+  feedback: Feedback | null
+}
+
+function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCardProps>): ReactElement {
+  const [rows, setRows] = useState<Record<ProviderKeyName, KeyRowState>>({
+    claude: emptyKeyRow(),
+    codex: emptyKeyRow(),
+    minimax: emptyKeyRow(),
+  })
+
+  const updateDraft = useCallback((name: ProviderKeyName, value: string): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], draft: value, error: null } }))
+  }, [])
+
+  const toggleReveal = useCallback((name: ProviderKeyName): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], revealed: !prev[name].revealed } }))
+  }, [])
+
+  const handleSave = useCallback((): void => {
+    const errors: Partial<Record<ProviderKeyName, string>> = {}
+    const fields: Partial<Record<ProviderKeyName, string>> = {}
+
+    for (const row of KEY_ROWS) {
+      const draft = rows[row.name].draft
+      const err = row.validate(draft)
+      if (err !== null) {
+        errors[row.name] = err
+        continue
+      }
+      if (draft !== '') fields[row.name] = draft
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of Object.keys(errors) as ProviderKeyName[]) {
+          next[name] = { ...next[name], error: errors[name] ?? null }
+        }
+        return next
+      })
+      return
+    }
+
+    void onSave(fields)
+  }, [rows, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={COPY.keysTitle} subtitle={COPY.keysSubtitle} />
+      <div className="divide-y divide-border">
+        {KEY_ROWS.map((row) => {
+          const state = rows[row.name]
+          const configured = keysStatus?.[row.name] ?? false
+          return (
+            <div
+              key={row.name}
+              className="grid grid-cols-1 items-start gap-sm py-sm min-[720px]:grid-cols-[140px_1fr_auto]"
+            >
+              <span className="text-[13.5px] font-medium text-fg">{row.label}</span>
+              <Field
+                id={`key-${row.name}`}
+                ariaLabel={row.label}
+                value={state.draft}
+                onChange={(v) => updateDraft(row.name, v)}
+                placeholder={configured ? '••••••••••••••••' : row.placeholder}
+                revealed={state.revealed}
+                onToggleReveal={() => toggleReveal(row.name)}
+                revealLabel={COPY.keysReveal(row.label)}
+                hideLabel={COPY.keysHide(row.label)}
+                error={state.error}
+              />
+              <Badge tone={configured ? 'positive' : 'neutral'}>
+                {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+              </Badge>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-md flex items-center gap-md">
+        <ButtonPrimary loading={saveLoading} loadingLabel={COPY.keysSaveLoading} onClick={handleSave}>
+          {COPY.keysSaveCta}
+        </ButtonPrimary>
+        {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+      </div>
+    </Card>
+  )
+}
+
 // ── GitHub Card ───────────────────────────────────────────────────────────────
 
 const GITHUB_PREFIXES = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
@@ -504,6 +647,7 @@ export function ConfiguracaoScreen(): ReactElement {
   const [promptAction, setPromptAction] = useState<ActionState>(makeAction)
   const [promptRestoreAction, setPromptRestoreAction] = useState<ActionState>(makeAction)
   const [githubAction, setGithubAction] = useState<ActionState>(makeAction)
+  const [keysAction, setKeysAction] = useState<ActionState>(makeAction)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -623,6 +767,22 @@ export function ConfiguracaoScreen(): ReactElement {
     }
   }, [])
 
+  const handleKeysSave = useCallback(async (fields: Partial<Record<ProviderKeyName, string>>): Promise<void> => {
+    setKeysAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys(fields)
+      if (!mountedRef.current) return
+      if (res.error) {
+        setKeysAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.keysErrorGeneric } })
+        return
+      }
+      setStatus((prev) => prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys })
+      setKeysAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setKeysAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
   if (loadError !== null) {
     return (
       <section id="configuracao" className="mx-auto max-w-[760px] px-lg py-xl">
@@ -647,6 +807,7 @@ export function ConfiguracaoScreen(): ReactElement {
         <ClaudeCard
           mode={status?.claude.mode ?? 'subscription'}
           subscriptionOk={status?.claude.subscriptionOk ?? false}
+          hasApiKey={status?.keys.claude ?? false}
           onModeChange={handleClaudeMode}
           onTest={handleClaudeTest}
           testLoading={claudeAction.loading}
@@ -669,6 +830,13 @@ export function ConfiguracaoScreen(): ReactElement {
           saveLoading={promptAction.loading}
           restoreLoading={promptRestoreAction.loading}
           feedback={promptFeedback}
+        />
+
+        <KeysCard
+          keysStatus={status?.keys ?? null}
+          onSave={handleKeysSave}
+          saveLoading={keysAction.loading}
+          feedback={keysAction.feedback}
         />
 
         <GithubCard

@@ -22,6 +22,8 @@ const COPY = {
   gitGateBody: 'O EngrenaCode precisa de um commit inicial para proteger e acompanhar as alterações do agente.',
   gitGateCta: 'Inicializar Git',
   gitGateCtaLoading: 'Inicializando Git…',
+  providerUnavailableTitle: 'Provider indisponível',
+  providerUnavailableFallback: 'Provider indisponível para uso agora.',
   send: 'Enviar',
   sendStop: 'Parar execução',
   errorSend: 'Falha ao enviar a mensagem.',
@@ -30,7 +32,7 @@ const COPY = {
   queueCancel: 'Cancelar',
 } as const
 
-const PROVIDERS: ThreadProvider[] = ['claude', 'codex', 'kimi']
+const PROVIDERS: ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax']
 const ACCESS_LEVELS: ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
 const EXECUTION_MODES: ThreadExecutionMode[] = ['main', 'worktree']
 
@@ -81,8 +83,9 @@ export function TaskComposer({
   const providerLocked = selectedThread !== null
   const executionLocked = selectedThread !== null
 
-  const providerHealth = configStatus?.clis[composer.provider]
-  const providerUnavailable = providerHealth !== undefined && !providerHealth.installed
+  const providerHealth = configStatus?.providers[composer.provider]
+  const providerUnavailable = providerHealth !== undefined && !providerHealth.available
+  const providerUnavailableReason = providerHealth?.reason ?? COPY.providerUnavailableFallback
   const gitGateActive = hasProject && vcsStatus !== null && !vcsStatus.hasHead
 
   const placeholder = isStopping
@@ -130,6 +133,13 @@ export function TaskComposer({
         </div>
       ) : null}
 
+      {providerUnavailable && !providerLocked && !gitGateActive ? (
+        <div className="mb-xs rounded-xl border border-amber/40 bg-amber/[0.08] p-sm">
+          <p className="text-[13px] font-medium text-fg">{COPY.providerUnavailableTitle}</p>
+          <p className="mt-[2px] text-[12px] text-muted">{providerUnavailableReason}</p>
+        </div>
+      ) : null}
+
       {gitGateActive ? (
         <div className="mb-xs rounded-xl border border-amber/40 bg-amber/[0.08] p-sm">
           <p className="text-[13px] font-medium text-fg">{COPY.gitGateTitle}</p>
@@ -168,7 +178,7 @@ export function TaskComposer({
               label="Provider"
               value={composer.provider}
               options={PROVIDERS}
-              labels={{ claude: 'Claude', codex: 'Codex', kimi: 'Kimi' }}
+              labels={{ claude: 'Claude', codex: 'Codex', kimi: 'Kimi', minimax: 'Minimax' }}
               disabled={providerLocked}
               title={providerLocked ? COPY.lockProvider : undefined}
               onChange={(v) => updateComposer({ provider: v })}

@@ -22,7 +22,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ThreadProvider = 'claude' | 'codex' | 'kimi'
+export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
 export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping'

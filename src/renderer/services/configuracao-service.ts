@@ -36,11 +36,20 @@ export interface CLIStatusData {
   path?: string
 }
 
+export type ProviderKeyName = 'claude' | 'codex' | 'minimax'
+
+export interface ProviderAvailability {
+  available: boolean
+  reason?: string
+}
+
 export interface ConfigStatus {
   claude: { mode: 'subscription' | 'api-key'; subscriptionOk: boolean }
   clis: { claude: CLIStatusData; codex: CLIStatusData; kimi: CLIStatusData }
   prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
   github: { tokenPresent: boolean }
+  keys: Record<ProviderKeyName, boolean>
+  providers: { claude: ProviderAvailability; codex: ProviderAvailability; kimi: ProviderAvailability; minimax: ProviderAvailability }
 }
 
 export interface ClaudeTestResult {
@@ -65,6 +74,13 @@ export interface GithubSaveResult {
   saved?: boolean
   message?: string
   error?: { code: string; message: string }
+}
+
+export interface SaveKeysResult {
+  saved?: boolean
+  keys?: Record<ProviderKeyName, boolean>
+  message?: string
+  error?: { code: string; message: string; details?: Partial<Record<ProviderKeyName, string>> }
 }
 
 export interface ApiError {
@@ -94,4 +110,7 @@ export const configuracaoService = {
 
   saveGithubToken: (token: string): Promise<GithubSaveResult> =>
     post('/api/config/github/token', { token }),
+
+  saveProviderKeys: (fields: Partial<Record<ProviderKeyName, string>>): Promise<SaveKeysResult> =>
+    post('/api/config/keys/save', fields),
 }
