@@ -147,3 +147,16 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
 export function setThreadState(id: string, state: ThreadState): Thread | null {
   return updateThread(id, { state })
 }
+
+/**
+ * Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` de uma execução
+ * anterior interrompida viram `error`. Retorna as threads afetadas para o chamador gravar
+ * `log_entries` `kind='task'` por thread.
+ */
+export function recoverRunningThreads(): Thread[] {
+  const rows = getDb()
+    .prepare(`UPDATE threads SET state = 'error', updated_at = ? WHERE state = 'running' RETURNING *`)
+    .all(Date.now()) as unknown as ThreadRow[]
+
+  return rows.map(toThread)
+}
