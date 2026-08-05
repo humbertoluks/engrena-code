@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { validateClaudeKey, validateCodexKey, validateMinimaxKey } from './provider-keys'
 
 describe('validateClaudeKey', () => {
-  it('clears when key is empty', () => {
-    expect(validateClaudeKey('')).toEqual({ ok: true, action: 'clear' })
+  it('preserves the existing key when input is empty', () => {
+    expect(validateClaudeKey('')).toEqual({ ok: true, action: 'skip' })
   })
 
   it('rejects keys with whitespace', () => {
@@ -37,8 +37,8 @@ describe('validateClaudeKey', () => {
 })
 
 describe('validateCodexKey', () => {
-  it('clears when key is empty', () => {
-    expect(validateCodexKey('')).toEqual({ ok: true, action: 'clear' })
+  it('preserves the existing key when input is empty', () => {
+    expect(validateCodexKey('')).toEqual({ ok: true, action: 'skip' })
   })
 
   it('rejects keys with whitespace', () => {
@@ -68,8 +68,8 @@ describe('validateCodexKey', () => {
 })
 
 describe('validateMinimaxKey', () => {
-  it('clears when key is empty', () => {
-    expect(validateMinimaxKey('')).toEqual({ ok: true, action: 'clear' })
+  it('preserves the existing key when input is empty', () => {
+    expect(validateMinimaxKey('')).toEqual({ ok: true, action: 'skip' })
   })
 
   it('rejects keys with whitespace', () => {

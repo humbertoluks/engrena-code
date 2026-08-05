@@ -6,6 +6,9 @@ import fs from 'fs'
 import type { IncomingMessage, ServerResponse } from 'http'
 import { vaultService } from '../vault/vault-service.js'
 import { validateGithubToken } from './github-token.js'
+import { validateClaudeKey, validateCodexKey, validateMinimaxKey } from '../vault/provider-keys.js'
+import type { ProviderKeyValidation } from '../vault/provider-keys.js'
+import { runClaudeProbe } from './claude-probe.js'
 
 const execAsync = promisify(exec)
 
@@ -107,12 +110,38 @@ async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promi
 
   const githubToken = vaultService.getSecret('github:token')
 
+  const keys = {
+    claude: Boolean(vaultService.getSecret('keys:claude')),
+    codex: Boolean(vaultService.getSecret('keys:codex')),
+    minimax: Boolean(vaultService.getSecret('keys:minimax')),
+  }
+
   // Fast PATH-only check for CLIs (login = null until Testar conexões)
   const [claudeCLI, codexCLI, kimiCLI] = await Promise.all([
     detectCLIInstalled('claude'),
     detectCLIInstalled('codex'),
     detectCLIInstalled('kimi'),
   ])
+
+  const claudeAvailable = claudeMode === 'subscription' ? claudeLoggedIn : keys.claude
+  const codexAvailable = codexCLI.installed || keys.codex
+
+  const providers = {
+    claude: claudeAvailable
+      ? { available: true }
+      : {
+          available: false,
+          reason:
+            claudeMode === 'subscription'
+              ? 'Assinatura selecionada, mas não detectei login do Claude Code. Rode `claude` no terminal para autenticar.'
+              : 'Nenhuma key salva: os turnos vão falhar. Volte para Assinatura ou salve a key abaixo.',
+        },
+    codex: codexAvailable ? { available: true } : { available: false },
+    kimi: kimiCLI.installed ? { available: true } : { available: false },
+    minimax: keys.minimax
+      ? { available: true }
+      : { available: false, reason: 'Minimax sem key salva — configure em #configuracao.' },
+  }
 
   sendJson(res, 200, {
     claude: { mode: claudeMode, subscriptionOk: claudeLoggedIn },
@@ -123,6 +152,8 @@ async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promi
     },
     prompt: { isDefault, isEmpty, currentText },
     github: { tokenPresent: Boolean(githubToken) },
+    keys,
+    providers,
   })
 }
 
@@ -134,6 +165,12 @@ async function handleClaudeMode(req: IncomingMessage, res: ServerResponse): Prom
   const data = parseBody<{ mode?: string }>(await readBody(req))
   if (!data || (data.mode !== 'subscription' && data.mode !== 'api-key')) {
     return sendJson(res, 400, { error: { code: 'validation_error', message: 'Modo inválido.' } })
+  }
+
+  if (data.mode === 'api-key' && !vaultService.getSecret('keys:claude')) {
+    return sendJson(res, 400, {
+      error: { code: 'validation_error', message: 'Salve uma key Claude abaixo para habilitar.' },
+    })
   }
 
   vaultService.setSecret('claude:mode', data.mode)
@@ -150,27 +187,16 @@ async function handleClaudeTest(req: IncomingMessage, res: ServerResponse): Prom
     return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
   }
 
-  const claudeJsonPath = path.join(os.homedir(), '.claude.json')
-  if (!fs.existsSync(claudeJsonPath)) {
-    return sendJson(res, 200, {
-      success: false,
-      detail: 'Assinatura selecionada, mas não detectei login do Claude Code. Rode `claude` no terminal para autenticar.',
-    })
-  }
-
   try {
-    await execAsync('claude --version', { timeout: 5000 })
-    sendJson(res, 200, { success: true, detail: '✓ Usando a assinatura (Claude Code) — sem cobrança de API.' })
-  } catch (err: unknown) {
-    const execErr = err as { message?: string; stderr?: string }
-    const msg = (execErr.message ?? '') + (execErr.stderr ?? '')
-    if (/rate/i.test(msg)) {
-      return sendJson(res, 429, {
-        success: false,
-        detail: 'Rate limit. Tente novamente em alguns segundos.',
-        retryAfterSeconds: 60,
-      })
+    const mode = (vaultService.getSecret('claude:mode') ?? 'subscription') as 'subscription' | 'api-key'
+    const apiKey = mode === 'api-key' ? vaultService.getSecret('keys:claude') : undefined
+    const result = await runClaudeProbe(mode, apiKey)
+
+    if (result.retryAfterSeconds !== undefined) {
+      return sendJson(res, 429, result)
     }
+    sendJson(res, 200, result)
+  } catch {
     sendJson(res, 200, { success: false, detail: 'Não foi possível testar a conexão agora.' })
   }
 }
@@ -272,6 +298,57 @@ async function handleGithubToken(req: IncomingMessage, res: ServerResponse): Pro
   sendJson(res, 200, { saved: true, message: 'Token salvo localmente (não validado com o GitHub).' })
 }
 
+async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!isAuthorized(req)) {
+    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
+  }
+
+  const data = parseBody<{ claude?: string; codex?: string; minimax?: string }>(await readBody(req))
+  if (data === null) {
+    return sendJson(res, 400, { error: { code: 'invalid_json', message: 'Corpo inválido.' } })
+  }
+
+  const fields: Array<{ name: 'claude' | 'codex' | 'minimax'; value?: string; validate: (key: string) => ProviderKeyValidation }> = [
+    { name: 'claude', value: data.claude, validate: validateClaudeKey },
+    { name: 'codex', value: data.codex, validate: validateCodexKey },
+    { name: 'minimax', value: data.minimax, validate: validateMinimaxKey },
+  ]
+
+  const details: Record<string, string> = {}
+  const toApply: Array<{ name: 'claude' | 'codex' | 'minimax'; validation: Extract<ProviderKeyValidation, { ok: true }> }> = []
+
+  for (const field of fields) {
+    if (field.value === undefined) continue
+    const validation = field.validate(field.value)
+    if (!validation.ok) {
+      details[field.name] = validation.message
+      continue
+    }
+    toApply.push({ name: field.name, validation })
+  }
+
+  if (Object.keys(details).length > 0) {
+    return sendJson(res, 400, {
+      error: { code: 'validation_error', message: 'Algum campo tem formato inválido. Revise e tente novamente.', details },
+    })
+  }
+
+  for (const { name, validation } of toApply) {
+    if (validation.action === 'skip') continue
+    vaultService.setSecret(`keys:${name}`, validation.key)
+  }
+
+  sendJson(res, 200, {
+    saved: true,
+    keys: {
+      claude: Boolean(vaultService.getSecret('keys:claude')),
+      codex: Boolean(vaultService.getSecret('keys:codex')),
+      minimax: Boolean(vaultService.getSecret('keys:minimax')),
+    },
+    message: 'Chaves salvas localmente (não validadas com o provider).',
+  })
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export async function handleConfigRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -305,6 +382,10 @@ export async function handleConfigRequest(req: IncomingMessage, res: ServerRespo
     }
     if (method === 'POST' && url === '/api/config/github/token') {
       await handleGithubToken(req, res)
+      return true
+    }
+    if (method === 'POST' && url === '/api/config/keys/save') {
+      await handleKeysSave(req, res)
       return true
     }
   } catch (err) {
