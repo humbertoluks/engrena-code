@@ -14,6 +14,7 @@ import {
   type ThreadUsageRow,
   type UsageEventRow,
 } from '../services/consumo-service'
+import { formatCompact, formatCostText, formatPercent, shareLabel } from './consumoScreen.logic'
 
 // ── Copy literal (docs/F11-consumo/copy.md `consumo.*`) — não redescrever aqui, só citar ids ──
 const COPY = {
@@ -108,19 +109,11 @@ const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
 ]
 
 // ── Formatação ───────────────────────────────────────────────────────────────
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
+// Funções puras (formatCompact/formatPercent/formatCostText/shareLabel) vivem em
+// consumoScreen.logic.ts (testadas em consumoScreen.logic.test.ts).
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString('pt-BR')
-}
-
-function formatPercent(value: number | null): string {
-  return value === null ? '—' : `${value.toFixed(1)}%`
 }
 
 interface CostValueProps {
@@ -130,28 +123,13 @@ interface CostValueProps {
 }
 
 function CostValue({ costUsd, approximate, partial }: Readonly<CostValueProps>): ReactElement {
-  if (costUsd === null) {
-    return (
-      <span title={COPY.cost.unavailableTitle} className={partial ? 'text-amber' : 'text-muted'}>
-        — {partial ? COPY.cost.partialSuffix : ''}
-      </span>
-    )
-  }
-  const base = `$${costUsd.toFixed(4)}`
-  if (partial) {
-    return <span className="text-amber">{`${base} ${COPY.cost.partialSuffix}`}</span>
-  }
-  return <span className={approximate ? 'text-amber' : 'text-fg'}>{approximate ? `~${base}` : base}</span>
-}
-
-function shareLabel(thread: ThreadUsageRow): { text: string; title: string } {
-  const title = `Agente: ${formatCompact(thread.agentTokens)} tokens; subagents: ${formatCompact(thread.subagentTokens)} tokens.`
-  if (!thread.agentPricingComplete || !thread.subagentPricingComplete || thread.agentCostUsd === null || thread.subagentCostUsd === null) {
-    return { text: COPY.share.partial, title }
-  }
-  const total = thread.agentCostUsd + thread.subagentCostUsd
-  if (total === 0) return { text: '0%', title }
-  return { text: `${((thread.subagentCostUsd / total) * 100).toFixed(1)}%`, title }
+  const text = formatCostText(costUsd, { approximate, partial })
+  const tone = costUsd === null ? (partial ? 'text-amber' : 'text-muted') : partial || approximate ? 'text-amber' : 'text-fg'
+  return (
+    <span title={costUsd === null ? COPY.cost.unavailableTitle : undefined} className={tone}>
+      {text}
+    </span>
+  )
 }
 
 function isApiError<T>(res: T | { error: { code: string; message: string } }): res is { error: { code: string; message: string } } {
