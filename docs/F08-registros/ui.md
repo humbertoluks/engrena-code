@@ -2,7 +2,7 @@
 
 **Feature:** F08-registros  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/RegistrosScreen.tsx` + `packages/renderer/src/components/LogTable.tsx`  
 **Componente destino (previsto):** `packages/renderer/src/screens/RegistrosScreen.tsx` + `packages/renderer/src/components/LogTable.tsx`  
 **Última atualização:** 2026-08-05
@@ -93,7 +93,7 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca no empty / network | LionCode | EngrenaCode |
+| Marca no empty / network | legado | EngrenaCode |
 | Página | `max-w-[1080px]` | manter (≠ 1180 de Skills/Rules) |
 | Paginação | “Carregar mais”, não números de página | manter |
 | Thread id | span não clicável | **link** → `#principal` (ou rota workspace) com thread selecionada |
@@ -102,7 +102,7 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `legado → EngrenaCode`. Células = texto final no destino.
 
 | Slot | Texto |
 |------|-------|
@@ -129,7 +129,7 @@ Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no de
 | `error.network` | Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução. |
 | `thread.open.aria` | Abrir thread {threadId} no workspace |
 
-> **Decisão 2026-08-05:** empties e `error.generic` seguem o **PRD** (frases curtas). Fonte LionCode tem empty longo + “Tente novamente.” no corpo do erro; não usar no aceite Central. CTA `cta.retry` permanece separado do corpo.
+> **Decisão 2026-08-05:** empties e `error.generic` seguem o **PRD** (frases curtas). Fonte legada tem empty longo + “Tente novamente.” no corpo do erro; não usar no aceite Central. CTA `cta.retry` permanece separado do corpo.
 
 ## Campos e controles
 

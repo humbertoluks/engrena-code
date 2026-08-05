@@ -2,7 +2,7 @@
 
 **Feature:** F11-consumo  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/ConsumoScreen.tsx`  
 **Componente destino (previsto):** `packages/renderer/src/screens/ConsumoScreen.tsx`  
 **Última atualização:** 2026-08-05
@@ -123,7 +123,7 @@ Share subagents incompleto: texto `— / custo parcial` (não inventa %). Flags 
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca em copy de UI | (nenhuma string LionCode na tela) | EngrenaCode se surgir empty/network com marca |
+| Marca em copy de UI | (nenhuma string legado na tela) | EngrenaCode se surgir empty/network com marca |
 | Largura | `max-w-[1240px]` | manter (mais larga que Registros 1080) |
 | Period default | `30d` | manter |
 | Paginação eventos | “Carregar mais eventos”; meta “{n} de {total} eventos carregados” | manter |
@@ -134,7 +134,7 @@ Share subagents incompleto: texto `— / custo parcial` (não inventa %). Flags 
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `legado → EngrenaCode`. Células = texto final no destino.
 
 | Slot | Texto |
 |------|-------|

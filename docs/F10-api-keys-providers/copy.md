@@ -1,8 +1,8 @@
 # Catálogo de copy: F10-api-keys-providers
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`ConfiguracaoScreen` / `ClaudeAuthCard`, `KeysForm`)  
-**Mapa de rename:** `LionCode → EngrenaCode`  
+**Fonte:** sistema legado (`ConfiguracaoScreen` / `ClaudeAuthCard`, `KeysForm`)  
+**Mapa de rename:** `legado → EngrenaCode`  
 **Última atualização:** 2026-08-05
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.

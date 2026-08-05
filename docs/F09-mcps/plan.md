@@ -14,7 +14,7 @@
 
 ### Fase 2: Domínio — catálogo e OAuth
 
-**3. Catálogo estático de presets** - Criar o módulo com os ~14 presets first-party (transporte, `secretKeys`, `remoteUrl` quando OAuth), aplicando o rename de marca/nome reservado (`lioncode → engrenacode`) descrito na spec §9.
+**3. Catálogo estático de presets** - Criar o módulo com os ~14 presets first-party (transporte, `secretKeys`, `remoteUrl` quando OAuth), aplicando o rename de marca/nome reservado (`legado → engrenacode`) descrito na spec §9.
 
 **4. Fluxo OAuth PKCE loopback** - Criar o módulo de OAuth (start/status/disconnect/convert/client manual) com o guard de HTTPS obrigatório em metadata remota (HTTP só loopback), gravando tokens exclusivamente no vault F01 conforme spec §3.2/§5.5.
 

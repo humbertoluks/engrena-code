@@ -217,7 +217,8 @@ Copiar para `.env.local` (não versionado).
     "build": "tsc -b && vite build && electron-builder",
     "preview": "vite preview",
     "lint": "biome lint --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "test": "vitest run"
   },
   "build": {
     "appId": "com.lukse.engrenacode",
@@ -406,8 +407,31 @@ pnpm dev
 3. HMR (Hot Module Reload) atualiza a UI ao salvar código
 
 **Saída esperada:**
-- Janela Electron com tela "EngrenaCode — IDE Local-First para Agentes de IA — Inicializando componentes..."
-- Terminal mostra `[vite] ready in XXXms`
+- Janela Electron abre na tela de unlock do vault (`LoginScreen`: workspace + senha do cofre local)
+- Terminal mostra `[vite] ready in XXXms` e `Unlock server listening on http://127.0.0.1:5174`
+
+### Servidor de unlock (loopback)
+
+Todo o backend HTTP/WS do app (vault, projects, threads, skills, rules, subagents, mcps, logs, metrics) roda em `http://127.0.0.1:5174`, subido por `createUnlockServer` em `src/main/index.ts`. Essa porta é fixa e reservada — **nunca** aponte o Vite para `5174` (ver Troubleshooting).
+
+### Isolar dados de sessão (smoke / testes manuais)
+
+Para rodar o app sem tocar no vault real do usuário (`app.getPath('userData')`), aponte `ENGRENACODE_USER_DATA` para um diretório temporário antes de subir `pnpm dev`:
+
+```bash
+# bash
+ENGRENACODE_USER_DATA="$TEMP/engrena-smoke-<slug>" pnpm dev
+```
+
+```powershell
+# PowerShell
+$env:ENGRENACODE_USER_DATA = "$env:TEMP\engrena-smoke-<slug>"
+pnpm dev
+```
+
+Isso redireciona `vault.enc`, o SQLite (`engrenacode.db`) e os segredos de MCP para o diretório isolado. Ver `docs/F0*-*/smoke-results.md` para o padrão completo de smoke real (Electron + Playwright apontando para `http://localhost:5173`, credenciais de smoke dedicadas, cleanup no final).
+
+**Sandbox de agentes de IA:** se `pnpm dev` for executado a partir de uma ferramenta com sandbox de processo (ex.: Bash tool do Claude Code), o Electron pode falhar ao subir (`Network service crashed`, `GPU process exited unexpectedly`, processo cai com exit 0 sem erro óbvio) porque o sandbox bloqueia os subprocessos GPU/network do Chromium. Solução: desabilitar o sandbox da ferramenta para esse comando específico (não é sandbox do Electron/Chromium em si).
 
 ### Build para Desenvolvimento
 
@@ -465,12 +489,9 @@ Porta 5173 pode estar em uso:
 # Liberar porta (Windows PowerShell)
 Get-Process | Where-Object {$_.Port -eq 5173}
 Stop-Process -Id <PID>
-
-# Ou trocar porta em vite.config.ts
-server: {
-  port: 5174
-}
 ```
+
+Ou trocar a porta em `vite.config.ts` (`server.port`) — escolha a primeira porta livre a partir de 5173, **nunca 5174** (reservada ao servidor de unlock, ver acima). Atualize `VITE_DEV_SERVER_URL` em `.env.local` e o `loadURL` do Electron para a mesma porta.
 
 ### "contextBridge is not exported"
 
@@ -505,10 +526,17 @@ pnpm format
 
 ---
 
-## Próximos Passos
+## Testes
 
-1. **F01 — Vault e Sessão Local** (`docs/F01-vault-e-sessao-local/`)
-2. **F02 — Configuração MVP**
-3. **F03 — Workspace**
+```bash
+pnpm test        # suite Vitest completa (unit + integração)
+pnpm exec tsc -b  # type-check sem emitir (mesmo check do build)
+```
 
-Ver roadmap em `prd-engrenacode.md`.
+Rode `pnpm test` sempre que alterar código de produção. Para smoke visual real (Electron + Playwright), ver "Isolar dados de sessão" acima e os arquivos `docs/F0*-*/smoke-results.md` já produzidos para cada feature.
+
+---
+
+## Status do projeto
+
+Todas as features do MVP (F01–F11) já estão implementadas neste repo. Estado real por feature (feito vs pendente, evidência de teste/smoke): [`docs/PROGRESS.md`](./PROGRESS.md). Visão de produto e critérios de aceitação completos: [`docs/PRD.md`](./PRD.md).

@@ -1,8 +1,8 @@
 # Catálogo de copy: F11-consumo
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`packages/renderer/src/screens/ConsumoScreen.tsx`)  
-**Mapa de rename:** `LionCode → EngrenaCode`  
+**Fonte:** sistema legado (`packages/renderer/src/screens/ConsumoScreen.tsx`)  
+**Mapa de rename:** `legado → EngrenaCode`  
 **Última atualização:** 2026-08-05
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.

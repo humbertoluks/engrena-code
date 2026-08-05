@@ -1,8 +1,8 @@
 # Catálogo de copy: F09-mcps
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`packages/renderer` — `McpsScreen`, `McpFormModal`, `McpCatalogModal`, `McpOauthControls`, `ProjectMcpsModal`; avisos em `ThreadDetail` / `dispatch.mcpOmissionMessage`)  
-**Mapa de rename:** `LionCode → EngrenaCode`; `lioncode → engrenacode` (nome reservado)  
+**Fonte:** sistema legado (`packages/renderer` — `McpsScreen`, `McpFormModal`, `McpCatalogModal`, `McpOauthControls`, `ProjectMcpsModal`; avisos em `ThreadDetail` / `dispatch.mcpOmissionMessage`)  
+**Mapa de rename:** `legado → EngrenaCode`; `legado → engrenacode` (nome reservado)  
 **Última atualização:** 2026-08-05
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.
@@ -69,7 +69,7 @@ Telas neste catálogo: `mcps` (`#mcps`), `mcpsCatalog`, `mcpsForm`, `mcpsOauth`,
 | `mcpsForm.label.name` | Nome | |
 | `mcpsForm.hint.name` | Chave única global (vira a chave do mcpServers). | |
 | `mcpsForm.placeholder.name` | ex.: github-mcp | |
-| `mcpsForm.error.name.reserved` | O nome "engrenacode" é reservado (broker interno). | rename de `lioncode` |
+| `mcpsForm.error.name.reserved` | O nome "engrenacode" é reservado (broker interno). | rename de `legado` |
 | `mcpsForm.error.name.pattern` | Use minúsculas, dígitos, "_" e "-" (começando por letra ou dígito). | |
 | `mcpsForm.label.description` | Descrição | |
 | `mcpsForm.hint.description` | Opcional. | |

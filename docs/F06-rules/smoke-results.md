@@ -38,7 +38,7 @@
 | U3 | Name duplicado submit | alert `Já existe uma rule…` | pass |
 | U4 | Soft size | card `smoke-f06-soft` mostra ~9 KB | pass |
 | U5 | Light + dark | Tema Claro/Escuro sem crash | pass |
-| U6 | Marca | EngrenaCode presente; 0 LionCode/lioncode | pass |
+| U6 | Marca | EngrenaCode presente; 0 referências à marca legado | pass |
 | U7 | Name CR/LF no form | `rulesForm.error.nameInvalid` | pass via unit `ruleForm.logic` + API A2 (input controlado engole `\n` no Playwright fill) |
 | U8 | Cap >15 / aggregateHot / harness | overlay projeto | **deferred** até F03 Repo Harness |
 | U9 | Bloco no turno | inject F03 | **deferred** até turn-runner F03 |

@@ -2,7 +2,7 @@
 
 **Feature:** F09-mcps  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/McpsScreen.tsx` (+ `McpFormModal.tsx`, `McpCatalogModal.tsx`, `McpOauthControls.tsx`, `ProjectMcpsModal.tsx`, `mcpForm.logic.ts`; harness em `WorkspaceSidebar.tsx`; avisos de turno em `ThreadDetail.tsx`)  
 **Componente destino (previsto):** `packages/renderer/src/screens/McpsScreen.tsx` (+ satélites de form, catálogo, OAuth e vínculo)  
 **Última atualização:** 2026-08-05
@@ -43,7 +43,7 @@
 | Capacidade PRD | UI fonte |
 |----------------|----------|
 | Catálogo first-party (~14) + CRUD custom | `McpCatalogModal` + `McpFormModal`; catalog.ts tem 14 presets |
-| Nome `^[a-z0-9][a-z0-9_-]*$`; reservado | Fonte: `lioncode`; destino: `engrenacode` (rename) |
+| Nome `^[a-z0-9][a-z0-9_-]*$`; reservado | Fonte: `legado`; destino: `engrenacode` (rename) |
 | Transports stdio / http / sse | Select no form; badge no card |
 | Secrets: refs no vault; header secret rejeitado; GET só keys | Seção “Segredos do cofre”; erro inline em headers com `vault:` |
 | OAuth PKCE; Connect / Converter opt-in | `McpOauthControls` + botão “Converter para OAuth” |
@@ -154,8 +154,8 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Marca no erro de rede / notes | LionCode | EngrenaCode |
-| Nome reservado | `lioncode` | `engrenacode` |
+| Marca no erro de rede / notes | legado | EngrenaCode |
+| Nome reservado | `legado` | `engrenacode` |
 | Tool names no turno | `mcp__<server>__<tool>` | mesmo padrão; broker interno `engrenacode` |
 | Catálogo | 14 presets (comentário no arquivo ainda diz “10”) | manter lista viva do server |
 | Soft cap vínculos | ≤ 8 (PRD) | **sem** warn na UI fonte |
@@ -163,7 +163,7 @@ Ordem obrigatória no viewport (conteúdo dentro do `AppShell`):
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`; `lioncode → engrenacode` (nome reservado). Células = texto final no destino.
+Aplicar mapa de rename: `legado → EngrenaCode`; `legado → engrenacode` (nome reservado). Células = texto final no destino.
 
 ### Tela `#mcps`
 

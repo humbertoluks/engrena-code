@@ -25,7 +25,7 @@ describe('composeRulesBlock', () => {
   it('compose_block_brand_engrenacode', () => {
     const block = composeRulesBlock([makeRule({ name: 'r1' })])
     expect(block).toContain('EngrenaCode Rules')
-    expect(block).not.toContain('LionCode')
+    expect(block).not.toContain('legado')
   })
 
   it('compose_block_order_project_after_global', () => {
