@@ -684,10 +684,10 @@ graph TD
 - [ ] UI não permite editar/apagar registro individual nem exportar
 
 ### F09. MCPs
-- [ ] Preset e custom (stdio/http/sse) salvam; nome inválido/`engrenacode` rejeitados
-- [ ] HTTPS obrigatório em remoto; HTTP não-loopback rejeitado
-- [ ] Secret ausente omite MCP sem abortar o turno; OAuth Connect funciona em server suportado
-- [ ] Tools `mcp__…` disponíveis no turno quando vinculado e resolvido
+- [x] Preset e custom (stdio/http/sse) salvam; nome inválido/`engrenacode` rejeitados
+- [x] HTTPS obrigatório em remoto; HTTP não-loopback rejeitado
+- [ ] Secret ausente omite MCP sem abortar o turno; OAuth Connect funciona em server suportado (secret ausente `[x]` verificado; OAuth Connect live não verificado — ver `PROGRESS.md`)
+- [x] Tools `mcp__…` disponíveis no turno quando vinculado e resolvido
 
 ### F10. API Keys dos Providers
 - [x] Toggle Claude assinatura ↔ API key; key não sobrescreve assinatura sem escolha explícita
