@@ -7,6 +7,7 @@ import { SkillsScreen } from './screens/SkillsScreen'
 import { RulesScreen } from './screens/RulesScreen'
 import { McpsScreen } from './screens/McpsScreen'
 import { RegistrosScreen } from './screens/RegistrosScreen'
+import { ConsumoScreen } from './screens/ConsumoScreen'
 import { PrincipalScreen } from './screens/PrincipalScreen'
 import { DashboardScreen } from './screens/DashboardScreen'
 
@@ -71,6 +72,9 @@ function AuthenticatedApp(): React.ReactElement {
           <NavLink href="#registros" active={hash === '#registros'}>
             Registros
           </NavLink>
+          <NavLink href="#consumo" active={hash === '#consumo'}>
+            Consumo
+          </NavLink>
         </nav>
         <ThemeControl />
       </header>
@@ -89,6 +93,8 @@ function AuthenticatedApp(): React.ReactElement {
           <McpsScreen />
         ) : hash === '#registros' ? (
           <RegistrosScreen />
+        ) : hash === '#consumo' ? (
+          <ConsumoScreen />
         ) : (
           <DashboardScreen />
         )}

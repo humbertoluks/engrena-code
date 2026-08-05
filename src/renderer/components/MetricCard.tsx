@@ -1,8 +1,8 @@
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 
 interface MetricCardProps {
   label: string
-  value: number | string
+  value: ReactNode
 }
 
 export function MetricCard({ label, value }: Readonly<MetricCardProps>): ReactElement {
