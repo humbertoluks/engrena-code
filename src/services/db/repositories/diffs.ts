@@ -123,3 +123,11 @@ export function countPendingForThread(threadId: string): number {
     .get(threadId) as { c: number }
   return row.c
 }
+
+/** Total de diffs pending em todas as threads. Usado pelo card "Diffs pendentes" do Dashboard (F04). */
+export function countAllPending(): number {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) as c FROM diffs WHERE status = 'pending'")
+    .get() as { c: number }
+  return row.c
+}

@@ -54,7 +54,7 @@ function parseBody<T>(raw: string): T | null {
 
 // ── CLI detection ───────────────────────────────────────────────────────────
 
-interface CLIStatus {
+export interface CLIStatus {
   installed: boolean
   loggedIn: boolean | null
   path?: string
@@ -95,11 +95,22 @@ async function detectCLIFull(name: string): Promise<CLIStatus> {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
+export interface ConfigStatus {
+  claude: { mode: 'subscription' | 'api-key'; subscriptionOk: boolean }
+  clis: { claude: CLIStatus; codex: CLIStatus; kimi: CLIStatus }
+  prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
+  github: { tokenPresent: boolean }
+  keys: { claude: boolean; codex: boolean; minimax: boolean }
+  providers: {
+    claude: { available: boolean; reason?: string }
+    codex: { available: boolean; reason?: string }
+    kimi: { available: boolean; reason?: string }
+    minimax: { available: boolean; reason?: string }
   }
+}
 
+/** Reunido para reuso por dashboard-handler.ts (F04) — mesmo shape de GET /api/config/status. */
+export async function computeConfigStatus(): Promise<ConfigStatus> {
   const claudeMode = (vaultService.getSecret('claude:mode') ?? 'subscription') as 'subscription' | 'api-key'
   const claudeLoggedIn = fs.existsSync(path.join(os.homedir(), '.claude.json'))
 
@@ -143,7 +154,7 @@ async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promi
       : { available: false, reason: 'Minimax sem key salva — configure em #configuracao.' },
   }
 
-  sendJson(res, 200, {
+  return {
     claude: { mode: claudeMode, subscriptionOk: claudeLoggedIn },
     clis: {
       claude: { ...claudeCLI, loggedIn: claudeCLI.installed ? claudeLoggedIn : false },
@@ -154,7 +165,15 @@ async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promi
     github: { tokenPresent: Boolean(githubToken) },
     keys,
     providers,
-  })
+  }
+}
+
+async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!isAuthorized(req)) {
+    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
+  }
+
+  sendJson(res, 200, await computeConfigStatus())
 }
 
 async function handleClaudeMode(req: IncomingMessage, res: ServerResponse): Promise<void> {
