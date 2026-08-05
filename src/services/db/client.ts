@@ -7,6 +7,7 @@ import * as migration001Rules from './migrations/001_rules.js'
 import * as migration002WorkspaceCore from './migrations/002_workspace_core.js'
 import * as migration003Mcps from './migrations/003_mcps.js'
 import * as migration004LogEntries from './migrations/004_log_entries.js'
+import * as migration005Consumo from './migrations/005_consumo.js'
 
 interface Migration {
   id: string
@@ -19,6 +20,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration002WorkspaceCore.id, sql: migration002WorkspaceCore.sql },
   { id: migration003Mcps.id, sql: migration003Mcps.sql },
   { id: migration004LogEntries.id, sql: migration004LogEntries.sql },
+  { id: migration005Consumo.id, sql: migration005Consumo.sql },
 ]
 
 function resolveUserData(): string {

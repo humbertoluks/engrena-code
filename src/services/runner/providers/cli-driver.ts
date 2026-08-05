@@ -5,11 +5,17 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
-import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ResolvedMcpDef } from './provider-types.js'
+import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn } from './minimax-driver.js'
 
-export type { ProviderStreamEvent, PermissionDecision, ProviderTurnInput, ProviderTurnResult } from './provider-types.js'
+export type {
+  ProviderStreamEvent,
+  PermissionDecision,
+  ProviderTurnInput,
+  ProviderTurnResult,
+  ProviderUsage,
+} from './provider-types.js'
 export { ProviderError } from './provider-types.js'
 
 type ProviderKind = 'cli' | 'http'
@@ -152,6 +158,34 @@ function extractFinalText(payload: Record<string, unknown>): string | null {
   return null
 }
 
+/**
+ * Extrai `usage` do evento `result` (Claude: `ResultMessage.usage`, confirmado via doc oficial
+ * Anthropic — `input_tokens`/`output_tokens`/`cache_read_input_tokens`/`cache_creation_input_tokens`).
+ * Mesmo parser aplicado a Codex/Kimi (spec F11 §3.2); `usage` ausente = `undefined`, não quebra o turno.
+ */
+function extractUsage(payload: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = payload.usage as Record<string, unknown> | undefined
+  if (!usage) return undefined
+
+  const inputTokens = usage.input_tokens
+  const outputTokens = usage.output_tokens
+  if (typeof inputTokens !== 'number' || typeof outputTokens !== 'number') return undefined
+
+  const cacheReadTokens = typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : null
+  const cacheCreationTokens =
+    typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : null
+
+  return { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens }
+}
+
+/** `total_cost_usd` do `ResultMessage` — só válido quando numérico finito ≥0 (spec F11 §3.2). */
+function extractCostUsd(payload: Record<string, unknown>): number | null | undefined {
+  const raw = payload.total_cost_usd
+  if (raw === null) return null
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return raw
+  return undefined
+}
+
 export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurnResult> {
   if (PROVIDER_KIND[input.provider] === 'http') {
     return runHttpTurn(input)
@@ -178,6 +212,8 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     let finalText = ''
     let sawResult = false
     let stderrBuf = ''
+    let resultUsage: ProviderUsage | undefined
+    let resultCostUsd: number | null | undefined
 
     input.signal?.addEventListener('abort', () => {
       child.kill()
@@ -192,8 +228,15 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
           sawResult = true
           const text = extractFinalText(payload)
           if (text !== null) finalText = text
+          resultUsage = extractUsage(payload)
+          resultCostUsd = extractCostUsd(payload)
           if (payload.is_error === true) {
-            reject(new ProviderError('provider_turn_error', String(payload.result ?? 'Erro no provider.')))
+            reject(
+              new ProviderError('provider_turn_error', String(payload.result ?? 'Erro no provider.'), {
+                usage: resultUsage,
+                costUsd: resultCostUsd,
+              })
+            )
           }
         }
       } catch {
@@ -213,7 +256,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     child.on('close', (code) => {
       cleanupMcpConfig()
       if (sawResult) {
-        resolve({ text: finalText })
+        resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
         return
       }
       if (code !== 0) {
@@ -225,7 +268,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         )
         return
       }
-      resolve({ text: finalText })
+      resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
     })
   })
 }

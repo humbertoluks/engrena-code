@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { getDb } from '../db/client.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import {
@@ -12,6 +13,12 @@ import {
 import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
+import {
+  calculateTableCost,
+  createUsageEvent,
+  type BillingMode,
+} from '../db/repositories/usage-events.js'
+import { findPricing } from '../db/repositories/pricing.js'
 import { diffWorkingTree } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
@@ -24,7 +31,12 @@ import { McpRegistry } from './mcp-registry.js'
 import { mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
 import { vaultService } from '../vault/vault-service.js'
 import { DEFAULT_PROMPT } from '../http/config-handler.js'
-import { runCliTurn as defaultRunCliTurn, ProviderError, type ProviderTurnInput } from './providers/cli-driver.js'
+import {
+  runCliTurn as defaultRunCliTurn,
+  ProviderError,
+  type ProviderTurnInput,
+  type ProviderUsage,
+} from './providers/cli-driver.js'
 
 export class DispatchValidationError extends Error {
   code: string
@@ -87,6 +99,73 @@ function resolveProviderApiKey(provider: ThreadProvider): string | undefined {
   if (provider === 'codex') return vaultService.getSecret('keys:codex')
   if (provider === 'minimax') return vaultService.getSecret('keys:minimax')
   return undefined
+}
+
+/**
+ * Mapeia provider → billingMode do turno (spec F11 §3.2, confirmado via entrevista — sem conceito
+ * `compat` no EngrenaCode, `'token-plan'` nunca é retornado neste MVP). Claude reusa `claude:mode`
+ * (F10); Codex cai pra `'subscription'` sem key salva (sem toggle explícito); Kimi não tem key no F10,
+ * sempre `'subscription'`; Minimax não tem CLI/login, sempre `'api-key'`.
+ */
+function resolveBillingMode(provider: ThreadProvider): BillingMode {
+  if (provider === 'claude') {
+    const mode = vaultService.getSecret('claude:mode') ?? 'subscription'
+    return mode === 'api-key' ? 'api-key' : 'subscription'
+  }
+  if (provider === 'codex') return vaultService.getSecret('keys:codex') ? 'api-key' : 'subscription'
+  if (provider === 'minimax') return 'api-key'
+  return 'subscription'
+}
+
+/**
+ * Grava 1 usage_event `source='agent'` por turno (spec F11 §3.2/§6). `cost_source='sdk'` só quando
+ * `provider==='claude'` E o CLI reportou `costUsd` válido; caso contrário calcula via `model_pricing`
+ * (`cost_source='table'`), ou grava `cost_usd=null` quando não há preço cadastrado pro par.
+ */
+function persistAgentUsage(params: {
+  turnId: string
+  project: Project
+  thread: Thread
+  usage: ProviderUsage
+  costUsd: number | null | undefined
+}): void {
+  const { turnId, project, thread, usage, costUsd } = params
+  const billingMode = resolveBillingMode(thread.provider)
+  const base = {
+    turnId,
+    projectId: project.id,
+    threadId: thread.id,
+    source: 'agent' as const,
+    provider: thread.provider,
+    model: thread.model,
+    billingMode,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
+  }
+
+  if (thread.provider === 'claude' && typeof costUsd === 'number') {
+    createUsageEvent({ ...base, costUsd, costSource: 'sdk', costApproximate: false })
+    return
+  }
+
+  const pricing = thread.model ? findPricing(thread.provider, thread.model) : null
+  if (pricing) {
+    const { costUsd: tableCost } = calculateTableCost(
+      {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheCreationTokens: usage.cacheCreationTokens,
+      },
+      pricing
+    )
+    createUsageEvent({ ...base, costUsd: tableCost, costSource: 'table', costApproximate: pricing.approximate })
+    return
+  }
+
+  createUsageEvent({ ...base, costUsd: null, costSource: 'table', costApproximate: false })
 }
 
 function buildSystemPrompt(project: Project): string {
@@ -174,6 +253,7 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 
 async function runTurn(project: Project, thread: Thread, prompt: string): Promise<void> {
   let mcpsCleanup: () => void = () => {}
+  const turnId = randomUUID()
   try {
     appendMessage({ threadId: thread.id, role: 'user', content: prompt })
 
@@ -258,6 +338,12 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
     const result = await runCliTurnImpl(turnInput)
     const finalText = result.text || assistantText
 
+    if (result.usage) {
+      persistAgentUsage({ turnId, project, thread, usage: result.usage, costUsd: result.costUsd })
+    } else {
+      console.warn(`[dispatch] Turno ${thread.id}: provider "${thread.provider}" não reportou usage — nenhum usage_event gravado.`)
+    }
+
     if (finalText) {
       appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
     }
@@ -285,6 +371,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
     emit(thread.id, { type: 'state.change', threadId: thread.id, state })
 
     if (!wasCancelled) {
+      // Turno falhou mas o provider já reportou usage/custo (spec F11 §3.2) — captura mesmo no erro.
+      if (err instanceof ProviderError && err.usage) {
+        persistAgentUsage({ turnId, project, thread, usage: err.usage, costUsd: err.costUsd })
+      }
+
       const message = err instanceof Error ? err.message : 'Erro desconhecido no turno.'
       const code = err instanceof ProviderError ? err.code : 'turn_failed'
       emit(thread.id, { type: 'error', threadId: thread.id, code, message })

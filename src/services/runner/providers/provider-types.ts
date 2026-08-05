@@ -36,15 +36,32 @@ export interface ProviderTurnInput {
   signal?: AbortSignal
 }
 
+/** Tokens brutos reportados no fim do turno (evento `result` do stream-json, ou resposta HTTP) — spec F11 §3.2/§4. */
+export interface ProviderUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number | null
+  cacheCreationTokens: number | null
+}
+
 export interface ProviderTurnResult {
   text: string
+  /** Ausente quando o provider não populou `usage` no resultado (spec F11 §3.2 — turno completa, nenhum usage_event é gravado). */
+  usage?: ProviderUsage
+  /** Custo já calculado pelo SDK do provider (`total_cost_usd`, hoje só Claude) — `undefined` = não reportado, `null` = reportado como indisponível. */
+  costUsd?: number | null
 }
 
 export class ProviderError extends Error {
   code: string
+  /** Presentes quando o payload de erro do provider já carregava usage/custo (spec F11 §3.2 — captura também no path de erro). */
+  usage?: ProviderUsage
+  costUsd?: number | null
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, extra?: { usage?: ProviderUsage; costUsd?: number | null }) {
     super(message)
     this.code = code
+    this.usage = extra?.usage
+    this.costUsd = extra?.costUsd
   }
 }

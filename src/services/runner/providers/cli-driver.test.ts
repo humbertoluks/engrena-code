@@ -143,6 +143,74 @@ describe('runCliTurn — cli providers', () => {
     await runCliTurn(baseInput())
     expect(capturedArgs).not.toContain('--mcp-config')
   })
+
+  it('extracts usage and total_cost_usd from the result event on success (spec F11 §3.2)', async () => {
+    const fakeSpawn: SpawnFn = (() => {
+      const child = new FakeChild()
+      child.stdout.write(
+        `${JSON.stringify({
+          type: 'result',
+          result: 'pong',
+          is_error: false,
+          total_cost_usd: 0.0042,
+          usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 5, cache_creation_input_tokens: 0 },
+        })}\n`
+      )
+      queueMicrotask(() => {
+        child.stdout.end()
+        child.emit('close', 0)
+      })
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const result = await runCliTurn(baseInput())
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 0 })
+    expect(result.costUsd).toBe(0.0042)
+  })
+
+  it('does not set usage/costUsd when the result event omits them (Codex/Kimi tolerance)', async () => {
+    setSpawnForTesting((() => {
+      const child = new FakeChild()
+      emitResultAndClose(child, 'ok')
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn)
+
+    const result = await runCliTurn(baseInput())
+    expect(result.usage).toBeUndefined()
+    expect(result.costUsd).toBeUndefined()
+  })
+
+  it('attaches usage/costUsd to the ProviderError when the result event reports is_error with usage (spec F11 §3.2)', async () => {
+    const fakeSpawn: SpawnFn = (() => {
+      const child = new FakeChild()
+      child.stdout.write(
+        `${JSON.stringify({
+          type: 'result',
+          result: 'deu ruim',
+          is_error: true,
+          total_cost_usd: 0.001,
+          usage: { input_tokens: 50, output_tokens: 0, cache_read_input_tokens: null, cache_creation_input_tokens: null },
+        })}\n`
+      )
+      queueMicrotask(() => {
+        child.stdout.end()
+        child.emit('close', 1)
+      })
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const err = await runCliTurn(baseInput()).catch((e) => e)
+    expect(err).toBeInstanceOf(ProviderError)
+    expect((err as ProviderError).usage).toEqual({
+      inputTokens: 50,
+      outputTokens: 0,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
+    })
+    expect((err as ProviderError).costUsd).toBe(0.001)
+  })
 })
 
 describe('runCliTurn — minimax (http provider)', () => {

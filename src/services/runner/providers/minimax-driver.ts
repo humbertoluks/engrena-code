@@ -1,4 +1,4 @@
-import type { ProviderTurnInput, ProviderTurnResult } from './provider-types.js'
+import type { ProviderTurnInput, ProviderTurnResult, ProviderUsage } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 
 /**
@@ -17,6 +17,26 @@ interface MinimaxMessage {
 interface MinimaxResponse {
   choices?: Array<{ message?: { content?: string } }>
   base_resp?: { status_code?: number; status_msg?: string }
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
+}
+
+/**
+ * Formato OpenAI-compat assumido (`prompt_tokens`/`completion_tokens`) — sem doc oficial Minimax
+ * confirmada neste ambiente (mesma ressalva de docs/F10-api-keys-providers/spec.md §3.3). Sem
+ * `cache_read`/`cache_creation` na Chat Completion API — sempre `null`. Sem custo reportado pelo
+ * SDK — `costUsd` do turno Minimax é sempre `undefined` (cost_source='table').
+ */
+function extractUsage(payload: MinimaxResponse): ProviderUsage | undefined {
+  const usage = payload.usage
+  if (!usage || typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') {
+    return undefined
+  }
+  return {
+    inputTokens: usage.prompt_tokens,
+    outputTokens: usage.completion_tokens,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+  }
 }
 
 export type FetchFn = typeof fetch
@@ -85,5 +105,5 @@ export async function runHttpTurn(input: ProviderTurnInput): Promise<ProviderTur
   }
 
   input.onEvent({ type: 'text-delta', text })
-  return { text }
+  return { text, usage: extractUsage(payload) }
 }

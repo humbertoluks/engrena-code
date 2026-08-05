@@ -64,4 +64,23 @@ describe('runHttpTurn', () => {
     setFetchForTesting(async () => new Response(JSON.stringify({ choices: [] }), { status: 200 }))
     await expect(runHttpTurn(baseInput())).rejects.toBeInstanceOf(ProviderError)
   })
+
+  it('extracts usage from the response (OpenAI-compat shape, spec F11 §3.2)', async () => {
+    setFetchForTesting(
+      async () =>
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: 'pong' } }], usage: { prompt_tokens: 40, completion_tokens: 8 } }),
+          { status: 200 }
+        )
+    )
+    const result = await runHttpTurn(baseInput())
+    expect(result.usage).toEqual({ inputTokens: 40, outputTokens: 8, cacheReadTokens: null, cacheCreationTokens: null })
+    expect(result.costUsd).toBeUndefined()
+  })
+
+  it('leaves usage undefined when the response has no usage field', async () => {
+    setFetchForTesting(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'pong' } }] }), { status: 200 }))
+    const result = await runHttpTurn(baseInput())
+    expect(result.usage).toBeUndefined()
+  })
 })
