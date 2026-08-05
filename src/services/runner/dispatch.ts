@@ -75,6 +75,17 @@ export function cancelThread(threadId: string): boolean {
   return true
 }
 
+/** Resolve a API key do vault para o provider da thread — Claude só em modo api-key; Codex/Minimax quando salva. */
+function resolveProviderApiKey(provider: ThreadProvider): string | undefined {
+  if (provider === 'claude') {
+    const mode = vaultService.getSecret('claude:mode') ?? 'subscription'
+    return mode === 'api-key' ? vaultService.getSecret('keys:claude') : undefined
+  }
+  if (provider === 'codex') return vaultService.getSecret('keys:codex')
+  if (provider === 'minimax') return vaultService.getSecret('keys:minimax')
+  return undefined
+}
+
 function buildSystemPrompt(project: Project): string {
   const parts: string[] = []
 
@@ -177,6 +188,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
       systemPrompt: systemPrompt || undefined,
       model: thread.model,
       accessLevel: thread.accessLevel,
+      apiKey: resolveProviderApiKey(thread.provider),
       signal: controller.signal,
       onEvent: (event) => {
         if (event.type === 'text-delta') {

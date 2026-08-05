@@ -16,7 +16,7 @@ import { LeaseBusyError } from '../runner/project-execution.js'
 import { emit } from '../runner/ws-hub.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
-const PROVIDERS = ['claude', 'codex', 'kimi'] as const
+const PROVIDERS = ['claude', 'codex', 'kimi', 'minimax'] as const
 const ACCESS_LEVELS = ['supervised', 'auto-accept-edits', 'full-access'] as const
 const EXECUTION_MODES = ['main', 'worktree'] as const
 
@@ -132,7 +132,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'validation_error', 'prompt é obrigatório.')
   }
   if (typeof data.provider !== 'string' || !(PROVIDERS as readonly string[]).includes(data.provider)) {
-    return sendError(res, 400, 'validation_error', 'provider deve ser claude, codex ou kimi.')
+    return sendError(res, 400, 'validation_error', 'provider deve ser claude, codex, kimi ou minimax.')
   }
   if (typeof data.accessLevel !== 'string' || !(ACCESS_LEVELS as readonly string[]).includes(data.accessLevel)) {
     return sendError(res, 400, 'validation_error', 'accessLevel inválido.')

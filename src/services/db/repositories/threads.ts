@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../client.js'
 
-export type ThreadProvider = 'claude' | 'codex' | 'kimi'
+export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
 export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping'

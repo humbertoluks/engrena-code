@@ -1,46 +1,42 @@
 import { spawn } from 'child_process'
 import { createInterface } from 'readline'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
+import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult } from './provider-types.js'
+import { ProviderError } from './provider-types.js'
+import { runHttpTurn } from './minimax-driver.js'
 
-export type ProviderStreamEvent =
-  | { type: 'text-delta'; text: string }
-  | { type: 'tool-start'; id: string; name: string; params: unknown }
-  | { type: 'tool-result'; id: string; status: 'completed' | 'error'; result: unknown }
-  | { type: 'permission-request'; id: string; toolName: string; params: unknown }
+export type { ProviderStreamEvent, PermissionDecision, ProviderTurnInput, ProviderTurnResult } from './provider-types.js'
+export { ProviderError } from './provider-types.js'
 
-export interface PermissionDecision {
-  allow: boolean
+type ProviderKind = 'cli' | 'http'
+
+const PROVIDER_KIND: Record<ThreadProvider, ProviderKind> = {
+  claude: 'cli',
+  codex: 'cli',
+  kimi: 'cli',
+  minimax: 'http',
 }
 
-export interface ProviderTurnInput {
-  provider: ThreadProvider
-  cwd: string
-  prompt: string
-  systemPrompt?: string | null
-  model?: string | null
-  accessLevel: ThreadAccessLevel
-  onEvent: (event: ProviderStreamEvent) => void
-  resolvePermission?: (request: { id: string; toolName: string; params: unknown }) => Promise<PermissionDecision>
-  signal?: AbortSignal
+/** Env var injetada no spawn quando o provider roda com API key (Claude modo api-key, Codex). */
+const API_KEY_ENV_VAR: Partial<Record<ThreadProvider, string>> = {
+  claude: 'ANTHROPIC_API_KEY',
+  codex: 'CODEX_API_KEY',
 }
 
-export interface ProviderTurnResult {
-  text: string
-}
-
-export class ProviderError extends Error {
-  code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-  }
-}
-
-const BINARY_BY_PROVIDER: Record<ThreadProvider, string> = {
+const BINARY_BY_PROVIDER: Partial<Record<ThreadProvider, string>> = {
   claude: 'claude',
   codex: 'codex',
   kimi: 'kimi',
+}
+
+/** Injetável para testes — produção usa `spawn` real. */
+type SpawnFn = typeof spawn
+let spawnImpl: SpawnFn = spawn
+export function setSpawnForTesting(fn: SpawnFn): void {
+  spawnImpl = fn
+}
+export function resetSpawnForTesting(): void {
+  spawnImpl = spawn
 }
 
 function permissionModeFlag(accessLevel: ThreadAccessLevel): string {
@@ -134,11 +130,21 @@ function extractFinalText(payload: Record<string, unknown>): string | null {
 }
 
 export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurnResult> {
+  if (PROVIDER_KIND[input.provider] === 'http') {
+    return runHttpTurn(input)
+  }
+
   const binary = BINARY_BY_PROVIDER[input.provider]
+  if (binary === undefined) {
+    throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
+  }
   const args = buildArgs(input)
 
+  const envVar = API_KEY_ENV_VAR[input.provider]
+  const env = envVar !== undefined && input.apiKey ? { ...process.env, [envVar]: input.apiKey } : process.env
+
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { cwd: input.cwd })
+    const child = spawnImpl(binary, args, { cwd: input.cwd, env })
     const rl = createInterface({ input: child.stdout })
     let finalText = ''
     let sawResult = false

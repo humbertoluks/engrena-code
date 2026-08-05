@@ -290,3 +290,80 @@ describe('dispatchFollowUp', () => {
     expect(() => dispatchFollowUp({ threadId: 'thr_nao_existe', prompt: 'oi' })).toThrow(DispatchValidationError)
   })
 })
+
+describe('resolveProviderApiKey (via dispatchNewThread turnInput.apiKey)', () => {
+  afterEach(() => {
+    vaultService.deleteSecret('claude:mode')
+    vaultService.deleteSecret('keys:claude')
+    vaultService.deleteSecret('keys:codex')
+    vaultService.deleteSecret('keys:minimax')
+  })
+
+  it('does not inject an api key for Claude in subscription mode', async () => {
+    vaultService.setSecret('claude:mode', 'subscription')
+    vaultService.setSecret('keys:claude', 'sk-ant-12345678')
+    let captured: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      captured = input.apiKey
+      return { text: 'ok' }
+    })
+
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(captured).toBeUndefined()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('injects the vault key for Claude in api-key mode', async () => {
+    vaultService.setSecret('claude:mode', 'api-key')
+    vaultService.setSecret('keys:claude', 'sk-ant-12345678')
+    let captured: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      captured = input.apiKey
+      return { text: 'ok' }
+    })
+
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(captured).toBe('sk-ant-12345678')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('injects the vault key for Minimax regardless of claude:mode', async () => {
+    vaultService.setSecret('keys:minimax', 'mm-12345678')
+    let captured: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      captured = input.apiKey
+      return { text: 'ok' }
+    })
+
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'minimax',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(captured).toBe('mm-12345678')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
