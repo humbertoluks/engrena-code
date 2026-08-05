@@ -13,12 +13,8 @@ import {
 import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
-import {
-  calculateTableCost,
-  createUsageEvent,
-  type BillingMode,
-} from '../db/repositories/usage-events.js'
-import { findPricing } from '../db/repositories/pricing.js'
+import { createUsageEvent } from '../db/repositories/usage-events.js'
+import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './provider-resolution.js'
 import { diffWorkingTree } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
@@ -26,9 +22,10 @@ import { createSkillSnapshot } from './skill-registry.js'
 import { RuleRegistry } from './rule-registry.js'
 import { createSubagentsRepository } from '../db/repositories/subagents.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
-import { canDelegateSubagent, type ParentAccessLevel, type ParentProvider } from './subagent-caller-gate.js'
+import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
+import { buildSubagentMcpDef } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
-import { mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
+import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
 import { vaultService } from '../vault/vault-service.js'
 import { DEFAULT_PROMPT } from '../http/config-handler.js'
 import {
@@ -90,38 +87,7 @@ export function cancelThread(threadId: string): boolean {
   return true
 }
 
-/** Resolve a API key do vault para o provider da thread — Claude só em modo api-key; Codex/Minimax quando salva. */
-function resolveProviderApiKey(provider: ThreadProvider): string | undefined {
-  if (provider === 'claude') {
-    const mode = vaultService.getSecret('claude:mode') ?? 'subscription'
-    return mode === 'api-key' ? vaultService.getSecret('keys:claude') : undefined
-  }
-  if (provider === 'codex') return vaultService.getSecret('keys:codex')
-  if (provider === 'minimax') return vaultService.getSecret('keys:minimax')
-  return undefined
-}
-
-/**
- * Mapeia provider → billingMode do turno (spec F11 §3.2, confirmado via entrevista — sem conceito
- * `compat` no EngrenaCode, `'token-plan'` nunca é retornado neste MVP). Claude reusa `claude:mode`
- * (F10); Codex cai pra `'subscription'` sem key salva (sem toggle explícito); Kimi não tem key no F10,
- * sempre `'subscription'`; Minimax não tem CLI/login, sempre `'api-key'`.
- */
-function resolveBillingMode(provider: ThreadProvider): BillingMode {
-  if (provider === 'claude') {
-    const mode = vaultService.getSecret('claude:mode') ?? 'subscription'
-    return mode === 'api-key' ? 'api-key' : 'subscription'
-  }
-  if (provider === 'codex') return vaultService.getSecret('keys:codex') ? 'api-key' : 'subscription'
-  if (provider === 'minimax') return 'api-key'
-  return 'subscription'
-}
-
-/**
- * Grava 1 usage_event `source='agent'` por turno (spec F11 §3.2/§6). `cost_source='sdk'` só quando
- * `provider==='claude'` E o CLI reportou `costUsd` válido; caso contrário calcula via `model_pricing`
- * (`cost_source='table'`), ou grava `cost_usd=null` quando não há preço cadastrado pro par.
- */
+/** Grava 1 usage_event `source='agent'` por turno (spec F11 §3.2/§6) via a regra de custo compartilhada. */
 function persistAgentUsage(params: {
   turnId: string
   project: Project
@@ -130,42 +96,22 @@ function persistAgentUsage(params: {
   costUsd: number | null | undefined
 }): void {
   const { turnId, project, thread, usage, costUsd } = params
-  const billingMode = resolveBillingMode(thread.provider)
-  const base = {
+  const cost = resolveTurnCost(thread.provider, thread.model, usage, costUsd)
+
+  createUsageEvent({
     turnId,
     projectId: project.id,
     threadId: thread.id,
-    source: 'agent' as const,
+    source: 'agent',
     provider: thread.provider,
     model: thread.model,
-    billingMode,
+    billingMode: resolveBillingMode(thread.provider),
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheCreationTokens: usage.cacheCreationTokens,
-  }
-
-  if (thread.provider === 'claude' && typeof costUsd === 'number') {
-    createUsageEvent({ ...base, costUsd, costSource: 'sdk', costApproximate: false })
-    return
-  }
-
-  const pricing = thread.model ? findPricing(thread.provider, thread.model) : null
-  if (pricing) {
-    const { costUsd: tableCost } = calculateTableCost(
-      {
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheCreationTokens: usage.cacheCreationTokens,
-      },
-      pricing
-    )
-    createUsageEvent({ ...base, costUsd: tableCost, costSource: 'table', costApproximate: pricing.approximate })
-    return
-  }
-
-  createUsageEvent({ ...base, costUsd: null, costSource: 'table', costApproximate: false })
+    ...cost,
+  })
 }
 
 function buildSystemPrompt(project: Project): string {
@@ -253,6 +199,7 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 
 async function runTurn(project: Project, thread: Thread, prompt: string): Promise<void> {
   let mcpsCleanup: () => void = () => {}
+  let delegationServer: DelegationServerHandle | null = null
   const turnId = randomUUID()
   try {
     appendMessage({ threadId: thread.id, role: 'user', content: prompt })
@@ -266,6 +213,21 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
         ? await prepareMcpsForDispatch(linkedMcps, { provider: thread.provider })
         : { resolved: [], omitted: [], cleanup: () => {} }
     mcpsCleanup = mcpsPrepared.cleanup
+
+    // MCP interno de delegação (spec F11 §2/§3.2) — fecha o gap de call_subagent nunca executar de
+    // verdade. Registrado só quando o projeto tem catálogo de subagents e o provider aceita
+    // --mcp-config (mesma exclusão de MCP_UNSUPPORTED_PROVIDERS do F09, hoje só minimax).
+    const subagentsRepo = createSubagentsRepository(getDb())
+    const subagentCatalogForDelegation = resolveSubagentCatalog(subagentsRepo, project.id)
+    if (subagentCatalogForDelegation.length > 0 && !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)) {
+      delegationServer = await createDelegationServer({
+        repo: subagentsRepo,
+        project,
+        parentThread: thread,
+        parentTurnId: turnId,
+      })
+      mcpsPrepared.resolved.push(buildSubagentMcpDef(delegationServer.port, delegationServer.token))
+    }
 
     for (const omission of mcpsPrepared.omitted) {
       emit(thread.id, {
@@ -301,21 +263,10 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
         }
 
         if (event.type === 'tool-start') {
-          if (event.name === CALL_SUBAGENT_TOOL_NAME) {
-            const gate = canDelegateSubagent({
-              provider: thread.provider as ParentProvider,
-              accessLevel: thread.accessLevel as ParentAccessLevel,
-            })
-            const row = createToolCall({ threadId: thread.id, name: event.name, params: event.params })
-            toolCallIdByProviderId.set(event.id, row.id)
-            emit(thread.id, { type: 'tool_call.start', threadId: thread.id, id: row.id, name: event.name, params: event.params })
-            if (!gate.allowed) {
-              updateToolCall(row.id, { status: 'error', result: { error: gate.reason }, ended: true })
-              emit(thread.id, { type: 'tool_call.result', threadId: thread.id, id: row.id, status: 'error', result: { error: gate.reason } })
-            }
-            return
-          }
-
+          // call_subagent (mcp__engrenacode__call_subagent) chega aqui como qualquer outra tool
+          // MCP real agora — o gate (canDelegateSubagent) roda dentro do servidor de delegação
+          // (delegate.ts:runDelegatedSubagentTurn) antes do spawn; bloqueio vira tool_result de
+          // erro, já coberto pelo tratamento genérico abaixo (spec F11 §3.2).
           const row = createToolCall({ threadId: thread.id, name: event.name, params: event.params })
           toolCallIdByProviderId.set(event.id, row.id)
           emit(thread.id, { type: 'tool_call.start', threadId: thread.id, id: row.id, name: event.name, params: event.params })
@@ -382,6 +333,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
     }
   } finally {
     mcpsCleanup()
+    delegationServer?.close()
     activeControllers.delete(thread.id)
     releaseLease(project.id)
   }

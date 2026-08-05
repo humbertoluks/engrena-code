@@ -275,30 +275,6 @@ describe('dispatchNewThread', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('blocks call_subagent for a Codex parent without full-access and records the tool call as an error', async () => {
-    const dir = makeProjectDir()
-    const project = createProject({ path: dir })
-
-    setRunCliTurnForTesting(async (input) => {
-      input.onEvent({ type: 'tool-start', id: 'tool_1', name: 'mcp__engrenacode__call_subagent', params: { name: 'x' } })
-      return { text: 'ok' }
-    })
-
-    const thread = dispatchNewThread({
-      projectId: project.id,
-      prompt: 'delega isso',
-      provider: 'codex',
-      accessLevel: 'supervised',
-      executionMode: 'main',
-    })
-
-    await waitForState(thread.id, ['idle', 'error'])
-    const toolCalls = listToolCallsForThread(thread.id)
-    const call = toolCalls.find((t) => t.name === 'mcp__engrenacode__call_subagent')
-    expect(call?.status).toBe('error')
-    rmSync(dir, { recursive: true, force: true })
-  })
-
   it('records a completed tool call as a log_entries kind=tool with the outcome', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

@@ -57,7 +57,7 @@ export function mcpOmissionMessage(name: string, reason: McpOmissionReason): str
 }
 
 /** Providers que não sabem consumir `--mcp-config` (driver HTTP puro, sem CLI agentic). */
-const MCP_UNSUPPORTED_PROVIDERS: ReadonlySet<ThreadProvider> = new Set(['minimax'])
+export const MCP_UNSUPPORTED_PROVIDERS: ReadonlySet<ThreadProvider> = new Set(['minimax'])
 
 function resolveWrapperDir(): string {
   const override = process.env.ENGRENACODE_USER_DATA
