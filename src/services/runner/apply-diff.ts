@@ -11,6 +11,7 @@ import {
 import { discardFile, GitError } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
+import { createLogEntry } from '../db/repositories/log-entries.js'
 
 export class ApplyDiffValidationError extends Error {
   code: string
@@ -89,6 +90,15 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
     const nextState = action === 'accept' ? (remainingPending === 0 ? 'committed' : 'idle') : 'idle'
     updateThread(thread.id, { state: nextState })
     emit(thread.id, { type: 'state.change', threadId: thread.id, state: nextState })
+
+    createLogEntry({
+      threadId: thread.id,
+      kind: 'git',
+      event:
+        action === 'accept'
+          ? `diff aceito (${doneIds.length} arquivo(s))`
+          : `diff rejeitado (${doneIds.length} arquivo(s))`,
+    })
 
     return {
       applied: true,

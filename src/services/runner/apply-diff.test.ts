@@ -13,6 +13,7 @@ const { createDiff, getDiff, listPendingForThread } = await import('../db/reposi
 const { applyDiffAction, ApplyDiffValidationError } = await import('./apply-diff.js')
 const { acquireLease, clearAllLeases } = await import('./project-execution.js')
 const { LeaseBusyError } = await import('./project-execution.js')
+const { listLogEntries } = await import('../db/repositories/log-entries.js')
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd }).toString()
@@ -28,6 +29,7 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  getDb().exec('DELETE FROM log_entries')
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM threads')
   getDb().exec('DELETE FROM projects')
@@ -87,6 +89,11 @@ describe('applyDiffAction — accept', () => {
     expect(getDiff(diffNew.id)?.status).toBe('pending')
     expect(getThread(thread.id)?.state).toBe('idle')
 
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.threadId).toBe(thread.id)
+    expect(entries[0]?.event).toContain('diff aceito')
+
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -126,6 +133,10 @@ describe('applyDiffAction — reject', () => {
     expect(readFileSync(join(dir, 'existing.txt'), 'utf-8').replace(/\r\n/g, '\n')).toBe('conteudo original\n')
     expect(existsSync(join(dir, 'new-file.txt'))).toBe(true)
     expect(getThread(thread.id)?.state).toBe('idle')
+
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.event).toContain('diff rejeitado')
 
     rmSync(dir, { recursive: true, force: true })
   })

@@ -11,6 +11,7 @@ import {
 } from '../db/repositories/threads.js'
 import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
+import { createLogEntry } from '../db/repositories/log-entries.js'
 import { diffWorkingTree } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
@@ -244,8 +245,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
         if (event.type === 'tool-result') {
           const rowId = toolCallIdByProviderId.get(event.id)
           if (rowId) {
-            updateToolCall(rowId, { status: event.status, result: event.result, ended: true })
+            const updated = updateToolCall(rowId, { status: event.status, result: event.result, ended: true })
             emit(thread.id, { type: 'tool_call.result', threadId: thread.id, id: rowId, status: event.status, result: event.result })
+            if (updated) {
+              createLogEntry({ threadId: thread.id, kind: 'tool', event: `${updated.name} (${updated.status})` })
+            }
           }
         }
       },

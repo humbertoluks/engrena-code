@@ -4,6 +4,7 @@ import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import { createPullRequest, gitCommit, gitPush, GitError } from '../git/git-client.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
+import { createLogEntry } from '../db/repositories/log-entries.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
 
@@ -109,6 +110,11 @@ async function handleGitCommit(req: IncomingMessage, res: ServerResponse, thread
   await withGitLease(res, resolved.project, threadId, 'git-commit', async () => {
     try {
       const result = await gitCommit(resolved.project.path, data.subject as string, data.body)
+      createLogEntry({
+        threadId,
+        kind: 'git',
+        event: `Commit ${result.sha} criado: ${(data.subject as string).trim()}`,
+      })
       sendJson(res, 200, result)
     } catch (err) {
       if (err instanceof GitError) return sendError(res, 500, err.code, err.message)
@@ -125,6 +131,7 @@ async function handleGitPush(_req: IncomingMessage, res: ServerResponse, threadI
     try {
       const token = vaultService.getSecret('github:token')
       const result = await gitPush(resolved.project.path, token ?? null)
+      createLogEntry({ threadId, kind: 'git', event: `Push da branch '${result.branch}' para origin.` })
       sendJson(res, 200, result)
     } catch (err) {
       if (err instanceof GitError) return sendError(res, 500, err.code, err.message)
@@ -156,9 +163,13 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
         branch: data.branch,
         title: `EngrenaCode: ${resolved.thread.title ?? resolved.thread.id}`,
       })
+      createLogEntry({ threadId, kind: 'git', event: `PR aberto: ${result.url}` })
       sendJson(res, 200, result)
     } catch (err) {
-      if (err instanceof GitError) return sendError(res, 500, err.code, err.message)
+      if (err instanceof GitError) {
+        createLogEntry({ threadId, kind: 'git', event: `Falha ao abrir PR: ${err.message}` })
+        return sendError(res, 500, err.code, err.message)
+      }
       throw err
     }
   })

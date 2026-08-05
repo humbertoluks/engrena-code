@@ -11,6 +11,7 @@ const { createProject } = await import('../db/repositories/projects.js')
 const { getThread } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { listToolCallsForThread } = await import('../db/repositories/messages.js')
+const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
 const { skillsRepository } = await import('../db/repositories/skills.js')
@@ -43,6 +44,7 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  getDb().exec('DELETE FROM log_entries')
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
   getDb().exec('DELETE FROM messages')
@@ -290,6 +292,32 @@ describe('dispatchNewThread', () => {
     const toolCalls = listToolCallsForThread(thread.id)
     const call = toolCalls.find((t) => t.name === 'mcp__engrenacode__call_subagent')
     expect(call?.status).toBe('error')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('records a completed tool call as a log_entries kind=tool with the outcome', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'tool_1', name: 'Read', params: { path: 'x.ts' } })
+      input.onEvent({ type: 'tool-result', id: 'tool_1', status: 'completed', result: { ok: true } })
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'lê o arquivo',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const entries = listLogEntries({ kind: 'tool' })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.threadId).toBe(thread.id)
+    expect(entries[0]?.event).toBe('Read (completed)')
     rmSync(dir, { recursive: true, force: true })
   })
 

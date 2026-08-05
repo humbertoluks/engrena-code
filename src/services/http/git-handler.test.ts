@@ -13,6 +13,7 @@ const { createProject } = await import('../db/repositories/projects.js')
 const { createThread } = await import('../db/repositories/threads.js')
 const { acquireLease, clearAllLeases } = await import('../runner/project-execution.js')
 const { handleGitRequest } = await import('./git-handler.js')
+const { listLogEntries } = await import('../db/repositories/log-entries.js')
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd }).toString()
@@ -78,6 +79,7 @@ function fakeRes(): ServerResponse & { result: () => Promise<FakeResult> } {
 let session: string
 
 beforeEach(() => {
+  getDb().exec('DELETE FROM log_entries')
   getDb().exec('DELETE FROM threads')
   getDb().exec('DELETE FROM projects')
   clearAllLeases()
@@ -104,6 +106,11 @@ describe('handleGitRequest', () => {
     const { status, body } = await res.result()
     expect(status).toBe(200)
     expect(typeof (body as { sha: string }).sha).toBe('string')
+
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.threadId).toBe(thread.id)
+    expect(entries[0]?.event).toContain('feat: novo arquivo')
 
     rmSync(dir, { recursive: true, force: true })
   })
@@ -172,6 +179,27 @@ describe('handleGitRequest', () => {
     const { status, body } = await res.result()
     expect(status).toBe(400)
     expect((body as { error: { code: string } }).error.code).toBe('github_token_missing')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('pr failure (no remote configured) is recorded as a git log_entries', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    vaultService.setSecret('github:token', 'ghp_faketoken')
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, {}, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(500)
+    expect((body as { error: { code: string } }).error.code).toBe('pr_no_remote')
+
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.threadId).toBe(thread.id)
+    expect(entries[0]?.event).toContain('Falha ao abrir PR')
 
     rmSync(dir, { recursive: true, force: true })
   })

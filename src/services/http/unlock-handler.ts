@@ -9,7 +9,20 @@ import { handleThreadsRequest } from './threads-handler.js'
 import { handleGitRequest } from './git-handler.js'
 import { handleDashboardRequest } from './dashboard-handler.js'
 import { handleMcpsRequest } from './mcps-handler.js'
+import { handleLogsRequest } from './logs-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
+import { recoverRunningThreads } from '../db/repositories/threads.js'
+import { createLogEntry } from '../db/repositories/log-entries.js'
+
+const BOOT_RESTART_REASON = 'Aplicação reiniciada durante a execução.'
+
+/** Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` viram `error` + log_entries kind='task'. */
+function recoverInterruptedThreads(): void {
+  const recovered = recoverRunningThreads()
+  for (const thread of recovered) {
+    createLogEntry({ threadId: thread.id, kind: 'task', event: BOOT_RESTART_REASON })
+  }
+}
 
 interface VaultUnlockRequest {
   workspace: string
@@ -23,6 +36,8 @@ interface VaultUnlockResponse {
 }
 
 export function createUnlockServer(port: number = 5174): http.Server {
+  recoverInterruptedThreads()
+
   const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Access-Control-Allow-Origin', '*')
@@ -152,6 +167,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
       req.url?.startsWith('/api/projects/')
     ) {
       const handled = await handleMcpsRequest(req, res)
+      if (handled) return
+    }
+
+    // Logs routes (sync — safe to await like the others)
+    if (req.url?.startsWith('/api/logs')) {
+      const handled = handleLogsRequest(req, res)
       if (handled) return
     }
 
