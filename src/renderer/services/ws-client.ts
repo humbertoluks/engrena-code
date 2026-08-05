@@ -9,6 +9,7 @@ export type StreamEvent =
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string }
+  | { type: 'mcp.notice'; threadId: string; code: string; mcpName: string; reason: string; message: string }
 
 const WS_BASE_URL = 'ws://127.0.0.1:5174'
 

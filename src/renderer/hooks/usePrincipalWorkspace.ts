@@ -95,6 +95,8 @@ export function usePrincipalWorkspace() {
     Array<{ requestId: string; threadId: string; toolName: string; params: unknown }>
   >([])
 
+  const [mcpNotices, setMcpNotices] = useState<Array<{ mcpName: string; reason: string; message: string }>>([])
+
   const selectedProject = useMemo(
     () => projects?.find((p) => p.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
@@ -213,6 +215,7 @@ export function usePrincipalWorkspace() {
 
   useEffect(() => {
     setStreamingText('')
+    setMcpNotices([])
     if (selectedThreadId) {
       void loadHistory(selectedThreadId)
       void loadDiffs(selectedThreadId)
@@ -280,6 +283,10 @@ export function usePrincipalWorkspace() {
     }
     if (event.type === 'error') {
       setSendError(event.message)
+      return
+    }
+    if (event.type === 'mcp.notice') {
+      setMcpNotices((prev) => [...prev, { mcpName: event.mcpName, reason: event.reason, message: event.message }])
     }
   }
 
@@ -425,6 +432,10 @@ export function usePrincipalWorkspace() {
     await threadsService.cancel(selectedThreadId)
   }, [selectedThreadId])
 
+  const dismissMcpNotices = useCallback(() => {
+    setMcpNotices([])
+  }, [])
+
   const resolvePermission = useCallback(async (requestId: string, allow: boolean) => {
     const entry = permissionQueue.find((p) => p.requestId === requestId)
     if (!entry) return
@@ -506,6 +517,8 @@ export function usePrincipalWorkspace() {
     gitInitProject,
     permissionQueue,
     resolvePermission,
+    mcpNotices,
+    dismissMcpNotices,
     acceptDiffs,
     gitCommit,
     gitPush,

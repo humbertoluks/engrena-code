@@ -12,6 +12,7 @@ import { PermissionPrompt } from '../components/workspace/PermissionPrompt'
 const COPY = {
   tabHistory: 'Histórico',
   tabDiff: 'Diff',
+  mcpNoticeDismiss: 'Dispensar avisos',
 } as const
 
 export function PrincipalScreen(): ReactElement {
@@ -82,6 +83,22 @@ export function PrincipalScreen(): ReactElement {
             ) : null}
           </button>
         </div>
+
+        {ws.mcpNotices.length > 0 ? (
+          <div role="status" className="flex flex-col gap-xs border-b border-amber/30 bg-amber/[0.10] px-md py-sm">
+            {ws.mcpNotices.map((notice, i) => (
+              <p key={`${notice.mcpName}-${i}`} className="text-[12.5px] text-amber">{notice.message}</p>
+            ))}
+            <button
+              type="button"
+              onClick={ws.dismissMcpNotices}
+              aria-label={COPY.mcpNoticeDismiss}
+              className="w-fit text-[11.5px] text-amber underline hover:no-underline"
+            >
+              {COPY.mcpNoticeDismiss}
+            </button>
+          </div>
+        ) : null}
 
         <div className="flex-1 overflow-y-auto">
           {ws.activeTab === 'history' ? (

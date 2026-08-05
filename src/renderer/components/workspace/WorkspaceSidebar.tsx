@@ -5,9 +5,11 @@ import type { Thread } from '../../services/threads-service'
 import { rulesService } from '../../services/rules-service'
 import { skillsService } from '../../services/skills-service'
 import { subagentsService } from '../../services/subagents-service'
+import { mcpsService } from '../../services/mcps-service'
 import { ProjectRulesModal } from '../rules/ProjectRulesModal'
 import { ProjectSkillsModal } from '../skills/ProjectSkillsModal'
 import { ProjectSubagentsModal } from '../subagents/ProjectSubagentsModal'
+import { ProjectMcpsModal } from '../mcps/ProjectMcpsModal'
 import { GitActions } from './GitActions'
 
 const COPY = {
@@ -19,6 +21,7 @@ const COPY = {
   harnessRules: 'Rules',
   harnessSkills: 'Skills',
   harnessSubagents: 'SubAgents',
+  harnessMcps: 'MCPs',
   linkedOne: (n: number) => `${n} vinculado`,
   linkedMany: (n: number) => `${n} vinculados`,
   activeOne: (n: number) => `${n} ativa`,
@@ -49,13 +52,15 @@ export function WorkspaceSidebar({
   const [rulesCount, setRulesCount] = useState<number | null>(null)
   const [skillsCount, setSkillsCount] = useState<number | null>(null)
   const [subagentsCount, setSubagentsCount] = useState<number | null>(null)
-  const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | null>(null)
+  const [mcpsCount, setMcpsCount] = useState<number | null>(null)
+  const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | null>(null)
 
   useEffect(() => {
     if (!project) {
       setRulesCount(null)
       setSkillsCount(null)
       setSubagentsCount(null)
+      setMcpsCount(null)
       return
     }
     let cancelled = false
@@ -70,6 +75,10 @@ export function WorkspaceSidebar({
 
     subagentsService.counts().then((res) => {
       if (!cancelled && !res.error) setSubagentsCount(res.linkedByProject[project.id] ?? 0)
+    }).catch(() => {})
+
+    mcpsService.listForProject(project.id).then((res) => {
+      if (!cancelled && Array.isArray(res)) setMcpsCount(res.filter((m) => m.linked).length)
     }).catch(() => {})
 
     return () => {
@@ -132,6 +141,11 @@ export function WorkspaceSidebar({
                 meta={subagentsCount === null ? '' : pluralCount(subagentsCount, COPY.linkedOne, COPY.linkedMany)}
                 onClick={() => setOpenModal('subagents')}
               />
+              <HarnessRow
+                label={COPY.harnessMcps}
+                meta={mcpsCount === null ? '' : pluralCount(mcpsCount, COPY.linkedOne, COPY.linkedMany)}
+                onClick={() => setOpenModal('mcps')}
+              />
             </div>
           </section>
         </>
@@ -145,6 +159,9 @@ export function WorkspaceSidebar({
       ) : null}
       {project && openModal === 'subagents' ? (
         <ProjectSubagentsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+      ) : null}
+      {project && openModal === 'mcps' ? (
+        <ProjectMcpsModal projectId={project.id} onClose={() => setOpenModal(null)} />
       ) : null}
     </div>
   )
