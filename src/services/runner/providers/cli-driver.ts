@@ -1,7 +1,11 @@
 import { spawn } from 'child_process'
 import { createInterface } from 'readline'
+import { writeFileSync, unlinkSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { randomUUID } from 'crypto'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
-import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult } from './provider-types.js'
+import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn } from './minimax-driver.js'
 
@@ -45,11 +49,30 @@ function permissionModeFlag(accessLevel: ThreadAccessLevel): string {
   return 'default'
 }
 
-function buildArgs(input: ProviderTurnInput): string[] {
+/** JSON `mcpServers` (spec §5.6) — schema oficial da Claude Code CLI (`--mcp-config`), assumido também para Codex/Kimi. */
+function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
+  if (mcpServers.length === 0) return undefined
+
+  const entries: Record<string, unknown> = {}
+  for (const def of mcpServers) {
+    if (def.transport === 'stdio') {
+      entries[def.name] = { command: def.command, args: def.args ?? [], env: def.env ?? {} }
+    } else {
+      entries[def.name] = { type: def.transport, url: def.url, headers: def.headers ?? {} }
+    }
+  }
+
+  const path = join(tmpdir(), `engrenacode-mcp-${randomUUID()}.json`)
+  writeFileSync(path, JSON.stringify({ mcpServers: entries }), { mode: 0o600 })
+  return path
+}
+
+function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined): string[] {
   const args = ['-p', input.prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose']
   if (input.model) args.push('--model', input.model)
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
   args.push('--permission-mode', permissionModeFlag(input.accessLevel))
+  if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
   return args
 }
 
@@ -138,10 +161,16 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
   if (binary === undefined) {
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
-  const args = buildArgs(input)
+  const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
+  const args = buildArgs(input, mcpConfigPath)
 
   const envVar = API_KEY_ENV_VAR[input.provider]
   const env = envVar !== undefined && input.apiKey ? { ...process.env, [envVar]: input.apiKey } : process.env
+
+  const cleanupMcpConfig = (): void => {
+    if (!mcpConfigPath) return
+    try { unlinkSync(mcpConfigPath) } catch { /* já removido ou nunca criado */ }
+  }
 
   return new Promise((resolve, reject) => {
     const child = spawnImpl(binary, args, { cwd: input.cwd, env })
@@ -177,10 +206,12 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     })
 
     child.on('error', (err) => {
+      cleanupMcpConfig()
       reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
     })
 
     child.on('close', (code) => {
+      cleanupMcpConfig()
       if (sawResult) {
         resolve({ text: finalText })
         return

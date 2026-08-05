@@ -1,5 +1,6 @@
 import { PassThrough } from 'stream'
 import { EventEmitter } from 'events'
+import { existsSync, readFileSync } from 'fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProviderError, resetSpawnForTesting, runCliTurn, setSpawnForTesting } from './cli-driver'
 import { resetFetchForTesting, setFetchForTesting } from './minimax-driver'
@@ -96,6 +97,51 @@ describe('runCliTurn — cli providers', () => {
     setSpawnForTesting(fakeSpawn)
 
     await expect(runCliTurn(baseInput())).rejects.toBeInstanceOf(ProviderError)
+  })
+
+  it('writes a --mcp-config file and deletes it after the process closes', async () => {
+    let capturedArgs: string[] = []
+    let writtenAtSpawnTime: string | undefined
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+      capturedArgs = args
+      const flagIndex = args.indexOf('--mcp-config')
+      if (flagIndex > -1) writtenAtSpawnTime = readFileSync(args[flagIndex + 1], 'utf-8')
+      const child = new FakeChild()
+      emitResultAndClose(child, 'ok')
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    await runCliTurn(
+      baseInput({
+        mcpServers: [
+          { name: 'github', transport: 'stdio', command: 'npx', args: ['-y', 'server-github'], env: { TOKEN: 'ghp_x' } },
+          { name: 'notion', transport: 'http', url: 'https://mcp.notion.com/mcp', headers: { Authorization: 'Bearer y' } },
+        ],
+      })
+    )
+
+    const flagIndex = capturedArgs.indexOf('--mcp-config')
+    expect(flagIndex).toBeGreaterThan(-1)
+    const configPath = capturedArgs[flagIndex + 1]
+    const written = JSON.parse(writtenAtSpawnTime as string)
+    expect(written.mcpServers.github).toEqual({ command: 'npx', args: ['-y', 'server-github'], env: { TOKEN: 'ghp_x' } })
+    expect(written.mcpServers.notion).toEqual({ type: 'http', url: 'https://mcp.notion.com/mcp', headers: { Authorization: 'Bearer y' } })
+    expect(existsSync(configPath)).toBe(false)
+  })
+
+  it('omits --mcp-config when no MCPs are resolved', async () => {
+    let capturedArgs: string[] = []
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+      capturedArgs = args
+      const child = new FakeChild()
+      emitResultAndClose(child, 'ok')
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    await runCliTurn(baseInput())
+    expect(capturedArgs).not.toContain('--mcp-config')
   })
 })
 

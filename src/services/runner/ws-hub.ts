@@ -11,6 +11,14 @@ export type StreamEvent =
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string }
+  | {
+      type: 'mcp.notice'
+      threadId: string
+      code: 'mcp-omitted' | 'mcp-oauth-needs-reauth'
+      mcpName: string
+      reason: string
+      message: string
+    }
 
 const subscribers = new Map<string, Set<WebSocket>>()
 

@@ -24,6 +24,8 @@ const {
 } = await import('./dispatch.js')
 const { clearAllLeases, isLeased } = await import('./project-execution.js')
 const { LeaseBusyError } = await import('./project-execution.js')
+const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
+const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -50,8 +52,11 @@ beforeEach(() => {
   getDb().exec('DELETE FROM rules')
   getDb().exec('DELETE FROM project_subagents')
   getDb().exec('DELETE FROM subagents')
+  getDb().exec('DELETE FROM project_mcps')
+  getDb().exec('DELETE FROM mcps')
   skillsRepository._resetCache()
   clearAllLeases()
+  clearAllSubscriptions()
   vaultService.lock()
   vaultService.unlock('workspace-teste', 'senha-forte-123')
 })
@@ -204,6 +209,63 @@ describe('dispatchNewThread', () => {
     await waitForState(thread.id, ['idle', 'error'])
     expect(capturedSystemPrompt).toContain(skill.name)
     expect(capturedSystemPrompt).toContain(subagent.name)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('resolves a linked MCP with literal env into mcpServers for the driver', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    const mcp = createMcp({ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'] })
+    setProjectMcpLink(project.id, mcp.id, { enabled: true })
+
+    let capturedMcpServers: unknown
+    setRunCliTurnForTesting(async (input) => {
+      capturedMcpServers = input.mcpServers
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(capturedMcpServers).toEqual([{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'], env: {} }])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('emits mcp.notice and omits the MCP when its vault secret is missing', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    const mcp = createMcp({ name: 'github', transport: 'stdio', command: 'npx', env: { TOKEN: 'vault:github_token' } })
+    setProjectMcpLink(project.id, mcp.id, { enabled: true })
+
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const received: unknown[] = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const notice = received.find((e) => (e as { type: string }).type === 'mcp.notice') as
+      | { mcpName: string; reason: string; message: string }
+      | undefined
+    expect(notice?.mcpName).toBe('github')
+    expect(notice?.reason).toBe('missing_secret')
+    expect(notice?.message).toBe("MCP 'github' fora deste turno: configure a credencial exigida na tela de MCPs.")
     rmSync(dir, { recursive: true, force: true })
   })
 

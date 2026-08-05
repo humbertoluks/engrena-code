@@ -19,6 +19,8 @@ import { RuleRegistry } from './rule-registry.js'
 import { createSubagentsRepository } from '../db/repositories/subagents.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
 import { canDelegateSubagent, type ParentAccessLevel, type ParentProvider } from './subagent-caller-gate.js'
+import { McpRegistry } from './mcp-registry.js'
+import { mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
 import { vaultService } from '../vault/vault-service.js'
 import { DEFAULT_PROMPT } from '../http/config-handler.js'
 import { runCliTurn as defaultRunCliTurn, ProviderError, type ProviderTurnInput } from './providers/cli-driver.js'
@@ -170,11 +172,30 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 }
 
 async function runTurn(project: Project, thread: Thread, prompt: string): Promise<void> {
+  let mcpsCleanup: () => void = () => {}
   try {
     appendMessage({ threadId: thread.id, role: 'user', content: prompt })
 
     const systemPrompt = buildSystemPrompt(project)
     const cwd = thread.executionMode === 'worktree' && thread.worktreePath ? thread.worktreePath : project.path
+
+    const linkedMcps = McpRegistry.resolveForProject(project.id)
+    const mcpsPrepared =
+      linkedMcps.length > 0
+        ? await prepareMcpsForDispatch(linkedMcps, { provider: thread.provider })
+        : { resolved: [], omitted: [], cleanup: () => {} }
+    mcpsCleanup = mcpsPrepared.cleanup
+
+    for (const omission of mcpsPrepared.omitted) {
+      emit(thread.id, {
+        type: 'mcp.notice',
+        threadId: thread.id,
+        code: 'mcp-omitted',
+        mcpName: omission.name,
+        reason: omission.reason,
+        message: mcpOmissionMessage(omission.name, omission.reason),
+      })
+    }
 
     let assistantText = ''
     const toolCallIdByProviderId = new Map<string, string>()
@@ -189,6 +210,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
       model: thread.model,
       accessLevel: thread.accessLevel,
       apiKey: resolveProviderApiKey(thread.provider),
+      mcpServers: mcpsPrepared.resolved,
       signal: controller.signal,
       onEvent: (event) => {
         if (event.type === 'text-delta') {
@@ -264,6 +286,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
       emit(thread.id, { type: 'error', threadId: thread.id, code, message })
     }
   } finally {
+    mcpsCleanup()
     activeControllers.delete(thread.id)
     releaseLease(project.id)
   }
