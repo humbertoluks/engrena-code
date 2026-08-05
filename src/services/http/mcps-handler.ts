@@ -228,7 +228,7 @@ async function handleOauthConvert(req: IncomingMessage, res: ServerResponse, id:
 // ── Vínculo por projeto ─────────────────────────────────────────────────────
 
 function handleListProjectMcps(_req: IncomingMessage, res: ServerResponse, projectId: string): void {
-  sendJson(res, 200, { mcps: listProjectMcps(projectId) })
+  sendJson(res, 200, listProjectMcps(projectId))
 }
 
 async function handleSetProjectMcpLink(req: IncomingMessage, res: ServerResponse, projectId: string, mcpId: string): Promise<void> {

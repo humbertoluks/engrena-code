@@ -204,7 +204,7 @@ describe('project link', () => {
     expect(link.status).toBe(200)
 
     const list = await call('GET', `/api/projects/${project.id}/mcps`, sessionToken)
-    const state = (list.body as { mcps: Array<{ id: string; linked: boolean }> }).mcps.find((m) => m.id === mcpId)
+    const state = (list.body as Array<{ id: string; linked: boolean }>).find((m) => m.id === mcpId)
     expect(state?.linked).toBe(true)
 
     const unlink = await call('DELETE', `/api/projects/${project.id}/mcps/${mcpId}`, sessionToken)
