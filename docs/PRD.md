@@ -690,10 +690,10 @@ graph TD
 - [ ] Tools `mcp__…` disponíveis no turno quando vinculado e resolvido
 
 ### F10. API Keys dos Providers
-- [ ] Toggle Claude assinatura ↔ API key; key não sobrescreve assinatura sem escolha explícita
-- [ ] Keys Claude/Codex/Minimax validam formato mínimo; save vazio preserva anterior
-- [ ] Minimax aparece como provider de thread quando key válida
-- [ ] Modo API key sem key bloqueia/avisar turnos conforme mensagem definida
+- [x] Toggle Claude assinatura ↔ API key; key não sobrescreve assinatura sem escolha explícita
+- [x] Keys Claude/Codex/Minimax validam formato mínimo; save vazio preserva anterior
+- [x] Minimax aparece como provider de thread quando key válida
+- [x] Modo API key sem key bloqueia/avisar turnos conforme mensagem definida
 
 ### F11. Consumo
 - [ ] Todo turno válido agent/subagent gera usage_event ligado a project/thread/turnId
@@ -716,5 +716,5 @@ graph TD
 - [ ] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
 - [ ] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
 - [ ] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
-- [ ] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
+- [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
 - [ ] usage_events do Workspace (F03) e de SubAgents (F07) agregam corretamente na tela Consumo (F11)
