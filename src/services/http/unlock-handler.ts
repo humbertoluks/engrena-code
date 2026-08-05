@@ -8,6 +8,7 @@ import { handleProjectsRequest } from './projects-handler.js'
 import { handleThreadsRequest } from './threads-handler.js'
 import { handleGitRequest } from './git-handler.js'
 import { handleDashboardRequest } from './dashboard-handler.js'
+import { handleMcpsRequest } from './mcps-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 
 interface VaultUnlockRequest {
@@ -140,6 +141,17 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Skills routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/skills') || req.url?.startsWith('/api/projects/')) {
       const handled = await handleSkillsRequest(req, res)
+      if (handled) return
+    }
+
+    // MCPs routes (async — must not mix with data event listeners)
+    if (
+      req.url?.startsWith('/api/mcps') ||
+      req.url?.startsWith('/api/mcp-catalog') ||
+      req.url?.startsWith('/api/mcp-secrets') ||
+      req.url?.startsWith('/api/projects/')
+    ) {
+      const handled = await handleMcpsRequest(req, res)
       if (handled) return
     }
 
