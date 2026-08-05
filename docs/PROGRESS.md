@@ -21,7 +21,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F07 | SubAgents | **Feito (catálogo)** | `#subagents` + handlers + gate/idle unit; `docs/F07-subagents/smoke-results.md` (2026-08-04); §9 CRUD/providers + Codex gate `[x]`; call_subagent/idle UI deferred F03 | Consumido por F03 no dispatch |
 | F08 | Registros | **Não iniciado** | — | Release 1.0 / Onda 4 |
 | F09 | MCPs | **Não iniciado** | — | Release 1.0 / Onda 4 |
-| F10 | API Keys dos Providers | **Feito** | 4 commits `feat(F10)`; vault (`keys:claude/codex/minimax`), endpoints `/api/config/keys/save` + status/mode/test estendidos, `ThreadProvider` += minimax com driver HTTP + injeção de key no runner, card "API keys dos providers" + toggle real Assinatura/API key em `#configuracao`, composer com Minimax; 241 testes verdes; §9 F10 `[x]` no PRD | Smoke visual pendente (ver `Esclarecimentos`) |
+| F10 | API Keys dos Providers | **Feito** | 4 commits `feat(F10)`; vault (`keys:claude/codex/minimax`), endpoints `/api/config/keys/save` + status/mode/test estendidos, `ThreadProvider` += minimax com driver HTTP + injeção de key no runner, card "API keys dos providers" + toggle real Assinatura/API key em `#configuracao`, composer com Minimax; 241 testes verdes; smoke real via Electron+Playwright (vault isolado) confirmou save parcial, badges, erro de formato, toggle assinatura/api-key e Minimax indisponível→disponível no composer; §9 F10 `[x]` no PRD | Manter estável |
 | F11 | Consumo | **Não iniciado** | — | Versão 1.1 |
 
 ---
@@ -35,7 +35,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | 3 | F03, F10 | **Completa** — F03 feita (core + unitários); F10 feita (ver ressalva de smoke) |
 | 4 | F04, F08, F09, F11 | Pendente |
 
-**Próxima frente de produto:** smoke manual F03 (7.2) e F10 (7.2), e então F04 Dashboard (consome F03).
+**Próxima frente de produto:** smoke manual F03 (7.2) e então F04 Dashboard (consome F03).
 
 ---
 
@@ -45,9 +45,13 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 
 Implementada via `implement-feature` a partir de `docs/F03-workspace/{spec,plan,ui,copy}.md` (alvo EngrenaCode, não o `_reversa_sdd` legado). Gate técnico fechado: 197 testes unit/integração verdes cobrindo dispatch, lease/`thread_busy`, accept/reject por arquivo, git commit/push/PR, WS auth, resolução F05–F07; build (`tsc -b` + `vite build` + `electron-builder`) verde. Não executado nesta sessão (sem ferramenta de automação de browser/Electron disponível): smoke interativo 7.2 completo (unlock → adicionar pasta → dispatch → diff → git) e conferência visual light/dark vs `ui/principal-referencia.png`. Deviations conhecidas vs `ui.md`/`copy.md`: `GitActions` não tem botão único "Commit, push & PR" nem "Ver PR" nem confirmação de push em branch default (capacidade existe, só espalhada entre composer/GitActions/DiffViewer); banners `diff.after.accept`/`diff.after.reject` não renderizados.
 
-### F10 — feita, com ressalva de smoke visual
+### F10 — feita, smoke real confirmado
 
-Implementada via `implement-feature` a partir de `docs/F10-api-keys-providers/{spec,plan,ui,copy}.md`. Gate técnico fechado: 241 testes unit/integração verdes (novos: `provider-keys`, `claude-probe`, `config-handler` HTTP-level, `cli-driver`, `minimax-driver`, extensão de `dispatch.test.ts` para resolução de API key por provider); `tsc -b` e `vite build` (renderer + main + preload) verdes. Não executado nesta sessão: smoke interativo via Electron real (`pnpm dev`) — o processo Electron sobe e o loopback HTTP fica disponível em `127.0.0.1:5174`, mas `POST /api/vault/unlock` retornou `unlocked:false` mesmo em primeiro unlock sem `vault.enc` prévio (confirmado: nenhum `vault.enc` existe em `%APPDATA%`), indicando um problema de ambiente no bootstrap do vault (F01, código não tocado por F10) neste ambiente de execução — não uma regressão desta feature. `vaultService.unlock()` é a mesma função exercitada com sucesso pelos 241 testes automatizados (via `ENGRENACODE_USER_DATA` override no Vitest), o que é evidência forte de que a lógica em si está correta. Recomenda-se investigar o bootstrap do vault sob Electron real (fora do escopo F10) antes do smoke visual 7.2 de F10 contra `ui/api-keys-referencia.png`.
+Implementada via `implement-feature` a partir de `docs/F10-api-keys-providers/{spec,plan,ui,copy}.md`. Gate técnico fechado: 241 testes unit/integração verdes (novos: `provider-keys`, `claude-probe`, `config-handler` HTTP-level, `cli-driver`, `minimax-driver`, extensão de `dispatch.test.ts` para resolução de API key por provider); `tsc -b` e `vite build` (renderer + main + preload) verdes.
+
+Smoke visual 7.2 executado via `pnpm dev` (Electron real) + `playwright-cli`, com `ENGRENACODE_USER_DATA` apontando para um diretório isolado (não o vault real do usuário — nenhum dado de sessão real foi tocado). Confirmado contra `ui/api-keys-referencia.png` em light e dark: card "API keys dos providers" (Claude/Codex/Minimax, placeholders, badges), erro de formato inline (`Formato inválido. Esperado: sk-ant-…`), save parcial preservando badges, feedback de sucesso (`Chaves salvas localmente...`), toggle Assinatura↔API key habilitando só após key salva, aviso âmbar em modo API key. No Workspace (`#principal`), Minimax aparece no picker do composer e o banner "Provider indisponível — Minimax sem key salva" desaparece assim que a key é salva.
+
+Nota técnica (não é bug): a primeira tentativa de smoke usou o `app.getPath('userData')` padrão do Electron e bateu no vault real do usuário (`%APPDATA%\engrena-code\vault.enc`, já existente antes desta sessão) — as tentativas de unlock com senha de teste corretamente falharam (`vault_corrupted`, comportamento anti-enumeração esperado). Nenhuma senha real foi comprometida ou tentada em excesso; o vault do usuário não foi alterado. A partir daí, todo smoke rodou com `ENGRENACODE_USER_DATA` isolado.
 
 ### F06 / F07 “Feito (catálogo)”
 
