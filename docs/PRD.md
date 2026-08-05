@@ -655,11 +655,11 @@ graph TD
 - [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07
 
 ### F04. Dashboard
-- [ ] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
-- [ ] Inbox lista running, diff pendente, erro e setup incompleto (≤ 20 visíveis)
-- [ ] Clique em diff pendente abre workspace na aba Diff
-- [ ] Contadores de catálogo navegam para `#skills`, `#rules`, `#subagents`
-- [ ] Dashboard não aceita diff nem dispara turno
+- [x] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
+- [x] Inbox lista running, diff pendente, erro e setup incompleto (≤ 20 visíveis)
+- [x] Clique em diff pendente abre workspace na aba Diff
+- [x] Contadores de catálogo navegam para `#skills`, `#rules`, `#subagents`
+- [x] Dashboard não aceita diff nem dispara turno
 
 ### F05. Skills
 - [x] CRUD global com name único; conflito rejeitado
@@ -707,13 +707,13 @@ graph TD
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
 - [ ] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
 - [ ] Preferência `engrenacode:theme` (F01.1) persiste e é respeitada ao navegar entre `#dashboard`, `#configuracao` e `#workspace`
-- [ ] Status de providers/prompt/GitHub de F02 alimenta saúde do Dashboard (F04) e disponibilidade do Workspace (F03)
+- [x] Status de providers/prompt/GitHub de F02 alimenta saúde do Dashboard (F04) e disponibilidade do Workspace (F03)
 - [ ] Prompt global de F02 é injetado nos turnos do Workspace (F03) a partir do próximo turno após salvar
 - [ ] Catálogo e content de Skills (F05) fluem para o turno do Workspace via load_skill
 - [ ] Bloco de Rules (F06) resolvido por projeto é injetado em todo turno do Workspace
 - [ ] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão
-- [ ] Projetos/threads/diffs de F03 alimentam cards e inbox do Dashboard (F04)
-- [ ] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
+- [x] Projetos/threads/diffs de F03 alimentam cards e inbox do Dashboard (F04)
+- [x] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
 - [ ] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
 - [ ] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
 - [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
