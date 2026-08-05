@@ -11,15 +11,11 @@ export interface McpPreset {
   /** stdio only. */
   command?: string
   args?: string[]
-  /** Env vars the install writes as `vault:<key>` refs (stdio, key-mode). */
-  secretKeys?: string[]
-  /** http/sse only — key-mode presets point at a fixed endpoint. */
-  url?: string
-  /** OAuth remote endpoint (http/sse), install starts with `authMode: 'oauth'`. */
+  /** Env var name → vault secret key. Install writes `env[envVar] = "vault:<key>"` (stdio only — secrets never go in HTTP/SSE headers, spec §5.1). */
+  secretEnv?: Record<string, string>
+  /** OAuth remote endpoint (http/sse) — key-mode presets never carry a remote secret; remote auth is always OAuth in this catalog. */
   remoteUrl?: string
   experimental?: boolean
-  /** Preset id of the sibling this one converts to via "Converter para OAuth". */
-  oauthSiblingId?: string
   notes?: string
 }
 
@@ -34,7 +30,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-github'],
-    secretKeys: ['github_token'],
+    secretEnv: { GITHUB_PERSONAL_ACCESS_TOKEN: 'github_token' },
   },
   {
     id: 'filesystem',
@@ -55,7 +51,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-postgres'],
-    secretKeys: ['postgres_connection_string'],
+    secretEnv: { DATABASE_URL: 'postgres_connection_string' },
   },
   {
     id: 'memory',
@@ -76,7 +72,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-brave-search'],
-    secretKeys: ['brave_api_key'],
+    secretEnv: { BRAVE_API_KEY: 'brave_api_key' },
   },
   {
     id: 'slack',
@@ -87,7 +83,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-slack'],
-    secretKeys: ['slack_bot_token', 'slack_team_id'],
+    secretEnv: { SLACK_BOT_TOKEN: 'slack_bot_token', SLACK_TEAM_ID: 'slack_team_id' },
   },
   {
     id: 'stripe',
@@ -98,7 +94,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@stripe/mcp'],
-    secretKeys: ['stripe_secret_key'],
+    secretEnv: { STRIPE_SECRET_KEY: 'stripe_secret_key' },
   },
   {
     id: 'google-drive',
@@ -109,7 +105,7 @@ export const MCP_CATALOG: McpPreset[] = [
     authMode: 'key',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-gdrive'],
-    secretKeys: ['gdrive_credentials_json'],
+    secretEnv: { GDRIVE_CREDENTIALS_JSON: 'gdrive_credentials_json' },
   },
   {
     id: 'puppeteer',
@@ -133,24 +129,23 @@ export const MCP_CATALOG: McpPreset[] = [
     args: ['-y', '@modelcontextprotocol/server-sqlite'],
   },
   {
-    id: 'linear-key',
-    name: 'linear',
-    description: 'Issues e projetos do Linear via API key.',
-    category: 'integrações',
-    transport: 'http',
-    authMode: 'key',
-    url: 'https://mcp.linear.app/mcp',
-    secretKeys: ['linear_api_key'],
-    oauthSiblingId: 'linear-oauth',
-  },
-  {
-    id: 'linear-oauth',
+    id: 'linear',
     name: 'linear',
     description: 'Issues e projetos do Linear via OAuth.',
     category: 'integrações',
     transport: 'sse',
     authMode: 'oauth',
     remoteUrl: 'https://mcp.linear.app/sse',
+  },
+  {
+    id: 'asana',
+    name: 'asana',
+    description: 'Tarefas e projetos do Asana via OAuth.',
+    category: 'integrações',
+    transport: 'http',
+    authMode: 'oauth',
+    remoteUrl: 'https://mcp.asana.com/mcp',
+    experimental: true,
   },
   {
     id: 'notion',
