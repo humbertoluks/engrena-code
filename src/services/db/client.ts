@@ -5,6 +5,7 @@ import { app } from 'electron'
 import * as migration001Subagents from './migrations/001_subagents.js'
 import * as migration001Rules from './migrations/001_rules.js'
 import * as migration002WorkspaceCore from './migrations/002_workspace_core.js'
+import * as migration003Mcps from './migrations/003_mcps.js'
 
 interface Migration {
   id: string
@@ -15,6 +16,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration001Subagents.id, sql: migration001Subagents.sql },
   { id: migration001Rules.id, sql: migration001Rules.sql },
   { id: migration002WorkspaceCore.id, sql: migration002WorkspaceCore.sql },
+  { id: migration003Mcps.id, sql: migration003Mcps.sql },
 ]
 
 function resolveUserData(): string {
