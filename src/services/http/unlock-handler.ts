@@ -10,6 +10,7 @@ import { handleGitRequest } from './git-handler.js'
 import { handleDashboardRequest } from './dashboard-handler.js'
 import { handleMcpsRequest } from './mcps-handler.js'
 import { handleLogsRequest } from './logs-handler.js'
+import { handleConsumoRequest } from './consumo-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
@@ -173,6 +174,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Logs routes (sync — safe to await like the others)
     if (req.url?.startsWith('/api/logs')) {
       const handled = handleLogsRequest(req, res)
+      if (handled) return
+    }
+
+    // Consumo routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/metrics/') || req.url?.startsWith('/api/pricing')) {
+      const handled = await handleConsumoRequest(req, res)
       if (handled) return
     }
 
