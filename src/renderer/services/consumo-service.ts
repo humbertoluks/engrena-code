@@ -98,7 +98,7 @@ export interface UsageEventRow {
 
 export interface ThreadEventsResponse {
   events: UsageEventRow[]
-  page: { limit: number; offset: number; hasMore: boolean }
+  page: { limit: number; offset: number; total: number; hasMore: boolean }
 }
 
 export interface ModelPricingRow {

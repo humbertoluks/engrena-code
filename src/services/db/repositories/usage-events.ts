@@ -491,7 +491,7 @@ export interface UsageEventDto {
 
 export interface ThreadEventsPage {
   events: UsageEventDto[]
-  page: { limit: number; offset: number; hasMore: boolean }
+  page: { limit: number; offset: number; total: number; hasMore: boolean }
 }
 
 function toUsageEventDto(event: UsageEvent): UsageEventDto {
@@ -525,6 +525,6 @@ export function getThreadEvents(
 
   return {
     events: rows.map(toUsageEvent).map(toUsageEventDto),
-    page: { limit, offset, hasMore: offset + rows.length < totalRow.total },
+    page: { limit, offset, total: totalRow.total, hasMore: offset + rows.length < totalRow.total },
   }
 }

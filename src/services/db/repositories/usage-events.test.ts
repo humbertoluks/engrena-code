@@ -372,10 +372,12 @@ describe('getThreadEvents', () => {
 
     const firstPage = getThreadEvents(thread.id, undefined, 2, 0)
     expect(firstPage.events).toHaveLength(2)
+    expect(firstPage.page.total).toBe(5)
     expect(firstPage.page.hasMore).toBe(true)
 
     const lastPage = getThreadEvents(thread.id, undefined, 2, 4)
     expect(lastPage.events).toHaveLength(1)
+    expect(lastPage.page.total).toBe(5)
     expect(lastPage.page.hasMore).toBe(false)
   })
 

@@ -6,7 +6,6 @@ import { ButtonPrimary } from '../components/ButtonPrimary'
 import { ButtonSecondary } from '../components/ButtonSecondary'
 import {
   consumoService,
-  THREAD_EVENTS_PAGE_SIZE,
   type ModelPricingRow,
   type Period,
   type ProjectUsageRow,
@@ -597,7 +596,7 @@ export function ConsumoScreen(): ReactElement {
   const [selectedThread, setSelectedThread] = useState<ThreadUsageRow | null>(null)
 
   const [events, setEvents] = useState<UsageEventRow[]>([])
-  const [eventsPage, setEventsPage] = useState<{ limit: number; offset: number; hasMore: boolean } | null>(null)
+  const [eventsPage, setEventsPage] = useState<{ limit: number; offset: number; total: number; hasMore: boolean } | null>(null)
   const [eventsTotalLoaded, setEventsTotalLoaded] = useState(0)
   const [eventsError, setEventsError] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
@@ -780,7 +779,7 @@ export function ConsumoScreen(): ReactElement {
                       <EventsTable events={events} />
                       {eventsPage ? (
                         <div className="mt-sm flex flex-col items-center gap-xs">
-                          <p className="text-[11.5px] text-muted">{COPY.eventsMeta(eventsTotalLoaded, eventsTotalLoaded + (eventsPage.hasMore ? THREAD_EVENTS_PAGE_SIZE : 0))}</p>
+                          <p className="text-[11.5px] text-muted">{COPY.eventsMeta(eventsTotalLoaded, eventsPage.total)}</p>
                           {eventsPage.hasMore ? (
                             <ButtonSecondary
                               loading={eventsLoadingMore}
