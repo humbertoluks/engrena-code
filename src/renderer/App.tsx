@@ -6,12 +6,14 @@ import { SubagentsScreen } from './screens/SubagentsScreen'
 import { SkillsScreen } from './screens/SkillsScreen'
 import { RulesScreen } from './screens/RulesScreen'
 import { PrincipalScreen } from './screens/PrincipalScreen'
+import { DashboardScreen } from './screens/DashboardScreen'
 
+/** Rota sem query string (ex.: "#principal?project=x" → "#principal") — deep-links usam a query. */
 function useHash(): string {
-  const [hash, setHash] = useState(() => window.location.hash || '#dashboard')
+  const [hash, setHash] = useState(() => (window.location.hash || '#dashboard').split('?')[0])
 
   useEffect(() => {
-    const handler = (): void => setHash(window.location.hash || '#dashboard')
+    const handler = (): void => setHash((window.location.hash || '#dashboard').split('?')[0])
     window.addEventListener('hashchange', handler)
     return () => window.removeEventListener('hashchange', handler)
   }, [])
@@ -32,18 +34,6 @@ function NavLink({ href, active, children }: { href: string; active: boolean; ch
     >
       {children}
     </a>
-  )
-}
-
-function DashboardPlaceholder(): React.ReactElement {
-  return (
-    <main className="flex h-[calc(100vh-57px)] items-center justify-center p-lg">
-      <div className="w-full max-w-[28rem] rounded-lg border border-border bg-surface p-lg text-center">
-        <h1 className="mb-sm font-display text-[26px] font-bold tracking-tight">EngrenaCode</h1>
-        <p className="mb-md text-muted">IDE Local-First para Agentes de IA</p>
-        <p className="text-[13px] text-muted">Dashboard em desenvolvimento...</p>
-      </div>
-    </main>
   )
 }
 
@@ -88,7 +78,7 @@ function AuthenticatedApp(): React.ReactElement {
         ) : hash === '#rules' ? (
           <RulesScreen />
         ) : (
-          <DashboardPlaceholder />
+          <DashboardScreen />
         )}
       </main>
     </div>

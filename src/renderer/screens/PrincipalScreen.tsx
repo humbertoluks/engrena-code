@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { ReactElement } from 'react'
 import { usePrincipalWorkspace } from '../hooks/usePrincipalWorkspace'
 import { ProjectTree } from '../components/workspace/ProjectTree'
@@ -18,6 +19,25 @@ export function PrincipalScreen(): ReactElement {
 
   const pendingDiffCount = ws.diffs.filter((d) => d.status === 'pending').length
   const currentPermission = ws.permissionQueue[0] ?? null
+
+  // Deep-link do Dashboard (F04): "#principal?project=<id>&thread=<id>&tab=diff|history".
+  const deepLinkAppliedRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || ws.projects === null) return
+    deepLinkAppliedRef.current = true
+
+    const queryIndex = window.location.hash.indexOf('?')
+    if (queryIndex === -1) return
+    const params = new URLSearchParams(window.location.hash.slice(queryIndex + 1))
+
+    const projectId = params.get('project')
+    const threadId = params.get('thread')
+    const tab = params.get('tab')
+
+    if (projectId) ws.selectProject(projectId)
+    if (threadId) ws.selectThread(threadId)
+    if (tab === 'diff' || tab === 'history') ws.setActiveTab(tab)
+  }, [ws.projects, ws.selectProject, ws.selectThread, ws.setActiveTab])
 
   return (
     <div className="grid h-full grid-cols-[280px_1fr_280px] gap-sm p-sm">
