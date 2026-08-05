@@ -696,11 +696,11 @@ graph TD
 - [x] Modo API key sem key bloqueia/avisar turnos conforme mensagem definida
 
 ### F11. Consumo
-- [ ] Todo turno válido agent/subagent gera usage_event ligado a project/thread/turnId
-- [ ] Drill-down projeto → thread → evento; share subagents > 0 após delegação
-- [ ] Claude com custo SDK grava `cost_source=sdk`; demais usam `table` ou null
-- [ ] Editar preço preenche só nulls de table; eventos sdk e já precificados intactos
-- [ ] Flags parcial/aproximado visíveis; empty e erro de load cobertos
+- [x] Todo turno válido agent/subagent gera usage_event ligado a project/thread/turnId
+- [x] Drill-down projeto → thread → evento; share subagents > 0 após delegação
+- [x] Claude com custo SDK grava `cost_source=sdk`; demais usam `table` ou null
+- [x] Editar preço preenche só nulls de table; eventos sdk e já precificados intactos
+- [x] Flags parcial/aproximado visíveis; empty e erro de load cobertos
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock

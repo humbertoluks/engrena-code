@@ -3,7 +3,7 @@
 Fonte de verdade operacional do que está **feito neste repo** (`main`), versus o PRD e o plano Reversa (`_reversa_forward`). Atualizar ao fechar cada feature (spec + smoke + merge).
 
 **Atualizado:** 2026-08-05  
-**HEAD de referência:** `069cd43` (fix F09: project-link MCPs bare array) — F09 implementada via `implement-feature`
+**HEAD de referência:** `d1f30bb` (test F11: extract ConsumoScreen logic) — F11 implementada via `implement-feature`
 
 ---
 
@@ -22,7 +22,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F08 | Registros | **Feito** | 4 commits `feat(F08)` (schema `log_entries` + recovery de boot, endpoint `GET /api/logs` + wiring automático task/tool/git, tela `#registros` com `LogTable`); 47 testes novos/estendidos verdes (`log-entries.test.ts`, `threads.test.ts`, `logs-handler.test.ts`, `unlock-handler.test.ts`, extensões em `dispatch.test.ts`/`git-handler.test.ts`/`apply-diff.test.ts`); suite completa 323 testes verdes; `tsc -b`/`vite build` verdes; smoke real via Electron+Vite dev + `playwright-cli` (`ENGRENACODE_USER_DATA` isolado, vault real intocado) confirmou filtro dos 4 chips, paginação/ordenação `created_at DESC`, empty state, clique no thread id abrindo `#principal?project=&thread=` com projeto/thread certos, recovery de boot real (thread `running` órfã → `error` + `log_entries kind=task` após restart), light/dark, zero erros/warnings no console; §9 F08 `[x]` no PRD | Manter estável |
 | F09 | MCPs | **Feito; OAuth live não verificado** | 7 commits `feat(F09)`/`fix(F09)` (migração `mcps`/`project_mcps`, catálogo first-party de 14 presets, OAuth PKCE genérico via RFC 8414 + DCR, repositório + rotas CRUD/catálogo/secrets/OAuth/vínculo, `mcp-registry`/`prepareMcpsForDispatch` com wrapper loopback de segredo stdio + `--mcp-config` no `cli-driver`, tela `#mcps` + modais + harness + banner `mcp.notice`); 323 testes verdes; `tsc -b`/`vite build` verdes; smoke real via Electron+Playwright (vault isolado) confirmou instalar do catálogo, criar MCP custom com segredo, badge "requer credencial" e vínculo por projeto — achou e corrigiu 1 bug real (`GET /projects/:id/mcps` devolvia objeto, front esperava array); §9 3/4 itens `[x]` no PRD | Verificar OAuth Connect contra um vendor real; manter estável |
 | F10 | API Keys dos Providers | **Feito** | 4 commits `feat(F10)`; vault (`keys:claude/codex/minimax`), endpoints `/api/config/keys/save` + status/mode/test estendidos, `ThreadProvider` += minimax com driver HTTP + injeção de key no runner, card "API keys dos providers" + toggle real Assinatura/API key em `#configuracao`, composer com Minimax; 241 testes verdes; smoke real via Electron+Playwright (vault isolado) confirmou save parcial, badges, erro de formato, toggle assinatura/api-key e Minimax indisponível→disponível no composer; §9 F10 `[x]` no PRD | Manter estável |
-| F11 | Consumo | **Não iniciado** | — | Versão 1.1 |
+| F11 | Consumo | **Feito (gate técnico); smoke visual pendente** | 5 commits `feat(F11)`/`test(F11)` (schema `usage_events`+`model_pricing`, captura real de usage/custo em `cli-driver.ts`/`minimax-driver.ts` sucesso e erro, execução real de `call_subagent` via MCP interno + servidor de delegação loopback fechando o gap F03/F07, endpoints `GET/POST/PUT /api/metrics|pricing`, tela `#consumo`); 394 testes verdes (novos: `usage-events.test.ts`, `pricing.test.ts`, `consumo-handler.test.ts`, `delegate.test.ts`, `subagent-mcp-server.test.ts` — este último spawna o subprocesso Node real do MCP stdio, não mock —, `consumoScreen.logic.test.ts`, extensões em `cli-driver.test.ts`/`minimax-driver.test.ts`/`dispatch.test.ts`); `tsc -b`/`vite build`/`electron-builder --dir` verdes; §9 F11 `[x]` no PRD | Rodar smoke visual 7.2 com Electron+Playwright real (ver `Esclarecimentos`) |
 
 ---
 
@@ -33,13 +33,28 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | 1 | F01, F01.1 | **Completa** |
 | 2 | F02, F05, F06, F07 | **Completa (catálogo)** — F02+F05+F06+F07 smoke; integração no turno fica no F03 |
 | 3 | F03, F10 | **Completa** — F03 feita (core + unitários); F10 feita (ver ressalva de smoke) |
-| 4 | F04, F08, F09, F11 | Quase completa — F04, F08 e F09 feitas; só F11 segue |
+| 4 | F04, F08, F09, F11 | **Completa (gate técnico)** — F04, F08, F09 e F11 feitas; smoke visual de F11 e verificação de OAuth live de F09 ficam pendentes |
 
-**Próxima frente de produto:** F04, F08 e F09 fechadas. Resta F11 (Consumo) na Onda 4; verificação de OAuth live de F09 fica pendente.
+**Próxima frente de produto:** Onda 4 fechada tecnicamente (F04/F08/F09/F11). Pendências abertas: smoke visual real de F11 (Electron+Playwright), verificação de OAuth live de F09.
 
 ---
 
 ## Esclarecimentos
+
+### F11 — feita (gate técnico); smoke visual pendente
+
+Implementada nesta sessão a partir de `docs/F11-consumo/{spec,plan,ui,copy}.md`, com escopo explicitamente ampliado a pedido do usuário para **não deixar nenhum gap para depois**: além do schema/API/tela de consumo, F11 também fechou o gap herdado de F03/F07 em que `call_subagent` nunca executava de verdade (só citado no system prompt, nunca registrado como tool real).
+
+Gate técnico fechado (5 commits `feat(F11)`/`test(F11)`):
+- `usage_events`/`model_pricing` (`005_consumo.ts`); `usage-events.ts` (agregações summary/projects/detail/thread + `recalculateNullCosts`/`distinctUnpricedModels`); `pricing.ts` (CRUD + id determinístico `price_<provider>_<model>`).
+- `cli-driver.ts`/`minimax-driver.ts` extraem `usage`/`total_cost_usd` do resultado do turno — sucesso **e** o path de erro do CLI (confirmado via doc oficial Anthropic/Context7 que o `ResultMessage` de erro também carrega `usage`/`total_cost_usd`); `provider-resolution.ts` centraliza `resolveBillingMode`/`resolveProviderApiKey`/`resolveTurnCost` (compartilhado entre `dispatch.ts` e `delegate.ts`, sem duplicar a regra de congelamento de custo).
+- Execução real de `call_subagent`: `subagent-mcp-server.ts` (MCP stdio interno "engrenacode", handshake JSON-RPC mínimo confirmado contra a spec oficial do protocolo via Context7, sem SDK novo) + `delegate.ts` (`createDelegationServer` loopback por turno + `runDelegatedSubagentTurn`: gate → spawn do filho via `runCliTurnImpl` direto, sem diffs/lease/`--mcp-config` — profundidade 1 estrutural → watchdog reusando `checkIdleTimeout` já testado → persiste `subagent_runs` + `usage_event source=subagent`) + wiring em `dispatch.ts` (registra o MCP interno quando há catálogo de subagents, remove o branch morto que só existia em teste).
+- `consumo-handler.ts`: `GET /api/metrics/{summary,projects,projects/:id,threads/:id}` + `GET/POST/PUT /api/pricing[/:id]`.
+- `ConsumoScreen.tsx`/`consumo-service.ts`/`consumoScreen.logic.ts`: tela `#consumo` conforme `ui.md`/`copy.md`, lógica de formatação de custo/share extraída e testada.
+
+394 testes verdes (era 323 antes de F11); destaque para `subagent-mcp-server.test.ts`, que spawna o script gerado do MCP interno como **subprocesso Node real** falando o protocolo JSON-RPC real sobre um servidor HTTP loopback real — não é mock, é o mecanismo de ponta a ponta rodando de verdade, só sem um binário `claude`/`codex` real do outro lado. `tsc -b`, `vite build` (renderer+main+preload) e `electron-builder --dir` (empacotamento Windows completo) verdes.
+
+**Não verificado nesta sessão:** smoke visual 7.2 via Electron+Playwright real (não executado — sessão sem harness de automação de browser configurado neste ambiente para este repo). Isso significa que `#consumo` nunca foi de fato renderizada numa janela Electron real nesta sessão: anatomia vs `ui.md`, light/dark, e copy 100% aplicada vs `copy.md` ficam **pendentes de confirmação visual**. Um turno real de `call_subagent` contra um binário `claude` de verdade também não foi exercitado (exigiria gastar uso real de API — não feito sem confirmação explícita do usuário). §9 do PRD: os 5 itens de F11 foram marcados `[x]` porque cada um tem cobertura de teste real e específica (não só o smoke pulado) — ver commits `test(F11)`. Os dois itens de Integração Cross-Feature que citam F11 (linhas "Tokens...renderizam...Consumo" e "usage_events...agregam...na tela Consumo") ficaram **sem marcar**: a lógica por trás de ambos está testada, mas a alegação é especificamente sobre renderização ao vivo, que não foi confirmada.
 
 ### F03 — feita, com ressalva de smoke visual
 
