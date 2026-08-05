@@ -35,7 +35,7 @@
 | U2 | `+ Novo Agente` | modal; Provider só Herda/Claude/Codex/Kimi | pass |
 | U3 | Name duplicado | alert `Já existe um subagent…` | pass |
 | U4 | Light + dark | Tema Claro/Escuro | pass |
-| U5 | Marca | EngrenaCode; 0 LionCode/lioncode | pass |
+| U5 | Marca | EngrenaCode; 0 referências à marca legado | pass |
 | U6 | Cap >10 / reorder UI harness | overlay projeto | **deferred** até F03 |
 | U7 | call_subagent + timeline + diffs | runner + Workspace | **deferred** até F03 |
 | U8 | Idle timeout visível na activity | run real | **deferred** UI; **pass** unit `delegate.idle.test.ts` |

@@ -52,7 +52,7 @@ graph TD
 
 | Decisão | Abordagem Escolhida | Alternativa Considerada | Trade-off |
 |---------|---------------------|--------------------------|-----------|
-| Validação de formato das keys | Server-side (novo `provider-keys.ts`) + client-side (espelho em `ConfiguracaoScreen.tsx`, mesmo padrão do GitHub token) | Só client-side (como a fonte LionCodeLabs) | Mais código duplicado cliente/servidor, mas fecha o gap de clientes não-UI enviando key malformada direto pro `/api/config/keys/save` |
+| Validação de formato das keys | Server-side (novo `provider-keys.ts`) + client-side (espelho em `ConfiguracaoScreen.tsx`, mesmo padrão do GitHub token) | Só client-side (como a fonte legada) | Mais código duplicado cliente/servidor, mas fecha o gap de clientes não-UI enviando key malformada direto pro `/api/config/keys/save` |
 | Wiring de Minimax no runner | `ThreadProvider` ganha `'minimax'`; `cli-driver.ts` ganha mapa `PROVIDER_KIND` (`cli` \| `http`) e delega a `minimax-driver.ts` quando `http`; `dispatch.ts` resolve a API key do vault e injeta em `ProviderTurnInput.apiKey` | F10 só expor status, wiring adiado | PRD exige "Minimax disponível como provider de thread" como Provê de F10; adiar deixaria a feature sem valor executável |
 | "Testar conexão" (Claude) | Reusa `spawn` do `cli-driver.ts` num probe dedicado (`claude-probe.ts`), sem nova dependência; env `ANTHROPIC_API_KEY` injetado só no modo api-key | Dependência nova `@anthropic-ai/claude-agent-sdk` (como a fonte) | Probe fica acoplado ao parsing `stream-json` do CLI (já usado em `cli-driver.ts`) em vez de uma API de SDK dedicada — aceitável pois já é o único caminho de execução do Claude no projeto |
 | Primitives de UI | Extrai `Card`, `Field`, `Badge` para `src/renderer/components/` | Manter inline por card (convenção atual de `ConfiguracaoScreen.tsx`) | Novo custo de abstração agora, mas `ClaudeCard` + `KeysCard` (2 cards, 3 rows) já justificam reuso; `GithubCard` existente não é migrado nesta feature (fora do escopo, ver Assumption) |
@@ -108,7 +108,7 @@ Todas as rotas abaixo já caem em `handleConfigRequest` via prefixo `/api/config
 - **Caminho:** `/api/config/keys/save`
 - **Autenticação:** `x-engrenacode-session`
 
-**Requisição** (campos ausentes = não tocados; string vazia = preserva o secret atual, igual ao contrato de merge observado na referência LionCodeLabs):
+**Requisição** (campos ausentes = não tocados; string vazia = preserva o secret atual, igual ao contrato de merge observado na referência legada):
 
 | Campo | Tipo | Obrigatório | Validação | Descrição |
 |-------|------|-------------|-----------|-----------|

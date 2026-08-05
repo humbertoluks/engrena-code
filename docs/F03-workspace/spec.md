@@ -504,4 +504,4 @@ CREATE INDEX ix_diffs_thread_status ON diffs(thread_id, status);
 | `docs/F05-skills/spec.md` | load_skill + vínculos |
 | `docs/F06-rules/spec.md` | Bloco rules |
 | `docs/F07-subagents/spec.md` | call_subagent |
-| LionCodeLabs `packages/server` / `PrincipalScreen` | Baseline comportamental (não copiar marca/paths) |
+| Sistema legado `packages/server` / `PrincipalScreen` | Baseline comportamental (não copiar marca/paths) |

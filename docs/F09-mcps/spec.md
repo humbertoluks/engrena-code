@@ -4,14 +4,14 @@
 **Complexidade:** complexo  
 **Fonte PRD:** `docs/prd-engrenacode.md` → F09  
 **UI:** [`ui.md`](./ui.md) · Copy: [`copy.md`](./copy.md)  
-**Modo:** spec alvo EngrenaCode (contratos `engrenacode`); legado LionCodeLabs = baseline de comportamento + gaps explícitos  
+**Modo:** spec alvo EngrenaCode (contratos `engrenacode`); sistema legado = baseline de comportamento + gaps explícitos  
 **Última atualização:** 2026-08-05
 
 ## Assumptions / Decisions
 
 | Decisão | Origem | Escolha |
 |---------|--------|---------|
-| Nome reservado do broker | PRD F09 | `engrenacode` (legado: `lioncode`) |
+| Nome reservado do broker | PRD F09 | `engrenacode` (nome reservado na fonte legada) |
 | Secrets | PRD + F01 | Refs no vault; GET `/mcp-secrets` só nomes; valores nunca em SQLite/HTTP |
 | Secret em header stdio/http | PRD + rotas | Rejeitar `{secretRef}` em headers (400); só literais / `oauthRef` interno |
 | OAuth | PRD + `mcp/oauth.ts` | PKCE + callback loopback; status público no DB; tokens só no vault |
@@ -94,7 +94,7 @@ graph TD
 | Runner | `runner/mcp-registry.ts`, `runner/mcp-secrets.ts`, `runner/dispatch.ts` |
 | Shared | `shared/src/mcp.ts` |
 | Migrations | `013_mcps`, `014_mcp_catalog_vault`, `017_mcp_oauth` |
-| Servers first-party | `mcp-servers/*` + `lioncode-secret-wrapper` |
+| Servers first-party | `mcp-servers/*` + `legado-secret-wrapper` |
 
 ---
 
@@ -107,7 +107,7 @@ graph TD
 | OAuth tokens | Vault + status durável em coluna | Tokens no SQLite | Alinha F01; status público sem vazar token |
 | Falha de resolve | Omit + notice; turno segue | Abortar turno | UX resiliente; tools parciais |
 | Soft cap 8 | Só PRD / orientação | Hard 422 no link | Fonte não bloqueia; destino pode adicionar warn UI |
-| Nome reservado | `engrenacode` no destino | Manter `lioncode` | Alinha broker/tool prefix ao produto |
+| Nome reservado | `engrenacode` no destino | Manter `legado` | Alinha broker/tool prefix ao produto |
 
 ---
 
@@ -284,8 +284,8 @@ Espelho PRD F09 + contratos desta spec:
 
 | Gap | Fonte | Destino |
 |-----|-------|---------|
-| Nome reservado | `lioncode` | `engrenacode` |
-| Marca em erros de rede | LionCode | EngrenaCode |
+| Nome reservado | `legado` | `engrenacode` |
+| Marca em erros de rede | legado | EngrenaCode |
 | Validação HTTPS em create/update URL | Parcial (OAuth metadata + presets) | Validar toda URL http/sse no CRUD |
 | Soft-warn ≤ 8 vínculos | Ausente | Opcional UI (`mcpsLink.warn.softCap8`) |
 | `preset.notes` no catálogo | Não renderiza | Decidir se exibe (pergunta em `ui.md`) |

@@ -1,8 +1,8 @@
 # Catálogo de copy: F08-registros
 
 **Produto:** EngrenaCode  
-**Fonte:** LionCodeLabs (`packages/renderer` — `RegistrosScreen`, `LogTable`)  
-**Mapa de rename:** `LionCode → EngrenaCode`  
+**Fonte:** sistema legado (`packages/renderer` — `RegistrosScreen`, `LogTable`)  
+**Mapa de rename:** `legado → EngrenaCode`  
 **Última atualização:** 2026-08-05
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.
@@ -66,6 +66,6 @@ Telas neste catálogo: `registros` (`#registros`).
 
 | Id fonte | Texto fonte | Motivo de descarte |
 |----------|-------------|--------------------|
-| `empty.none` (fonte) | Nenhum registro ainda. As tasks, tool calls e eventos de git flow aparecerão aqui conforme você usa o LionCode. | Destino = PRD curto |
+| `empty.none` (fonte) | Nenhum registro ainda. As tasks, tool calls e eventos de git flow aparecerão aqui conforme você usa o sistema legado. | Destino = PRD curto |
 | `empty.filtered` (fonte) | Nenhum registro corresponde a este filtro. Tente outro tipo ou volte para "Todos". | Destino = PRD curto |
 | `error.generic` (fonte) | Não foi possível carregar os registros. Tente novamente. | Retry só no CTA |

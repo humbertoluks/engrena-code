@@ -125,7 +125,7 @@ export function failDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, m
 // orquestrador real, chamado pelo servidor de delegação loopback (createDelegationServer)
 // que o MCP interno `subagent-mcp-server.ts` invoca via HTTP no `tools/call`.
 
-/** Intervalo do watchdog de idle/hard-cap — mesma constante conceitual da fonte LionCodeLabs. */
+/** Intervalo do watchdog de idle/hard-cap — mesma constante conceitual da fonte legada. */
 const WATCHDOG_INTERVAL_MS = 30_000
 
 /** Injetável para testes — produção usa `runCliTurn` real. */

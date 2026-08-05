@@ -2,7 +2,7 @@
 
 **Feature:** F10-api-keys-providers  
 **Destino:** EngrenaCode  
-**Fonte de referência:** LionCodeLabs (`packages/renderer`)  
+**Fonte de referência:** sistema legado (`packages/renderer`)  
 **Componente fonte:** `packages/renderer/src/screens/ConfiguracaoScreen.tsx` (`ClaudeAuthCard`) + `packages/renderer/src/components/KeysForm.tsx` (`layout="keyrow"`, providers)  
 **Componente destino (previsto):** mesmos caminhos na superfície `#configuracao`  
 **Última atualização:** 2026-08-05
@@ -82,7 +82,7 @@ Dentro de `#configuracao` (`max-w-[760px]`), regiões F10 (as demais cards exist
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Network error | LionCode | EngrenaCode |
+| Network error | legado | EngrenaCode |
 | Dot Claude off | hex `#d97757` | token-gap (marca Anthropic) |
 | Dot Codex / Minimax | `#10a37f` / `#ff5f8f` | token-gap |
 | GLM field | presente | **omitir** no Central F10 |
@@ -90,7 +90,7 @@ Dentro de `#configuracao` (`max-w-[760px]`), regiões F10 (as demais cards exist
 
 ## Copy (literal — fonte de verdade)
 
-Aplicar mapa de rename: `LionCode → EngrenaCode`. Células = texto final no destino.
+Aplicar mapa de rename: `legado → EngrenaCode`. Células = texto final no destino.
 
 ### Card: Autenticação do Claude
 

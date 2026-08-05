@@ -49,7 +49,7 @@ Herdado por leitura direta do código existente (sem brief de Modo Lote — sing
 
 | Decisão | Abordagem Escolhida | Alternativa Considerada | Trade-off |
 |---|---|---|---|
-| Tipo da coluna timestamp | `INTEGER` epoch ms (`created_at`, `Date.now()`) | `TEXT` ISO datetime (padrão da fonte LionCodeLabs) | Consistente com `diffs`/`threads`/`messages`; formatação pt-BR fica no client, igual ao resto do app |
+| Tipo da coluna timestamp | `INTEGER` epoch ms (`created_at`, `Date.now()`) | `TEXT` ISO datetime (padrão da fonte legada) | Consistente com `diffs`/`threads`/`messages`; formatação pt-BR fica no client, igual ao resto do app |
 | Escrita `kind='task'` | Só via reconciliação de boot (threads `running` órfãs após restart do app) | Log a cada início de dispatch/follow-up | Espelha fiel a fonte (decisão explícita do usuário); dispatch normal não produz `kind='task'` |
 | Escrita `kind='tool'` | 1 entrada por tool call, gravada no `tool-result` (com outcome) | Gravar no `tool-start` (sem outcome) | Evita duplicar start+result; `event` sempre reflete o resultado final |
 | Escopo de falha em `kind='git'` | Commit/push/accept/reject só sucesso; PR loga sucesso E falha (`GitError` de `createPullRequest`) | Só sucesso em tudo | PR é o único fluxo com falha estruturada e relevante (`pr_no_remote`, `pr_not_github`, `pr_create_failed`); commit/push/diff actions já reportam erro via response HTTP, sem necessidade de audit trail de falha |
