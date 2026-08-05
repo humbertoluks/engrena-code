@@ -7,6 +7,7 @@ import { handleRulesRequest } from './rules-handler.js'
 import { handleProjectsRequest } from './projects-handler.js'
 import { handleThreadsRequest } from './threads-handler.js'
 import { handleGitRequest } from './git-handler.js'
+import { handleDashboardRequest } from './dashboard-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 
 interface VaultUnlockRequest {
@@ -88,6 +89,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
         }
       })
       return
+    }
+
+    // Dashboard routes (async — must not mix with data event listeners)
+    if (req.url?.startsWith('/api/dashboard')) {
+      const handled = await handleDashboardRequest(req, res)
+      if (handled) return
     }
 
     // Config routes (async — must not mix with data event listeners)
