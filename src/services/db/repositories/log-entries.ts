@@ -6,6 +6,7 @@ export type LogKind = 'task' | 'tool' | 'git'
 export interface LogEntry {
   id: string
   threadId: string
+  projectId: string
   kind: LogKind
   event: string
   createdAt: number
@@ -14,6 +15,7 @@ export interface LogEntry {
 interface LogEntryRow {
   id: string
   thread_id: string
+  project_id: string
   kind: string
   event: string
   created_at: number
@@ -23,6 +25,7 @@ function toLogEntry(row: LogEntryRow): LogEntry {
   return {
     id: row.id,
     threadId: row.thread_id,
+    projectId: row.project_id,
     kind: row.kind as LogKind,
     event: row.event,
     createdAt: row.created_at,
@@ -46,8 +49,13 @@ export function createLogEntry(input: CreateLogEntryInput): LogEntry {
   return getLogEntry(id) as LogEntry
 }
 
+const SELECT_WITH_PROJECT = `SELECT log_entries.*, threads.project_id AS project_id
+   FROM log_entries JOIN threads ON threads.id = log_entries.thread_id`
+
 export function getLogEntry(id: string): LogEntry | null {
-  const row = getDb().prepare('SELECT * FROM log_entries WHERE id = ?').get(id) as LogEntryRow | undefined
+  const row = getDb()
+    .prepare(`${SELECT_WITH_PROJECT} WHERE log_entries.id = ?`)
+    .get(id) as LogEntryRow | undefined
   return row === undefined ? null : toLogEntry(row)
 }
 
@@ -64,10 +72,12 @@ export function listLogEntries(filter?: ListLogEntriesFilter): LogEntry[] {
 
   const rows = filter?.kind
     ? (getDb()
-        .prepare('SELECT * FROM log_entries WHERE kind = @kind ORDER BY created_at DESC, rowid DESC LIMIT @limit OFFSET @offset')
+        .prepare(
+          `${SELECT_WITH_PROJECT} WHERE kind = @kind ORDER BY created_at DESC, log_entries.rowid DESC LIMIT @limit OFFSET @offset`
+        )
         .all({ kind: filter.kind, limit, offset }) as unknown as LogEntryRow[])
     : (getDb()
-        .prepare('SELECT * FROM log_entries ORDER BY created_at DESC, rowid DESC LIMIT @limit OFFSET @offset')
+        .prepare(`${SELECT_WITH_PROJECT} ORDER BY created_at DESC, log_entries.rowid DESC LIMIT @limit OFFSET @offset`)
         .all({ limit, offset }) as unknown as LogEntryRow[])
 
   return rows.map(toLogEntry)

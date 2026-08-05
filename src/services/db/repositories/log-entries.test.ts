@@ -42,6 +42,7 @@ describe('createLogEntry', () => {
 
     expect(entry.id).toMatch(/^log_/)
     expect(entry.threadId).toBe(thread.id)
+    expect(entry.projectId).toBe(thread.projectId)
     expect(entry.kind).toBe('git')
     expect(entry.event).toBe('Commit abc123 criado')
     expect(entry.createdAt).toBeGreaterThan(0)
