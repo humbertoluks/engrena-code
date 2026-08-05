@@ -810,6 +810,11 @@ export function ConsumoScreen(): ReactElement {
         onSaved={() => {
           void loadPricing()
           void loadSummaryAndProjects(period)
+          // Um preço editado pode recalcular custos de eventos já carregados nas seções abertas
+          // (recalculateNullCosts) — sem isto elas ficam com "— parcial" desatualizado até o
+          // usuário reclicar o projeto/thread (achado no smoke visual real, spec F11 §6).
+          if (selectedProject) void loadThreads(selectedProject.projectId, period)
+          if (selectedThread) void loadEvents(selectedThread.threadId, period, 0, false)
         }}
       />
     </main>
