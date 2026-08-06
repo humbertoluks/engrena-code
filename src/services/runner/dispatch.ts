@@ -18,12 +18,12 @@ import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './pr
 import { diffWorkingTree } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
-import { createSkillSnapshot } from './skill-registry.js'
+import { createSkillSnapshot, writeSkillSnapshotFile, LOAD_SKILL_TOOL_NAME, type SkillSnapshot } from './skill-registry.js'
 import { RuleRegistry } from './rule-registry.js'
 import { createSubagentsRepository } from '../db/repositories/subagents.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
-import { buildSubagentMcpDef } from './subagent-mcp-server.js'
+import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
 import { vaultService } from '../vault/vault-service.js'
@@ -114,7 +114,7 @@ function persistAgentUsage(params: {
   })
 }
 
-function buildSystemPrompt(project: Project): string {
+function buildSystemPrompt(project: Project, skillSnapshot: SkillSnapshot): string {
   const parts: string[] = []
 
   const promptGlobal = vaultService.getSecret('prompt:global')
@@ -124,10 +124,13 @@ function buildSystemPrompt(project: Project): string {
   const rulesBlock = RuleRegistry.composeBlockForTurn(project.id)
   if (rulesBlock) parts.push(rulesBlock)
 
-  const skillSnapshot = createSkillSnapshot(project.id)
   if (skillSnapshot.catalog.length > 0) {
     parts.push(
-      `## Skills disponíveis (EngrenaCode)\n${skillSnapshot.catalog.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
+      [
+        `## Skills disponíveis (EngrenaCode)`,
+        `Carregue o conteúdo sob demanda com a tool \`${LOAD_SKILL_TOOL_NAME}\` (argumento \`name\`).`,
+        skillSnapshot.catalog.map((s) => `- ${s.name}: ${s.description}`).join('\n'),
+      ].join('\n')
     )
   }
 
@@ -204,7 +207,8 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
   try {
     appendMessage({ threadId: thread.id, role: 'user', content: prompt })
 
-    const systemPrompt = buildSystemPrompt(project)
+    const skillSnapshot = createSkillSnapshot(project.id)
+    const systemPrompt = buildSystemPrompt(project, skillSnapshot)
     const cwd = thread.executionMode === 'worktree' && thread.worktreePath ? thread.worktreePath : project.path
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)
@@ -214,19 +218,44 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
         : { resolved: [], omitted: [], cleanup: () => {} }
     mcpsCleanup = mcpsPrepared.cleanup
 
-    // MCP interno de delegação (spec F11 §2/§3.2) — fecha o gap de call_subagent nunca executar de
-    // verdade. Registrado só quando o projeto tem catálogo de subagents e o provider aceita
-    // --mcp-config (mesma exclusão de MCP_UNSUPPORTED_PROVIDERS do F09, hoje só minimax).
+    // MCP interno `engrenacode` (F11 call_subagent + F12 load_skill). Um único server — o nome
+    // `engrenacode` é reservado. Registrado quando há skills e/ou subagents e o provider aceita
+    // --mcp-config (MCP_UNSUPPORTED_PROVIDERS, hoje só minimax).
     const subagentsRepo = createSubagentsRepository(getDb())
     const subagentCatalogForDelegation = resolveSubagentCatalog(subagentsRepo, project.id)
-    if (subagentCatalogForDelegation.length > 0 && !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)) {
-      delegationServer = await createDelegationServer({
-        repo: subagentsRepo,
-        project,
-        parentThread: thread,
-        parentTurnId: turnId,
+    const providerSupportsMcp = !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)
+    const wantsLoadSkill = skillSnapshot.catalog.length > 0
+    const wantsCallSubagent = subagentCatalogForDelegation.length > 0
+
+    if ((wantsLoadSkill || wantsCallSubagent) && providerSupportsMcp) {
+      let skillsSnapshotPath: string | undefined
+      if (wantsLoadSkill) {
+        skillsSnapshotPath = writeSkillSnapshotFile(skillSnapshot)
+      }
+      if (wantsCallSubagent) {
+        delegationServer = await createDelegationServer({
+          repo: subagentsRepo,
+          project,
+          parentThread: thread,
+          parentTurnId: turnId,
+        })
+      }
+      mcpsPrepared.resolved.push(
+        buildEngrenaCodeMcpDef({
+          skillsSnapshotPath,
+          port: delegationServer?.port,
+          token: delegationServer?.token,
+        })
+      )
+    } else if (wantsLoadSkill && !providerSupportsMcp) {
+      emit(thread.id, {
+        type: 'mcp.notice',
+        threadId: thread.id,
+        code: 'mcp-omitted',
+        mcpName: SUBAGENT_MCP_NAME,
+        reason: 'provider_unsupported',
+        message: `load_skill (${LOAD_SKILL_TOOL_NAME}) indisponível neste provider — o catálogo permanece só no prompt.`,
       })
-      mcpsPrepared.resolved.push(buildSubagentMcpDef(delegationServer.port, delegationServer.token))
     }
 
     for (const omission of mcpsPrepared.omitted) {

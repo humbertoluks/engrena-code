@@ -214,7 +214,73 @@ describe('dispatchNewThread', () => {
 
     await waitForState(thread.id, ['idle', 'error'])
     expect(capturedSystemPrompt).toContain(skill.name)
+    expect(capturedSystemPrompt).toContain('mcp__engrenacode__load_skill')
     expect(capturedSystemPrompt).toContain(subagent.name)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('registers the engrenacode MCP with load_skill when a skill is linked', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const skill = skillsRepository.create({ name: 'skill-mcp', description: 'd', content: '# body' })
+    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+
+    let capturedMcpServers: Array<{ name: string; args?: string[] }> | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedMcpServers = input.mcpServers as Array<{ name: string; args?: string[] }>
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const internal = capturedMcpServers?.find((m) => m.name === 'engrenacode')
+    expect(internal).toBeDefined()
+    expect(internal?.args?.includes('--skills-snapshot')).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('emits mcp.notice for load_skill when provider is minimax', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const skill = skillsRepository.create({ name: 'skill-mini', description: 'd', content: '# body' })
+    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+    // MCP vinculado força `await prepareMcpsForDispatch` antes do notice de skills,
+    // dando tempo do subscribe registrar (mesmo padrão do teste missing_secret).
+    const mcp = createMcp({ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'] })
+    setProjectMcpLink(project.id, mcp.id, { enabled: true })
+
+    let capturedMcpServers: Array<{ name: string }> | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedMcpServers = input.mcpServers as Array<{ name: string }>
+      return { text: 'ok' }
+    })
+
+    const thread = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'minimax',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const received: unknown[] = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedMcpServers?.some((m) => m.name === 'engrenacode')).toBeFalsy()
+    const notice = received.find(
+      (e) => (e as { type: string; mcpName?: string }).type === 'mcp.notice' && (e as { mcpName?: string }).mcpName === 'engrenacode'
+    ) as { mcpName: string; reason: string } | undefined
+    expect(notice?.reason).toBe('provider_unsupported')
     rmSync(dir, { recursive: true, force: true })
   })
 

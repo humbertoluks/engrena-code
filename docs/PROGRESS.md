@@ -2,8 +2,8 @@
 
 Fonte de verdade operacional do que está **feito neste repo** (`main`), versus o PRD e o plano Reversa (`_reversa_forward`). Atualizar ao fechar cada feature (spec + smoke + merge).
 
-**Atualizado:** 2026-08-05  
-**HEAD de referência:** `d1f30bb` (test F11: extract ConsumoScreen logic) — F11 implementada via `implement-feature`; smokes reais de F03/F11/F09(OAuth)/F08(pendências) fechados em sessão seguinte (ver `Esclarecimentos`)
+**Atualizado:** 2026-08-06  
+**HEAD de referência:** F12 load_skill — MCP `engrenacode` + snapshot + dispatch wiring
 
 ---
 
@@ -22,7 +22,13 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | F08 | Registros | **Feito** | 4 commits `feat(F08)` (schema `log_entries` + recovery de boot, endpoint `GET /api/logs` + wiring automático task/tool/git, tela `#registros` com `LogTable`); 47 testes novos/estendidos verdes (`log-entries.test.ts`, `threads.test.ts`, `logs-handler.test.ts`, `unlock-handler.test.ts`, extensões em `dispatch.test.ts`/`git-handler.test.ts`/`apply-diff.test.ts`); suite completa 323 testes verdes; `tsc -b`/`vite build` verdes; smoke real via Electron+Vite dev + `playwright-cli` (`ENGRENACODE_USER_DATA` isolado, vault real intocado) confirmou filtro dos 4 chips, paginação/ordenação `created_at DESC`, empty state, clique no thread id abrindo `#principal?project=&thread=` com projeto/thread certos, recovery de boot real (thread `running` órfã → `error` + `log_entries kind=task` após restart), light/dark, zero erros/warnings no console; §9 F08 `[x]` no PRD | Manter estável |
 | F09 | MCPs | **Feito** | 7 commits `feat(F09)`/`fix(F09)` (migração `mcps`/`project_mcps`, catálogo first-party de 14 presets, OAuth PKCE genérico via RFC 8414 + DCR, repositório + rotas CRUD/catálogo/secrets/OAuth/vínculo, `mcp-registry`/`prepareMcpsForDispatch` com wrapper loopback de segredo stdio + `--mcp-config` no `cli-driver`, tela `#mcps` + modais + harness + banner `mcp.notice`); 323 testes verdes; `tsc -b`/`vite build` verdes; smoke real via Electron+Playwright (vault isolado) confirmou instalar do catálogo, criar MCP custom com segredo, badge "requer credencial" e vínculo por projeto — achou e corrigiu 1 bug real (`GET /projects/:id/mcps` devolvia objeto, front esperava array); OAuth Connect live confirmado ponta a ponta contra Linear (`docs/F09-mcps/smoke-results.md`, 2026-08-05); §9 4/4 itens `[x]` no PRD | Manter estável |
 | F10 | API Keys dos Providers | **Feito** | 4 commits `feat(F10)`; vault (`keys:claude/codex/minimax`), endpoints `/api/config/keys/save` + status/mode/test estendidos, `ThreadProvider` += minimax com driver HTTP + injeção de key no runner, card "API keys dos providers" + toggle real Assinatura/API key em `#configuracao`, composer com Minimax; 241 testes verdes; smoke real via Electron+Playwright (vault isolado) confirmou save parcial, badges, erro de formato, toggle assinatura/api-key e Minimax indisponível→disponível no composer; §9 F10 `[x]` no PRD | Manter estável |
-| F11 | Consumo | **Feito** | 5 commits `feat(F11)`/`test(F11)` (schema `usage_events`+`model_pricing`, captura real de usage/custo em `cli-driver.ts`/`minimax-driver.ts` sucesso e erro, execução real de `call_subagent` via MCP interno + servidor de delegação loopback fechando o gap F03/F07, endpoints `GET/POST/PUT /api/metrics|pricing`, tela `#consumo`); 394 testes verdes (novos: `usage-events.test.ts`, `pricing.test.ts`, `consumo-handler.test.ts`, `delegate.test.ts`, `subagent-mcp-server.test.ts` — este último spawna o subprocesso Node real do MCP stdio, não mock —, `consumoScreen.logic.test.ts`, extensões em `cli-driver.test.ts`/`minimax-driver.test.ts`/`dispatch.test.ts`); `tsc -b`/`vite build`/`electron-builder --dir` verdes; smoke visual 7.2 real via Electron+Playwright (`docs/F11-consumo/smoke-results.md`, 2026-08-05) confirmou anatomia vs `ui.md`, light/dark, copy, drill-down projeto→thread→evento com `usage_events` reais, recalculo de preço; §9 F11 `[x]` no PRD | Manter estável |
+| F11 | Consumo | **Feito** | 5 commits `feat(F11)`/`test(F11)`; 394 testes; smoke visual | Manter estável |
+| F12 | Runtime de Skills (load_skill) | **Feito** | MCP interno `engrenacode` + tool `load_skill`; snapshot por turno; wiring em `dispatch.ts`; testes MCP subprocesso + dispatch (minimax notice); `docs/F12-runtime-de-skills/{spec,plan}.md`; §9 F12 `[x]` | Smoke live opcional com binário `claude` |
+| F13 | Isolamento Worktree | **Pendente** | Spec PRD 1.2 | Spec/plan + implement |
+| F14 | Fluxo Git Completo | **Pendente** | Spec PRD 1.2 | Spec/plan + implement |
+| F15 | Runtime de SubAgents | **Pendente** | Spec PRD 1.2 | Spec/plan + implement |
+| F16 | Composer Avançado | **Pendente** | Spec PRD 1.2 | Spec/plan + implement |
+| F17 | Catálogo Seed | **Pendente** | Spec PRD 1.2 | Spec/plan + implement |
 
 ---
 
@@ -35,7 +41,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 | 3 | F03, F10 | **Completa** — F03 e F10 feitas, smoke real confirmado |
 | 4 | F04, F08, F09, F11 | **Completa** — F04, F08, F09 e F11 feitas; smoke visual de F11 e OAuth live de F09 confirmados em 2026-08-05 |
 
-**Próxima frente de produto:** Ondas 1–4 fechadas, incluindo os smokes visuais/live pendentes. Pendências residuais, deliberadamente fora de escopo por envolverem gasto de API adicional ou ação irreversível (push/PR real): `call_subagent` real ponta a ponta (F07), idle timeout de 20min visível na UI (F07), push/PR real para o GitHub a partir do Workspace (F03).
+**Próxima frente de produto:** Versão 1.2 (F12–F17). **F12 feito** (`load_skill` no MCP `engrenacode`). Pendentes: F13 worktree, F14 git/PR+textgen, F15 subagent E2E, F16 composer, F17 seeds. Residuais pré-1.2: push/PR real smoke (F03), idle UI (F15).
 
 ---
 

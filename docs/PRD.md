@@ -6,7 +6,7 @@ O EngrenaCode é o produto da Lukse: uma IDE desktop local-first (Electron) para
 
 O público é single-user local: o dono da máquina. Personas primárias são o desenvolvedor solo/freelancer e o pleno em time pequeno que quer velocidade com controle; persona secundária é o tech lead que curadoria skills, rules e subagents como padrão da casa, sem RBAC nem multi-tenant no produto.
 
-O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei o diff, aceitei ou rejeitei e segui no mesmo fluxo”, com catálogo reutilizável (skills, rules, subagents), dashboard operacional multi-projeto e, nas versões seguintes, audit log (Registros), MCPs e consumo estimado de tokens/custo. Nada do código do usuário passa por servidor da Lukse: o app roda no loopback com cofre cifrado local.
+O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei o diff, aceitei ou rejeitei e segui no mesmo fluxo”, com catálogo reutilizável (skills, rules, subagents), dashboard operacional multi-projeto, audit log (Registros), MCPs e consumo estimado de tokens/custo. A versão 1.2 fecha gaps de paridade com o produto legado (skills sob demanda de verdade, worktree real, git/PR com texto por IA, subagents runtime comprovado, composer com modelo/reasoning/@file/imagens e seeds de onboarding). Nada do código do usuário passa por servidor da Lukse: o app roda no loopback com cofre cifrado local.
 
 ## 2. Problema e Oportunidade
 
@@ -50,8 +50,9 @@ O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei 
 | Falta de visibilidade | Dashboard com saúde da config, inbox de atenção e atalhos para o workspace |
 | Instruções reinventadas | Skills sob demanda, rules permanentes, subagents delegáveis com revisão unificada |
 | Integrações e custo opacos | Registros + MCPs (1.0) e Consumo com preços editáveis e custo congelado (1.1) |
+| Gaps pós-migração (catálogo sem runtime, worktree fantasma, git/PR incompleto, composer pobre) | Versão 1.2 (F12–F17): load_skill real, worktree isolado, git flow + textgen, subagents E2E, composer avançado, seeds |
 
-Diferencial: local-first, multi-provider por assinatura/CLI no MVP, revisão de diffs como gate obrigatório antes do disco, e roadmap explícito que corta pipeline/memory/codegraph do escopo até 1.1 para entregar o núcleo operacional primeiro.
+Diferencial: local-first, multi-provider por assinatura/CLI no MVP, revisão de diffs como gate obrigatório antes do disco. Ondas 1–4 entregaram o núcleo F01–F11; a 1.2 fecha a paridade operacional com o legado sem abrir ainda pipeline/memory/codegraph/voz (permanecem no §7).
 
 ## 3. Público-Alvo
 
@@ -95,6 +96,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 **Tornar o consumo decidível (1.1)**
 - Tokens e custo estimado visíveis para ajustar provider/modelo com informação
 
+**Fechar a paridade operacional pós-migração (1.2)**
+- Skills carregam content sob demanda; worktree isola de verdade; git/PR e composer recuperam o nível do legado; subagents delegam com prova E2E
+
 ### Métricas de Sucesso
 
 | Objetivo | Métrica | Condição de medição |
@@ -104,6 +108,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 | Catálogo como hábito | Usuários com ≥ 3 skills ou rules usam catálogo em ≥ 50% das threads | Dias 15–45 após o primeiro projeto cadastrado |
 | Integração 1.0 | ≥ 40% dos ativos semanais com ≥ 1 MCP vinculado e ≥ 1 registro consultado ou gerado por semana | Semanas 4–8 após release 1.0 (usuários com ≥ 2 projetos) |
 | Consumo 1.1 | ≥ 60% dos que gastam tokens abrem Consumo ≥ 1×/semana; ≥ 30% desses ajustam provider/modelo ou pausam thread após ver custo | Primeiros 30 dias pós-1.1, contas com ≥ 10 turnos no período |
+| Paridade 1.2 | ≥ 50% das threads com skill vinculada disparam ≥ 1 `load_skill`; ≥ 30% dos commits pelo app usam texto gerado por IA; ≥ 1 delegação `call_subagent` bem-sucedida por usuário ativo/semana | Primeiros 30 dias pós-1.2, contas com ≥ 5 turnos no período |
 
 ## 5. Histórias de Usuário
 
@@ -175,7 +180,35 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero ver o share de custo de subagents separado do agente principal
 - Como sistema, quero congelar cost_usd no fim do turno (sdk ou table) sem reescrever eventos já precificados ao editar a tabela
 
-## 6. Funcionalidades
+### F12. Runtime de Skills (load_skill)
+- Como sistema, quero registrar a tool `load_skill` no turno para o agente carregar o markdown da skill sob demanda
+- Como usuário, quero que só skills vinculadas e habilitadas no projeto sejam carregáveis naquele turno
+- Como sistema, quero que o snapshot do catálogo congele no início do turno para uma edição mid-turn não alterar o content já anunciado
+
+### F13. Isolamento Worktree
+- Como usuário, quero escolher execution mode `worktree` e ter o agente escrever numa árvore git isolada, não no working tree principal
+- Como sistema, quero criar o worktree no primeiro envio, persistir `worktreePath` na thread e usá-lo em dispatch, diffs e git
+- Como usuário, quero ver falha clara se a criação do worktree for impossível (repo sujo sem HEAD, path ocupado, git ausente)
+
+### F14. Fluxo Git Completo
+- Como usuário, quero Commit, Commit & push e Commit, push & PR na mesma superfície do workspace
+- Como usuário, quero gerar a mensagem de commit e o título/corpo do PR com IA no provider da thread, com edição manual antes de confirmar
+- Como usuário, quero abrir o PR no browser após sucesso e ver erro acionável se faltar token GitHub
+
+### F15. Runtime de SubAgents
+- Como usuário, quero que o agente pai invoque `call_subagent` de verdade e veja o run na timeline com status, duração e idle timeout
+- Como usuário, quero revisar diffs do filho na mesma aba Diff do pai
+- Como sistema, quero gravar usage_event source=subagent para o share aparecer em Consumo após delegação real
+
+### F16. Composer Avançado
+- Como usuário, quero escolher modelo e reasoning level na thread (provider permanece imutável após o primeiro envio)
+- Como usuário, quero mencionar arquivos com `@` para anexar caminhos ao prompt
+- Como usuário, quero anexar imagens ao composer nos providers que suportam multimodal
+
+### F17. Catálogo Seed de Onboarding
+- Como usuário novo, quero encontrar um conjunto inicial de skills e subagents já cadastrados após o primeiro unlock
+- Como lead técnico, quero poder editar, desabilitar ou excluir qualquer seed como item normal do catálogo
+- Como sistema, quero aplicar seeds no máximo uma vez por cofre (idempotente; não sobrescrever customizações)
 
 ### F01. Vault e Sessão Local
 
@@ -205,9 +238,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock). Não é feature de fluxo de negócio.
 
 **Provê:**
-- Tokens semânticos de cor light/dark, spacing, radii e famílias tipográficas para todas as UIs do renderer (usado por F02, F03, F04, F05, F06, F07, F08, F09, F10, F11)
+- Tokens semânticos de cor light/dark, spacing, radii e famílias tipográficas para todas as UIs do renderer (usado por F02, F03, F04, F05, F06, F07, F08, F09, F10, F11, F12, F13, F14, F15, F16, F17)
 - Runtime de tema `light` | `dark` | `system` com persistência e anti-flash (usado por F02, F03, F04)
-- Padrões de superfície (card, input, badge, modal, focus, markdown chat) e wiring Shiki/xterm ao tema (usado por F03)
+- Padrões de superfície (card, input, badge, modal, focus, markdown chat) e wiring Shiki/xterm ao tema (usado por F03, F16)
 
 **Escopo Central:**
 - Paleta flat, spacing/radii travados, tipografia base, tema tri-modo, splash anti-flash, padrões de superfície e syntax highlight alinhado ao tema
@@ -284,9 +317,10 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - F07: definições de subagents vinculados para call_subagent
 
 **Provê:**
-- Projetos, threads (estado, provider, diffs pendentes) e atividade recente (usado por F04, F08, F11)
-- Eventos de dispatch, tools e git para audit log (usado por F08)
-- Usage por turno agent/subagent (usado por F11)
+- Projetos, threads (estado, provider, model, diffs pendentes, executionMode/worktreePath) e atividade recente (usado por F04, F08, F11, F12, F13, F14, F15, F16)
+- Eventos de dispatch, tools e git para audit log (usado por F08, F14)
+- Usage por turno agent/subagent (usado por F11, F15)
+- Contexto de thread (provider, model, reasoning, cwd) para textgen git (usado por F14)
 
 **Escopo Central:**
 - Projetos, threads, chat streaming, diffs accept/reject, git básico GitHub, lease 1 execução/projeto, integração com skills/rules/subagents no turno
@@ -340,8 +374,9 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - F01.1: tokens e padrões de superfície para a tela `#skills`
 
 **Provê:**
-- Catálogo (nome, description) e content carregável via load_skill, com vínculo por projeto (usado por F03)
+- Catálogo (nome, description) e content carregável via load_skill, com vínculo por projeto (usado por F03, F12)
 - Contagens para o dashboard (usado por F04)
+- Itens seedáveis no primeiro unlock (usado por F17)
 
 **Capacidades:**
 - CRUD global: name único, description (~200 chars orientação), content markdown (teto prático ~1 MiB), category opcional, enabled
@@ -387,9 +422,10 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - F01.1: tokens e padrões de superfície para a tela `#subagents` e timeline
 
 **Provê:**
-- Definições e runs efêmeros invocáveis (call_subagent), timeline aninhada e diffs do filho na revisão do pai (usado por F03)
-- Eventos de usage source=subagent (usado por F11)
+- Definições e runs efêmeros invocáveis (call_subagent), timeline aninhada e diffs do filho na revisão do pai (usado por F03, F15)
+- Eventos de usage source=subagent (usado por F11, F15)
 - Contagens para o dashboard (usado por F04)
+- Itens seedáveis no primeiro unlock (usado por F17)
 
 **Capacidades:**
 - CRUD: name, description, prompt (~1 MiB), provider Claude|Codex|Kimi|inherit, model, reasoningLevel, tools (null=tudo / lista / []=restrito extremo), category, idleTimeoutMinutes default 20
@@ -507,12 +543,176 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - Falha de API → mensagem + Tentar novamente
 - Eventos sem preço → totais parciais, nunca custo inventado
 
+### F12. Runtime de Skills (load_skill)
+
+**Consome:**
+- F01.1: tokens e padrões de superfície para banners/erros de skill no workspace
+- F03: ciclo de dispatch do turno e ambiente de tools/MCP do agente
+- F05: snapshot de catálogo (nome, description) e content das skills vinculadas e habilitadas
+
+**Provê:**
+- Tool `load_skill` (namespace MCP interno `engrenacode`) que devolve o markdown da skill sob demanda (usado por F03)
+
+**Capacidades:**
+- No início do turno, se o projeto tiver ≥ 1 skill vinculada e habilitada: registrar tool `mcp__engrenacode__load_skill` (ou nome estável documentado) além do bloco de catálogo no system prompt
+- Input: `name` (string); só resolve nomes presentes no snapshot do turno
+- Output: content markdown integral da skill; nome desconhecido → erro de tool legível (“Skill não encontrada neste projeto”)
+- Snapshot imutável durante o turno (editar skill mid-turn não altera content já anunciado)
+- Skill nunca executa código; só orienta
+- Providers sem suporte a MCP de tools do harness: degradar documentado (ex.: Codex via bloco inline já existente ou omissão com `mcp.notice`); Claude/Minimax usam a tool
+- Compactação opcional do tool result no histórico (stub após entrega ao modelo) para não estourar contexto em skills grandes (~1 MiB)
+
+**Experiência:**
+- Usuário vincula skills no Repo Harness; no turno o agente vê a lista e chama `load_skill` quando precisar do content
+- Tool call aparece no histórico com status sucesso/erro
+- Banner ou notice se o provider do turno não puder expor a tool (turno continua)
+
+**Tratamento de Erros:**
+- Skill não vinculada / nome inválido → erro de tool, turno segue
+- Snapshot vazio → tool não registrada; sem catálogo no prompt
+- Falha do MCP interno → notice âmbar; turno não aborta só por isso
+
+### F13. Isolamento Worktree
+
+**Consome:**
+- F01.1: tokens e mensagens de erro no composer/workspace
+- F03: thread com `executionMode`, dispatch, diffs, lease e git
+
+**Provê:**
+- `worktreePath` persistido na thread e usado como cwd de agent/subagent/diffs/git quando `executionMode=worktree` (usado por F03, F15)
+
+**Capacidades:**
+- No primeiro envio com `executionMode=worktree`: criar `git worktree` sob diretório controlado do app (ex.: userData/worktrees/<projectId>/<threadId>) em branch `engrenacode/<threadId>` (ou equivalente estável)
+- Persistir `worktreePath` na thread; travar `executionMode` como hoje
+- Todos os writes do agente, accept/reject e git da thread usam esse path
+- `executionMode=main` continua no `project.path` (sem criar worktree)
+- Limpeza: ao apagar thread, remover worktree e branch associada quando seguro (working tree limpa); se sujo, reter e avisar
+- Sem write-parallel de filhos em worktrees separados nesta feature (continua §7)
+
+**Experiência:**
+- Composer: opção Worktree só antes do 1º envio; após criar, badge “Worktree” na thread
+- Falha na criação → mensagem específica e thread não fica running no path principal por engano
+
+**Tratamento de Erros:**
+- Repo sem HEAD / não-git → “Inicialize o Git antes de usar Worktree.”
+- Path ocupado / `git worktree` falhou → “Não foi possível criar o worktree: {motivo}.”
+- Cleanup parcial → log + aviso; não apagar dados do projeto principal
+
+### F14. Fluxo Git Completo
+
+**Consome:**
+- F01.1: tokens e padrões de superfície para `GitActions` e diálogos
+- F02: token GitHub para push/PR
+- F03: thread (provider, model, estado), diffs aceitos, vcs-status, lease git
+
+**Provê:**
+- Ações Commit / Commit & push / Commit, push & PR com subject/body editáveis (usado por F03)
+- Eventos git de PR sucesso/falha para Registros (usado por F08)
+
+**Capacidades:**
+- Superfície única no workspace com três ações: Commit; Commit & push; Commit, push & PR
+- Textgen: botão “Gerar com IA” preenche subject (≤ 72 chars orientação) e, para PR, title + body markdown; usa o provider/model da thread; custo vira usage_event do projeto/thread
+- Usuário sempre edita/confirma antes de executar; never auto-commit sem confirmação
+- PR: branch atual → default branch do remote; título padrão se textgen falhar: `EngrenaCode: {thread.title|thread.id}`
+- Bloqueio com thread `running`/`stopping`; exige token GitHub para push/PR
+- Abrir URL do PR no browser após sucesso
+- Sem multi-VCS (só GitHub) nesta feature
+
+**Experiência:**
+- Campo de mensagem + Gerar com IA + três botões; estados “Commitando…”, “Pushando…”, “Abrindo PR…”
+- Sucesso PR → link “Ver PR”; falha de credencial → “Configure o token do GitHub em Configuração.”
+
+**Tratamento de Erros:**
+- Sem token → erro acionável apontando `#configuracao`
+- Textgen falhou → manter campos editáveis; mensagem “Não foi possível gerar o texto. Escreva manualmente.”
+- Push/PR rejeitado pelo remote → exibir stderr resumido; não marcar commit local como falho se o commit já criou
+
+### F15. Runtime de SubAgents
+
+**Consome:**
+- F01.1: tokens para timeline, badges de status e idle
+- F03: dispatch do pai, DiffViewer, lease, WS events
+- F07: definições vinculadas `kind=dev`, gate Codex full-access, idleTimeoutMinutes
+
+**Provê:**
+- Runs efêmeros comprovados com resultado no pai, status idle/timeout e diffs do filho na revisão unificada (usado por F03)
+- usage_events source=subagent com share > 0 após delegação real (usado por F11)
+
+**Capacidades:**
+- `call_subagent` via MCP interno já previsto: executa filho depth=1, sem row em `threads`, sem MCP do usuário no filho nesta versão
+- Diffs do filho entram na mesma lista pending do pai (mesmo thread id de revisão)
+- Idle timeout default 20 min (configurável na definição); hard-stop encerra run com status `timeout`
+- Timeline: status `running` | `completed` | `error` | `timeout`, duração, nome, provider/model
+- Smoke E2E obrigatório contra binário real (claude ou codex) com ≥ 1 delegação bem-sucedida documentada
+- Sem write-parallel / merge-tree / `kind=pipeline` (permanecem §7)
+
+**Experiência:**
+- Card Subagents na sidebar atualiza ao vivo; clique abre audit do run
+- Timeout → badge âmbar “Timeout (idle)” visível sem refresh manual
+
+**Tratamento de Erros:**
+- Gate Codex sem full-access → falha da tool no pai com mensagem existente
+- Provider do filho indisponível → erro na delegação; pai continua
+- Idle timeout → run `timeout`; pai recebe resultado de falha estruturado
+
+### F16. Composer Avançado
+
+**Consome:**
+- F01.1: tokens, markdown e superfícies do composer
+- F03: thread, follow-up, fila, access level, execution mode
+- F10: disponibilidade de providers/modelos (incl. Minimax)
+
+**Provê:**
+- Prompt enriquecido com paths `@file` e imagens anexadas; model/reasoning atualizados no follow-up (usado por F03)
+
+**Capacidades:**
+- Provider continua imutável após criar a thread (sem multi-provider mid-thread)
+- Modelo e reasoning level editáveis entre turnos (e no 1º envio); catálogo por provider (Claude/Codex/Kimi/Minimax) com defaults seguros
+- `@` abre menu de arquivos do projeto (limit 50 resultados, debounce ≥ 150 ms); insere path relativo no texto
+- Imagens: até 5 por mensagem, ≤ 4 MiB cada, tipos `image/png` | `image/jpeg` | `image/webp` | `image/gif`; só habilitado se o provider da thread declarar suporte multimodal; caso contrário CTA desabilitado com motivo
+- Sem voz/STT, sem slash commands, sem command palette nesta feature
+
+**Experiência:**
+- Controles de modelo/reasoning ao lado do provider (provider locked com tooltip)
+- Mention menu e thumbnails de imagem acima do textarea; Enter envia; imagens sobem com a mensagem
+
+**Tratamento de Erros:**
+- Arquivo `@` fora do projeto → não inserir; toast “Arquivo fora do projeto.”
+- Imagem acima do limite / tipo inválido → rejeição com mensagem específica
+- Provider sem multimodal → botão de anexo desabilitado
+
+### F17. Catálogo Seed de Onboarding
+
+**Consome:**
+- F01: momento de unlock / cofre criado para disparo idempotente
+- F01.1: (sem UI dedicada obrigatória; items aparecem nas telas F05/F07)
+- F05: schema e repositório de skills
+- F07: schema e repositório de subagents `kind=dev`
+
+**Provê:**
+- Conjunto inicial editável de skills e subagents no catálogo global (usado por F05, F07, F04 via contagens)
+
+**Capacidades:**
+- Seeds versionados no app: ≥ 8 e ≤ 20 skills; ≥ 5 e ≤ 12 subagents `kind=dev` (subconjunto curado do legado, marca EngrenaCode)
+- Aplicação idempotente: chave `seeds:catalog:v1` (ou migração) no vault/SQLite; roda no máximo uma vez por cofre
+- Não vincular automaticamente a projetos; usuário vincula no Repo Harness
+- Não sobrescrever se name já existir (skip)
+- Usuário pode editar/desabilitar/excluir seeds como itens normais
+
+**Experiência:**
+- Após primeiro unlock (ou migração), `#skills` e `#subagents` já listam os seeds
+- Sem wizard modal obrigatório; empty state deixa de ser o único caminho
+
+**Tratamento de Erros:**
+- Falha parcial ao inserir seed → log; continua com os demais; não bloqueia unlock
+- Re-unlock → não duplica
+
 ## 7. Fora de Escopo
 
 ### Pipelines e automação avançada
 - Feature pipeline (`/featdevelop`) e feature build (`/featbuild`)
 - Comandos slash avançados (`/spec`, workflows, feature-pipeline, feature-build)
-- Subagents `kind=pipeline`, write paralelo com worktree/merge-tree, workflows multi-estágio
+- Subagents `kind=pipeline`, write paralelo com worktree/merge-tree de filhos, workflows multi-estágio
 
 ### Memória e CodeGraph
 - Memory (`journal.md` / `memory.md`), dreaming
@@ -520,9 +720,10 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 
 ### Terminal, voz e mídia
 - Terminal PTY no dock, ditado por voz (STT), TTS (Cartesia/ElevenLabs)
+- (Anexos de imagem no composer entram em F16; voz continua fora)
 
 ### Providers e VCS além do roadmap
-- Grok e GLM como produto até 1.1; multi-provider na mesma thread
+- Grok e GLM como produto nesta versão; troca de **provider** no meio da thread (modelo/reasoning mid-thread entram em F16 com provider travado)
 - GitLab/Bitbucket/Azure DevOps como fluxo de PR de produto (foco GitHub)
 - OAuth VCS além de PAT GitHub
 
@@ -531,7 +732,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - Marketplace de skills/MCPs de terceiros sem curadoria
 
 ### Consumo e registros além do corte
-- Fatura real dos providers, budget/alertas/projeção, export CSV/PDF, UsageLimits como feature de produto na 1.1
+- Fatura real dos providers, budget/alertas/projeção, export CSV/PDF, UsageLimits como feature de produto
 - Export/purge de audit log, edição/apagar registro individual
 
 ### IDE completa e distribuição
@@ -557,6 +758,12 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 | F08 | Registros | 1 | F01.1, F03 |
 | F09 | MCPs | 1 | F01, F01.1, F03 |
 | F11 | Consumo | 2 | F01.1, F03, F07 |
+| F17 | Catálogo Seed de Onboarding | 2 | F01, F01.1, F05, F07 |
+| F12 | Runtime de Skills (load_skill) | 1 | F01.1, F03, F05 |
+| F13 | Isolamento Worktree | 1 | F01.1, F03 |
+| F14 | Fluxo Git Completo | 1 | F01.1, F02, F03 |
+| F15 | Runtime de SubAgents | 1 | F01.1, F03, F07 |
+| F16 | Composer Avançado | 2 | F01.1, F03, F10 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -571,10 +778,10 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 
 - **Onda 1**: F01, F01.1
 - **Onda 2**: F02, F05, F06, F07
-- **Onda 3**: F03, F10
-- **Onda 4**: F04, F08, F09, F11
+- **Onda 3**: F03, F10, F17
+- **Onda 4**: F04, F08, F09, F11, F12, F13, F14, F15, F16
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11. Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07. F10 pode construir em paralelo com F03, mas só entra no release 1.0 após o MVP fechado.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; **Versão 1.2 = F12–F17**. Ondas 1–4 com F01–F11 já entregues no repo; o backlog ativo da 1.2 é F12–F17 (F17 mecanicamente na Onda 3; F12–F16 na Onda 4). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -613,11 +820,29 @@ graph TD
   F011 --> F11[Consumo]
   F03 --> F11
   F07 --> F11
+  F01 --> F17[Seeds]
+  F011 --> F17
+  F05 --> F17
+  F07 --> F17
+  F011 --> F12[LoadSkill]
+  F03 --> F12
+  F05 --> F12
+  F011 --> F13[Worktree]
+  F03 --> F13
+  F011 --> F14[GitFlow]
+  F02 --> F14
+  F03 --> F14
+  F011 --> F15[SubRuntime]
+  F03 --> F15
+  F07 --> F15
+  F011 --> F16[Composer]
+  F03 --> F16
+  F10 --> F16
 ```
 
 ## 9. Critérios de Aceitação
 
-> Status operacional por feature: [`docs/PROGRESS.md`](./PROGRESS.md). Marcar `[x]` aqui ao fechar a feature no repo.
+> Status operacional por feature: [`docs/PROGRESS.md`](./PROGRESS.md). Marcar `[x]` aqui ao fechar a feature no repo. Auditoria de gaps: [`docs/AUDIT-PRD-S9-MIGRATION.md`](./AUDIT-PRD-S9-MIGRATION.md).
 
 ### F01. Vault e Sessão Local
 - [x] Primeiro uso cria cofre com senha e exige unlock nas aberturas seguintes
@@ -652,7 +877,7 @@ graph TD
 - [x] Streaming, tool status e histórico persistem; follow-up enfileira com thread ocupada
 - [x] Accept/reject por arquivo; git mutável bloqueado com thread running
 - [x] Segunda execução no mesmo projeto retorna thread_busy
-- [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07
+- [ ] Skills, rules e subagents vinculados participam do turno conforme F05–F07 (rules + load_skill F12 ok; `call_subagent` E2E fica em F15)
 
 ### F04. Dashboard
 - [x] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
@@ -664,18 +889,18 @@ graph TD
 ### F05. Skills
 - [x] CRUD global com name único; conflito rejeitado
 - [x] Vínculo por projeto controla presença no catálogo do turno
-- [x] load_skill entrega content sob demanda; skill não roda sozinha
+- [x] load_skill entrega content sob demanda; skill não roda sozinha (runtime F12)
 
 ### F06. Rules
 - [x] Rules globais e por projeto resolvem com override de supressão
-- [ ] Bloco de rules aparece em todo turno com precedência projeto > global > arquivos do repo
+- [x] Bloco de rules aparece em todo turno com precedência projeto > global > arquivos do repo
 - [x] Name com CR/LF é rejeitado
 
 ### F07. SubAgents
 - [x] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
-- [ ] call_subagent cria run efêmero; diffs do filho na revisão do pai
+- [ ] call_subagent cria run efêmero; diffs do filho na revisão do pai (fecha em F15)
 - [x] Codex pai sem full-access não delega
-- [ ] Idle timeout default 20 min encerra run visível na UI
+- [ ] Idle timeout default 20 min encerra run com status visível na UI (fecha em F15)
 
 ### F08. Registros
 - [x] Eventos task/tool/git aparecem automaticamente após uso do workspace
@@ -697,24 +922,65 @@ graph TD
 
 ### F11. Consumo
 - [x] Todo turno válido agent/subagent gera usage_event ligado a project/thread/turnId
-- [x] Drill-down projeto → thread → evento; share subagents > 0 após delegação
+- [ ] Drill-down projeto → thread → evento; share subagents > 0 após delegação (share live fecha com F15)
 - [x] Claude com custo SDK grava `cost_source=sdk`; demais usam `table` ou null
 - [x] Editar preço preenche só nulls de table; eventos sdk e já precificados intactos
 - [x] Flags parcial/aproximado visíveis; empty e erro de load cobertos
 
+### F12. Runtime de Skills (load_skill)
+- [x] Com skills vinculadas, o turno registra tool `load_skill` e o agente obtém o markdown sob demanda
+- [x] Nome ausente do snapshot devolve erro de tool; skill desvinculada não carrega
+- [x] Snapshot congela no início do turno; edição mid-turn não altera content já anunciado
+- [x] Skill não executa código; providers sem tool degradam com notice sem abortar o turno
+
+### F13. Isolamento Worktree
+- [ ] Primeiro envio com `executionMode=worktree` cria worktree real e persiste `worktreePath`
+- [ ] Dispatch, diffs e git da thread usam `worktreePath`; `main` continua em `project.path`
+- [ ] Falha de criação não executa o turno no path principal por engano; mensagem específica
+- [ ] Apagar thread limpa worktree quando seguro; caso sujo, retém e avisa
+
+### F14. Fluxo Git Completo
+- [ ] UI expõe Commit, Commit & push e Commit, push & PR bloqueados com thread running
+- [ ] “Gerar com IA” preenche subject (e title/body de PR) via provider da thread; usuário edita antes de confirmar
+- [ ] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração
+- [ ] Falha de textgen não impede commit manual
+
+### F15. Runtime de SubAgents
+- [ ] `call_subagent` contra binário real cria run efêmero; resultado volta ao pai
+- [ ] Diffs do filho aparecem na mesma revisão Diff do pai
+- [ ] Idle timeout (default 20 min) encerra run com status `timeout` visível na UI
+- [ ] Delegação real gera usage_event source=subagent com share > 0 em Consumo
+
+### F16. Composer Avançado
+- [ ] Modelo e reasoning editáveis no follow-up; provider permanece imutável após o primeiro envio
+- [ ] `@` lista arquivos do projeto e insere path relativo; fora do projeto é rejeitado
+- [ ] Até 5 imagens ≤ 4 MiB nos tipos permitidos quando o provider é multimodal; senão CTA desabilitado com motivo
+- [ ] Anexos e menções seguem no prompt do turno e aparecem no histórico
+
+### F17. Catálogo Seed de Onboarding
+- [ ] Primeiro unlock (ou migração) insere o pacote de seeds sem duplicar em re-unlock
+- [ ] Contagens em `#skills` / `#subagents` / Dashboard refletem os seeds
+- [ ] Name já existente é skipped; usuário edita/desabilita/exclui seeds como itens normais
+- [ ] Seeds não vinculam projetos automaticamente
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
-- [ ] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
+- [x] Tokens e padrões de superfície de F01.1 renderizam Dashboard (F04), Skills (F05), Rules (F06), SubAgents (F07), Registros (F08), MCPs (F09), cards de API key (F10) e Consumo (F11)
 - [ ] Preferência `engrenacode:theme` (F01.1) persiste e é respeitada ao navegar entre `#dashboard`, `#configuracao` e `#workspace`
 - [x] Status de providers/prompt/GitHub de F02 alimenta saúde do Dashboard (F04) e disponibilidade do Workspace (F03)
-- [ ] Prompt global de F02 é injetado nos turnos do Workspace (F03) a partir do próximo turno após salvar
-- [ ] Catálogo e content de Skills (F05) fluem para o turno do Workspace via load_skill
-- [ ] Bloco de Rules (F06) resolvido por projeto é injetado em todo turno do Workspace
-- [ ] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão
+- [x] Prompt global de F02 é injetado nos turnos do Workspace (F03) a partir do próximo turno após salvar
+- [x] Catálogo e content de Skills (F05) fluem para o turno do Workspace via load_skill (F12)
+- [x] Bloco de Rules (F06) resolvido por projeto é injetado em todo turno do Workspace
+- [ ] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão (F15)
 - [x] Projetos/threads/diffs de F03 alimentam cards e inbox do Dashboard (F04)
 - [x] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
 - [x] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
-- [ ] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
+- [x] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
 - [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
-- [ ] usage_events do Workspace (F03) e de SubAgents (F07) agregam corretamente na tela Consumo (F11)
+- [ ] usage_events do Workspace (F03) e de SubAgents (F07/F15) agregam corretamente na tela Consumo (F11)
+- [x] Tool `load_skill` (F12) entrega content das skills vinculadas (F05) no dispatch do Workspace (F03)
+- [ ] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
+- [ ] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
+- [ ] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
+- [ ] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)

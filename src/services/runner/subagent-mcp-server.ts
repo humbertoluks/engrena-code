@@ -3,21 +3,20 @@ import { join } from 'path'
 import { app } from 'electron'
 import type { ResolvedMcpDef } from './mcp-secrets.js'
 
-/** Nome do MCP interno — mesmo namespace já hardcoded em `subagent-registry.ts:CALL_SUBAGENT_TOOL_NAME`. */
+/** Nome do MCP interno — namespace de `mcp__engrenacode__*`. */
 export const SUBAGENT_MCP_NAME = 'engrenacode'
 export const CALL_SUBAGENT_MCP_TOOL_NAME = 'call_subagent'
+export const LOAD_SKILL_MCP_TOOL_NAME = 'load_skill'
 
 /**
- * Servidor MCP stdio mínimo (spec F11 §3.2/§4) — handshake newline-delimited JSON-RPC confirmado
- * contra a spec oficial do protocolo (Context7 `/modelcontextprotocol/modelcontextprotocol`).
- * Só implementa os 4 métodos necessários (`initialize`, `notifications/initialized`, `tools/list`,
- * `tools/call`); `tools/call` reenvia pro servidor de delegação loopback (`delegate.ts`,
- * `createDelegationServer`) via HTTP, autenticado por token de processo — mesmo padrão de
- * `mcp-secrets.ts:WRAPPER_SOURCE`. Sem dependência de SDK MCP (nenhuma outra parte do codebase
- * tem uma).
+ * Servidor MCP stdio mínimo (F11 call_subagent + F12 load_skill) — handshake newline-delimited
+ * JSON-RPC. Tools expostas conforme flags:
+ * - `--skills-snapshot <path>` → `load_skill`
+ * - `--port` + `--token` → `call_subagent` (HTTP loopback de delegação)
  */
 const SCRIPT_SOURCE = `#!/usr/bin/env node
 import { createInterface } from 'node:readline'
+import { readFileSync } from 'node:fs'
 
 function flag(name) {
   const i = process.argv.indexOf(\`--\${name}\`)
@@ -26,8 +25,9 @@ function flag(name) {
 
 const port = flag('port')
 const token = flag('token')
+const skillsSnapshotPath = flag('skills-snapshot')
 
-const TOOL_SCHEMA = {
+const CALL_SUBAGENT_SCHEMA = {
   name: 'call_subagent',
   description: 'Delega uma tarefa a um subagent cadastrado e vinculado a este projeto.',
   inputSchema: {
@@ -41,11 +41,61 @@ const TOOL_SCHEMA = {
   },
 }
 
+const LOAD_SKILL_SCHEMA = {
+  name: 'load_skill',
+  description: 'Carrega o conteúdo markdown de uma skill vinculada a este projeto (sob demanda).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Nome da skill no catálogo do turno' },
+    },
+    required: ['name'],
+  },
+}
+
+function listTools() {
+  const tools = []
+  if (skillsSnapshotPath) tools.push(LOAD_SKILL_SCHEMA)
+  if (port && token) tools.push(CALL_SUBAGENT_SCHEMA)
+  return tools
+}
+
 function send(message) {
   process.stdout.write(\`\${JSON.stringify(message)}\\n\`)
 }
 
-async function handleToolsCall(id, params) {
+function handleLoadSkill(id, params) {
+  const args = (params && params.arguments) || {}
+  const name = typeof args.name === 'string' ? args.name : ''
+  try {
+    const raw = readFileSync(skillsSnapshotPath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    const skills = parsed && parsed.skills && typeof parsed.skills === 'object' ? parsed.skills : {}
+    const content = name && Object.prototype.hasOwnProperty.call(skills, name) ? skills[name] : null
+    if (content === null || content === undefined) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: 'Skill não encontrada neste projeto' }], isError: true },
+      })
+      return
+    }
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: String(content) }], isError: false },
+    })
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err)
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: \`Falha ao carregar skill: \${message}\` }], isError: true },
+    })
+  }
+}
+
+async function handleCallSubagent(id, params) {
   const args = (params && params.arguments) || {}
   try {
     const res = await fetch(\`http://127.0.0.1:\${port}/delegate\`, {
@@ -59,6 +109,23 @@ async function handleToolsCall(id, params) {
     const message = err && err.message ? err.message : String(err)
     send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: \`Falha ao delegar: \${message}\` }], isError: true } })
   }
+}
+
+async function handleToolsCall(id, params) {
+  const toolName = params && params.name
+  if (toolName === 'load_skill') {
+    handleLoadSkill(id, params)
+    return
+  }
+  if (toolName === 'call_subagent') {
+    await handleCallSubagent(id, params)
+    return
+  }
+  send({
+    jsonrpc: '2.0',
+    id,
+    result: { content: [{ type: 'text', text: \`Tool desconhecida: \${toolName}\` }], isError: true },
+  })
 }
 
 const rl = createInterface({ input: process.stdin })
@@ -89,7 +156,7 @@ rl.on('line', (line) => {
   }
   if (method === 'notifications/initialized') return
   if (method === 'tools/list') {
-    send({ jsonrpc: '2.0', id, result: { tools: [TOOL_SCHEMA] } })
+    send({ jsonrpc: '2.0', id, result: { tools: listTools() } })
     return
   }
   if (method === 'tools/call') {
@@ -109,7 +176,7 @@ function resolveScriptDir(): string {
   return dir
 }
 
-/** Escreve o script do MCP interno (idempotente) — mesmo padrão de `mcp-secrets.ts:ensureWrapperScript`. */
+/** Escreve o script do MCP interno (idempotente). */
 export function ensureSubagentMcpServerScript(): string {
   const path = join(resolveScriptDir(), 'subagent-mcp-server.mjs')
   if (!existsSync(path) || readFileSync(path, 'utf-8') !== SCRIPT_SOURCE) {
@@ -118,12 +185,40 @@ export function ensureSubagentMcpServerScript(): string {
   return path
 }
 
-/** `ResolvedMcpDef` do MCP interno, apontando pro servidor de delegação loopback deste turno. */
-export function buildSubagentMcpDef(port: number, token: string): ResolvedMcpDef {
+export interface EngrenaCodeMcpDefOptions {
+  skillsSnapshotPath?: string
+  port?: number
+  token?: string
+}
+
+/**
+ * `ResolvedMcpDef` do MCP interno `engrenacode`.
+ * Exige ao menos skills snapshot **ou** par port/token de delegação.
+ */
+export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): ResolvedMcpDef {
+  const hasSkills = typeof opts.skillsSnapshotPath === 'string' && opts.skillsSnapshotPath.length > 0
+  const hasDelegate = opts.port !== undefined && typeof opts.token === 'string' && opts.token.length > 0
+  if (!hasSkills && !hasDelegate) {
+    throw new Error('buildEngrenaCodeMcpDef: informe skillsSnapshotPath e/ou port+token')
+  }
+
+  const args = [ensureSubagentMcpServerScript()]
+  if (hasSkills) {
+    args.push('--skills-snapshot', opts.skillsSnapshotPath as string)
+  }
+  if (hasDelegate) {
+    args.push('--port', String(opts.port), '--token', opts.token as string)
+  }
+
   return {
     name: SUBAGENT_MCP_NAME,
     transport: 'stdio',
     command: process.execPath,
-    args: [ensureSubagentMcpServerScript(), '--port', String(port), '--token', token],
+    args,
   }
+}
+
+/** Compat F11: só call_subagent. */
+export function buildSubagentMcpDef(port: number, token: string): ResolvedMcpDef {
+  return buildEngrenaCodeMcpDef({ port, token })
 }
