@@ -68,17 +68,67 @@ function clearTokens(mcpId: string): void {
   vaultService.deleteSecret(tokenVaultKey(mcpId))
 }
 
+function requireHttpsUrl(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value) {
+    throw new McpOauthError('oauth_metadata_unavailable', `Metadata OAuth inválida: ${field}.`)
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new McpOauthError('oauth_metadata_unavailable', `Metadata OAuth inválida: ${field}.`)
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new McpOauthError(
+      'oauth_metadata_unavailable',
+      `Endpoint OAuth deve usar https (${field}).`
+    )
+  }
+  return value
+}
+
+/** Valida endpoints OAuth descobertos — só https, para não contornar a allowlist do IPC. */
+export function parseOauthMetadata(raw: unknown): OauthMetadata {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new McpOauthError('oauth_metadata_unavailable', 'Metadata OAuth incompleta.')
+  }
+  const obj = raw as Record<string, unknown>
+  const metadata: OauthMetadata = {
+    authorization_endpoint: requireHttpsUrl(obj.authorization_endpoint, 'authorization_endpoint'),
+    token_endpoint: requireHttpsUrl(obj.token_endpoint, 'token_endpoint'),
+  }
+  if (obj.registration_endpoint !== undefined && obj.registration_endpoint !== null) {
+    metadata.registration_endpoint = requireHttpsUrl(
+      obj.registration_endpoint,
+      'registration_endpoint'
+    )
+  }
+  return metadata
+}
+
+function parseTokenResponse(data: unknown): OauthTokens {
+  if (typeof data !== 'object' || data === null) {
+    throw new McpOauthError('oauth_token_exchange_failed', 'Resposta de token OAuth inválida.')
+  }
+  const obj = data as Record<string, unknown>
+  if (typeof obj.access_token !== 'string' || !obj.access_token) {
+    throw new McpOauthError('oauth_token_exchange_failed', 'Resposta de token OAuth inválida.')
+  }
+  return {
+    accessToken: obj.access_token,
+    refreshToken: typeof obj.refresh_token === 'string' ? obj.refresh_token : undefined,
+    expiresAt: typeof obj.expires_in === 'number' ? Date.now() + obj.expires_in * 1000 : undefined,
+    tokenType: typeof obj.token_type === 'string' ? obj.token_type : 'Bearer',
+  }
+}
+
 async function discoverMetadata(remoteUrl: string): Promise<OauthMetadata> {
   const origin = new URL(remoteUrl).origin
   const res = await fetch(`${origin}/.well-known/oauth-authorization-server`).catch(() => null)
   if (!res || !res.ok) {
     throw new McpOauthError('oauth_metadata_unavailable', 'Não foi possível descobrir o servidor de autorização OAuth.')
   }
-  const metadata = (await res.json()) as OauthMetadata
-  if (!metadata.authorization_endpoint || !metadata.token_endpoint) {
-    throw new McpOauthError('oauth_metadata_unavailable', 'Metadata OAuth incompleta.')
-  }
-  return metadata
+  return parseOauthMetadata(await res.json())
 }
 
 async function registerClient(metadata: OauthMetadata, redirectUri: string): Promise<string | null> {
@@ -148,19 +198,7 @@ async function exchangeCode(metadata: OauthMetadata, params: {
     throw new McpOauthError('oauth_token_exchange_failed', 'Falha ao trocar o código de autorização por token.')
   }
 
-  const data = (await res.json()) as {
-    access_token: string
-    refresh_token?: string
-    expires_in?: number
-    token_type?: string
-  }
-
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
-    tokenType: data.token_type ?? 'Bearer',
-  }
+  return parseTokenResponse(await res.json())
 }
 
 function closeFlow(state: string): void {
@@ -296,13 +334,8 @@ export async function getValidAccessToken(mcpId: string): Promise<string | undef
       }).toString(),
     })
     if (!res.ok) throw new Error('refresh_failed')
-    const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in?: number; token_type?: string }
-    const refreshed: OauthTokens = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token ?? tokens.refreshToken,
-      expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
-      tokenType: data.token_type ?? 'Bearer',
-    }
+    const refreshed = parseTokenResponse(await res.json())
+    if (!refreshed.refreshToken) refreshed.refreshToken = tokens.refreshToken
     saveTokens(mcpId, refreshed)
     return refreshed.accessToken
   } catch {
