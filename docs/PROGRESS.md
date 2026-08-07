@@ -3,7 +3,7 @@
 Fonte de verdade operacional do que está **feito neste repo** (`main`), versus o PRD e o plano Reversa (`_reversa_forward`). Atualizar ao fechar cada feature (spec + smoke + merge).
 
 **Atualizado:** 2026-08-07  
-**HEAD de referência:** Auditoria PRD §9 **ENCERRADA** (2026-08-07) — Versão 1.2 + residuais + copy fechados; 103/103 ACs. PRD estendido no mesmo dia com Versão 1.3 (F18–F27, backlog aberto, 0/51 ACs) via `/prd-writer`.
+**HEAD de referência:** Auditoria PRD §9 **ENCERRADA** (2026-08-07) — Versão 1.2 + residuais + copy fechados; 104/104 ACs (inclui `vault_corrupted` fechado no Lote 1 de revisão). PRD estendido no mesmo dia com Versão 1.3 (F18–F27, backlog aberto, 0/51 ACs) via `/prd-writer`.
 
 ---
 
@@ -11,7 +11,7 @@ Fonte de verdade operacional do que está **feito neste repo** (`main`), versus 
 
 | # | Feature | Status | Evidência neste repo | Próximo passo |
 |---|---------|--------|----------------------|---------------|
-| F01 | Vault e Sessão Local | **Feito** | Branch `f01-vault-e-sessao-local` → merge; `LoginScreen`, vault, session middleware, IPC `engrenacode` | Manter estável |
+| F01 | Vault e Sessão Local | **Feito** | `LoginScreen`, vault AES-GCM + scrypt, `guard()` 423/401 nos handlers HTTP, IPC `engrenacode`; `vault_corrupted`→422 + smoke UI (`docs/F01-vault-e-sessao-local/smoke-results.md`, 2026-08-07); §9 F01 `[x]` no PRD | Manter estável |
 | F01.1 | Design System | **Feito** | Branch `f01.1-design-system` → merge; tokens CSS, `useTheme`, splash `#0a0a0b` | Consumido por telas novas |
 | F02 | Configuração MVP | **Feito** | Commit `eaa9a0c`; `#configuracao`; `docs/F02-*/smoke-results.md` (2026-08-03) | Alimenta F03/F04 |
 | F03 | Workspace | **Feito** | 5 commits `feat(F03)`/`test(F03)` (persistência, dispatch/lease/WS hub, diffs por arquivo + git, UI `#principal`); 197 testes verdes; `pnpm build`/`tsc -b`/electron-builder verdes; smoke real 7.2 via Electron+Playwright (`docs/F03-workspace/smoke-results.md`, 2026-08-05) confirmou unlock→pasta→dispatch real→diff→accept→commit local, light/dark, Repo Harness com vínculos reais F05–F07; §9 F03 `[x]` no PRD | `call_subagent` real (F15) e push/PR real (F14) confirmados posteriormente ao vivo — ver linhas F14/F15; manter estável |

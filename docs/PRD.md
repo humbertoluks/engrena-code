@@ -1214,6 +1214,7 @@ graph TD
 - [x] Senha inválida mostra mensagem genérica e não revela qual campo falhou
 - [x] Após 5 falhas, botão fica bloqueado com backoff visível (até 60s)
 - [x] Cofre travado bloqueia APIs protegidas (401/423) e devolve ao gate
+- [x] Envelope danificado devolve 422 `vault_corrupted` e a UI mostra “O cofre local está danificado ou ilegível…”
 
 ### F01.1 Design System
 - [x] Tokens CSS `:root` / `.dark` cobrem bg, surface, surface-2, border, fg, muted, accent, accent-2, green, amber, red com os hexes light/dark da tabela mestra (accent `#ff6b00` e accent-2 `#ff8c2e` idênticos nos dois modos)
