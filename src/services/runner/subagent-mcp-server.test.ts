@@ -38,6 +38,28 @@ function startFakeDelegateServer(handler: (body: unknown) => { text: string; isE
   })
 }
 
+function startFakeAskServer(
+  handler: (body: unknown) => { content: Array<{ type: string; text: string }>; isError?: boolean }
+): Promise<{ port: number; token: string; close: () => void }> {
+  const token = 'test-ask-token-123'
+  const server = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (chunk: Buffer) => (raw += chunk.toString()))
+    req.on('end', () => {
+      const result = handler(JSON.parse(raw))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(result))
+    })
+  })
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      resolve({ port, token, close: () => server.close() })
+    })
+  })
+}
+
 async function withMcpProcess<T>(
   args: string[],
   fn: (send: (msg: unknown) => void, nextResponse: () => Promise<Record<string, unknown>>) => Promise<T>
@@ -266,6 +288,44 @@ describe('engrenacode MCP (call_subagent + load_skill)', () => {
       expect(result.content[0]?.text).toContain('Definition: Foo')
       expect(result.content[0]?.text).toContain('src/foo.ts:1')
     })
+  }, 15000)
+
+  it('test_mcp_tools_listed_with_flag lists and calls ask_user_question (F21)', async () => {
+    const ask = await startFakeAskServer((body) => {
+      const req = body as { prompt: string; options?: string[] }
+      expect(req.prompt).toBe('Qual estratégia usar?')
+      expect(req.options).toEqual(['Big bang', 'Incremental'])
+      return { content: [{ type: 'text', text: 'Incremental' }], isError: false }
+    })
+
+    try {
+      const def = buildEngrenaCodeMcpDef({ askPort: ask.port, askToken: ask.token })
+      const scriptArgs = def.args?.slice(1) ?? []
+      await withMcpProcess(scriptArgs, async (send, nextResponse) => {
+        send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+        await nextResponse()
+        send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+        const listResult = await nextResponse()
+        const names = (listResult.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name)
+        expect(names).toEqual(['ask_user_question'])
+
+        send({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: {
+            name: 'ask_user_question',
+            arguments: { prompt: 'Qual estratégia usar?', options: ['Big bang', 'Incremental'] },
+          },
+        })
+        const callResult = await nextResponse()
+        const result = callResult.result as { content: Array<{ text: string }>; isError: boolean }
+        expect(result.isError).toBe(false)
+        expect(result.content[0]?.text).toBe('Incremental')
+      })
+    } finally {
+      ask.close()
+    }
   }, 15000)
 
   it('sets ELECTRON_RUN_AS_NODE=1 so the real Electron main process spawns the script as plain Node (F15)', () => {

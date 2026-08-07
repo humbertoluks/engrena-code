@@ -10,13 +10,15 @@ export const LOAD_SKILL_MCP_TOOL_NAME = 'load_skill'
 export const REPO_GRAPH_FIND_DEFINITION = 'repo_graph_find_definition'
 export const REPO_GRAPH_FIND_REFERENCES = 'repo_graph_find_references'
 export const REPO_GRAPH_MODULE_DEPS = 'repo_graph_module_deps'
+export const ASK_USER_QUESTION_MCP_TOOL_NAME = 'ask_user_question'
 
 /**
- * Servidor MCP stdio mínimo (F11/F12/F19) — handshake newline-delimited JSON-RPC.
+ * Servidor MCP stdio mínimo (F11/F12/F19/F21) — handshake newline-delimited JSON-RPC.
  * Tools conforme flags:
  * - `--skills-snapshot <path>` → `load_skill`
  * - `--port` + `--token` → `call_subagent`
  * - `--codegraph-index <path>` → `repo_graph_*`
+ * - `--ask-port` + `--ask-token` → `ask_user_question`
  */
 const SCRIPT_SOURCE = `#!/usr/bin/env node
 import { createInterface } from 'node:readline'
@@ -31,6 +33,8 @@ const port = flag('port')
 const token = flag('token')
 const skillsSnapshotPath = flag('skills-snapshot')
 const codegraphIndexPath = flag('codegraph-index')
+const askPort = flag('ask-port')
+const askToken = flag('ask-token')
 
 const CALL_SUBAGENT_SCHEMA = {
   name: 'call_subagent',
@@ -96,6 +100,20 @@ const MODULE_DEPS_SCHEMA = {
   },
 }
 
+const ASK_USER_QUESTION_SCHEMA = {
+  name: 'ask_user_question',
+  description: 'Pausa o turno e pede ao usuário uma decisão estruturada (até 4 opções, mais texto livre).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      prompt: { type: 'string', description: 'Pergunta a exibir ao usuário' },
+      options: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'Opções de múltipla escolha' },
+      multiSelect: { type: 'boolean', description: 'Permite selecionar mais de uma opção (default false)' },
+    },
+    required: ['prompt'],
+  },
+}
+
 function listTools() {
   const tools = []
   if (skillsSnapshotPath) tools.push(LOAD_SKILL_SCHEMA)
@@ -103,6 +121,7 @@ function listTools() {
   if (codegraphIndexPath) {
     tools.push(FIND_DEF_SCHEMA, FIND_REFS_SCHEMA, MODULE_DEPS_SCHEMA)
   }
+  if (askPort && askToken) tools.push(ASK_USER_QUESTION_SCHEMA)
   return tools
 }
 
@@ -241,6 +260,26 @@ async function handleCallSubagent(id, params) {
   }
 }
 
+async function handleAskUserQuestion(id, params) {
+  const args = (params && params.arguments) || {}
+  try {
+    const res = await fetch(\`http://127.0.0.1:\${askPort}/ask\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ask-token': askToken },
+      body: JSON.stringify({ prompt: args.prompt, options: args.options, multiSelect: args.multiSelect }),
+    })
+    const body = await res.json()
+    send({ jsonrpc: '2.0', id, result: { content: body.content, isError: Boolean(body.isError) } })
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err)
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: \`Falha ao perguntar ao usuário: \${message}\` }], isError: true },
+    })
+  }
+}
+
 async function handleToolsCall(id, params) {
   const toolName = params && params.name
   if (toolName === 'load_skill') {
@@ -257,6 +296,10 @@ async function handleToolsCall(id, params) {
     toolName === 'repo_graph_module_deps'
   ) {
     handleCodegraphTool(id, toolName, params)
+    return
+  }
+  if (toolName === 'ask_user_question') {
+    await handleAskUserQuestion(id, params)
     return
   }
   send({
@@ -328,18 +371,23 @@ export interface EngrenaCodeMcpDefOptions {
   port?: number
   token?: string
   codegraphIndexPath?: string
+  askPort?: number
+  askToken?: string
 }
 
 /**
  * `ResolvedMcpDef` do MCP interno `engrenacode`.
- * Exige ao menos skills snapshot, port/token de delegação, ou índice CodeGraph.
+ * Exige ao menos skills snapshot, port/token de delegação, índice CodeGraph, ou port/token de ask_user_question.
  */
 export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): ResolvedMcpDef {
   const hasSkills = typeof opts.skillsSnapshotPath === 'string' && opts.skillsSnapshotPath.length > 0
   const hasDelegate = opts.port !== undefined && typeof opts.token === 'string' && opts.token.length > 0
   const hasCodegraph = typeof opts.codegraphIndexPath === 'string' && opts.codegraphIndexPath.length > 0
-  if (!hasSkills && !hasDelegate && !hasCodegraph) {
-    throw new Error('buildEngrenaCodeMcpDef: informe skillsSnapshotPath, port+token e/ou codegraphIndexPath')
+  const hasAsk = opts.askPort !== undefined && typeof opts.askToken === 'string' && opts.askToken.length > 0
+  if (!hasSkills && !hasDelegate && !hasCodegraph && !hasAsk) {
+    throw new Error(
+      'buildEngrenaCodeMcpDef: informe skillsSnapshotPath, port+token, codegraphIndexPath e/ou askPort+askToken'
+    )
   }
 
   const args = [ensureSubagentMcpServerScript()]
@@ -351,6 +399,9 @@ export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): Resolved
   }
   if (hasCodegraph) {
     args.push('--codegraph-index', opts.codegraphIndexPath as string)
+  }
+  if (hasAsk) {
+    args.push('--ask-port', String(opts.askPort), '--ask-token', opts.askToken as string)
   }
 
   return {
