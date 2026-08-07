@@ -8,6 +8,7 @@ import { canDelegateSubagent, type ParentAccessLevel, type ParentProvider } from
 import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './provider-resolution.js'
 import { emit } from './ws-hub.js'
+import { resolveThreadCwd } from './thread-cwd.js'
 import {
   runCliTurn as defaultRunCliTurn,
   ProviderError,
@@ -157,10 +158,6 @@ export interface DelegationResult {
   isError?: boolean
 }
 
-function resolveChildCwd(parentThread: Thread, project: Project): string {
-  return parentThread.executionMode === 'worktree' && parentThread.worktreePath ? parentThread.worktreePath : project.path
-}
-
 function resolveChildProvider(subagent: Subagent, parentProvider: ThreadProvider): ThreadProvider {
   return subagent.provider === 'inherit' ? parentProvider : subagent.provider
 }
@@ -194,7 +191,7 @@ export async function runDelegatedSubagentTurn(
 
   const provider = resolveChildProvider(subagent, ctx.parentThread.provider)
   const model = subagent.model
-  const cwd = resolveChildCwd(ctx.parentThread, ctx.project)
+  const cwd = resolveThreadCwd(ctx.parentThread, ctx.project)
 
   const run = startDelegatedRun(ctx.repo, {
     parentThreadId: ctx.parentThread.id,

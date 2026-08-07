@@ -16,6 +16,8 @@ import { createLogEntry } from '../db/repositories/log-entries.js'
 import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './provider-resolution.js'
 import { diffWorkingTree } from '../git/git-client.js'
+import { createWorktree, WorktreeError } from '../git/worktree.js'
+import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
 import { createSkillSnapshot, writeSkillSnapshotFile, LOAD_SKILL_TOOL_NAME, type SkillSnapshot } from './skill-registry.js'
@@ -147,7 +149,7 @@ function buildSystemPrompt(project: Project, skillSnapshot: SkillSnapshot): stri
   return parts.join('\n\n')
 }
 
-export function dispatchNewThread(input: DispatchNewThreadInput): Thread {
+export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<Thread> {
   const project = getProject(input.projectId)
   if (project === null) throw new DispatchValidationError('project_not_found', 'Projeto não encontrado.')
 
@@ -166,6 +168,20 @@ export function dispatchNewThread(input: DispatchNewThreadInput): Thread {
   } catch (err) {
     releaseLease(project.id)
     throw err
+  }
+
+  // Worktree criada + persistida antes do turno (spec F13 §3.2) — falha nunca deixa o turno
+  // rodar em `project.path` por engano; thread fica `error` e o dispatch inteiro rejeita.
+  if (input.executionMode === 'worktree') {
+    try {
+      const worktreePath = await createWorktree(project.path, project.id, thread.id)
+      thread = updateThread(thread.id, { worktreePath }) as Thread
+    } catch (err) {
+      releaseLease(project.id)
+      updateThread(thread.id, { state: 'error' })
+      if (err instanceof WorktreeError) throw new DispatchValidationError(err.code, err.message)
+      throw err
+    }
   }
 
   void runTurn(project, thread, input.prompt)
@@ -209,7 +225,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
 
     const skillSnapshot = createSkillSnapshot(project.id)
     const systemPrompt = buildSystemPrompt(project, skillSnapshot)
-    const cwd = thread.executionMode === 'worktree' && thread.worktreePath ? thread.worktreePath : project.path
+    const cwd = resolveThreadCwd(thread, project)
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)
     const mcpsPrepared =

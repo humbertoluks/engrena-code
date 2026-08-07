@@ -8,7 +8,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { getDb, closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
-const { getThread } = await import('../db/repositories/threads.js')
+const { getThread, listThreadsForProject } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { listToolCallsForThread } = await import('../db/repositories/messages.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
@@ -98,7 +98,7 @@ describe('dispatchNewThread', () => {
     const project = createProject({ path: dir })
     setRunCliTurnForTesting(async () => ({ text: 'ok' }))
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -116,7 +116,7 @@ describe('dispatchNewThread', () => {
     const project = createProject({ path: dir })
     setRunCliTurnForTesting(async () => ({ text: 'ok' }))
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -135,7 +135,7 @@ describe('dispatchNewThread', () => {
     const project = createProject({ path: dir })
     setRunCliTurnForTesting(() => new Promise(() => {}))
 
-    dispatchNewThread({
+    void dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -143,7 +143,7 @@ describe('dispatchNewThread', () => {
       executionMode: 'main',
     })
 
-    expect(() =>
+    await expect(
       dispatchNewThread({
         projectId: project.id,
         prompt: 'outra',
@@ -151,7 +151,7 @@ describe('dispatchNewThread', () => {
         accessLevel: 'supervised',
         executionMode: 'main',
       })
-    ).toThrow(LeaseBusyError)
+    ).rejects.toThrow(LeaseBusyError)
 
     clearAllLeases()
     rmSync(dir, { recursive: true, force: true })
@@ -168,7 +168,7 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -204,7 +204,7 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -231,7 +231,7 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -262,7 +262,10 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    // dispatchNewThread é async agora (worktree awaited antes do turno — F13), mas para
+    // executionMode=main ainda não tem nenhum await até `void runTurn(...)`: chamar sem
+    // `await` mantém o mesmo timing síncrono de antes (thread já existe no retorno da chamada).
+    const dispatchPromise = dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'minimax',
@@ -270,10 +273,12 @@ describe('dispatchNewThread', () => {
       executionMode: 'main',
     })
 
+    const [thread] = listThreadsForProject(project.id)
     const received: unknown[] = []
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
+    await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
 
     expect(capturedMcpServers?.some((m) => m.name === 'engrenacode')).toBeFalsy()
@@ -297,7 +302,7 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -319,7 +324,7 @@ describe('dispatchNewThread', () => {
 
     setRunCliTurnForTesting(async () => ({ text: 'ok' }))
 
-    const thread = dispatchNewThread({
+    const dispatchPromise = dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -327,10 +332,12 @@ describe('dispatchNewThread', () => {
       executionMode: 'main',
     })
 
+    const [thread] = listThreadsForProject(project.id)
     const received: unknown[] = []
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
+    await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
     const notice = received.find((e) => (e as { type: string }).type === 'mcp.notice') as
       | { mcpName: string; reason: string; message: string }
@@ -351,7 +358,7 @@ describe('dispatchNewThread', () => {
       return { text: 'ok' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'lê o arquivo',
       provider: 'claude',
@@ -376,7 +383,7 @@ describe('dispatchNewThread', () => {
       return { text: 'feito' }
     })
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'crie um arquivo',
       provider: 'claude',
@@ -389,6 +396,88 @@ describe('dispatchNewThread', () => {
     expect(diffs).toHaveLength(1)
     expect(diffs[0].file).toBe('novo-arquivo.txt')
     expect(diffs[0].status).toBe('pending')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('dispatchNewThread worktree mode (F13)', () => {
+  it('creates the worktree, persists worktreePath, and runs the turn with cwd=worktreePath', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedCwd: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedCwd = input.cwd
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'worktree',
+    })
+
+    expect(thread.worktreePath).toBeTruthy()
+    expect(thread.worktreePath).not.toBe(project.path)
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(capturedCwd).toBe(thread.worktreePath)
+    expect(getThread(thread.id)?.worktreePath).toBe(thread.worktreePath)
+
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(thread.worktreePath as string, { recursive: true, force: true })
+  })
+
+  it('rejects with worktree_git_required and never spawns the turn when the project has no git HEAD', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_dispatch_nogit_'))
+    const project = createProject({ path: dir })
+
+    let cliCalled = false
+    setRunCliTurnForTesting(async () => {
+      cliCalled = true
+      return { text: 'nao deveria rodar' }
+    })
+
+    await expect(
+      dispatchNewThread({
+        projectId: project.id,
+        prompt: 'oi',
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'worktree',
+      })
+    ).rejects.toMatchObject({ code: 'worktree_git_required' })
+
+    expect(cliCalled).toBe(false)
+    expect(isLeased(project.id)).toBe(false)
+    const [thread] = listThreadsForProject(project.id)
+    expect(thread.state).toBe('error')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('skips worktree creation and keeps cwd=project.path for executionMode=main', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedCwd: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedCwd = input.cwd
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(thread.worktreePath).toBeNull()
+    expect(capturedCwd).toBe(project.path)
     rmSync(dir, { recursive: true, force: true })
   })
 })
@@ -406,7 +495,7 @@ describe('dispatchFollowUp', () => {
     const project = createProject({ path: dir })
     setRunCliTurnForTesting(async () => ({ text: 'primeira resposta' }))
 
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -446,7 +535,7 @@ describe('resolveProviderApiKey (via dispatchNewThread turnInput.apiKey)', () =>
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -469,7 +558,7 @@ describe('resolveProviderApiKey (via dispatchNewThread turnInput.apiKey)', () =>
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -491,7 +580,7 @@ describe('resolveProviderApiKey (via dispatchNewThread turnInput.apiKey)', () =>
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'minimax',
@@ -521,7 +610,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -549,7 +638,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'codex',
@@ -581,7 +670,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'codex',
@@ -602,7 +691,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -625,7 +714,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
@@ -650,7 +739,7 @@ describe('usage_events write path (F11)', () => {
 
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId: project.id,
       prompt: 'oi',
       provider: 'minimax',
