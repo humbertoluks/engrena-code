@@ -118,7 +118,7 @@ async function handleCatalogOrder(req: IncomingMessage, res: ServerResponse, pro
 const SKILL_ID_RE = /^\/api\/skills\/([^/]+)$/
 const PROJECT_SKILLS_RE = /^\/api\/projects\/([^/]+)\/skills$/
 const PROJECT_SKILL_LINK_RE = /^\/api\/projects\/([^/]+)\/skills\/([^/]+)$/
-const PROJECT_CATALOG_ORDER_RE = /^\/api\/projects\/([^/]+)\/catalog-order$/
+const PROJECT_SKILLS_CATALOG_ORDER_RE = /^\/api\/projects\/([^/]+)\/skills\/catalog-order$/
 
 export async function handleSkillsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const pathname = (req.url ?? '').split('?')[0]
@@ -129,7 +129,7 @@ export async function handleSkillsRequest(req: IncomingMessage, res: ServerRespo
     pathname.startsWith('/api/projects/') &&
     !PROJECT_SKILLS_RE.test(pathname) &&
     !PROJECT_SKILL_LINK_RE.test(pathname) &&
-    !PROJECT_CATALOG_ORDER_RE.test(pathname)
+    !PROJECT_SKILLS_CATALOG_ORDER_RE.test(pathname)
   ) {
     return false
   }
@@ -162,7 +162,7 @@ export async function handleSkillsRequest(req: IncomingMessage, res: ServerRespo
       }
     }
 
-    match = pathname.match(PROJECT_CATALOG_ORDER_RE)
+    match = pathname.match(PROJECT_SKILLS_CATALOG_ORDER_RE)
     if (match && method === 'PUT') {
       const [, projectId] = match
       await handleCatalogOrder(req, res, projectId)

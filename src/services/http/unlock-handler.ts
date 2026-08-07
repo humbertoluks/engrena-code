@@ -234,7 +234,8 @@ export function createUnlockServer(port: number = 5174): http.Server {
     if (
       req.url?.startsWith('/api/subagents') ||
       (req.url?.startsWith('/api/projects/') &&
-        (req.url.includes('/subagents') || req.url.endsWith('/catalog-order')))
+        (req.url.includes('/subagents') ||
+          (req.url.endsWith('/catalog-order') && !req.url.includes('/skills/'))))
     ) {
       const handled = await handleSubagentsRequest(req, res)
       if (handled) return

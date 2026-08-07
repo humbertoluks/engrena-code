@@ -61,3 +61,10 @@ export function isValidReasoningLevel(provider: ThreadProvider, level: string): 
 export function isMultimodal(provider: ThreadProvider): boolean {
   return PROVIDER_CATALOG[provider].multimodal
 }
+
+export function isValidProvider(value: string): value is ThreadProvider {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_CATALOG, value)
+}
+
+export const THREAD_PROVIDERS = Object.keys(PROVIDER_CATALOG) as ThreadProvider[]
+
