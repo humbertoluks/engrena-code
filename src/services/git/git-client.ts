@@ -19,6 +19,18 @@ async function git(cwd: string, args: string[]): Promise<{ stdout: string; stder
   return execFileAsync('git', args, { cwd, timeout: 15000 })
 }
 
+/** Cauda do stderr de um erro de `execFile` (populado pelo Node em falhas de processo) — cai para `err.message` se ausente. */
+function stderrTail(err: unknown, max = 300): string {
+  const raw =
+    err && typeof err === 'object' && 'stderr' in err && typeof (err as { stderr?: unknown }).stderr === 'string'
+      ? ((err as { stderr: string }).stderr as string)
+      : err instanceof Error
+        ? err.message
+        : String(err)
+  const trimmed = raw.trim()
+  return trimmed.length > max ? trimmed.slice(-max) : trimmed
+}
+
 export async function isGitRepo(cwd: string): Promise<boolean> {
   try {
     await git(cwd, ['rev-parse', '--is-inside-work-tree'])
@@ -132,9 +144,24 @@ export async function gitPush(cwd: string, token?: string | null): Promise<{ bra
       await git(cwd, ['push', '-u', 'origin', branch])
     }
   } catch (err) {
-    throw new GitError('git_push_failed', 'Não foi possível fazer push das alterações.')
+    throw new GitError('git_push_failed', `Não foi possível fazer push das alterações: ${stderrTail(err)}`)
   }
   return { branch }
+}
+
+/** `git worktree add -b <branch> <path> HEAD` — cria a árvore isolada a partir do HEAD do repo principal. */
+export async function gitWorktreeAdd(repoPath: string, worktreePath: string, branch: string): Promise<void> {
+  await git(repoPath, ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'])
+}
+
+/** Remove a worktree do disco e da lista administrativa do git. Falha (ex.: alterações locais) propaga para o chamador decidir retenção. */
+export async function gitWorktreeRemove(repoPath: string, worktreePath: string): Promise<void> {
+  await git(repoPath, ['worktree', 'remove', worktreePath])
+}
+
+/** Delete forçado (`-D`) — a branch de worktree é descartável por design (spec F13), não passa por merge. */
+export async function gitBranchForceDelete(repoPath: string, branch: string): Promise<void> {
+  await git(repoPath, ['branch', '-D', branch])
 }
 
 export async function getRemoteOriginUrl(cwd: string): Promise<string | null> {
@@ -195,6 +222,15 @@ function githubAuthHeaders(token: string): Record<string, string> {
   return { Authorization: `token ${token}`, Accept: 'application/vnd.github+json' }
 }
 
+/** Resumo acionável de um erro da REST API do GitHub — usa `message` do payload de erro quando presente. */
+function githubErrorSummary(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    if (typeof data?.message === 'string' && data.message.trim()) return data.message.trim()
+  }
+  return err instanceof Error ? err.message : String(err)
+}
+
 export async function createPullRequest(cwd: string, token: string, input: CreatePullRequestInput): Promise<PullRequestResult> {
   const remoteUrl = await getRemoteOriginUrl(cwd)
   if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
@@ -212,8 +248,8 @@ export async function createPullRequest(cwd: string, token: string, input: Creat
         { headers: githubAuthHeaders(token) }
       )
       base = repoInfo.data.default_branch
-    } catch {
-      throw new GitError('pr_create_failed', 'Falha ao abrir o PR.')
+    } catch (err) {
+      throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${githubErrorSummary(err)}`)
     }
   }
 
@@ -238,7 +274,7 @@ export async function createPullRequest(cwd: string, token: string, input: Creat
         // segue para o erro genérico abaixo
       }
     }
-    throw new GitError('pr_create_failed', 'Falha ao abrir o PR.')
+    throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${githubErrorSummary(err)}`)
   }
 }
 

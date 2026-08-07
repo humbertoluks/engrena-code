@@ -4,6 +4,7 @@ import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import { createPullRequest, gitCommit, gitPush, GitError } from '../git/git-client.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
+import { resolveThreadCwd } from '../runner/thread-cwd.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
@@ -64,6 +65,15 @@ function threadBusyDetails(err: LeaseBusyError): object {
   }
 }
 
+/** Bloqueio explícito por estado da thread (spec F14 §3.2) — além da lease de projeto, cobre o caso de UI mostrando ação disponível fora de sync. */
+function checkThreadBusy(res: ServerResponse, thread: Thread): boolean {
+  if (thread.state === 'running' || thread.state === 'stopping') {
+    sendError(res, 409, 'thread_busy', 'Ação de git em andamento ou thread em execução.')
+    return true
+  }
+  return false
+}
+
 interface Resolved {
   thread: Thread
   project: Project
@@ -101,6 +111,7 @@ interface GitCommitBody {
 async function handleGitCommit(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const resolved = resolveThreadProject(threadId)
   if ('error' in resolved) return sendError(res, 404, resolved.error, 'Não encontrado.')
+  if (checkThreadBusy(res, resolved.thread)) return
 
   const data = parseBody<GitCommitBody>(await readBody(req))
   if (data === null || typeof data.subject !== 'string' || data.subject.trim() === '') {
@@ -109,7 +120,7 @@ async function handleGitCommit(req: IncomingMessage, res: ServerResponse, thread
 
   await withGitLease(res, resolved.project, threadId, 'git-commit', async () => {
     try {
-      const result = await gitCommit(resolved.project.path, data.subject as string, data.body)
+      const result = await gitCommit(resolveThreadCwd(resolved.thread, resolved.project), data.subject as string, data.body)
       createLogEntry({
         threadId,
         kind: 'git',
@@ -126,11 +137,16 @@ async function handleGitCommit(req: IncomingMessage, res: ServerResponse, thread
 async function handleGitPush(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const resolved = resolveThreadProject(threadId)
   if ('error' in resolved) return sendError(res, 404, resolved.error, 'Não encontrado.')
+  if (checkThreadBusy(res, resolved.thread)) return
+
+  const token = vaultService.getSecret('github:token')
+  if (!token) {
+    return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de fazer push.')
+  }
 
   await withGitLease(res, resolved.project, threadId, 'git-push', async () => {
     try {
-      const token = vaultService.getSecret('github:token')
-      const result = await gitPush(resolved.project.path, token ?? null)
+      const result = await gitPush(resolveThreadCwd(resolved.thread, resolved.project), token)
       createLogEntry({ threadId, kind: 'git', event: `Push da branch '${result.branch}' para origin.` })
       sendJson(res, 200, result)
     } catch (err) {
@@ -141,13 +157,21 @@ async function handleGitPush(_req: IncomingMessage, res: ServerResponse, threadI
 }
 
 interface PrBody {
+  title?: string
+  body?: string
   branch?: string
   allowHostOverride?: boolean
+}
+
+/** Fallback do PRD (§6 Capacidades) quando textgen falhou ou o campo ficou vazio. */
+function fallbackPrTitle(thread: Thread): string {
+  return `EngrenaCode: ${thread.title ?? thread.id}`
 }
 
 async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const resolved = resolveThreadProject(threadId)
   if ('error' in resolved) return sendError(res, 404, resolved.error, 'Não encontrado.')
+  if (checkThreadBusy(res, resolved.thread)) return
 
   const data = parseBody<PrBody>(await readBody(req))
   if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
@@ -157,11 +181,15 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
     return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de abrir PRs.')
   }
 
+  const title = typeof data.title === 'string' && data.title.trim() !== '' ? data.title.trim() : fallbackPrTitle(resolved.thread)
+  const body = typeof data.body === 'string' && data.body.trim() !== '' ? data.body : undefined
+
   await withGitLease(res, resolved.project, threadId, 'pr', async () => {
     try {
-      const result = await createPullRequest(resolved.project.path, token, {
+      const result = await createPullRequest(resolveThreadCwd(resolved.thread, resolved.project), token, {
         branch: data.branch,
-        title: `EngrenaCode: ${resolved.thread.title ?? resolved.thread.id}`,
+        title,
+        body,
       })
       createLogEntry({ threadId, kind: 'git', event: `PR aberto: ${result.url}` })
       sendJson(res, 200, result)
