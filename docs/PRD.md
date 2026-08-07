@@ -877,7 +877,7 @@ graph TD
 - [x] Streaming, tool status e histórico persistem; follow-up enfileira com thread ocupada
 - [x] Accept/reject por arquivo; git mutável bloqueado com thread running
 - [x] Segunda execução no mesmo projeto retorna thread_busy
-- [ ] Skills, rules e subagents vinculados participam do turno conforme F05–F07 (rules + load_skill F12 ok; `call_subagent` E2E fica em F15)
+- [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07 (rules + load_skill F12 ok; `call_subagent` E2E confirmado real em F15)
 
 ### F04. Dashboard
 - [x] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
@@ -898,9 +898,9 @@ graph TD
 
 ### F07. SubAgents
 - [x] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
-- [ ] call_subagent cria run efêmero; diffs do filho na revisão do pai (fecha em F15)
+- [x] call_subagent cria run efêmero; diffs do filho na revisão do pai (confirmado real em F15)
 - [x] Codex pai sem full-access não delega
-- [ ] Idle timeout default 20 min encerra run com status visível na UI (fecha em F15)
+- [ ] Idle timeout default 20 min encerra run com status visível na UI — lógica real coberta (`delegate.idle.test.ts`); tom âmbar no código; não exercitado ao vivo em F15 (ver `docs/PROGRESS.md`)
 
 ### F08. Registros
 - [x] Eventos task/tool/git aparecem automaticamente após uso do workspace
@@ -922,7 +922,7 @@ graph TD
 
 ### F11. Consumo
 - [x] Todo turno válido agent/subagent gera usage_event ligado a project/thread/turnId
-- [ ] Drill-down projeto → thread → evento; share subagents > 0 após delegação (share live fecha com F15)
+- [x] Drill-down projeto → thread → evento; share subagents > 0 após delegação (confirmado real em F15 — 55.5%)
 - [x] Claude com custo SDK grava `cost_source=sdk`; demais usam `table` ou null
 - [x] Editar preço preenche só nulls de table; eventos sdk e já precificados intactos
 - [x] Flags parcial/aproximado visíveis; empty e erro de load cobertos
@@ -946,10 +946,10 @@ graph TD
 - [x] Falha de textgen não impede commit manual
 
 ### F15. Runtime de SubAgents
-- [ ] `call_subagent` contra binário real cria run efêmero; resultado volta ao pai
-- [ ] Diffs do filho aparecem na mesma revisão Diff do pai
-- [ ] Idle timeout (default 20 min) encerra run com status `timeout` visível na UI
-- [ ] Delegação real gera usage_event source=subagent com share > 0 em Consumo
+- [x] `call_subagent` contra binário real cria run efêmero; resultado volta ao pai
+- [x] Diffs do filho aparecem na mesma revisão Diff do pai
+- [ ] Idle timeout (default 20 min) encerra run com status `timeout` visível na UI — lógica real coberta (`delegate.idle.test.ts`, tom âmbar no código); não exercitado ao vivo contra o binário nesta rodada (forçar 20+ min de silêncio real não agrega confiança além do teste — ver `docs/PROGRESS.md`)
+- [x] Delegação real gera usage_event source=subagent com share > 0 em Consumo
 
 ### F16. Composer Avançado
 - [ ] Modelo e reasoning editáveis no follow-up; provider permanece imutável após o primeiro envio
@@ -972,13 +972,13 @@ graph TD
 - [x] Prompt global de F02 é injetado nos turnos do Workspace (F03) a partir do próximo turno após salvar
 - [x] Catálogo e content de Skills (F05) fluem para o turno do Workspace via load_skill (F12)
 - [x] Bloco de Rules (F06) resolvido por projeto é injetado em todo turno do Workspace
-- [ ] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão (F15)
+- [x] SubAgents (F07) delegados no Workspace devolvem resultado ao pai e diffs na mesma revisão (F15)
 - [x] Projetos/threads/diffs de F03 alimentam cards e inbox do Dashboard (F04)
 - [x] Contagens de F05/F06/F07 aparecem no resumo de catálogo do Dashboard (F04)
 - [x] Eventos task/tool/git gerados no Workspace (F03) aparecem em Registros (F08) com thread id navegável
 - [x] Secrets/OAuth do vault (F01) + vínculo no Workspace (F03) tornam tools MCP (F09) disponíveis ou omitted com reason
 - [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
-- [ ] usage_events do Workspace (F03) e de SubAgents (F07/F15) agregam corretamente na tela Consumo (F11)
+- [x] usage_events do Workspace (F03) e de SubAgents (F07/F15) agregam corretamente na tela Consumo (F11)
 - [x] Tool `load_skill` (F12) entrega content das skills vinculadas (F05) no dispatch do Workspace (F03)
 - [x] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
 - [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
