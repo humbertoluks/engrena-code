@@ -48,7 +48,10 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
   const [error, setError] = useState<string | null>(null)
   const [lastPrUrl, setLastPrUrl] = useState<string | null>(null)
 
-  const threadBusy = selectedThread?.state === 'running' || selectedThread?.state === 'stopping'
+  const threadBusy =
+    selectedThread?.state === 'running' ||
+    selectedThread?.state === 'stopping' ||
+    selectedThread?.state === 'waiting_user'
   const busy = threadBusy || stage !== null
   const noThread = selectedThread === null
 

@@ -8,7 +8,7 @@ export type { ApiErrorBody }
 export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
-export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping'
+export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping' | 'waiting_user'
 
 export interface Thread {
   id: string

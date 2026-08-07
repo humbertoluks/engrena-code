@@ -89,9 +89,12 @@ export function TaskComposer({
 
   const isRunning = selectedThread?.state === 'running'
   const isStopping = selectedThread?.state === 'stopping'
+  // F21: thread pausada aguardando resposta do usuário também conta como ocupada — bloqueia
+  // follow-up/troca de provider, mas o cancelamento manual (AC F21) continua disponível abaixo.
+  const isWaitingUser = selectedThread?.state === 'waiting_user'
   const providerLocked = selectedThread !== null
   const executionLocked = selectedThread !== null
-  const runtimeLocked = isRunning || isStopping || queue.length > 0
+  const runtimeLocked = isRunning || isStopping || isWaitingUser || queue.length > 0
 
   const providerHealth = configStatus?.providers[composer.provider]
   const providerUnavailable = providerHealth !== undefined && !providerHealth.available
@@ -102,7 +105,7 @@ export function TaskComposer({
 
   const placeholder = isStopping
     ? COPY.placeholderStopping
-    : isRunning
+    : isRunning || isWaitingUser
       ? COPY.placeholderRunning
       : selectedThread
         ? COPY.placeholderFollowUp
@@ -279,7 +282,7 @@ export function TaskComposer({
             />
           </div>
 
-          {isRunning || isStopping ? (
+          {isRunning || isStopping || isWaitingUser ? (
             <button
               type="button"
               onClick={onCancel}

@@ -461,7 +461,9 @@ export function usePrincipalWorkspace() {
     if (text === '') return
     setSendError(null)
 
-    if (selectedThread && selectedThread.state === 'running') {
+    // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
+    // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
+    if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
       enqueue(text, composer.images, composer.model, composer.reasoningLevel)
       setComposer((prev) => ({ ...prev, text: '', images: [] }))
       return

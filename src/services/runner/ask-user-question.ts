@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto'
 import http from 'http'
 
-export const ASK_USER_QUESTION_TOOL_NAME = 'ask_user_question'
+/** Nome qualificado como o provider CLI reporta a tool (mesmo padrão de `CALL_SUBAGENT_TOOL_NAME`/`LOAD_SKILL_TOOL_NAME`). */
+export const ASK_USER_QUESTION_TOOL_NAME = 'mcp__engrenacode__ask_user_question'
 
 export interface AskUserQuestionRequest {
   prompt: string

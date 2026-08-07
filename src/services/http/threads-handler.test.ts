@@ -10,7 +10,11 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
-const { getThread } = await import('../db/repositories/threads.js')
+const { createThread, getThread } = await import('../db/repositories/threads.js')
+const { createToolCall } = await import('../db/repositories/messages.js')
+const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
+  '../runner/ask-user-question.js'
+)
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
@@ -639,6 +643,172 @@ describe('handleThreadsRequest', () => {
     const { status, body } = await res.result()
     expect(status).toBe(404)
     expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+  })
+
+  describe('POST /api/threads/:id/answer (F21)', () => {
+    it('test_answer_happy_path resolves the pending /ask request with selectedOptions', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_user',
+      })
+      createToolCall({
+        threadId: thread.id,
+        name: ASK_USER_QUESTION_TOOL_NAME,
+        params: { prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] },
+        status: 'running',
+      })
+
+      const askServer = await createAskUserQuestionServer(thread.id)
+      const askPromise = fetch(`http://127.0.0.1:${askServer.port}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
+        body: JSON.stringify({ prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] }),
+      })
+      await waitFor(() => hasPendingQuestion(thread.id))
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['Incremental'] }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect((body as { answered: boolean }).answered).toBe(true)
+
+      const askResponse = await askPromise
+      const askBody = (await askResponse.json()) as { content: Array<{ text: string }>; isError: boolean }
+      expect(askBody.isError).toBe(false)
+      expect(askBody.content[0]?.text).toBe('Incremental')
+
+      askServer.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('test_answer_thread_not_waiting returns 409 for a thread not in waiting_user', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'idle',
+      })
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['A'] }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_waiting')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('test_answer_no_pending_question returns 409 when waiting_user has no in-memory resolver (F21 §3.2)', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_user',
+      })
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['A'] }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('no_pending_question')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('test_answer_validation_error_empty_body rejects an answer with no options and no freeText', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_user',
+      })
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, {}, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('rejects selectedOptions outside the pending question options (400 validation_error)', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_user',
+      })
+      createToolCall({
+        threadId: thread.id,
+        name: ASK_USER_QUESTION_TOOL_NAME,
+        params: { prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] },
+        status: 'running',
+      })
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['Opção inexistente'] }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('accepts freeText alone without selectedOptions', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_user',
+      })
+      const askServer = await createAskUserQuestionServer(thread.id)
+      const askPromise = fetch(`http://127.0.0.1:${askServer.port}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
+        body: JSON.stringify({ prompt: 'Outra?' }),
+      })
+      await waitFor(() => hasPendingQuestion(thread.id))
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { freeText: 'texto livre do usuário' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect((body as { answered: boolean }).answered).toBe(true)
+
+      const askResponse = await askPromise
+      const askBody = (await askResponse.json()) as { content: Array<{ text: string }> }
+      expect(askBody.content[0]?.text).toBe('texto livre do usuário')
+
+      askServer.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
   })
 
   describe('GET /api/composer/catalog (F16 §5.1)', () => {

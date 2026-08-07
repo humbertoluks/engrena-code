@@ -26,6 +26,9 @@ const STATE_DOT: Record<Thread['state'], string> = {
   committed: 'bg-green',
   error: 'bg-red',
   stopping: 'bg-amber',
+  // F21: pausada aguardando resposta do usuário — mesma cor de "busy" de `running` até
+  // ui.md/copy.md de F21 definirem um tratamento visual próprio (ver spec §3.3, Assumptions).
+  waiting_user: 'bg-accent',
 }
 
 export interface ProjectTreeProps {

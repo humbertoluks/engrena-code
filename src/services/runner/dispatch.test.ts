@@ -431,6 +431,105 @@ describe('dispatchNewThread', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('test_dispatch_toolStart_askUserQuestion_sets_waiting_user / test_dispatch_toolResult_askUserQuestion_restores_running (F21)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let releaseGate: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({
+        type: 'tool-start',
+        id: 'ask_1',
+        name: 'mcp__engrenacode__ask_user_question',
+        params: { prompt: 'Qual caminho seguir?', options: ['A', 'B'] },
+      })
+      await gate
+      input.onEvent({ type: 'tool-result', id: 'ask_1', status: 'completed', result: { text: 'A' } })
+      return { text: 'ok' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'preciso de uma decisão',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<{ type: string; state?: string }> = []
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitForState(thread.id, ['waiting_user'])
+    expect(getThread(thread.id)?.state).toBe('waiting_user')
+
+    releaseGate?.()
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const states = received.filter((e) => e.type === 'state.change').map((e) => e.state)
+    const waitingIdx = states.indexOf('waiting_user')
+    const runningIdx = states.indexOf('running')
+    expect(waitingIdx).toBeGreaterThanOrEqual(0)
+    expect(runningIdx).toBeGreaterThan(waitingIdx)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('test_dispatch_minimax_notice_mentions_ask_user_question (F21) — fires even with no skills linked', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    // MCP vinculado força `await prepareMcpsForDispatch` antes do notice, dando tempo do
+    // subscribe registrar (mesmo padrão do teste missing_secret/load_skill acima) — sem nenhuma
+    // skill vinculada, para confirmar que o notice dispara mesmo sem catálogo.
+    const mcp = createMcp({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-fs'],
+    })
+    setProjectMcpLink(project.id, mcp.id, { enabled: true })
+
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'minimax',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: unknown[] = []
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const notice = received.find(
+      (e) =>
+        (e as { type: string; mcpName?: string }).type === 'mcp.notice' &&
+        (e as { mcpName?: string }).mcpName === 'engrenacode'
+    ) as { mcpName: string; reason: string; message: string } | undefined
+    expect(notice?.reason).toBe('provider_unsupported')
+    expect(notice?.message).toContain('ask_user_question')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('captures a file change made during the turn as a pending diff', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

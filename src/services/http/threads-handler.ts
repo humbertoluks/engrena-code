@@ -14,6 +14,7 @@ import {
   type DispatchNewThreadInput,
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
+import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -265,6 +266,50 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   sendJson(res, 200, { resolved: true })
 }
 
+interface AnswerQuestionBody {
+  selectedOptions?: string[]
+  freeText?: string | null
+}
+
+/** POST /api/threads/:id/answer (F21 §5.2): resolve o `POST /ask` preso em `ask-user-question.ts`. */
+async function handleAnswerQuestion(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  if (thread.state !== 'waiting_user') {
+    return sendError(res, 409, 'thread_not_waiting', 'Não há pergunta pendente para esta thread.')
+  }
+
+  const data = parseBody<AnswerQuestionBody>(await readBody(req))
+  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+
+  const selectedOptions = Array.isArray(data.selectedOptions)
+    ? data.selectedOptions.filter((o): o is string => typeof o === 'string')
+    : []
+  const freeText = typeof data.freeText === 'string' ? data.freeText.trim() : ''
+
+  if (selectedOptions.length === 0 && freeText === '') {
+    return sendError(res, 400, 'validation_error', 'Envie ao menos uma opção marcada ou um texto livre.')
+  }
+
+  // Defesa em profundidade (spec F21 §3.3) — a pergunta pendente carrega as opções válidas no
+  // params_json do tool_call em aberto (`status === 'running'`), mesmo caminho genérico de F03.
+  const pendingCall = listToolCallsForThread(threadId)
+    .filter((t) => t.name === ASK_USER_QUESTION_TOOL_NAME && t.status === 'running')
+    .pop()
+  const allowedOptions = (pendingCall?.params as { options?: string[] } | null | undefined)?.options ?? []
+  if (allowedOptions.length > 0 && selectedOptions.some((o) => !allowedOptions.includes(o))) {
+    return sendError(res, 400, 'validation_error', 'selectedOptions fora das opções da pergunta pendente.')
+  }
+
+  const resolved = resolveAskUserQuestion(threadId, { selectedOptions, freeText: freeText || null })
+  if (!resolved) {
+    return sendError(res, 409, 'no_pending_question', 'Nenhuma pergunta pendente em memória para esta thread.')
+  }
+
+  sendJson(res, 200, { answered: true })
+}
+
 interface AcceptBody {
   action?: string
   ids?: string[]
@@ -347,6 +392,7 @@ const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
+const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
 const COMPOSER_CATALOG_RE = /^\/api\/composer\/catalog$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -362,6 +408,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     CANCEL_RE.test(url) ||
     PERMISSION_RE.test(url) ||
     ACCEPT_RE.test(url) ||
+    ANSWER_RE.test(url) ||
     COMPOSER_CATALOG_RE.test(url)
 
   if (!matchesThreadsRoute) return false
@@ -423,6 +470,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const acceptMatch = ACCEPT_RE.exec(url)
     if (acceptMatch && method === 'POST') {
       await handleAccept(req, res, acceptMatch[1])
+      return true
+    }
+
+    const answerMatch = ANSWER_RE.exec(url)
+    if (answerMatch && method === 'POST') {
+      await handleAnswerQuestion(req, res, answerMatch[1])
       return true
     }
   } catch (err) {

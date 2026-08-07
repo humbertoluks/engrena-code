@@ -28,6 +28,12 @@ import {
 import { RuleRegistry } from './rule-registry.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
+import {
+  createAskUserQuestionServer,
+  rejectAskUserQuestion,
+  ASK_USER_QUESTION_TOOL_NAME,
+  type AskUserQuestionServerHandle,
+} from './ask-user-question.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
@@ -234,6 +240,7 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 async function runTurn(project: Project, thread: Thread, prompt: string, images?: ComposerImageInput[]): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
+  let askUserQuestionServer: AskUserQuestionServerHandle | null = null
   const turnId = randomUUID()
   try {
     const imageBlocks =
@@ -266,14 +273,15 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     const providerSupportsMcp = !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)
     const wantsLoadSkill = skillSnapshot.catalog.length > 0
     const wantsCallSubagent = subagentCatalogForDelegation.length > 0
-    const wantsCodegraph = typeof codegraphEnsure.indexPath === 'string'
 
     // Lido por delegate.ts no início de cada delegação (spec F15 §3.2) para correlacionar o run
     // com a tool-call `call_subagent` do pai na timeline. Delegações no mesmo turno são
     // serializadas em FIFO, e o evento tool-start do pai chega antes da chamada HTTP `/delegate`.
     let lastCallSubagentToolCallId: string | null = null
 
-    if ((wantsLoadSkill || wantsCallSubagent || wantsCodegraph) && providerSupportsMcp) {
+    // ask_user_question (F21) é sempre registrada quando o provider aceita MCP, independente de
+    // catálogo de skills/subagents vinculado ao projeto — diferente de load_skill/call_subagent.
+    if (providerSupportsMcp) {
       let skillsSnapshotPath: string | undefined
       if (wantsLoadSkill) {
         skillsSnapshotPath = writeSkillSnapshotFile(skillSnapshot)
@@ -286,22 +294,25 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
           getParentToolCallId: () => lastCallSubagentToolCallId,
         })
       }
+      askUserQuestionServer = await createAskUserQuestionServer(thread.id)
       mcpsPrepared.resolved.push(
         buildEngrenaCodeMcpDef({
           skillsSnapshotPath,
           port: delegationServer?.port,
           token: delegationServer?.token,
           codegraphIndexPath: codegraphEnsure.indexPath ?? undefined,
+          askPort: askUserQuestionServer.port,
+          askToken: askUserQuestionServer.token,
         })
       )
-    } else if (wantsLoadSkill && !providerSupportsMcp) {
+    } else {
       emit(thread.id, {
         type: 'mcp.notice',
         threadId: thread.id,
         code: 'mcp-omitted',
         mcpName: SUBAGENT_MCP_NAME,
         reason: 'provider_unsupported',
-        message: `load_skill (${LOAD_SKILL_TOOL_NAME}) indisponível neste provider — o catálogo permanece só no prompt.`,
+        message: `ask_user_question (${ASK_USER_QUESTION_TOOL_NAME})${wantsLoadSkill ? ` e load_skill (${LOAD_SKILL_TOOL_NAME})` : ''} indisponível neste provider — o turno segue sem essas tools.`,
       })
     }
 
@@ -359,6 +370,12 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
             name: event.name,
             params: event.params,
           })
+          // Pausa o turno (F21 §3.2) — não conta como `running` para lease/thread_busy; a UI
+          // resolve via POST /answer, que libera o `POST /ask` preso em ask-user-question.ts.
+          if (event.name === ASK_USER_QUESTION_TOOL_NAME) {
+            updateThread(thread.id, { state: 'waiting_user' })
+            emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_user' })
+          }
           return
         }
 
@@ -383,6 +400,12 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
                 kind: 'tool',
                 event: `${updated.name} (${updated.status})`,
               })
+              // Resposta do usuário chegou (resolveAskUserQuestion liberou o /ask preso) — retoma
+              // o turno sem reabrir a thread (F21 §3.2).
+              if (updated.name === ASK_USER_QUESTION_TOOL_NAME) {
+                updateThread(thread.id, { state: 'running' })
+                emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
+              }
             }
           }
         }
@@ -439,6 +462,10 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
   } finally {
     mcpsCleanup()
     delegationServer?.close()
+    // Libera um `POST /ask` ainda preso (turno cancelado/erro antes da resposta chegar) antes de
+    // fechar o servidor — sem isso o `tools/call` do MCP filho ficaria pendurado (F21 §3.2).
+    rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
+    askUserQuestionServer?.close()
     activeControllers.delete(thread.id)
     releaseLease(project.id)
   }
