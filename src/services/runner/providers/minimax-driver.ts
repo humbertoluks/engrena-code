@@ -60,6 +60,9 @@ export async function runHttpTurn(input: ProviderTurnInput): Promise<ProviderTur
   if (!input.apiKey) {
     throw new ProviderError('provider_key_missing', 'Nenhuma key da Minimax salva no cofre.')
   }
+  if (input.images && input.images.length > 0) {
+    throw new ProviderError('image_not_supported', 'A Minimax não aceita anexos de imagem (provider text-only).')
+  }
 
   let res: Response
   try {

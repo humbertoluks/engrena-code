@@ -1,4 +1,5 @@
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
+import type { ComposerImageInput } from './composer-images.js'
 
 export type ProviderStreamEvent =
   | { type: 'text-delta'; text: string }
@@ -26,11 +27,15 @@ export interface ProviderTurnInput {
   prompt: string
   systemPrompt?: string | null
   model?: string | null
+  /** Nível de reasoning do catálogo F16 (`low`|`medium`|`high`|`extra-high`|`max`) — vira `--effort` nos providers CLI. */
+  reasoningLevel?: string | null
   accessLevel: ThreadAccessLevel
   /** API key resolved from the vault for this turn (Claude api-key mode, Codex, Minimax). Absent for CLI subscription auth. */
   apiKey?: string
   /** MCP tools resolvidos para este turno (F09) — vira `--mcp-config` para providers CLI. */
   mcpServers?: ResolvedMcpDef[]
+  /** Anexos de imagem (F16 §3.2) — CLI materializa em ficheiros temporários; Minimax rejeita (text-only). */
+  images?: ComposerImageInput[]
   onEvent: (event: ProviderStreamEvent) => void
   resolvePermission?: (request: { id: string; toolName: string; params: unknown }) => Promise<PermissionDecision>
   signal?: AbortSignal

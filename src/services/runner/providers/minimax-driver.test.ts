@@ -24,6 +24,12 @@ describe('runHttpTurn', () => {
     await expect(runHttpTurn(baseInput({ apiKey: undefined }))).rejects.toMatchObject({ code: 'provider_key_missing' })
   })
 
+  it('throws image_not_supported when images are present (F16 §3.2 — Minimax is text-only)', async () => {
+    await expect(
+      runHttpTurn(baseInput({ images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }] }))
+    ).rejects.toMatchObject({ code: 'image_not_supported' })
+  })
+
   it('sends the Authorization header and resolves the response text', async () => {
     let capturedHeaders: Record<string, string> = {}
     setFetchForTesting(async (_url, init) => {

@@ -130,6 +130,95 @@ describe('runCliTurn — cli providers', () => {
     expect(existsSync(configPath)).toBe(false)
   })
 
+  describe('F16 composer avançado — reasoning + images', () => {
+    it('passes --effort with the raw level for low/medium/high/max', async () => {
+      for (const level of ['low', 'medium', 'high', 'max']) {
+        let capturedArgs: string[] = []
+        const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+          capturedArgs = args
+          const child = new FakeChild()
+          emitResultAndClose(child, 'ok')
+          return child as unknown as ReturnType<SpawnFn>
+        }) as SpawnFn
+        setSpawnForTesting(fakeSpawn)
+
+        await runCliTurn(baseInput({ reasoningLevel: level }))
+        const idx = capturedArgs.indexOf('--effort')
+        expect(idx).toBeGreaterThan(-1)
+        expect(capturedArgs[idx + 1]).toBe(level)
+      }
+    })
+
+    it('maps the catalog "extra-high" level to the CLI "xhigh" value', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput({ reasoningLevel: 'extra-high' }))
+      const idx = capturedArgs.indexOf('--effort')
+      expect(capturedArgs[idx + 1]).toBe('xhigh')
+    })
+
+    it('omits --effort when reasoningLevel is absent', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+      expect(capturedArgs).not.toContain('--effort')
+    })
+
+    it('materializes images as temp files, references them in the prompt, and deletes them after close', async () => {
+      let capturedArgs: string[] = []
+      let promptDuringSpawn = ''
+      let imagePathDuringSpawn = ''
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        promptDuringSpawn = args[args.indexOf('-p') + 1]
+        const match = /- (.+\.png)/.exec(promptDuringSpawn)
+        imagePathDuringSpawn = match ? match[1] : ''
+        if (imagePathDuringSpawn) expect(existsSync(imagePathDuringSpawn)).toBe(true)
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(
+        baseInput({ images: [{ mimeType: 'image/png', name: 'screenshot.png', dataBase64: 'aGVsbG8=' }] })
+      )
+
+      expect(promptDuringSpawn).toContain('Imagens anexadas')
+      expect(imagePathDuringSpawn).not.toBe('')
+      expect(existsSync(imagePathDuringSpawn)).toBe(false)
+      expect(capturedArgs[capturedArgs.indexOf('-p') + 1]).toBe(promptDuringSpawn)
+    })
+
+    it('does not alter the prompt when there are no images', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+      expect(capturedArgs[capturedArgs.indexOf('-p') + 1]).toBe('oi')
+    })
+  })
+
   it('omits --mcp-config when no MCPs are resolved', async () => {
     let capturedArgs: string[] = []
     const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {

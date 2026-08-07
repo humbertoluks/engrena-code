@@ -318,9 +318,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
       prompt,
       systemPrompt: systemPrompt || undefined,
       model: thread.model,
+      reasoningLevel: thread.reasoningLevel,
       accessLevel: thread.accessLevel,
       apiKey: resolveProviderApiKey(thread.provider),
       mcpServers: mcpsPrepared.resolved,
+      images,
       signal: controller.signal,
       onEvent: (event) => {
         if (event.type === 'text-delta') {

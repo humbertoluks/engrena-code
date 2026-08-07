@@ -8,6 +8,7 @@ import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/th
 import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn } from './minimax-driver.js'
+import type { ComposerImageInput } from './composer-images.js'
 
 export type {
   ProviderStreamEvent,
@@ -49,6 +50,56 @@ export function resetSpawnForTesting(): void {
   spawnImpl = spawn
 }
 
+/**
+ * `--effort` (confirmado via doc oficial Claude Code, code.claude.com/docs/en/model-config
+ * §"Adjust effort level") aceita `low|medium|high|xhigh|max`; o catálogo F16 usa `extra-high`
+ * (alinhado ao rótulo de subagents) — mapeado para `xhigh` só na hora de montar o flag.
+ * Aplicado uniformemente a claude/codex/kimi (mesma simplificação já existente em `buildArgs`,
+ * que trata os 3 binários CLI com o mesmo shape de argumentos).
+ */
+const REASONING_FLAG_VALUE: Record<string, string> = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  'extra-high': 'xhigh',
+  max: 'max',
+}
+
+const MIME_EXTENSION: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+/** Materializa anexos em ficheiros temporários (spec F16 §3.2) — cwd do provider não é confiável p/ escrita solta. */
+function writeTempImages(images: ComposerImageInput[]): { paths: string[]; cleanup: () => void } {
+  const paths = images.map((img) => {
+    const ext = MIME_EXTENSION[img.mimeType] ?? 'bin'
+    const path = join(tmpdir(), `engrenacode-image-${randomUUID()}.${ext}`)
+    writeFileSync(path, Buffer.from(img.dataBase64, 'base64'), { mode: 0o600 })
+    return path
+  })
+
+  const cleanup = (): void => {
+    for (const path of paths) {
+      try {
+        unlinkSync(path)
+      } catch {
+        /* já removido ou nunca criado */
+      }
+    }
+  }
+
+  return { paths, cleanup }
+}
+
+function appendImageReferences(prompt: string, paths: string[]): string {
+  if (paths.length === 0) return prompt
+  const lines = paths.map((p) => `- ${p}`).join('\n')
+  return `${prompt}\n\nImagens anexadas (leia os arquivos abaixo):\n${lines}`
+}
+
 function permissionModeFlag(accessLevel: ThreadAccessLevel): string {
   if (accessLevel === 'full-access') return 'bypassPermissions'
   if (accessLevel === 'auto-accept-edits') return 'acceptEdits'
@@ -76,6 +127,10 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
 function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined): string[] {
   const args = ['-p', input.prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose']
   if (input.model) args.push('--model', input.model)
+  if (input.reasoningLevel) {
+    const effort = REASONING_FLAG_VALUE[input.reasoningLevel] ?? input.reasoningLevel
+    args.push('--effort', effort)
+  }
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
   args.push('--permission-mode', permissionModeFlag(input.accessLevel))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
@@ -196,7 +251,11 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
-  const args = buildArgs(input, mcpConfigPath)
+  const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
+  const effectiveInput: ProviderTurnInput = tempImages
+    ? { ...input, prompt: appendImageReferences(input.prompt, tempImages.paths) }
+    : input
+  const args = buildArgs(effectiveInput, mcpConfigPath)
 
   const envVar = API_KEY_ENV_VAR[input.provider]
   const env = envVar !== undefined && input.apiKey ? { ...process.env, [envVar]: input.apiKey } : process.env
@@ -205,6 +264,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     if (!mcpConfigPath) return
     try { unlinkSync(mcpConfigPath) } catch { /* já removido ou nunca criado */ }
   }
+  const cleanupTempImages = (): void => tempImages?.cleanup()
 
   return new Promise((resolve, reject) => {
     const child = spawnImpl(binary, args, { cwd: input.cwd, env })
@@ -250,11 +310,13 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
 
     child.on('error', (err) => {
       cleanupMcpConfig()
+      cleanupTempImages()
       reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
     })
 
     child.on('close', (code) => {
       cleanupMcpConfig()
+      cleanupTempImages()
       if (sawResult) {
         resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
         return
