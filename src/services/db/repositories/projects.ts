@@ -7,6 +7,7 @@ export interface Project {
   id: string
   path: string
   name: string
+  memoryEnabled: boolean
   createdAt: number
   updatedAt: number
 }
@@ -28,6 +29,7 @@ interface ProjectRow {
   id: string
   path: string
   name: string
+  memory_enabled: number
   created_at: number
   updated_at: number
 }
@@ -37,6 +39,7 @@ function toProject(row: ProjectRow): Project {
     id: row.id,
     path: row.path,
     name: row.name,
+    memoryEnabled: row.memory_enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -138,4 +141,10 @@ export function createProject(input: CreateProjectInput): Project {
 export function deleteProject(id: string): boolean {
   const result = getDb().prepare('DELETE FROM projects WHERE id = ?').run(id)
   return Number(result.changes) > 0
+}
+
+/** Toggle "Memória" do projeto (F20 spec §6) — nunca apaga o journal existente. */
+export function setMemoryEnabled(id: string, enabled: boolean): Project | null {
+  getDb().prepare('UPDATE projects SET memory_enabled = ?, updated_at = ? WHERE id = ?').run(enabled ? 1 : 0, Date.now(), id)
+  return getProject(id)
 }

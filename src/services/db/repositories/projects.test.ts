@@ -6,7 +6,9 @@ import { join, resolve } from 'path'
 process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_projects_'))
 
 const { getDb, closeDb } = await import('../client.js')
-const { createProject, deleteProject, getProject, listProjects, ProjectError } = await import('./projects.js')
+const { createProject, deleteProject, getProject, listProjects, setMemoryEnabled, ProjectError } = await import(
+  './projects.js'
+)
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_fixture_'))
 const projectDirA = join(fixtureRoot, 'project-a')
@@ -67,6 +69,27 @@ describe('createProject', () => {
     } catch (err) {
       expect((err as InstanceType<typeof ProjectError>).code).toBe('project_duplicate')
     }
+  })
+})
+
+describe('memoryEnabled', () => {
+  it('defaults to true (F20 spec §6)', () => {
+    mkdtempSyncDir(projectDirA)
+    const project = createProject({ path: projectDirA })
+    expect(project.memoryEnabled).toBe(true)
+  })
+
+  it('setMemoryEnabled toggles without touching other fields', () => {
+    mkdtempSyncDir(projectDirA)
+    const project = createProject({ path: projectDirA })
+    const updated = setMemoryEnabled(project.id, false)
+    expect(updated?.memoryEnabled).toBe(false)
+    expect(updated?.name).toBe(project.name)
+    expect(getProject(project.id)?.memoryEnabled).toBe(false)
+  })
+
+  it('setMemoryEnabled returns null for an unknown project', () => {
+    expect(setMemoryEnabled('nao-existe', false)).toBeNull()
   })
 })
 
