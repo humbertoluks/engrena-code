@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto'
-import { getDb } from '../db/client.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import {
   createThread,
@@ -20,9 +19,13 @@ import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
-import { createSkillSnapshot, writeSkillSnapshotFile, LOAD_SKILL_TOOL_NAME, type SkillSnapshot } from './skill-registry.js'
+import {
+  createSkillSnapshot,
+  writeSkillSnapshotFile,
+  LOAD_SKILL_TOOL_NAME,
+  type SkillSnapshot,
+} from './skill-registry.js'
 import { RuleRegistry } from './rule-registry.js'
-import { createSubagentsRepository } from '../db/repositories/subagents.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
@@ -141,8 +144,7 @@ function buildSystemPrompt(project: Project, skillSnapshot: SkillSnapshot): stri
     )
   }
 
-  const subagentsRepo = createSubagentsRepository(getDb())
-  const subagentCatalog = resolveSubagentCatalog(subagentsRepo, project.id)
+  const subagentCatalog = resolveSubagentCatalog(project.id)
   if (subagentCatalog.length > 0) {
     parts.push(
       `## SubAgents disponíveis via ${CALL_SUBAGENT_TOOL_NAME}\n${subagentCatalog
@@ -235,7 +237,12 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
   try {
     const imageBlocks =
       images && images.length > 0
-        ? images.map((img) => ({ type: 'image' as const, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
+        ? images.map((img) => ({
+            type: 'image' as const,
+            mimeType: img.mimeType,
+            name: img.name,
+            dataBase64: img.dataBase64,
+          }))
         : null
     appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks: imageBlocks })
 
@@ -253,8 +260,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     // MCP interno `engrenacode` (F11 call_subagent + F12 load_skill). Um único server — o nome
     // `engrenacode` é reservado. Registrado quando há skills e/ou subagents e o provider aceita
     // --mcp-config (MCP_UNSUPPORTED_PROVIDERS, hoje só minimax).
-    const subagentsRepo = createSubagentsRepository(getDb())
-    const subagentCatalogForDelegation = resolveSubagentCatalog(subagentsRepo, project.id)
+    const subagentCatalogForDelegation = resolveSubagentCatalog(project.id)
     const providerSupportsMcp = !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)
     const wantsLoadSkill = skillSnapshot.catalog.length > 0
     const wantsCallSubagent = subagentCatalogForDelegation.length > 0
@@ -271,7 +277,6 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
       }
       if (wantsCallSubagent) {
         delegationServer = await createDelegationServer({
-          repo: subagentsRepo,
           project,
           parentThread: thread,
           parentTurnId: turnId,
@@ -336,20 +341,44 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
           // MCP real agora — o gate (canDelegateSubagent) roda dentro do servidor de delegação
           // (delegate.ts:runDelegatedSubagentTurn) antes do spawn; bloqueio vira tool_result de
           // erro, já coberto pelo tratamento genérico abaixo (spec F11 §3.2).
-          const row = createToolCall({ threadId: thread.id, name: event.name, params: event.params })
+          const row = createToolCall({
+            threadId: thread.id,
+            name: event.name,
+            params: event.params,
+          })
           toolCallIdByProviderId.set(event.id, row.id)
           if (event.name === CALL_SUBAGENT_TOOL_NAME) lastCallSubagentToolCallId = row.id
-          emit(thread.id, { type: 'tool_call.start', threadId: thread.id, id: row.id, name: event.name, params: event.params })
+          emit(thread.id, {
+            type: 'tool_call.start',
+            threadId: thread.id,
+            id: row.id,
+            name: event.name,
+            params: event.params,
+          })
           return
         }
 
         if (event.type === 'tool-result') {
           const rowId = toolCallIdByProviderId.get(event.id)
           if (rowId) {
-            const updated = updateToolCall(rowId, { status: event.status, result: event.result, ended: true })
-            emit(thread.id, { type: 'tool_call.result', threadId: thread.id, id: rowId, status: event.status, result: event.result })
+            const updated = updateToolCall(rowId, {
+              status: event.status,
+              result: event.result,
+              ended: true,
+            })
+            emit(thread.id, {
+              type: 'tool_call.result',
+              threadId: thread.id,
+              id: rowId,
+              status: event.status,
+              result: event.result,
+            })
             if (updated) {
-              createLogEntry({ threadId: thread.id, kind: 'tool', event: `${updated.name} (${updated.status})` })
+              createLogEntry({
+                threadId: thread.id,
+                kind: 'tool',
+                event: `${updated.name} (${updated.status})`,
+              })
             }
           }
         }
@@ -362,7 +391,9 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     if (result.usage) {
       persistAgentUsage({ turnId, project, thread, usage: result.usage, costUsd: result.costUsd })
     } else {
-      console.warn(`[dispatch] Turno ${thread.id}: provider "${thread.provider}" não reportou usage — nenhum usage_event gravado.`)
+      console.warn(
+        `[dispatch] Turno ${thread.id}: provider "${thread.provider}" não reportou usage — nenhum usage_event gravado.`
+      )
     }
 
     if (finalText) {

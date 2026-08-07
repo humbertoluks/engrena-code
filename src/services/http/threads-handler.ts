@@ -4,8 +4,7 @@ import { getThread, deleteThread, listThreadsForProject } from '../db/repositori
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
 import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
 import { getProject } from '../db/repositories/projects.js'
-import { getDb } from '../db/client.js'
-import { createSubagentsRepository } from '../db/repositories/subagents.js'
+import { listSubagentRunsForParentThread } from '../db/repositories/subagents.js'
 import {
   cancelThread,
   dispatchFollowUp,
@@ -18,10 +17,15 @@ import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from 
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
-import { getComposerCatalog, isMultimodal, isValidModel, isValidReasoningLevel } from '../runner/providers/provider-catalog.js'
+import {
+  getComposerCatalog,
+  isMultimodal,
+  isValidModel,
+  isValidProvider,
+  isValidReasoningLevel,
+} from '../runner/providers/provider-catalog.js'
 import { validateComposerImages, type ComposerImageInput } from '../runner/providers/composer-images.js'
 
-const PROVIDERS = ['claude', 'codex', 'kimi', 'minimax'] as const
 const ACCESS_LEVELS = ['supervised', 'auto-accept-edits', 'full-access'] as const
 const EXECUTION_MODES = ['main', 'worktree'] as const
 
@@ -91,7 +95,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
   if (typeof data.prompt !== 'string' || data.prompt.trim() === '') {
     return sendError(res, 400, 'validation_error', 'prompt é obrigatório.')
   }
-  if (typeof data.provider !== 'string' || !(PROVIDERS as readonly string[]).includes(data.provider)) {
+  if (typeof data.provider !== 'string' || !isValidProvider(data.provider)) {
     return sendError(res, 400, 'validation_error', 'provider deve ser claude, codex, kimi ou minimax.')
   }
   if (typeof data.accessLevel !== 'string' || !(ACCESS_LEVELS as readonly string[]).includes(data.accessLevel)) {
@@ -185,7 +189,12 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
   let images: ComposerImageInput[] | undefined
   if (data.images !== undefined && data.images.length > 0) {
     if (!isMultimodal(existingThread.provider)) {
-      return sendError(res, 400, 'image_not_supported', `Provider "${existingThread.provider}" não aceita anexos de imagem.`)
+      return sendError(
+        res,
+        400,
+        'image_not_supported',
+        `Provider "${existingThread.provider}" não aceita anexos de imagem.`
+      )
     }
     const imgErr = validateComposerImages(data.images)
     if (imgErr) return sendError(res, 400, imgErr.code, imgErr.message)
@@ -213,11 +222,10 @@ function handleListThreads(_req: IncomingMessage, res: ServerResponse, projectId
 function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
-  const subagentsRepo = createSubagentsRepository(getDb())
   sendJson(res, 200, {
     messages: listMessagesForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
-    subagentRuns: subagentsRepo.listRunsForParentThread(threadId),
+    subagentRuns: listSubagentRunsForParentThread(threadId),
   })
 }
 
@@ -248,7 +256,12 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
 
-  emit(threadId, { type: 'permission.resolved', threadId, requestId: data.requestId, allow: data.allow })
+  emit(threadId, {
+    type: 'permission.resolved',
+    threadId,
+    requestId: data.requestId,
+    allow: data.allow,
+  })
   sendJson(res, 200, { resolved: true })
 }
 
@@ -301,7 +314,11 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
     const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
     deleteDiffsForThread(thread.id)
     deleteThread(thread.id)
-    sendJson(res, 200, { deleted: true, worktreeCleanup: cleanup.result, warning: cleanup.warning })
+    sendJson(res, 200, {
+      deleted: true,
+      worktreeCleanup: cleanup.result,
+      warning: cleanup.warning,
+    })
   } finally {
     releaseLease(project.id)
   }

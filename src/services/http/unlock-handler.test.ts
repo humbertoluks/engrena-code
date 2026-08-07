@@ -11,12 +11,11 @@ const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread } = await import('../db/repositories/threads.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { skillsRepository } = await import('../db/repositories/skills.js')
-const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
+const { listSubagents } = await import('../db/repositories/subagents.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { SEED_SKILLS, SEED_SUBAGENTS } = await import('../seeds/catalog.js')
 const { createUnlockServer } = await import('./unlock-handler.js')
 
-const subagentsRepo = createSubagentsRepository(getDb())
 const SEED_FLAG_KEY = 'seeds:catalog:v1'
 
 async function waitForPort(srv: ReturnType<typeof createUnlockServer>): Promise<number> {
@@ -113,7 +112,7 @@ describe('createUnlockServer seed catalog application', () => {
     expect(res.data.unlocked).toBe(true)
     expect(res.data.sessionToken).toBeTruthy()
     expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
-    expect(subagentsRepo.list()).toHaveLength(SEED_SUBAGENTS.length)
+    expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
   })
 
   it('test_unlock_does_not_duplicate_seeds_on_relock', async () => {
@@ -125,7 +124,7 @@ describe('createUnlockServer seed catalog application', () => {
       password: PASSWORD,
     })
     const firstSkillCount = skillsRepository.list().length
-    const firstSubagentCount = subagentsRepo.list().length
+    const firstSubagentCount = listSubagents().length
 
     vaultService.lock()
     await axios.post(`http://127.0.0.1:${port}/api/vault/unlock`, {
@@ -134,7 +133,7 @@ describe('createUnlockServer seed catalog application', () => {
     })
 
     expect(skillsRepository.list()).toHaveLength(firstSkillCount)
-    expect(subagentsRepo.list()).toHaveLength(firstSubagentCount)
+    expect(listSubagents()).toHaveLength(firstSubagentCount)
   })
 
   it('test_unlock_succeeds_when_seed_apply_partially_fails', async () => {

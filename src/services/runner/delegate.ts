@@ -1,6 +1,11 @@
 import { randomUUID, randomBytes } from 'crypto'
 import http from 'http'
-import type { Subagent, SubagentRunStatus, SubagentsRepository } from '../db/repositories/subagents.js'
+import {
+  createSubagentRun,
+  updateSubagentRun,
+  type Subagent,
+  type SubagentRunStatus,
+} from '../db/repositories/subagents.js'
 import type { Project } from '../db/repositories/projects.js'
 import type { Thread, ThreadAccessLevel, ThreadProvider } from '../db/repositories/threads.js'
 import { findCatalogSubagent } from './subagent-registry.js'
@@ -9,11 +14,7 @@ import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './provider-resolution.js'
 import { emit } from './ws-hub.js'
 import { resolveThreadCwd } from './thread-cwd.js'
-import {
-  runCliTurn as defaultRunCliTurn,
-  ProviderError,
-  type ProviderTurnInput,
-} from './providers/cli-driver.js'
+import { runCliTurn as defaultRunCliTurn, ProviderError, type ProviderTurnInput } from './providers/cli-driver.js'
 
 export const DEFAULT_IDLE_TIMEOUT_MINUTES = 20
 export const HARD_CAP_MS = 2 * 60 * 60 * 1000
@@ -69,10 +70,10 @@ export interface StartDelegatedRunInput {
   now?: number
 }
 
-export function startDelegatedRun(repo: SubagentsRepository, input: StartDelegatedRunInput): DelegatedRun {
+export function startDelegatedRun(input: StartDelegatedRunInput): DelegatedRun {
   const now = input.now ?? Date.now()
   const childThreadId = randomUUID()
-  repo.createRun({
+  createSubagentRun({
     childThreadId,
     parentThreadId: input.parentThreadId,
     parentToolCallId: input.parentToolCallId ?? null,
@@ -82,13 +83,17 @@ export function startDelegatedRun(repo: SubagentsRepository, input: StartDelegat
     reasoningLevel: input.subagent.reasoningLevel,
     status: 'running',
   })
-  return new DelegatedRun({ childThreadId, idleTimeoutMinutes: input.subagent.idleTimeoutMinutes, now })
+  return new DelegatedRun({
+    childThreadId,
+    idleTimeoutMinutes: input.subagent.idleTimeoutMinutes,
+    now,
+  })
 }
 
 /** Chamar periodicamente (watchdog) ou sob demanda; persiste + retorna true se o run virou timeout agora. */
-export function checkIdleTimeout(repo: SubagentsRepository, run: DelegatedRun, now: number = Date.now()): boolean {
+export function checkIdleTimeout(run: DelegatedRun, now: number = Date.now()): boolean {
   if (!run.isTimedOut(now)) return false
-  repo.updateRun(run.childThreadId, { status: 'timeout', durationMs: now - run.createdAt })
+  updateSubagentRun(run.childThreadId, { status: 'timeout', durationMs: now - run.createdAt })
   run.markStatus('timeout')
   return true
 }
@@ -99,13 +104,8 @@ export interface CompleteRunResult {
   usageJson?: string | null
 }
 
-export function completeDelegatedRun(
-  repo: SubagentsRepository,
-  run: DelegatedRun,
-  result: CompleteRunResult,
-  now: number = Date.now()
-): void {
-  repo.updateRun(run.childThreadId, {
+export function completeDelegatedRun(run: DelegatedRun, result: CompleteRunResult, now: number = Date.now()): void {
+  updateSubagentRun(run.childThreadId, {
     status: 'completed',
     text: result.text,
     actionCount: result.actionCount ?? 0,
@@ -115,13 +115,17 @@ export function completeDelegatedRun(
   run.markStatus('completed')
 }
 
-export function cancelDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, now: number = Date.now()): void {
-  repo.updateRun(run.childThreadId, { status: 'cancelled', durationMs: now - run.createdAt })
+export function cancelDelegatedRun(run: DelegatedRun, now: number = Date.now()): void {
+  updateSubagentRun(run.childThreadId, { status: 'cancelled', durationMs: now - run.createdAt })
   run.markStatus('cancelled')
 }
 
-export function failDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, message: string, now: number = Date.now()): void {
-  repo.updateRun(run.childThreadId, { status: 'error', text: message, durationMs: now - run.createdAt })
+export function failDelegatedRun(run: DelegatedRun, message: string, now: number = Date.now()): void {
+  updateSubagentRun(run.childThreadId, {
+    status: 'error',
+    text: message,
+    durationMs: now - run.createdAt,
+  })
   run.markStatus('error')
 }
 
@@ -146,7 +150,6 @@ export function resetRunCliTurnForTesting(): void {
 }
 
 export interface DelegationContext {
-  repo: SubagentsRepository
   project: Project
   parentThread: Thread
   /** `turnId` do turno pai (dispatch.ts) — liga o usage_event do subagent ao mesmo turno. */
@@ -193,10 +196,13 @@ export async function runDelegatedSubagentTurn(
     accessLevel: ctx.parentThread.accessLevel as ParentAccessLevel,
   })
   if (!gate.allowed) {
-    return { text: gate.reason ?? 'Delegação de subagent bloqueada para este provider/access level.', isError: true }
+    return {
+      text: gate.reason ?? 'Delegação de subagent bloqueada para este provider/access level.',
+      isError: true,
+    }
   }
 
-  const subagent = findCatalogSubagent(ctx.repo, ctx.project.id, request.name)
+  const subagent = findCatalogSubagent(ctx.project.id, request.name)
   if (!subagent) {
     return {
       text: `Subagent "${request.name}" não encontrado ou não vinculado a este projeto.`,
@@ -208,7 +214,7 @@ export async function runDelegatedSubagentTurn(
   const model = subagent.model
   const cwd = resolveThreadCwd(ctx.parentThread, ctx.project)
 
-  const run = startDelegatedRun(ctx.repo, {
+  const run = startDelegatedRun({
     parentThreadId: ctx.parentThread.id,
     parentToolCallId: ctx.getParentToolCallId?.() ?? null,
     subagent,
@@ -223,7 +229,7 @@ export async function runDelegatedSubagentTurn(
 
   const controller = new AbortController()
   const watchdog = setInterval(() => {
-    if (checkIdleTimeout(ctx.repo, run) && !controller.signal.aborted) {
+    if (checkIdleTimeout(run) && !controller.signal.aborted) {
       controller.abort()
     }
   }, WATCHDOG_INTERVAL_MS)
@@ -248,7 +254,10 @@ export async function runDelegatedSubagentTurn(
     },
   }
 
-  const persistSubagentUsage = (usage: NonNullable<Awaited<ReturnType<RunCliTurn>>['usage']>, sdkCostUsd: number | null | undefined) => {
+  const persistSubagentUsage = (
+    usage: NonNullable<Awaited<ReturnType<RunCliTurn>>['usage']>,
+    sdkCostUsd: number | null | undefined
+  ) => {
     const cost = resolveTurnCost(provider, model, usage, sdkCostUsd)
     createUsageEvent({
       turnId: ctx.parentTurnId,
@@ -273,7 +282,7 @@ export async function runDelegatedSubagentTurn(
     const finalText = result.text || assistantText
 
     if (run.currentStatus() === 'running') {
-      completeDelegatedRun(ctx.repo, run, {
+      completeDelegatedRun(run, {
         text: finalText,
         usageJson: result.usage ? JSON.stringify(result.usage) : null,
       })
@@ -293,7 +302,7 @@ export async function runDelegatedSubagentTurn(
     const message = err instanceof Error ? err.message : 'Erro desconhecido no subagent.'
 
     if (run.currentStatus() === 'running') {
-      failDelegatedRun(ctx.repo, run, message)
+      failDelegatedRun(run, message)
     }
     if (err instanceof ProviderError && err.usage) persistSubagentUsage(err.usage, err.costUsd)
 
@@ -349,7 +358,10 @@ export function createDelegationServer(ctx: DelegationContext): Promise<Delegati
           const request = JSON.parse(body) as DelegationRequest
           result = await runDelegatedSubagentTurn(ctx, request)
         } catch (err) {
-          result = { text: err instanceof Error ? err.message : 'Erro na delegação.', isError: true }
+          result = {
+            text: err instanceof Error ? err.message : 'Erro na delegação.',
+            isError: true,
+          }
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))

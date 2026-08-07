@@ -1,30 +1,24 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getDb } from '../db/client.js'
 import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
 import {
   CatalogOrderError,
-  createSubagentsRepository,
+  createSubagent,
+  getSubagentCounts,
+  listProjectSubagents,
+  listSubagents,
+  removeSubagent,
+  setSubagentCatalogOrder,
   SubagentNameConflictError,
   SubagentNotFoundError,
   SubagentTooLongError,
   SubagentValidationError,
+  unlinkProjectSubagent,
+  updateSubagent,
+  upsertProjectSubagentLink,
   type CatalogOrderItem,
   type SubagentInput,
   type SubagentPatch,
-  type SubagentsRepository,
 } from '../db/repositories/subagents.js'
-
-let repoOverride: SubagentsRepository | null = null
-
-/** Só para testes: injeta um repositório (ex.: SQLite em memória) no lugar do singleton real. */
-export function setSubagentsRepositoryForTests(repo: SubagentsRepository | null): void {
-  repoOverride = repo
-}
-
-function getRepository(): SubagentsRepository {
-  if (repoOverride) return repoOverride
-  return createSubagentsRepository(getDb())
-}
 
 function handleKnownError(res: ServerResponse, err: unknown): boolean {
   if (err instanceof SubagentNotFoundError) {
@@ -54,7 +48,7 @@ function handleKnownError(res: ServerResponse, err: unknown): boolean {
 
 async function handleList(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!guard(req, res)) return
-  sendJson(res, 200, { subagents: getRepository().list() })
+  sendJson(res, 200, { subagents: listSubagents() })
 }
 
 async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -64,7 +58,7 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
   try {
-    const subagent = getRepository().create(data as SubagentInput)
+    const subagent = createSubagent(data as SubagentInput)
     sendJson(res, 201, { subagent })
   } catch (err) {
     if (!handleKnownError(res, err)) throw err
@@ -78,7 +72,7 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
   try {
-    const subagent = getRepository().update(id, data)
+    const subagent = updateSubagent(id, data)
     sendJson(res, 200, { subagent })
   } catch (err) {
     if (!handleKnownError(res, err)) throw err
@@ -87,20 +81,20 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
 
 async function handleDelete(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
   if (!guard(req, res)) return
-  getRepository().remove(id)
+  removeSubagent(id)
   sendJson(res, 200, { deleted: true })
 }
 
 async function handleCounts(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!guard(req, res)) return
-  sendJson(res, 200, getRepository().getCounts())
+  sendJson(res, 200, getSubagentCounts())
 }
 
 // ── /api/projects/:id/subagents* ────────────────────────────────────────────
 
 async function handleListProjectLinks(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
   if (!guard(req, res)) return
-  sendJson(res, 200, getRepository().listProjectSubagents(projectId))
+  sendJson(res, 200, listProjectSubagents(projectId))
 }
 
 async function handleUpsertLink(
@@ -115,7 +109,7 @@ async function handleUpsertLink(
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
   try {
-    const link = getRepository().upsertProjectLink(projectId, subagentId, data)
+    const link = upsertProjectSubagentLink(projectId, subagentId, data)
     sendJson(res, 200, { subagent: link })
   } catch (err) {
     if (!handleKnownError(res, err)) throw err
@@ -129,7 +123,7 @@ async function handleUnlink(
   subagentId: string
 ): Promise<void> {
   if (!guard(req, res)) return
-  getRepository().unlinkProject(projectId, subagentId)
+  unlinkProjectSubagent(projectId, subagentId)
   sendJson(res, 200, { deleted: true })
 }
 
@@ -140,7 +134,7 @@ async function handleCatalogOrder(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'invalid_request', 'kind deve ser "subagents" e items é obrigatório.')
   }
   try {
-    const subagents = getRepository().setCatalogOrder(projectId, data.items)
+    const subagents = setSubagentCatalogOrder(projectId, data.items)
     sendJson(res, 200, { subagents })
   } catch (err) {
     if (!handleKnownError(res, err)) throw err

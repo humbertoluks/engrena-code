@@ -5,8 +5,7 @@ import { listProjects } from '../db/repositories/projects.js'
 import { getDashboardMetrics, listDashboardInbox, listRecentActivity } from '../db/repositories/dashboard.js'
 import { skillsRepository } from '../db/repositories/skills.js'
 import { getCounts as getRulesCounts } from '../db/repositories/rules.js'
-import { createSubagentsRepository } from '../db/repositories/subagents.js'
-import { getDb } from '../db/client.js'
+import { getSubagentCounts } from '../db/repositories/subagents.js'
 import type { DashboardInboxItem } from '../db/repositories/dashboard.js'
 import type { ConfigStatus } from './config-handler.js'
 
@@ -50,9 +49,20 @@ async function handleGetDashboard(_req: IncomingMessage, res: ServerResponse): P
   const projects = listProjects()
 
   const rulesCounts = getRulesCounts()
-  const subagentsCounts = createSubagentsRepository(getDb()).getCounts()
+  const subagentsCounts = getSubagentCounts()
 
-  const inbox: Array<DashboardInboxItem | { kind: 'setupIncomplete'; threadId: null; projectId: null; projectName: null; title: null; provider: null; updatedAt: null }> = []
+  const inbox: Array<
+    | DashboardInboxItem
+    | {
+        kind: 'setupIncomplete'
+        threadId: null
+        projectId: null
+        projectName: null
+        title: null
+        provider: null
+        updatedAt: null
+      }
+  > = []
   if (health.setupIncomplete) {
     inbox.push({
       kind: 'setupIncomplete',

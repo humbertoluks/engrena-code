@@ -1,6 +1,5 @@
-import { getDb } from '../db/client.js'
 import { skillsRepository, SkillNameConflictError } from '../db/repositories/skills.js'
-import { createSubagentsRepository, SubagentNameConflictError } from '../db/repositories/subagents.js'
+import { createSubagent, SubagentNameConflictError } from '../db/repositories/subagents.js'
 import { vaultService } from '../vault/vault-service.js'
 import { SEED_CATALOG_VERSION, SEED_SKILLS, SEED_SUBAGENTS } from './catalog.js'
 
@@ -50,10 +49,9 @@ export function applySeedCatalog(): ApplySeedCatalogResult {
     }
   }
 
-  const subagentsRepository = createSubagentsRepository(getDb())
   for (const subagent of SEED_SUBAGENTS) {
     try {
-      subagentsRepository.create(subagent)
+      createSubagent(subagent)
       result.subagentsInserted++
     } catch (err) {
       if (err instanceof SubagentNameConflictError) {

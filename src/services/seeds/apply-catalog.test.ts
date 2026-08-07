@@ -7,12 +7,11 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { getDb, closeDb } = await import('../db/client.js')
 const { skillsRepository } = await import('../db/repositories/skills.js')
-const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
+const { createSubagent, getSubagentCounts, listSubagents } = await import('../db/repositories/subagents.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { SEED_SKILLS, SEED_SUBAGENTS } = await import('./catalog.js')
 const { applySeedCatalog } = await import('./apply-catalog.js')
 
-const subagentsRepo = createSubagentsRepository(getDb())
 const WORKSPACE = 'f17-apply-ws'
 const PASSWORD = 'f17-apply-pass-123'
 const FLAG_KEY = 'seeds:catalog:v1'
@@ -53,7 +52,7 @@ describe('applySeedCatalog', () => {
     expect(result.subagentsSkipped).toBe(0)
     expect(result.subagentsFailed).toBe(0)
     expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
-    expect(subagentsRepo.list()).toHaveLength(SEED_SUBAGENTS.length)
+    expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
     expect(vaultService.getSecret(FLAG_KEY)).toBe('1')
   })
 
@@ -64,12 +63,16 @@ describe('applySeedCatalog', () => {
     expect(second.skillsInserted).toBe(0)
     expect(second.subagentsInserted).toBe(0)
     expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
-    expect(subagentsRepo.list()).toHaveLength(SEED_SUBAGENTS.length)
+    expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
   })
 
   it('test_apply_skips_existing_skill_name', () => {
     const first = SEED_SKILLS[0]!
-    skillsRepository.create({ name: first.name, description: 'pre-existente', content: '# conteúdo pré-existente' })
+    skillsRepository.create({
+      name: first.name,
+      description: 'pre-existente',
+      content: '# conteúdo pré-existente',
+    })
 
     const result = applySeedCatalog()
 
@@ -81,7 +84,7 @@ describe('applySeedCatalog', () => {
 
   it('test_apply_skips_existing_subagent_name', () => {
     const first = SEED_SUBAGENTS[0]!
-    subagentsRepo.create({
+    createSubagent({
       name: first.name,
       description: 'pre-existente',
       prompt: 'prompt pré-existente',
@@ -92,7 +95,7 @@ describe('applySeedCatalog', () => {
 
     expect(result.subagentsSkipped).toBe(1)
     expect(result.subagentsInserted).toBe(SEED_SUBAGENTS.length - 1)
-    const preserved = subagentsRepo.list().find((a) => a.name === first.name)
+    const preserved = listSubagents().find((a) => a.name === first.name)
     expect(preserved?.provider).toBe('claude')
   })
 
@@ -116,7 +119,7 @@ describe('applySeedCatalog', () => {
   it('test_apply_does_not_create_project_links', () => {
     applySeedCatalog()
     expect(skillsRepository.getCounts().linkedByProject).toEqual({})
-    expect(subagentsRepo.getCounts().linkedByProject).toEqual({})
+    expect(getSubagentCounts().linkedByProject).toEqual({})
   })
 
   it('test_apply_requires_unlocked_vault_for_flag', () => {

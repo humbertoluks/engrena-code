@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'crypto'
+import { getDb } from '../client.js'
 
 export type SubagentProvider = 'claude' | 'codex' | 'kimi' | 'inherit'
 
@@ -211,132 +211,163 @@ function validateInput(input: SubagentPatch, opts: { partial: boolean }): void {
     }
   }
   if (input.idleTimeoutMinutes !== undefined && input.idleTimeoutMinutes !== null) {
-    if (
-      !Number.isInteger(input.idleTimeoutMinutes) ||
-      input.idleTimeoutMinutes < 1 ||
-      input.idleTimeoutMinutes > 480
-    ) {
+    if (!Number.isInteger(input.idleTimeoutMinutes) || input.idleTimeoutMinutes < 1 || input.idleTimeoutMinutes > 480) {
       throw new SubagentValidationError('idleTimeoutMinutes deve ser 1..480 ou null.')
     }
   }
 }
 
-export function createSubagentsRepository(db: DatabaseSync) {
-  function getById(id: string): Subagent | undefined {
-    const row = db.prepare('SELECT * FROM subagents WHERE id = ?').get(id) as SubagentRow | undefined
-    return row ? rowToSubagent(row) : undefined
-  }
+export function getSubagentById(id: string): Subagent | undefined {
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM subagents WHERE id = ?').get(id) as SubagentRow | undefined
+  return row ? rowToSubagent(row) : undefined
+}
 
-  function getByName(name: string): Subagent | undefined {
-    const row = db.prepare('SELECT * FROM subagents WHERE name = ?').get(name) as SubagentRow | undefined
-    return row ? rowToSubagent(row) : undefined
-  }
+export function getSubagentByName(name: string): Subagent | undefined {
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM subagents WHERE name = ?').get(name) as SubagentRow | undefined
+  return row ? rowToSubagent(row) : undefined
+}
 
-  function list(): Subagent[] {
-    const rows = db.prepare('SELECT * FROM subagents ORDER BY name COLLATE NOCASE').all() as unknown as SubagentRow[]
-    return rows.map(rowToSubagent)
-  }
+export function listSubagents(): Subagent[] {
+  const db = getDb()
+  const rows = db.prepare('SELECT * FROM subagents ORDER BY name COLLATE NOCASE').all() as unknown as SubagentRow[]
+  return rows.map(rowToSubagent)
+}
 
-  function create(input: SubagentInput): Subagent {
-    validateInput(input, { partial: false })
-    const now = Date.now()
-    const id = randomUUID()
-    try {
-      db.prepare(
-        `INSERT INTO subagents
+export function createSubagent(input: SubagentInput): Subagent {
+  const db = getDb()
+  validateInput(input, { partial: false })
+  const now = Date.now()
+  const id = randomUUID()
+  try {
+    db.prepare(
+      `INSERT INTO subagents
           (id, name, description, prompt, provider, model, reasoning_level, tools_json, idle_timeout_minutes, category, enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        id,
-        input.name,
-        input.description,
-        input.prompt,
-        input.provider,
-        input.model ?? null,
-        input.reasoningLevel ?? null,
-        serializeTools(input.tools),
-        input.idleTimeoutMinutes ?? null,
-        input.category ?? null,
-        input.enabled ?? true ? 1 : 0,
-        now,
-        now
-      )
-    } catch (err) {
-      if (isUniqueConstraintError(err)) {
-        throw new SubagentNameConflictError(`Já existe um subagent com o nome "${input.name}".`)
-      }
-      throw err
+    ).run(
+      id,
+      input.name,
+      input.description,
+      input.prompt,
+      input.provider,
+      input.model ?? null,
+      input.reasoningLevel ?? null,
+      serializeTools(input.tools),
+      input.idleTimeoutMinutes ?? null,
+      input.category ?? null,
+      (input.enabled ?? true) ? 1 : 0,
+      now,
+      now
+    )
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new SubagentNameConflictError(`Já existe um subagent com o nome "${input.name}".`)
     }
-    return getById(id) as Subagent
+    throw err
+  }
+  return getSubagentById(id) as Subagent
+}
+
+export function updateSubagent(id: string, patch: SubagentPatch): Subagent {
+  const db = getDb()
+  const existing = getSubagentById(id)
+  if (!existing) {
+    throw new SubagentNotFoundError(`Subagent ${id} não encontrado.`)
+  }
+  validateInput(patch, { partial: true })
+
+  const merged: SubagentInput = {
+    name: patch.name ?? existing.name,
+    description: patch.description ?? existing.description,
+    prompt: patch.prompt ?? existing.prompt,
+    provider: patch.provider ?? existing.provider,
+    model: patch.model !== undefined ? patch.model : existing.model,
+    reasoningLevel: patch.reasoningLevel !== undefined ? patch.reasoningLevel : existing.reasoningLevel,
+    tools: patch.tools !== undefined ? patch.tools : existing.tools,
+    category: patch.category !== undefined ? patch.category : existing.category,
+    idleTimeoutMinutes: patch.idleTimeoutMinutes !== undefined ? patch.idleTimeoutMinutes : existing.idleTimeoutMinutes,
+    enabled: patch.enabled !== undefined ? patch.enabled : existing.enabled,
   }
 
-  function update(id: string, patch: SubagentPatch): Subagent {
-    const existing = getById(id)
-    if (!existing) {
-      throw new SubagentNotFoundError(`Subagent ${id} não encontrado.`)
-    }
-    validateInput(patch, { partial: true })
-
-    const merged: SubagentInput = {
-      name: patch.name ?? existing.name,
-      description: patch.description ?? existing.description,
-      prompt: patch.prompt ?? existing.prompt,
-      provider: patch.provider ?? existing.provider,
-      model: patch.model !== undefined ? patch.model : existing.model,
-      reasoningLevel: patch.reasoningLevel !== undefined ? patch.reasoningLevel : existing.reasoningLevel,
-      tools: patch.tools !== undefined ? patch.tools : existing.tools,
-      category: patch.category !== undefined ? patch.category : existing.category,
-      idleTimeoutMinutes:
-        patch.idleTimeoutMinutes !== undefined ? patch.idleTimeoutMinutes : existing.idleTimeoutMinutes,
-      enabled: patch.enabled !== undefined ? patch.enabled : existing.enabled,
-    }
-
-    try {
-      db.prepare(
-        `UPDATE subagents SET
+  try {
+    db.prepare(
+      `UPDATE subagents SET
           name = ?, description = ?, prompt = ?, provider = ?, model = ?, reasoning_level = ?,
           tools_json = ?, idle_timeout_minutes = ?, category = ?, enabled = ?, updated_at = ?
          WHERE id = ?`
-      ).run(
-        merged.name,
-        merged.description,
-        merged.prompt,
-        merged.provider,
-        merged.model ?? null,
-        merged.reasoningLevel ?? null,
-        serializeTools(merged.tools),
-        merged.idleTimeoutMinutes ?? null,
-        merged.category ?? null,
-        merged.enabled ?? true ? 1 : 0,
-        Date.now(),
-        id
-      )
-    } catch (err) {
-      if (isUniqueConstraintError(err)) {
-        throw new SubagentNameConflictError(`Já existe um subagent com o nome "${merged.name}".`)
-      }
-      throw err
+    ).run(
+      merged.name,
+      merged.description,
+      merged.prompt,
+      merged.provider,
+      merged.model ?? null,
+      merged.reasoningLevel ?? null,
+      serializeTools(merged.tools),
+      merged.idleTimeoutMinutes ?? null,
+      merged.category ?? null,
+      (merged.enabled ?? true) ? 1 : 0,
+      Date.now(),
+      id
+    )
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new SubagentNameConflictError(`Já existe um subagent com o nome "${merged.name}".`)
     }
-    return getById(id) as Subagent
+    throw err
   }
+  return getSubagentById(id) as Subagent
+}
 
-  function remove(id: string): boolean {
-    const result = db.prepare('DELETE FROM subagents WHERE id = ?').run(id)
-    return Number(result.changes) > 0
-  }
+export function removeSubagent(id: string): boolean {
+  const db = getDb()
+  const result = db.prepare('DELETE FROM subagents WHERE id = ?').run(id)
+  return Number(result.changes) > 0
+}
 
-  function getLinkState(projectId: string, subagentId: string): SubagentLinkState {
-    const row = db
-      .prepare(
-        `SELECT s.*, ps.project_id AS link_project_id, ps.enabled AS link_enabled, ps.sort_order AS link_sort_order
+function getLinkState(projectId: string, subagentId: string): SubagentLinkState {
+  const db = getDb()
+  const row = db
+    .prepare(
+      `SELECT s.*, ps.project_id AS link_project_id, ps.enabled AS link_enabled, ps.sort_order AS link_sort_order
          FROM subagents s
          LEFT JOIN project_subagents ps ON ps.subagent_id = s.id AND ps.project_id = ?
          WHERE s.id = ?`
-      )
-      .get(projectId, subagentId) as
-      | (SubagentRow & { link_project_id: string | null; link_enabled: number | null; link_sort_order: number | null })
-      | undefined
-    if (!row) throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+    )
+    .get(projectId, subagentId) as
+    | (SubagentRow & {
+        link_project_id: string | null
+        link_enabled: number | null
+        link_sort_order: number | null
+      })
+    | undefined
+  if (!row) throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+  const linked = row.link_project_id !== null
+  const { prompt: _prompt, ...rest } = rowToSubagent(row)
+  return {
+    ...rest,
+    linked,
+    enabledInProject: linked ? Boolean(row.link_enabled) : null,
+    sortOrder: linked ? row.link_sort_order : null,
+  }
+}
+
+export function listProjectSubagents(projectId: string): SubagentLinkState[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT s.*, ps.project_id AS link_project_id, ps.enabled AS link_enabled, ps.sort_order AS link_sort_order
+         FROM subagents s
+         LEFT JOIN project_subagents ps ON ps.subagent_id = s.id AND ps.project_id = ?
+         ORDER BY s.name COLLATE NOCASE`
+    )
+    .all(projectId) as unknown as (SubagentRow & {
+    link_project_id: string | null
+    link_enabled: number | null
+    link_sort_order: number | null
+  })[]
+
+  return rows.map((row) => {
     const linked = row.link_project_id !== null
     const { prompt: _prompt, ...rest } = rowToSubagent(row)
     return {
@@ -345,207 +376,178 @@ export function createSubagentsRepository(db: DatabaseSync) {
       enabledInProject: linked ? Boolean(row.link_enabled) : null,
       sortOrder: linked ? row.link_sort_order : null,
     }
+  })
+}
+
+function getMaxSortOrder(projectId: string): number {
+  const db = getDb()
+  const row = db.prepare('SELECT MAX(sort_order) as m FROM project_subagents WHERE project_id = ?').get(projectId) as {
+    m: number | null
+  }
+  return row.m == null ? -1 : row.m
+}
+
+export function upsertProjectSubagentLink(
+  projectId: string,
+  subagentId: string,
+  patch: ProjectLinkPatch
+): SubagentLinkState {
+  const db = getDb()
+  if (!getSubagentById(subagentId)) {
+    throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+  }
+  const existing = db
+    .prepare('SELECT * FROM project_subagents WHERE project_id = ? AND subagent_id = ?')
+    .get(projectId, subagentId) as { enabled: number; sort_order: number } | undefined
+
+  if (!existing) {
+    const sortOrder = patch.sortOrder ?? getMaxSortOrder(projectId) + 1
+    const enabled = patch.enabled ?? true
+    db.prepare(
+      'INSERT INTO project_subagents (project_id, subagent_id, enabled, sort_order, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(projectId, subagentId, enabled ? 1 : 0, sortOrder, Date.now())
+  } else {
+    const enabled = patch.enabled ?? Boolean(existing.enabled)
+    const sortOrder = patch.sortOrder ?? existing.sort_order
+    db.prepare('UPDATE project_subagents SET enabled = ?, sort_order = ? WHERE project_id = ? AND subagent_id = ?').run(
+      enabled ? 1 : 0,
+      sortOrder,
+      projectId,
+      subagentId
+    )
   }
 
-  function listProjectSubagents(projectId: string): SubagentLinkState[] {
-    const rows = db
-      .prepare(
-        `SELECT s.*, ps.project_id AS link_project_id, ps.enabled AS link_enabled, ps.sort_order AS link_sort_order
-         FROM subagents s
-         LEFT JOIN project_subagents ps ON ps.subagent_id = s.id AND ps.project_id = ?
-         ORDER BY s.name COLLATE NOCASE`
-      )
-      .all(projectId) as unknown as (SubagentRow & {
-      link_project_id: string | null
-      link_enabled: number | null
-      link_sort_order: number | null
-    })[]
+  return getLinkState(projectId, subagentId)
+}
 
-    return rows.map((row) => {
-      const linked = row.link_project_id !== null
-      const { prompt: _prompt, ...rest } = rowToSubagent(row)
-      return {
-        ...rest,
-        linked,
-        enabledInProject: linked ? Boolean(row.link_enabled) : null,
-        sortOrder: linked ? row.link_sort_order : null,
-      }
-    })
+export function unlinkProjectSubagent(projectId: string, subagentId: string): boolean {
+  const db = getDb()
+  const result = db
+    .prepare('DELETE FROM project_subagents WHERE project_id = ? AND subagent_id = ?')
+    .run(projectId, subagentId)
+  return Number(result.changes) > 0
+}
+
+export function setSubagentCatalogOrder(projectId: string, items: CatalogOrderItem[]): SubagentLinkState[] {
+  const db = getDb()
+  const linkedRows = db.prepare('SELECT subagent_id FROM project_subagents WHERE project_id = ?').all(projectId) as {
+    subagent_id: string
+  }[]
+  const linkedIds = new Set(linkedRows.map((r) => r.subagent_id))
+
+  if (items.length !== linkedIds.size) {
+    throw new CatalogOrderError('catalog-order deve incluir todos os subagents vinculados ao projeto.')
   }
-
-  function getMaxSortOrder(projectId: string): number {
-    const row = db
-      .prepare('SELECT MAX(sort_order) as m FROM project_subagents WHERE project_id = ?')
-      .get(projectId) as { m: number | null }
-    return row.m == null ? -1 : row.m
-  }
-
-  function upsertProjectLink(projectId: string, subagentId: string, patch: ProjectLinkPatch): SubagentLinkState {
-    if (!getById(subagentId)) {
-      throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+  const seenOrders = new Set<number>()
+  for (const item of items) {
+    if (!linkedIds.has(item.id)) {
+      throw new CatalogOrderError(`Subagent ${item.id} não está vinculado a este projeto.`)
     }
-    const existing = db
-      .prepare('SELECT * FROM project_subagents WHERE project_id = ? AND subagent_id = ?')
-      .get(projectId, subagentId) as { enabled: number; sort_order: number } | undefined
-
-    if (!existing) {
-      const sortOrder = patch.sortOrder ?? getMaxSortOrder(projectId) + 1
-      const enabled = patch.enabled ?? true
-      db.prepare(
-        'INSERT INTO project_subagents (project_id, subagent_id, enabled, sort_order, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(projectId, subagentId, enabled ? 1 : 0, sortOrder, Date.now())
-    } else {
-      const enabled = patch.enabled ?? Boolean(existing.enabled)
-      const sortOrder = patch.sortOrder ?? existing.sort_order
-      db.prepare(
-        'UPDATE project_subagents SET enabled = ?, sort_order = ? WHERE project_id = ? AND subagent_id = ?'
-      ).run(enabled ? 1 : 0, sortOrder, projectId, subagentId)
-    }
-
-    return getLinkState(projectId, subagentId)
+    seenOrders.add(item.sortOrder)
   }
-
-  function unlinkProject(projectId: string, subagentId: string): boolean {
-    const result = db
-      .prepare('DELETE FROM project_subagents WHERE project_id = ? AND subagent_id = ?')
-      .run(projectId, subagentId)
-    return Number(result.changes) > 0
+  if (seenOrders.size !== items.length) {
+    throw new CatalogOrderError('sortOrder deve ser contíguo e único (0..N-1).')
   }
-
-  function setCatalogOrder(projectId: string, items: CatalogOrderItem[]): SubagentLinkState[] {
-    const linkedRows = db
-      .prepare('SELECT subagent_id FROM project_subagents WHERE project_id = ?')
-      .all(projectId) as { subagent_id: string }[]
-    const linkedIds = new Set(linkedRows.map((r) => r.subagent_id))
-
-    if (items.length !== linkedIds.size) {
-      throw new CatalogOrderError('catalog-order deve incluir todos os subagents vinculados ao projeto.')
-    }
-    const seenOrders = new Set<number>()
-    for (const item of items) {
-      if (!linkedIds.has(item.id)) {
-        throw new CatalogOrderError(`Subagent ${item.id} não está vinculado a este projeto.`)
-      }
-      seenOrders.add(item.sortOrder)
-    }
-    if (seenOrders.size !== items.length) {
+  for (let i = 0; i < items.length; i++) {
+    if (!seenOrders.has(i)) {
       throw new CatalogOrderError('sortOrder deve ser contíguo e único (0..N-1).')
     }
-    for (let i = 0; i < items.length; i++) {
-      if (!seenOrders.has(i)) {
-        throw new CatalogOrderError('sortOrder deve ser contíguo e único (0..N-1).')
-      }
-    }
-
-    db.exec('BEGIN')
-    try {
-      for (const item of items) {
-        db.prepare(
-          'UPDATE project_subagents SET enabled = ?, sort_order = ? WHERE project_id = ? AND subagent_id = ?'
-        ).run(item.enabled ? 1 : 0, item.sortOrder, projectId, item.id)
-      }
-      db.exec('COMMIT')
-    } catch (err) {
-      db.exec('ROLLBACK')
-      throw err
-    }
-
-    return listProjectSubagents(projectId).filter((s) => s.linked)
   }
 
-  function getCounts(): { global: number; linkedByProject: Record<string, number> } {
-    const global = (db.prepare('SELECT COUNT(*) as c FROM subagents').get() as { c: number }).c
-    const rows = db
-      .prepare('SELECT project_id, COUNT(*) as c FROM project_subagents GROUP BY project_id')
-      .all() as { project_id: string; c: number }[]
-    const linkedByProject: Record<string, number> = {}
-    for (const row of rows) linkedByProject[row.project_id] = row.c
-    return { global, linkedByProject }
+  db.exec('BEGIN')
+  try {
+    for (const item of items) {
+      db.prepare(
+        'UPDATE project_subagents SET enabled = ?, sort_order = ? WHERE project_id = ? AND subagent_id = ?'
+      ).run(item.enabled ? 1 : 0, item.sortOrder, projectId, item.id)
+    }
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
   }
 
-  function resolveTurnCatalog(projectId: string): Subagent[] {
-    const rows = db
-      .prepare(
-        `SELECT s.* FROM subagents s
+  return listProjectSubagents(projectId).filter((s) => s.linked)
+}
+
+export function getSubagentCounts(): { global: number; linkedByProject: Record<string, number> } {
+  const db = getDb()
+  const global = (db.prepare('SELECT COUNT(*) as c FROM subagents').get() as { c: number }).c
+  const rows = db.prepare('SELECT project_id, COUNT(*) as c FROM project_subagents GROUP BY project_id').all() as {
+    project_id: string
+    c: number
+  }[]
+  const linkedByProject: Record<string, number> = {}
+  for (const row of rows) linkedByProject[row.project_id] = row.c
+  return { global, linkedByProject }
+}
+
+export function resolveSubagentTurnCatalog(projectId: string): Subagent[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT s.* FROM subagents s
          JOIN project_subagents ps ON ps.subagent_id = s.id
          WHERE ps.project_id = ? AND ps.enabled = 1 AND s.enabled = 1
          ORDER BY ps.sort_order ASC`
-      )
-      .all(projectId) as unknown as SubagentRow[]
-    return rows.map(rowToSubagent)
-  }
-
-  function createRun(input: CreateRunInput): SubagentRun {
-    db.prepare(
-      `INSERT INTO subagent_runs
-        (child_thread_id, parent_thread_id, parent_tool_call_id, subagent_name, provider, model, status, text, reasoning_level, action_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
-    ).run(
-      input.childThreadId,
-      input.parentThreadId,
-      input.parentToolCallId ?? null,
-      input.subagentName,
-      input.provider,
-      input.model ?? null,
-      input.status,
-      input.text ?? null,
-      input.reasoningLevel ?? null,
-      Date.now()
     )
-    return getRun(input.childThreadId) as SubagentRun
-  }
-
-  function getRun(childThreadId: string): SubagentRun | undefined {
-    const row = db.prepare('SELECT * FROM subagent_runs WHERE child_thread_id = ?').get(childThreadId) as
-      | RunRow
-      | undefined
-    return row ? rowToRun(row) : undefined
-  }
-
-  function updateRun(childThreadId: string, patch: RunPatch): SubagentRun | undefined {
-    const existing = getRun(childThreadId)
-    if (!existing) return undefined
-    db.prepare(
-      `UPDATE subagent_runs SET
-        status = ?, text = ?, usage_json = ?, duration_ms = ?, action_count = ?, actions_json = ?
-       WHERE child_thread_id = ?`
-    ).run(
-      patch.status ?? existing.status,
-      patch.text !== undefined ? patch.text : existing.text,
-      patch.usageJson ?? null,
-      patch.durationMs !== undefined ? patch.durationMs : existing.durationMs,
-      patch.actionCount !== undefined ? patch.actionCount : existing.actionCount,
-      patch.actionsJson ?? null,
-      childThreadId
-    )
-    return getRun(childThreadId)
-  }
-
-  function listRunsForParentThread(parentThreadId: string): SubagentRun[] {
-    const rows = db
-      .prepare('SELECT * FROM subagent_runs WHERE parent_thread_id = ? ORDER BY created_at ASC')
-      .all(parentThreadId) as unknown as RunRow[]
-    return rows.map(rowToRun)
-  }
-
-  return {
-    getById,
-    getByName,
-    list,
-    create,
-    update,
-    remove,
-    listProjectSubagents,
-    upsertProjectLink,
-    unlinkProject,
-    setCatalogOrder,
-    getCounts,
-    resolveTurnCatalog,
-    createRun,
-    getRun,
-    updateRun,
-    listRunsForParentThread,
-  }
+    .all(projectId) as unknown as SubagentRow[]
+  return rows.map(rowToSubagent)
 }
 
-export type SubagentsRepository = ReturnType<typeof createSubagentsRepository>
+export function createSubagentRun(input: CreateRunInput): SubagentRun {
+  const db = getDb()
+  db.prepare(
+    `INSERT INTO subagent_runs
+        (child_thread_id, parent_thread_id, parent_tool_call_id, subagent_name, provider, model, status, text, reasoning_level, action_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+  ).run(
+    input.childThreadId,
+    input.parentThreadId,
+    input.parentToolCallId ?? null,
+    input.subagentName,
+    input.provider,
+    input.model ?? null,
+    input.status,
+    input.text ?? null,
+    input.reasoningLevel ?? null,
+    Date.now()
+  )
+  return getSubagentRun(input.childThreadId) as SubagentRun
+}
+
+export function getSubagentRun(childThreadId: string): SubagentRun | undefined {
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM subagent_runs WHERE child_thread_id = ?').get(childThreadId) as
+    | RunRow
+    | undefined
+  return row ? rowToRun(row) : undefined
+}
+
+export function updateSubagentRun(childThreadId: string, patch: RunPatch): SubagentRun | undefined {
+  const db = getDb()
+  const existing = getSubagentRun(childThreadId)
+  if (!existing) return undefined
+  db.prepare(
+    `UPDATE subagent_runs SET
+        status = ?, text = ?, usage_json = ?, duration_ms = ?, action_count = ?, actions_json = ?
+       WHERE child_thread_id = ?`
+  ).run(
+    patch.status ?? existing.status,
+    patch.text !== undefined ? patch.text : existing.text,
+    patch.usageJson ?? null,
+    patch.durationMs !== undefined ? patch.durationMs : existing.durationMs,
+    patch.actionCount !== undefined ? patch.actionCount : existing.actionCount,
+    patch.actionsJson ?? null,
+    childThreadId
+  )
+  return getSubagentRun(childThreadId)
+}
+
+export function listSubagentRunsForParentThread(parentThreadId: string): SubagentRun[] {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT * FROM subagent_runs WHERE parent_thread_id = ? ORDER BY created_at ASC')
+    .all(parentThreadId) as unknown as RunRow[]
+  return rows.map(rowToRun)
+}

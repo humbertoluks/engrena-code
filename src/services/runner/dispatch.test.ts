@@ -15,7 +15,7 @@ const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
 const { skillsRepository } = await import('../db/repositories/skills.js')
-const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
+const { createSubagent, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const {
   dispatchNewThread,
   dispatchFollowUp,
@@ -160,7 +160,11 @@ describe('dispatchNewThread', () => {
   it('injects the global prompt and resolved rules block into the system prompt', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const rule = createRule({ name: 'idioma-teste', content: 'Responda em PT-BR.', isGlobal: true })
+    const rule = createRule({
+      name: 'idioma-teste',
+      content: 'Responda em PT-BR.',
+      isGlobal: true,
+    })
 
     let capturedSystemPrompt: string | undefined
     setRunCliTurnForTesting(async (input) => {
@@ -186,17 +190,20 @@ describe('dispatchNewThread', () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
-    const skill = skillsRepository.create({ name: 'skill-turno', description: 'ajuda no turno', content: '# conteudo' })
+    const skill = skillsRepository.create({
+      name: 'skill-turno',
+      description: 'ajuda no turno',
+      content: '# conteudo',
+    })
     skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
 
-    const subagentsRepo = createSubagentsRepository(getDb())
-    const subagent = subagentsRepo.create({
+    const subagent = createSubagent({
       name: 'subagent-turno',
       description: 'delega revisao',
       prompt: 'voce revisa codigo',
       provider: 'inherit',
     })
-    subagentsRepo.upsertProjectLink(project.id, subagent.id, { enabled: true })
+    upsertProjectSubagentLink(project.id, subagent.id, { enabled: true })
 
     let capturedSystemPrompt: string | undefined
     setRunCliTurnForTesting(async (input) => {
@@ -222,7 +229,11 @@ describe('dispatchNewThread', () => {
   it('registers the engrenacode MCP with load_skill when a skill is linked', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const skill = skillsRepository.create({ name: 'skill-mcp', description: 'd', content: '# body' })
+    const skill = skillsRepository.create({
+      name: 'skill-mcp',
+      description: 'd',
+      content: '# body',
+    })
     skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
 
     let capturedMcpServers: Array<{ name: string; args?: string[] }> | undefined
@@ -249,11 +260,20 @@ describe('dispatchNewThread', () => {
   it('emits mcp.notice for load_skill when provider is minimax', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const skill = skillsRepository.create({ name: 'skill-mini', description: 'd', content: '# body' })
+    const skill = skillsRepository.create({
+      name: 'skill-mini',
+      description: 'd',
+      content: '# body',
+    })
     skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
     // MCP vinculado força `await prepareMcpsForDispatch` antes do notice de skills,
     // dando tempo do subscribe registrar (mesmo padrão do teste missing_secret).
-    const mcp = createMcp({ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'] })
+    const mcp = createMcp({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-fs'],
+    })
     setProjectMcpLink(project.id, mcp.id, { enabled: true })
 
     let capturedMcpServers: Array<{ name: string }> | undefined
@@ -275,7 +295,11 @@ describe('dispatchNewThread', () => {
 
     const [thread] = listThreadsForProject(project.id)
     const received: unknown[] = []
-    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
     await dispatchPromise
@@ -283,7 +307,9 @@ describe('dispatchNewThread', () => {
 
     expect(capturedMcpServers?.some((m) => m.name === 'engrenacode')).toBeFalsy()
     const notice = received.find(
-      (e) => (e as { type: string; mcpName?: string }).type === 'mcp.notice' && (e as { mcpName?: string }).mcpName === 'engrenacode'
+      (e) =>
+        (e as { type: string; mcpName?: string }).type === 'mcp.notice' &&
+        (e as { mcpName?: string }).mcpName === 'engrenacode'
     ) as { mcpName: string; reason: string } | undefined
     expect(notice?.reason).toBe('provider_unsupported')
     rmSync(dir, { recursive: true, force: true })
@@ -293,7 +319,12 @@ describe('dispatchNewThread', () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
-    const mcp = createMcp({ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'] })
+    const mcp = createMcp({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-fs'],
+    })
     setProjectMcpLink(project.id, mcp.id, { enabled: true })
 
     let capturedMcpServers: unknown
@@ -311,7 +342,15 @@ describe('dispatchNewThread', () => {
     })
 
     await waitForState(thread.id, ['idle', 'error'])
-    expect(capturedMcpServers).toEqual([{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'], env: {} }])
+    expect(capturedMcpServers).toEqual([
+      {
+        name: 'filesystem',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'server-fs'],
+        env: {},
+      },
+    ])
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -319,7 +358,12 @@ describe('dispatchNewThread', () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
-    const mcp = createMcp({ name: 'github', transport: 'stdio', command: 'npx', env: { TOKEN: 'vault:github_token' } })
+    const mcp = createMcp({
+      name: 'github',
+      transport: 'stdio',
+      command: 'npx',
+      env: { TOKEN: 'vault:github_token' },
+    })
     setProjectMcpLink(project.id, mcp.id, { enabled: true })
 
     setRunCliTurnForTesting(async () => ({ text: 'ok' }))
@@ -334,7 +378,11 @@ describe('dispatchNewThread', () => {
 
     const [thread] = listThreadsForProject(project.id)
     const received: unknown[] = []
-    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
     await dispatchPromise
@@ -354,7 +402,12 @@ describe('dispatchNewThread', () => {
 
     setRunCliTurnForTesting(async (input) => {
       input.onEvent({ type: 'tool-start', id: 'tool_1', name: 'Read', params: { path: 'x.ts' } })
-      input.onEvent({ type: 'tool-result', id: 'tool_1', status: 'completed', result: { ok: true } })
+      input.onEvent({
+        type: 'tool-result',
+        id: 'tool_1',
+        status: 'completed',
+        result: { ok: true },
+      })
       return { text: 'ok' }
     })
 
@@ -778,7 +831,12 @@ describe('usage_events write path (F11)', () => {
 
     setRunCliTurnForTesting(async () => ({
       text: 'ok',
-      usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: null, cacheCreationTokens: null },
+      usage: {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: null,
+        cacheCreationTokens: null,
+      },
     }))
 
     const dir = makeProjectDir()
@@ -820,7 +878,12 @@ describe('usage_events write path (F11)', () => {
   it('persists a usage_event even when the turn fails, if the ProviderError carries usage (spec F11 §3.2)', async () => {
     setRunCliTurnForTesting(async () => {
       throw new ProviderError('provider_turn_error', 'deu ruim', {
-        usage: { inputTokens: 50, outputTokens: 0, cacheReadTokens: null, cacheCreationTokens: null },
+        usage: {
+          inputTokens: 50,
+          outputTokens: 0,
+          cacheReadTokens: null,
+          cacheCreationTokens: null,
+        },
         costUsd: 0.01,
       })
     })

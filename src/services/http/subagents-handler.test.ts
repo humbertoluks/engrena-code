@@ -1,10 +1,15 @@
 import http from 'http'
 import axios, { type AxiosInstance } from 'axios'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { openDb } from '../db/client.js'
-import { createSubagentsRepository } from '../db/repositories/subagents.js'
-import { vaultService } from '../vault/vault-service.js'
-import { handleSubagentsRequest, setSubagentsRepositoryForTests } from './subagents-handler.js'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+
+process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_subagents_http_'))
+
+const { getDb, closeDb } = await import('../db/client.js')
+const { vaultService } = await import('../vault/vault-service.js')
+const { handleSubagentsRequest } = await import('./subagents-handler.js')
 
 let server: http.Server
 let client: AxiosInstance
@@ -44,10 +49,14 @@ beforeAll(async () => {
 afterAll(() => {
   server.close()
   vaultService.lock()
+  closeDb()
+  rmSync(process.env.ENGRENACODE_USER_DATA as string, { recursive: true, force: true })
 })
 
 beforeEach(() => {
-  setSubagentsRepositoryForTests(createSubagentsRepository(openDb(':memory:')))
+  getDb().exec('DELETE FROM subagent_runs')
+  getDb().exec('DELETE FROM project_subagents')
+  getDb().exec('DELETE FROM subagents')
 })
 
 describe('subagents-handler', () => {
@@ -84,17 +93,17 @@ describe('subagents-handler', () => {
   })
 
   it('rejects prompt over 1 MiB with 400 too_long', async () => {
-    const res = await client.post(
-      '/api/subagents',
-      baseInput({ prompt: 'a'.repeat(1_048_577) }),
-      { headers: authHeaders() }
-    )
+    const res = await client.post('/api/subagents', baseInput({ prompt: 'a'.repeat(1_048_577) }), {
+      headers: authHeaders(),
+    })
     expect(res.status).toBe(400)
     expect(res.data.error.code).toBe('too_long')
   })
 
   it('rejects invalid provider with 400', async () => {
-    const res = await client.post('/api/subagents', baseInput({ provider: 'grok' }), { headers: authHeaders() })
+    const res = await client.post('/api/subagents', baseInput({ provider: 'grok' }), {
+      headers: authHeaders(),
+    })
     expect(res.status).toBe(400)
     expect(res.data.error.code).toBe('validation_error')
   })
@@ -129,15 +138,13 @@ describe('subagents-handler', () => {
     const create = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
     const id = create.data.subagent.id
 
-    const link = await client.put(
-      `/api/projects/proj-1/subagents/${id}`,
-      { enabled: true },
-      { headers: authHeaders() }
-    )
+    const link = await client.put(`/api/projects/proj-1/subagents/${id}`, { enabled: true }, { headers: authHeaders() })
     expect(link.status).toBe(200)
     expect(link.data.subagent.linked).toBe(true)
 
-    const listLinks = await client.get('/api/projects/proj-1/subagents', { headers: authHeaders() })
+    const listLinks = await client.get('/api/projects/proj-1/subagents', {
+      headers: authHeaders(),
+    })
     expect(listLinks.status).toBe(200)
     expect(listLinks.data).toHaveLength(1)
     expect(listLinks.data[0].linked).toBe(true)
@@ -147,15 +154,15 @@ describe('subagents-handler', () => {
     expect(counts.data.global).toBe(1)
     expect(counts.data.linkedByProject['proj-1']).toBe(1)
 
-    const unlink = await client.delete(`/api/projects/proj-1/subagents/${id}`, { headers: authHeaders() })
+    const unlink = await client.delete(`/api/projects/proj-1/subagents/${id}`, {
+      headers: authHeaders(),
+    })
     expect(unlink.status).toBe(200)
   })
 
   it('reorders via catalog-order', async () => {
-    const a = (await client.post('/api/subagents', baseInput({ name: 'a' }), { headers: authHeaders() })).data
-      .subagent
-    const b = (await client.post('/api/subagents', baseInput({ name: 'b' }), { headers: authHeaders() })).data
-      .subagent
+    const a = (await client.post('/api/subagents', baseInput({ name: 'a' }), { headers: authHeaders() })).data.subagent
+    const b = (await client.post('/api/subagents', baseInput({ name: 'b' }), { headers: authHeaders() })).data.subagent
     await client.put(`/api/projects/proj-1/subagents/${a.id}`, {}, { headers: authHeaders() })
     await client.put(`/api/projects/proj-1/subagents/${b.id}`, {}, { headers: authHeaders() })
 
@@ -176,8 +183,7 @@ describe('subagents-handler', () => {
   })
 
   it('rejects catalog-order with non-contiguous sortOrder', async () => {
-    const a = (await client.post('/api/subagents', baseInput({ name: 'a' }), { headers: authHeaders() })).data
-      .subagent
+    const a = (await client.post('/api/subagents', baseInput({ name: 'a' }), { headers: authHeaders() })).data.subagent
     await client.put(`/api/projects/proj-1/subagents/${a.id}`, {}, { headers: authHeaders() })
 
     const res = await client.put(

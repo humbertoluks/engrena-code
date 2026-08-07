@@ -14,7 +14,7 @@ const { getThread } = await import('../db/repositories/threads.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
-const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
+const { createSubagent, createSubagentRun } = await import('../db/repositories/subagents.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -294,7 +294,10 @@ describe('handleThreadsRequest', () => {
     const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
     const historyRes = fakeRes()
     await handleThreadsRequest(historyReq, historyRes)
-    const historyBody = (await historyRes.result()).body as { messages: unknown[]; subagentRuns: unknown[] }
+    const historyBody = (await historyRes.result()).body as {
+      messages: unknown[]
+      subagentRuns: unknown[]
+    }
     expect(historyBody.messages.length).toBeGreaterThanOrEqual(1)
     expect(historyBody.subagentRuns).toEqual([])
 
@@ -322,14 +325,13 @@ describe('handleThreadsRequest', () => {
     const created = (await createRes.result()).body as { thread: { id: string } }
     await waitFor(() => getThread(created.thread.id)?.state === 'idle')
 
-    const subagentsRepo = createSubagentsRepository(getDb())
-    const subagent = subagentsRepo.create({
+    const subagent = createSubagent({
       name: 'revisor',
       description: 'revisa',
       prompt: 'revise com cuidado',
       provider: 'claude',
     })
-    subagentsRepo.createRun({
+    createSubagentRun({
       childThreadId: 'child-1',
       parentThreadId: created.thread.id,
       subagentName: subagent.name,
@@ -418,7 +420,12 @@ describe('handleThreadsRequest', () => {
     const createReq = fakeReq(
       'POST',
       `/api/projects/${project.id}/threads`,
-      { prompt: 'crie um arquivo', provider: 'claude', accessLevel: 'full-access', executionMode: 'main' },
+      {
+        prompt: 'crie um arquivo',
+        provider: 'claude',
+        accessLevel: 'full-access',
+        executionMode: 'main',
+      },
       session
     )
     const createRes = fakeRes()
@@ -552,7 +559,9 @@ describe('handleThreadsRequest', () => {
     )
     const createRes = fakeRes()
     await handleThreadsRequest(createReq, createRes)
-    const created = (await createRes.result()).body as { thread: { id: string; worktreePath: string } }
+    const created = (await createRes.result()).body as {
+      thread: { id: string; worktreePath: string }
+    }
     await waitFor(() => getThread(created.thread.id)?.state === 'idle')
 
     const req = fakeReq('DELETE', `/api/threads/${created.thread.id}`, undefined, session)
@@ -582,7 +591,9 @@ describe('handleThreadsRequest', () => {
       await handleThreadsRequest(req, res)
       const { status, body } = await res.result()
       expect(status).toBe(200)
-      const parsed = body as { providers: Record<string, { models: string[]; defaultModel: string; multimodal: boolean }> }
+      const parsed = body as {
+        providers: Record<string, { models: string[]; defaultModel: string; multimodal: boolean }>
+      }
       expect(parsed.providers.claude.multimodal).toBe(true)
       expect(parsed.providers.claude.models).toContain(parsed.providers.claude.defaultModel)
       expect(parsed.providers.minimax.multimodal).toBe(false)
@@ -613,7 +624,13 @@ describe('handleThreadsRequest', () => {
       const req = fakeReq(
         'POST',
         `/api/projects/${project.id}/threads`,
-        { prompt: 'oi', provider: 'claude', model: 'gpt-unknown', accessLevel: 'supervised', executionMode: 'main' },
+        {
+          prompt: 'oi',
+          provider: 'claude',
+          model: 'gpt-unknown',
+          accessLevel: 'supervised',
+          executionMode: 'main',
+        },
         session
       )
       const res = fakeRes()
@@ -630,7 +647,13 @@ describe('handleThreadsRequest', () => {
       const req = fakeReq(
         'POST',
         `/api/projects/${project.id}/threads`,
-        { prompt: 'oi', provider: 'minimax', reasoningLevel: 'high', accessLevel: 'supervised', executionMode: 'main' },
+        {
+          prompt: 'oi',
+          provider: 'minimax',
+          reasoningLevel: 'high',
+          accessLevel: 'supervised',
+          executionMode: 'main',
+        },
         session
       )
       const res = fakeRes()
@@ -703,14 +726,21 @@ describe('handleThreadsRequest', () => {
         { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
         session
       )
-      const created = (await (async () => {
-        const res = fakeRes()
-        await handleThreadsRequest(createReq, res)
-        return res.result()
-      })()).body as { thread: { id: string } }
+      const created = (
+        await (async () => {
+          const res = fakeRes()
+          await handleThreadsRequest(createReq, res)
+          return res.result()
+        })()
+      ).body as { thread: { id: string } }
       await waitFor(() => getThread(created.thread.id)?.state === 'idle')
 
-      const req = fakeReq('POST', `/api/threads/${created.thread.id}/messages`, { prompt: 'de novo', provider: 'codex' }, session)
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${created.thread.id}/messages`,
+        { prompt: 'de novo', provider: 'codex' },
+        session
+      )
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       const { status, body } = await res.result()
@@ -751,7 +781,10 @@ describe('handleThreadsRequest', () => {
       const imgReq = fakeReq(
         'POST',
         `/api/threads/${created.thread.id}/messages`,
-        { prompt: 'com imagem', images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }] },
+        {
+          prompt: 'com imagem',
+          images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }],
+        },
         session
       )
       const imgRes = fakeRes()
