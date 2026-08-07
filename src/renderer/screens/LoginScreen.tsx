@@ -84,10 +84,10 @@ function classifyUnlockFailure(
 async function completeSessionUnlock(
   onUnlock?: () => void,
 ): Promise<ErrorKind | null> {
-  if (!window.electronAPI?.invoke) return 'network'
-  const token = await window.electronAPI.invoke('engrenacode:vault:get-session')
-  if (!token) return 'network'
-  localStorage.setItem('sessionToken', token as string)
+  if (!window.electronAPI?.vault?.getSessionToken) return 'network'
+  const token = await window.electronAPI.vault.getSessionToken()
+  if (typeof token !== 'string' || !token) return 'network'
+  localStorage.setItem('sessionToken', token)
   window.location.hash = '#dashboard'
   onUnlock?.()
   return null
