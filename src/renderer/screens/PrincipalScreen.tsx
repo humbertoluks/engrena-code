@@ -112,6 +112,8 @@ export function PrincipalScreen(): ReactElement {
               error={ws.historyError}
               streamingText={ws.streamingText}
               hasThread={ws.selectedThreadId !== null}
+              pendingQuestion={ws.pendingQuestion}
+              onAnswerQuestion={ws.answerQuestion}
             />
           ) : (
             <DiffViewer

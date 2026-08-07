@@ -3,6 +3,8 @@ import type { Message, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import { correlateSubagentRuns } from './chatHistory.logic'
+import { AskUserQuestionCard } from './AskUserQuestionCard'
+import type { PendingAskUserQuestion } from './askUserQuestion.logic'
 
 const COPY = {
   loading: 'Carregando histórico…',
@@ -68,6 +70,8 @@ export interface ChatHistoryProps {
   error: string | null
   streamingText: string
   hasThread: boolean
+  pendingQuestion?: PendingAskUserQuestion | null
+  onAnswerQuestion?: (input: { selectedOptions: string[]; freeText: string | null }) => void
 }
 
 export function ChatHistory({
@@ -79,6 +83,8 @@ export function ChatHistory({
   error,
   streamingText,
   hasThread,
+  pendingQuestion = null,
+  onAnswerQuestion,
 }: Readonly<ChatHistoryProps>): ReactElement {
   if (loading) {
     return <p className="p-md text-[13px] text-muted">{COPY.loading}</p>
@@ -133,6 +139,16 @@ export function ChatHistory({
           </div>
         )
       })}
+
+      {pendingQuestion && onAnswerQuestion ? (
+        <AskUserQuestionCard
+          key={pendingQuestion.toolCallId}
+          prompt={pendingQuestion.prompt}
+          options={pendingQuestion.options}
+          multiSelect={pendingQuestion.multiSelect}
+          onAnswer={onAnswerQuestion}
+        />
+      ) : null}
 
       {streamingText !== '' ? (
         <div className="self-start">

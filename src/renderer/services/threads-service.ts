@@ -142,6 +142,11 @@ export const threadsService = {
     input: { requestId: string; allow: boolean }
   ): Promise<{ resolved: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/permission`, input),
 
+  answerQuestion: (
+    threadId: string,
+    input: { selectedOptions?: string[]; freeText?: string | null }
+  ): Promise<{ answered: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/answer`, input),
+
   accept: (
     threadId: string,
     input: { action?: 'accept' | 'reject'; ids?: string[]; paths?: string[] }

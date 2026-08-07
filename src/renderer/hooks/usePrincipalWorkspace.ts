@@ -15,6 +15,7 @@ import {
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
 import type { SubagentRun } from '../services/subagents-service'
+import { findPendingAskUserQuestion } from '../components/workspace/askUserQuestion.logic'
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
@@ -130,6 +131,22 @@ export function usePrincipalWorkspace() {
     if (!selectedProjectId || !selectedThreadId) return null
     return (threadsByProject[selectedProjectId] ?? []).find((t) => t.id === selectedThreadId) ?? null
   }, [threadsByProject, selectedProjectId, selectedThreadId])
+
+  // F21: pergunta pendente do turno atual — só relevante com a thread pausada em waiting_user;
+  // deriva do tool_call ask_user_question mais recente ainda `running` (mesmo padrão de
+  // correlateSubagentRuns em chatHistory.logic.ts, sem estado próprio).
+  const pendingQuestion = useMemo(() => {
+    if (selectedThread?.state !== 'waiting_user') return null
+    return findPendingAskUserQuestion(toolCalls)
+  }, [selectedThread, toolCalls])
+
+  const answerQuestion = useCallback(
+    async (input: { selectedOptions: string[]; freeText: string | null }) => {
+      if (!selectedThreadId) return
+      await threadsService.answerQuestion(selectedThreadId, input)
+    },
+    [selectedThreadId]
+  )
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
 
@@ -599,6 +616,8 @@ export function usePrincipalWorkspace() {
     sendError,
     send,
     cancel,
+    pendingQuestion,
+    answerQuestion,
     addProjectModalOpen,
     setAddProjectModalOpen,
     addProject,
