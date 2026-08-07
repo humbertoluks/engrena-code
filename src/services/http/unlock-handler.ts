@@ -33,18 +33,57 @@ interface VaultUnlockResponse {
   retryAfterMs?: number
 }
 
+/**
+ * Loopback API is only callable from the Vite/Electron renderer on this machine.
+ * Missing Origin = non-browser client (axios/curl/tests). `null` = file:// in production.
+ */
+export function isAllowedLoopbackOrigin(origin: string | undefined): boolean {
+  if (origin === undefined || origin === '') return true
+  if (origin === 'null') return true
+  try {
+    const url = new URL(origin)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    return url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+  } catch {
+    return false
+  }
+}
+
+function applyCors(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const raw = req.headers.origin
+  const origin = Array.isArray(raw) ? raw[0] : raw
+
+  if (typeof origin === 'string' && origin !== '' && !isAllowedLoopbackOrigin(origin)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { code: 'cors_denied', message: 'Origin not allowed.' },
+      })
+    )
+    return false
+  }
+
+  if (typeof origin === 'string' && origin !== '' && isAllowedLoopbackOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-engrenacode-session')
+  }
+
+  return true
+}
+
 export function createUnlockServer(port: number = 5174): http.Server {
   recoverInterruptedThreads()
 
   const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-engrenacode-session')
+
+    if (!applyCors(req, res)) return
 
     // CORS preflight
     if (req.method === 'OPTIONS') {
-      res.writeHead(200)
+      res.writeHead(204)
       res.end()
       return
     }

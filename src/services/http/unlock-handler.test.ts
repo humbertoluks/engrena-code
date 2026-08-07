@@ -245,6 +245,54 @@ describe('POST /api/vault/unlock payload validation', () => {
   })
 })
 
+describe('createUnlockServer CORS allowlist', () => {
+  afterEach(() => {
+    vaultService.lock()
+  })
+
+  it('reflects allowed Vite origin and rejects foreign origin', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+
+    const allowed = await axios.options(`http://127.0.0.1:${port}/api/vault/unlock`, {
+      headers: { Origin: 'http://localhost:5175' },
+      validateStatus: () => true,
+    })
+    expect(allowed.status).toBe(204)
+    expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:5175')
+
+    const denied = await axios.post(
+      `http://127.0.0.1:${port}/api/vault/unlock`,
+      { workspace: 'x', password: 'y' },
+      {
+        headers: { Origin: 'https://evil.example' },
+        validateStatus: () => true,
+      }
+    )
+    expect(denied.status).toBe(403)
+    expect(denied.data?.error?.code).toBe('cors_denied')
+    expect(denied.headers['access-control-allow-origin']).toBeUndefined()
+  })
+
+  it('allows null origin (Electron file://) and requests without Origin', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+
+    const fileOrigin = await axios.options(`http://127.0.0.1:${port}/api/projects`, {
+      headers: { Origin: 'null' },
+      validateStatus: () => true,
+    })
+    expect(fileOrigin.status).toBe(204)
+    expect(fileOrigin.headers['access-control-allow-origin']).toBe('null')
+
+    const noOrigin = await axios.get(`http://127.0.0.1:${port}/api/does-not-exist`, {
+      validateStatus: () => true,
+    })
+    expect(noOrigin.status).toBe(404)
+    expect(noOrigin.headers['access-control-allow-origin']).toBeUndefined()
+  })
+})
+
 describe('test_corrupted_vault_message', () => {
   const WORKSPACE = 'f01-corrupted-ws'
   const PASSWORD = 'f01-corrupted-pass-123'
