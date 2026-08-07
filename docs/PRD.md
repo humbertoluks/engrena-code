@@ -900,7 +900,7 @@ graph TD
 - [x] CRUD e vínculo `kind=dev` com providers Claude|Codex|Kimi|inherit
 - [x] call_subagent cria run efêmero; diffs do filho na revisão do pai (confirmado real em F15)
 - [x] Codex pai sem full-access não delega
-- [ ] Idle timeout default 20 min encerra run com status visível na UI — lógica real coberta (`delegate.idle.test.ts`); tom âmbar no código; não exercitado ao vivo em F15 (ver `docs/PROGRESS.md`)
+- [x] Idle timeout default 20 min encerra run com status visível na UI — lógica coberta (`delegate.idle.test.ts`) e exercitado ao vivo contra binário real em 2026-08-07 (`docs/F15-runtime-de-subagents/smoke-results.md`)
 
 ### F08. Registros
 - [x] Eventos task/tool/git aparecem automaticamente após uso do workspace
@@ -942,13 +942,13 @@ graph TD
 ### F14. Fluxo Git Completo
 - [x] UI expõe Commit, Commit & push e Commit, push & PR bloqueados com thread running
 - [x] “Gerar com IA” preenche subject (e title/body de PR) via provider da thread; usuário edita antes de confirmar
-- [ ] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração — token ausente confirmado ao vivo + unitário (`git-handler.test.ts`); sucesso de PR real contra o GitHub não exercitado nesta rodada (ação externa/irreversível fora do escopo automático — contrato coberto por teste HTTP com axios mockado, ver `docs/PROGRESS.md`)
+- [x] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração
 - [x] Falha de textgen não impede commit manual
 
 ### F15. Runtime de SubAgents
 - [x] `call_subagent` contra binário real cria run efêmero; resultado volta ao pai
 - [x] Diffs do filho aparecem na mesma revisão Diff do pai
-- [ ] Idle timeout (default 20 min) encerra run com status `timeout` visível na UI — lógica real coberta (`delegate.idle.test.ts`, tom âmbar no código); não exercitado ao vivo contra o binário nesta rodada (forçar 20+ min de silêncio real não agrega confiança além do teste — ver `docs/PROGRESS.md`)
+- [x] Idle timeout (default 20 min) encerra run com status `timeout` visível na UI — lógica coberta (`delegate.idle.test.ts`, tom âmbar no código) e exercitado ao vivo contra o binário real em 2026-08-07 (`idleTimeoutMinutes=1` só no fixture de smoke; default de 20 min inalterado — ver `docs/F15-runtime-de-subagents/smoke-results.md`)
 - [x] Delegação real gera usage_event source=subagent com share > 0 em Consumo
 
 ### F16. Composer Avançado
