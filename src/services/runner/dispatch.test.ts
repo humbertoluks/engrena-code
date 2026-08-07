@@ -8,7 +8,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { getDb, closeDb } = await import('../db/client.js')
 const { createProject, setMemoryEnabled } = await import('../db/repositories/projects.js')
-const { getThread, listThreadsForProject } = await import('../db/repositories/threads.js')
+const { getThread, listThreadsForProject, createThread } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { listToolCallsForThread, listMessagesForThread } = await import('../db/repositories/messages.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
@@ -29,7 +29,7 @@ const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.j
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
-const { readJournal } = await import('../vault/memory-service.js')
+const { readJournal, appendEntry } = await import('../vault/memory-service.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -558,6 +558,64 @@ describe('dispatchNewThread', () => {
 })
 
 describe('F20 memória — write_memory wiring', () => {
+  it('PRD AC2 — next turn of the same project receives the previous journal in the system prompt', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const priorThread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    appendEntry({ projectId: project.id, threadId: priorThread.id, summary: 'decisão do turno anterior' })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'continue de onde paramos',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(capturedSystemPrompt).toContain('EngrenaCode Memory')
+    expect(capturedSystemPrompt).toContain('decisão do turno anterior')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('PRD AC4 — a corrupted journal does not fail the turn', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    vaultService.setSecret(`memory:${project.id}`, 'not a journal at all')
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const state = await waitForState(thread.id, ['idle', 'error'])
+    expect(state).toBe('idle')
+    expect(capturedSystemPrompt).not.toContain('EngrenaCode Memory')
+    const entries = listLogEntries({ kind: 'task' })
+    expect(entries.some((e) => e.event === 'memory: journal corrompido, tratado como vazio')).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('registers the engrenacode MCP with memory-port/memory-token when memory is enabled (default)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
