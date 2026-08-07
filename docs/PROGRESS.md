@@ -3,7 +3,7 @@
 Fonte de verdade operacional do que está **feito neste repo** (`main`), versus o PRD e o plano Reversa (`_reversa_forward`). Atualizar ao fechar cada feature (spec + smoke + merge).
 
 **Atualizado:** 2026-08-07  
-**HEAD de referência:** F17 catálogo seed de onboarding — 12 skills + 8 subagents aplicados no unlock (versão 1.2 fechada)
+**HEAD de referência:** Auditoria PRD §9 **ENCERRADA** (2026-08-07) — Versão 1.2 + residuais + copy fechados; 103/103 ACs
 
 ---
 

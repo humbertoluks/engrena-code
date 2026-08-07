@@ -3,11 +3,11 @@
 Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, com evidência no fonte do EngrenaCode e nota de paridade com o produto legado (LionCodeLabs).
 
 **Data da auditoria original:** 2026-08-06  
-**Data da revalidação (docs):** 2026-08-07 (pós F12–F17 + residuais de smoke)  
-**Data desta reauditoria (solution):** 2026-08-07 (3ª passagem — F12 smoke live fechado; cruzamento PRD/PROGRESS/`docs/F12-*/smoke-results.md`)  
-**Escopo:** critérios marcados no PRD + gaps de produto relevantes da migração  
-**Método desta reauditoria:** (1) `grep` em `docs/PRD.md` §9 → **103 `[x]` / 0 `[ ]`**; (2) `docs/PROGRESS.md` + smoke-results F12/F13/F15; (3) soft residual F12 confirmado **PASS ao vivo** (`GIRASSOL-QUARTZO-4471` citado verbatim; sem `mcp.notice`)  
-**Uso:** registro de fechamento da migração; priorização do próximo trabalho útil (ver §8 deste doc)
+**Data do fechamento (última passagem):** 2026-08-07 — **AUDITORIA ENCERRADA**  
+**Passagens:** (1) original 2026-08-06 · (2) pós F12–F17 + residuais · (3) F12 smoke live · (4) copy F04/F14/F16 + fechamento  
+**Escopo encerrado:** critérios `docs/PRD.md` §9 + gaps P0/P1 da migração (Faixas A+B). Faixa C / PRD §7 fica fora (nova onda de produto, não gap desta auditoria).  
+**Método da passagem final:** (1) `grep` §9 → **103 `[x]` / 0 `[ ]`**; (2) `docs/PROGRESS.md` — todas F01–F17 **Feito** / Ondas 1–4 **Completa**; (3) zero `TODO` pendente em `docs/F04|F14|F16-*/copy.md`; (4) smoke-results F12/F13/F15 presentes; commit `49a0e4b` fechou copy  
+**Uso daqui pra frente:** registro histórico. Próximo trabalho de produto = opcional `/prd-writer` Faixa C (ver §8) — **não reabre esta auditoria**
 
 ### Legenda de veredito
 
@@ -32,32 +32,28 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 
 ## 1. Resumo executivo
 
-**Estado em 2026-08-07 (3ª passagem): §9 fechado — 103 `[x]` / 0 `[ ]`.** Nenhum FAIL. Soft gap F12 (`load_skill` live) **fechado** nesta passagem (`docs/F12-runtime-de-skills/smoke-results.md`). Confiança F05/F12: **alta**.
+### Status: FECHADO
+
+**§9 do PRD: 103 `[x]` / 0 `[ ]`].** FAIL = 0 · DOC-LAG = 0 · `[x]` indevido = 0.  
+**Versão 1.2 (F12–F17) + residuais de smoke + passe de copy: feitos.**  
+**Esta auditoria de migração não tem mais itens abertos no escopo.**
 
 | Bloco | PASS | FAIL | OPEN / PARTIAL | DOC-LAG | Confiança |
 |-------|------|------|----------------|---------|-----------|
 | F01–F02, F01.1, F04, F08, F09, F10 | todos | 0 | 0 | 0 | alta |
-| F03 Workspace | 6 (era 5+1 FAIL) | 0 | 0 | 0 | alta |
-| F05 Skills | 3 (era 2+1 FAIL) | 0 | 0 | 0 | alta |
+| F03 Workspace | 6 | 0 | 0 | 0 | alta |
+| F05 Skills | 3 | 0 | 0 | 0 | alta (incl. smoke live F12) |
 | F06 Rules | 3 | 0 | 0 | 0 | alta |
-| F07 SubAgents | 4 (era 2+2 OPEN) | 0 | 0 | 0 | alta |
+| F07 SubAgents | 4 | 0 | 0 | 0 | alta (incl. idle live) |
 | F11 Consumo | 5 | 0 | 0 | 0 | alta |
 | F12–F17 | todas | 0 | 0 | 0 | alta |
 | Cross-Feature | 16+ | 0 | 0 | 0 | alta |
 
-**Achados P0 da auditoria 2026-08-06 — status agora:**
+**P0 (2026-08-06) — todos RESOLVIDOS:** F05 `load_skill` · F03 participação F05–F07 · worktree real · textgen git · Commit/push/PR · composer model/reasoning.
 
-1. ~~**F05** `load_skill` → FAIL~~ → **RESOLVIDO (F12)** + spawn Electron OK + **smoke live 2026-08-07** (`GIRASSOL-QUARTZO-4471`).
-2. ~~**F03** participação F05–F07 → FAIL/PARTIAL~~ → **RESOLVIDO** (rules + F12 live + F15 E2E/idle).
+**Residuais de confiança/cosmético — todos FECHADOS nesta sessão:** tema cross-nav · F13 fail path · F14 PR GitHub · F15 idle UI · F16 CTA/thumbs · F12 `load_skill` live · copy F04/F14/F16.
 
-**Achados P0 de produto — status agora:**
-
-3. ~~worktree fantasma~~ → **RESOLVIDO (F13)** + residual `worktree_create_failed` UI+unit (2026-08-07).
-4. ~~textgen commit/PR~~ → **RESOLVIDO (F14)**.
-5. ~~Commit, push & PR~~ → **RESOLVIDO (F14)** incl. PR real `humbertoluks/engrenacode-f14-smoke#1`.
-6. ~~composer model/reasoning~~ → **RESOLVIDO (F16)** (provider imutável pós-1º envio = escopo §7).
-
-**Residuais fora de §9 do PRD (não bloqueiam):** copy provisória; nits de doc; caveat Windows path profundo em worktree — ver §6 e §8. Soft smoke F12 **não é mais residual**.
+**Fora do escopo (não impede fechamento):** Faixa C / PRD §7 (Memory, CodeGraph, slash, voz, …); higiene opcional de docs (Esclarecimentos F03/F11 históricos; `smoke-results` F14/F16); caveat ambiente Windows worktree + path profundo.
 
 ---
 
@@ -238,14 +234,15 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 
 **Copy pendente — fechado em 2026-08-07:** os slots antes citados como "texto funcional provisório" (F04: `dashboard.subtitle`/`banner.setupIncomplete`/títulos de seção; F14: `git.cta.generateAi`, placeholders, `git.stage.openingPr`; F16: `composer.image.disabled.multimodal`, `composer.mention.error.outsideProject`) já eram texto final desde a implementação — só o registro em `copy.md` estava incompleto/ausente. `docs/F04-dashboard/copy.md` recriado, `docs/F14-fluxo-git-completo/copy.md` e `docs/F16-composer-avancado/copy.md` com Lacunas resolvidas; `docs/PROGRESS.md` atualizado. Nenhuma string de código mudou. `git.label.*` e `git.hint.subjectMax` (F14) ficaram documentados como não implementados por decisão (evitar mudança de layout), não como TODO pendente.
 
-**Outros nits da reauditoria 2026-08-07 (solution):**
+**Outros nits (higiene opcional — não reabrem a auditoria):**
 
 | Nit | Severidade | Nota |
 |-----|------------|------|
-| Soft smoke F12 `load_skill` live | ~~baixa~~ → **fechado** | `docs/F12-runtime-de-skills/smoke-results.md` (2026-08-07) |
-| `smoke-results.md` ausente para F14/F16 | doc | Evidência vive em `PROGRESS.md` (assimétrico vs F13/F15) |
-| Esclarecimentos antigos F03/F11 em `PROGRESS.md` | doc stale | Ainda narram gaps já fechados (histórico); não revertem §9 |
-| Windows `$GIT_DIR too big` em worktree + userData profundo | ambiente | Visto no smoke F14; PR rodou em `executionMode=main` |
+| Soft smoke F12 `load_skill` live | **fechado** | `docs/F12-runtime-de-skills/smoke-results.md` |
+| Copy F04/F14/F16 | **fechado** | `49a0e4b` + copy.md sem TODO pendente |
+| `smoke-results.md` ausente para F14/F16 | higiene | Evidência em `PROGRESS.md` — ok para fechamento |
+| Esclarecimentos antigos F03/F11 em `PROGRESS.md` | higiene | Narrativa histórica; não revertem §9 |
+| Windows `$GIT_DIR too big` em worktree + userData profundo | ambiente | Só investigar se voltar a doer |
 
 ### Faixa C — Roadmap pós-corte PRD §7 (P2 / ondas futuras) — **inalterada, fora do escopo desta revalidação**
 
@@ -283,29 +280,21 @@ Fora desta onda (permanecem PRD §7, Faixa C acima): Memory/dreaming, CodeGraph,
 
 ---
 
-## 8. Próximo trabalho útil (priorizado)
+## 8. Pós-fechamento (opcional — nova onda)
 
-Ordem recomendada após a 3ª passagem. Nenhum item reabre §9 como FAIL. Soft smoke F12 **feito**. Passe de copy F04/F14/F16 **feito**.
+**Esta auditoria de migração está ENCERRADA.** Não há próximo item obrigatório no escopo §9 / Faixas A+B.
 
-| # | Trabalho | Por quê | Esforço |
-|---|----------|---------|---------|
-| **1** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Decide Memory/CodeGraph/slash/voz/etc. sem chute de escopo | produto |
-| — | Nits de doc (Esclarecimentos F03/F11 stale; `smoke-results` F14/F16) | Higiene; F12 agora tem `smoke-results.md` | baixo |
-| — | Caveat Windows worktree + path profundo | Só se voltar a doer no dia a dia | investigativo |
+| # | Se quiser continuar o produto | Nota |
+|---|-------------------------------|------|
+| **1** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Memory, CodeGraph, slash, voz, write-parallel, GLM/Grok, … — **nova onda**, não residual desta auditoria |
+| — | Higiene de docs (Esclarecimentos F03/F11; smoke-results F14/F16) | Cosmético |
+| — | Caveat Windows worktree + path profundo | Só se doer |
 
 ---
 
 ## 9. Referências
 
-- PRD: [`docs/PRD.md`](./PRD.md) §7 (fora de escopo) e §9 (critérios — zero `[ ]` restantes em 2026-08-07)
-- Progresso operacional: [`docs/PROGRESS.md`](./PROGRESS.md)
-- Legado: `C:\Users\Me\Code\repos\github\lionlabs\LionCodeLabs` (`packages/server`, `packages/renderer`)
-- Smoke-results por feature: `docs/F02-*/`, `docs/F03-*/`, `docs/F06-*/`, `docs/F09-*/`, `docs/F11-*/`, `docs/F12-*/`, `docs/F13-*/`, `docs/F15-*/smoke-results.md` (F14/F16: evidência em PROGRESS)
-- Evidências-chave Engrena:
-  - `src/services/runner/dispatch.ts` (`buildSystemPrompt`, MCP omit, subagent MCP)
-  - `src/services/runner/skill-registry.ts` / `subagent-mcp-server.ts` (F12)
-  - `src/services/runner/delegate.ts` (F11/F15 — idle/hard-cap/diffs unificados)
-  - `src/services/git/worktree.ts` (F13)
-  - `src/services/git/git-textgen.ts` / `src/renderer/components/workspace/GitActions.tsx` (F14)
-  - `src/renderer/components/workspace/ComposerModelControls.tsx` / `FileMentionMenu.tsx` / `ComposerImageAttachments.tsx` (F16)
-  - `src/services/seeds/catalog.ts` / `apply-catalog.ts` (F17)
+- PRD: [`docs/PRD.md`](./PRD.md) §7 (fora de escopo / Faixa C) e §9 (**103 `[x]` / 0 `[ ]`** — fechado 2026-08-07)
+- Progresso: [`docs/PROGRESS.md`](./PROGRESS.md) — Ondas 1–4 Completa; Versão 1.2 fechada
+- Smoke-results: F02, F03, F06, F09, F11, **F12**, F13, F15 (F14/F16 em PROGRESS)
+- Evidências-chave: `dispatch.ts`, `skill-registry.ts`, `subagent-mcp-server.ts`, `delegate.ts`, `worktree.ts`, `git/git-textgen.ts`, `GitActions.tsx`, composer F16, `seeds/*`
