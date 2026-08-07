@@ -1336,10 +1336,10 @@ graph TD
 - [ ] Falha/timeout de um filho não aborta os demais; relatório final lista status por filho
 
 ### F19. CodeGraph e Navegação Estrutural
-- [ ] Com projeto TypeScript/JavaScript indexado, `repo_graph_find_definition` devolve a definição real de um símbolo existente
-- [ ] `repo_graph_find_references` lista todos os usos conhecidos de um símbolo no índice
-- [ ] Diff aceito que altera arquivo indexado dispara reindexação incremental sem exigir ação manual
-- [ ] Linguagem não suportada não quebra a tool — cai para busca textual
+- [x] Com projeto TypeScript/JavaScript indexado, `repo_graph_find_definition` devolve a definição real de um símbolo existente
+- [x] `repo_graph_find_references` lista todos os usos conhecidos de um símbolo no índice
+- [x] Diff aceito que altera arquivo indexado dispara reindexação incremental sem exigir ação manual
+- [x] Linguagem não suportada não quebra a tool — cai para busca textual
 
 ### F20. Memória Persistente (Memory)
 - [ ] Ao fim de um turno, uma entrada de journal é escrita para o projeto
