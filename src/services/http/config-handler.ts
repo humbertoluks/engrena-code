@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import type { IncomingMessage, ServerResponse } from 'http'
+import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { validateGithubToken } from './github-token.js'
 import { validateClaudeKey, validateCodexKey, validateMinimaxKey } from '../vault/provider-keys.js'
@@ -11,8 +12,6 @@ import type { ProviderKeyValidation } from '../vault/provider-keys.js'
 import { runClaudeProbe } from './claude-probe.js'
 
 const execAsync = promisify(exec)
-
-const SESSION_HEADER = 'x-engrenacode-session'
 
 export const DEFAULT_PROMPT =
   'Você é um agente de desenvolvimento no EngrenaCode. Ao executar tarefas:\n' +
@@ -23,48 +22,6 @@ export const DEFAULT_PROMPT =
 
 const IS_WIN = process.platform === 'win32'
 const FIND_CMD = IS_WIN ? 'where' : 'which'
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendJson(res, 423, {
-      error: {
-        code: 'vault_locked',
-        message: 'Cofre local travado. Desbloqueie antes de continuar.',
-      },
-    })
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-    return false
-  }
-
-  return true
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const json = JSON.stringify(body)
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(json)
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    req.on('data', (chunk) => { body += chunk.toString() })
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
-  })
-}
-
-function parseBody<T>(raw: string): T | null {
-  try { return JSON.parse(raw) as T } catch { return null }
-}
 
 // ── CLI detection ───────────────────────────────────────────────────────────
 

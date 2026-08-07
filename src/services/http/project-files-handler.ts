@@ -1,10 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readdirSync } from 'fs'
 import { join, relative, resolve } from 'path'
-import { vaultService } from '../vault/vault-service.js'
+import { guard, sendError, sendJson } from './_transport.js'
 import { getProject } from '../db/repositories/projects.js'
 
-const SESSION_HEADER = 'x-engrenacode-session'
 const FILES_RE = /^\/api\/projects\/([^/]+)\/files$/
 
 /** Espelha F16 spec §3.2 (Auto-Aceitar): `@file` lista a partir de `project.path`, não `worktreePath`. */
@@ -12,31 +11,6 @@ const IGNORED_DIRS = new Set(['.git', 'node_modules', '.engrenacode'])
 
 /** Teto de entradas varridas por request — evita travar em repositórios enormes (não documentado na spec, defensivo). */
 const MAX_SCAN = 20000
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(body))
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
-}
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-
-  return true
-}
 
 /** Walk iterativo sob `root`; caminhos relativos sempre com `/`, nunca escapam de `root` (spec F16 §5.2). */
 function walkProjectFiles(root: string): string[] {

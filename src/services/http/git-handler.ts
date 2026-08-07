@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
+import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
@@ -11,55 +12,6 @@ import { resolveThreadCwd } from '../runner/thread-cwd.js'
 import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from '../runner/provider-resolution.js'
 import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
-
-const SESSION_HEADER = 'x-engrenacode-session'
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(body === undefined ? undefined : JSON.stringify(body))
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string, details?: object): void {
-  sendJson(res, status, { error: { code, message, ...(details ? { details } : {}) } })
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    req.on('data', (chunk) => {
-      body += chunk.toString()
-    })
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
-  })
-}
-
-function parseBody<T>(raw: string): T | null {
-  if (raw.trim() === '') return {} as T
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-
-  return true
-}
 
 function threadBusyDetails(err: LeaseBusyError): object {
   return {

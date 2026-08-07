@@ -1,37 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { vaultService } from '../vault/vault-service.js'
+import { guard, sendError, sendJson } from './_transport.js'
 import { listLogEntries, type LogKind } from '../db/repositories/log-entries.js'
 
-const SESSION_HEADER = 'x-engrenacode-session'
 const DEFAULT_LIMIT = 100
 const VALID_KINDS: ReadonlySet<LogKind> = new Set(['task', 'tool', 'git'])
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(body))
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
-}
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-
-  return true
-}
 
 /** Parseia um inteiro >= 0 de query string; retorna undefined se ausente, null se inválido. */
 function parseNonNegativeInt(raw: string | null): number | undefined | null {

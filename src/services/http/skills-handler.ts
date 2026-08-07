@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { vaultService } from '../vault/vault-service.js'
+import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
 import {
   skillsRepository,
   ContentTooLongError,
@@ -9,48 +9,6 @@ import {
   type SkillCreateInput,
   type SkillUpdateInput,
 } from '../db/repositories/skills.js'
-
-const SESSION_HEADER = 'x-engrenacode-session'
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-
-  return true
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const json = JSON.stringify(body)
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(json)
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    req.on('data', (chunk) => { body += chunk.toString() })
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
-  })
-}
-
-function parseBody<T>(raw: string): T | null {
-  if (raw === '') return {} as T
-  try { return JSON.parse(raw) as T } catch { return null }
-}
 
 function mapRepositoryError(res: ServerResponse, err: unknown): boolean {
   if (err instanceof SkillNameConflictError) {

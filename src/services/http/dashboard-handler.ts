@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { vaultService } from '../vault/vault-service.js'
+import { guard, sendError, sendJson } from './_transport.js'
 import { computeConfigStatus } from './config-handler.js'
 import { listProjects } from '../db/repositories/projects.js'
 import { getDashboardMetrics, listDashboardInbox, listRecentActivity } from '../db/repositories/dashboard.js'
@@ -10,36 +10,8 @@ import { getDb } from '../db/client.js'
 import type { DashboardInboxItem } from '../db/repositories/dashboard.js'
 import type { ConfigStatus } from './config-handler.js'
 
-const SESSION_HEADER = 'x-engrenacode-session'
 const INBOX_LIMIT = 20
 const RECENT_LIMIT = 10
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(body))
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
-}
-
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-
-  const token = req.headers[SESSION_HEADER]
-  const valid = vaultService.getSessionToken()
-  if (typeof token !== 'string' || !token || token !== valid) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-
-  return true
-}
 
 type HealthDot = 'ok' | 'warn'
 type PromptDot = 'ok' | 'off'

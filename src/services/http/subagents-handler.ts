@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getDb } from '../db/client.js'
+import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
 import {
   CatalogOrderError,
   createSubagentsRepository,
@@ -12,9 +13,6 @@ import {
   type SubagentPatch,
   type SubagentsRepository,
 } from '../db/repositories/subagents.js'
-import { vaultService } from '../vault/vault-service.js'
-
-const SESSION_HEADER = 'x-engrenacode-session'
 
 let repoOverride: SubagentsRepository | null = null
 
@@ -26,49 +24,6 @@ export function setSubagentsRepositoryForTests(repo: SubagentsRepository | null)
 function getRepository(): SubagentsRepository {
   if (repoOverride) return repoOverride
   return createSubagentsRepository(getDb())
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const json = JSON.stringify(body)
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(json)
-}
-
-function sendError(res: ServerResponse, status: number, code: string, message: string): void {
-  sendJson(res, status, { error: { code, message } })
-}
-
-async function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    req.on('data', (chunk) => {
-      body += chunk.toString()
-    })
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
-  })
-}
-
-function parseBody<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
-/** Retorna true se a sessão é válida; caso contrário já escreveu 401/423 na resposta. */
-function requireSession(req: IncomingMessage, res: ServerResponse): boolean {
-  if (vaultService.isLocked()) {
-    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
-    return false
-  }
-  const token = req.headers[SESSION_HEADER]
-  if (typeof token !== 'string' || !token || token !== vaultService.getSessionToken()) {
-    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-    return false
-  }
-  return true
 }
 
 function handleKnownError(res: ServerResponse, err: unknown): boolean {
@@ -98,12 +53,12 @@ function handleKnownError(res: ServerResponse, err: unknown): boolean {
 // ── /api/subagents CRUD ─────────────────────────────────────────────────────
 
 async function handleList(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   sendJson(res, 200, { subagents: getRepository().list() })
 }
 
 async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   const data = parseBody<Partial<SubagentInput>>(await readBody(req))
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
@@ -117,7 +72,7 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
 }
 
 async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   const data = parseBody<SubagentPatch>(await readBody(req))
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
@@ -131,20 +86,20 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
 }
 
 async function handleDelete(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   getRepository().remove(id)
   sendJson(res, 200, { deleted: true })
 }
 
 async function handleCounts(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   sendJson(res, 200, getRepository().getCounts())
 }
 
 // ── /api/projects/:id/subagents* ────────────────────────────────────────────
 
 async function handleListProjectLinks(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   sendJson(res, 200, getRepository().listProjectSubagents(projectId))
 }
 
@@ -154,7 +109,7 @@ async function handleUpsertLink(
   projectId: string,
   subagentId: string
 ): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   const data = parseBody<{ enabled?: boolean; sortOrder?: number }>(await readBody(req))
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
@@ -173,13 +128,13 @@ async function handleUnlink(
   projectId: string,
   subagentId: string
 ): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   getRepository().unlinkProject(projectId, subagentId)
   sendJson(res, 200, { deleted: true })
 }
 
 async function handleCatalogOrder(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
-  if (!requireSession(req, res)) return
+  if (!guard(req, res)) return
   const data = parseBody<{ kind?: string; items?: CatalogOrderItem[] }>(await readBody(req))
   if (data === null || data.kind !== 'subagents' || !Array.isArray(data.items)) {
     return sendError(res, 400, 'invalid_request', 'kind deve ser "subagents" e items é obrigatório.')
