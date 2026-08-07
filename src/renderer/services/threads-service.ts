@@ -1,26 +1,7 @@
 import type { SubagentRun } from '../../services/db/repositories/subagents.js'
+import { apiRequest, type ApiErrorBody } from './api-client'
 
-const BASE_URL = 'http://127.0.0.1:5174'
-
-function sessionToken(): string {
-  return localStorage.getItem('sessionToken') ?? ''
-}
-
-function headers(): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'x-engrenacode-session': sessionToken(),
-  }
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: headers(),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-  return res.json() as Promise<T>
-}
+export type { ApiErrorBody }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,10 +89,6 @@ export interface Diff {
   createdAt: number
 }
 
-export interface ApiErrorBody {
-  error?: { code: string; message: string; details?: Record<string, unknown> }
-}
-
 export interface DispatchResponse {
   thread: Thread
   stream: { ws: string }
@@ -121,7 +98,7 @@ export interface DispatchResponse {
 
 export const threadsService = {
   listForProject: (projectId: string): Promise<{ threads: Thread[] } & ApiErrorBody> =>
-    request('GET', `/api/projects/${projectId}/threads`),
+    apiRequest('GET', `/api/projects/${projectId}/threads`),
 
   create: (
     projectId: string,
@@ -134,7 +111,7 @@ export const threadsService = {
       executionMode: ThreadExecutionMode
       images?: ComposerImagePayload[]
     }
-  ): Promise<DispatchResponse & ApiErrorBody> => request('POST', `/api/projects/${projectId}/threads`, input),
+  ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
   followUp: (
     threadId: string,
@@ -145,47 +122,47 @@ export const threadsService = {
       accessLevel?: ThreadAccessLevel
       images?: ComposerImagePayload[]
     }
-  ): Promise<DispatchResponse & ApiErrorBody> => request('POST', `/api/threads/${threadId}/messages`, input),
+  ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 
-  composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => request('GET', '/api/composer/catalog'),
+  composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => apiRequest('GET', '/api/composer/catalog'),
 
   history: (
     threadId: string
   ): Promise<{ messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[] } & ApiErrorBody> =>
-    request('GET', `/api/threads/${threadId}/history`),
+    apiRequest('GET', `/api/threads/${threadId}/history`),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
-    request('GET', `/api/threads/${threadId}/diffs`),
+    apiRequest('GET', `/api/threads/${threadId}/diffs`),
 
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/cancel`),
+    apiRequest('POST', `/api/threads/${threadId}/cancel`),
 
   permission: (
     threadId: string,
     input: { requestId: string; allow: boolean }
-  ): Promise<{ resolved: boolean } & ApiErrorBody> => request('POST', `/api/threads/${threadId}/permission`, input),
+  ): Promise<{ resolved: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/permission`, input),
 
   accept: (
     threadId: string,
     input: { action?: 'accept' | 'reject'; ids?: string[]; paths?: string[] }
   ): Promise<{ applied: boolean; acceptedIds?: string[]; rejectedIds?: string[] } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/accept`, input),
+    apiRequest('POST', `/api/threads/${threadId}/accept`, input),
 
   gitCommit: (threadId: string, input: { subject: string; body?: string }): Promise<{ sha: string } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/git-commit`, input),
+    apiRequest('POST', `/api/threads/${threadId}/git-commit`, input),
 
   gitPush: (threadId: string): Promise<{ branch: string } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/git-push`),
+    apiRequest('POST', `/api/threads/${threadId}/git-push`),
 
   pr: (
     threadId: string,
     input?: { title?: string; body?: string; branch?: string; allowHostOverride?: boolean }
   ): Promise<{ url: string; number: number; existing: boolean } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/pr`, input ?? {}),
+    apiRequest('POST', `/api/threads/${threadId}/pr`, input ?? {}),
 
   gitTextgen: (
     threadId: string,
     input: { mode: 'commit' | 'pr' }
   ): Promise<{ subject: string; body?: string; title?: string } & ApiErrorBody> =>
-    request('POST', `/api/threads/${threadId}/git-textgen`, input),
+    apiRequest('POST', `/api/threads/${threadId}/git-textgen`, input),
 }

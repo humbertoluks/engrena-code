@@ -1,24 +1,6 @@
-const BASE_URL = 'http://127.0.0.1:5174'
+import { apiRequest, type ApiErrorBody } from './api-client'
 
-function sessionToken(): string {
-  return localStorage.getItem('sessionToken') ?? ''
-}
-
-function headers(): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'x-engrenacode-session': sessionToken(),
-  }
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: headers(),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-  return res.json() as Promise<T>
-}
+export type { ApiErrorBody }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,10 +25,6 @@ export interface RuleLinkState extends Omit<Rule, 'content'> {
   contentBytes: number
 }
 
-export interface ApiErrorBody {
-  error?: { code: string; message: string }
-}
-
 export interface CreateRuleInput {
   name: string
   description?: string | null
@@ -66,29 +44,29 @@ export interface RuleCounts {
 // ── API ──────────────────────────────────────────────────────────────────────
 
 export const rulesService = {
-  list: (): Promise<{ rules: Rule[] } & ApiErrorBody> => request('GET', '/api/rules'),
+  list: (): Promise<{ rules: Rule[] } & ApiErrorBody> => apiRequest('GET', '/api/rules'),
 
   create: (input: CreateRuleInput): Promise<{ rule: Rule } & ApiErrorBody> =>
-    request('POST', '/api/rules', input),
+    apiRequest('POST', '/api/rules', input),
 
   update: (id: string, patch: UpdateRuleInput): Promise<{ rule: Rule } & ApiErrorBody> =>
-    request('PUT', `/api/rules/${id}`, patch),
+    apiRequest('PUT', `/api/rules/${id}`, patch),
 
   remove: (id: string): Promise<{ deleted: boolean } & ApiErrorBody> =>
-    request('DELETE', `/api/rules/${id}`),
+    apiRequest('DELETE', `/api/rules/${id}`),
 
-  counts: (): Promise<RuleCounts & ApiErrorBody> => request('GET', '/api/rules/counts'),
+  counts: (): Promise<RuleCounts & ApiErrorBody> => apiRequest('GET', '/api/rules/counts'),
 
   listForProject: (projectId: string): Promise<{ rules: RuleLinkState[] } & ApiErrorBody> =>
-    request('GET', `/api/projects/${projectId}/rules`),
+    apiRequest('GET', `/api/projects/${projectId}/rules`),
 
   setProjectLink: (
     projectId: string,
     ruleId: string,
     input: { enabled?: boolean; sortOrder?: number }
   ): Promise<{ rule: RuleLinkState } & ApiErrorBody> =>
-    request('PUT', `/api/projects/${projectId}/rules/${ruleId}`, input),
+    apiRequest('PUT', `/api/projects/${projectId}/rules/${ruleId}`, input),
 
   unlinkFromProject: (projectId: string, ruleId: string): Promise<{ unlinked: boolean } & ApiErrorBody> =>
-    request('DELETE', `/api/projects/${projectId}/rules/${ruleId}`),
+    apiRequest('DELETE', `/api/projects/${projectId}/rules/${ruleId}`),
 }

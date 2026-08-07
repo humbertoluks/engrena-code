@@ -1,25 +1,4 @@
-const BASE_URL = 'http://127.0.0.1:5174'
-
-function sessionToken(): string {
-  return localStorage.getItem('sessionToken') ?? ''
-}
-
-function headers(): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'x-engrenacode-session': sessionToken(),
-  }
-}
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, { method: 'GET', headers: headers() })
-  return res.json() as Promise<T>
-}
-
-async function send<T>(method: 'POST' | 'PUT', path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, { method, headers: headers(), body: JSON.stringify(body) })
-  return res.json() as Promise<T>
-}
+import { apiRequest } from './api-client'
 
 // ── Tipos de resposta (espelham consumo-handler.ts) ─────────────────────────
 
@@ -169,19 +148,19 @@ export const consumoService = {
   getSummary: (period: Period): Promise<SummaryResponse | ApiError> => {
     const params = new URLSearchParams()
     withPeriod(params, period)
-    return get(`/api/metrics/summary?${params.toString()}`)
+    return apiRequest('GET', `/api/metrics/summary?${params.toString()}`)
   },
 
   getProjects: (period: Period): Promise<ProjectsResponse | ApiError> => {
     const params = new URLSearchParams()
     withPeriod(params, period)
-    return get(`/api/metrics/projects?${params.toString()}`)
+    return apiRequest('GET', `/api/metrics/projects?${params.toString()}`)
   },
 
   getProjectDetail: (projectId: string, period: Period): Promise<ProjectDetailResponse | ApiError> => {
     const params = new URLSearchParams()
     withPeriod(params, period)
-    return get(`/api/metrics/projects/${encodeURIComponent(projectId)}?${params.toString()}`)
+    return apiRequest('GET', `/api/metrics/projects/${encodeURIComponent(projectId)}?${params.toString()}`)
   },
 
   getThreadEvents: (threadId: string, period: Period, offset: number): Promise<ThreadEventsResponse | ApiError> => {
@@ -189,14 +168,14 @@ export const consumoService = {
     withPeriod(params, period)
     params.set('limit', String(THREAD_EVENTS_PAGE_SIZE))
     params.set('offset', String(offset))
-    return get(`/api/metrics/threads/${encodeURIComponent(threadId)}?${params.toString()}`)
+    return apiRequest('GET', `/api/metrics/threads/${encodeURIComponent(threadId)}?${params.toString()}`)
   },
 
-  listPricing: (): Promise<PricingListResponse | ApiError> => get('/api/pricing'),
+  listPricing: (): Promise<PricingListResponse | ApiError> => apiRequest('GET', '/api/pricing'),
 
   createPricing: (input: CreatePricingInput): Promise<PricingMutationResponse | ApiError> =>
-    send('POST', '/api/pricing', input),
+    apiRequest('POST', '/api/pricing', input),
 
   updatePricing: (id: string, input: UpdatePricingInput): Promise<PricingMutationResponse | ApiError> =>
-    send('PUT', `/api/pricing/${encodeURIComponent(id)}`, input),
+    apiRequest('PUT', `/api/pricing/${encodeURIComponent(id)}`, input),
 }
