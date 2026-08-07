@@ -1,10 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'http'
+import { randomUUID } from 'crypto'
 import { vaultService } from '../vault/vault-service.js'
 import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import { createPullRequest, gitCommit, gitPush, GitError } from '../git/git-client.js'
+import { generateGitText, TextgenError, type TextgenMode } from '../git/git-textgen.js'
+import type { ProviderUsage } from '../runner/providers/provider-types.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { resolveThreadCwd } from '../runner/thread-cwd.js'
+import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from '../runner/provider-resolution.js'
+import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
@@ -203,17 +208,76 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
   })
 }
 
+interface GitTextgenBody {
+  mode?: string
+}
+
+const TEXTGEN_MODES = new Set<string>(['commit', 'pr'])
+
+/** Grava `usage_events source='textgen'` quando o provider reportou tokens (spec F14 §5.4) — mesma regra de custo F11. */
+function persistTextgenUsage(project: Project, thread: Thread, usage: ProviderUsage, costUsd: number | null | undefined): void {
+  const cost = resolveTurnCost(thread.provider, thread.model, usage, costUsd)
+  createUsageEvent({
+    turnId: `textgen_${randomUUID()}`,
+    projectId: project.id,
+    threadId: thread.id,
+    source: 'textgen',
+    provider: thread.provider,
+    model: thread.model,
+    billingMode: resolveBillingMode(thread.provider),
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
+    ...cost,
+  })
+}
+
+async function handleGitTextgen(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const resolved = resolveThreadProject(threadId)
+  if ('error' in resolved) return sendError(res, 404, resolved.error, 'Não encontrado.')
+  if (checkThreadBusy(res, resolved.thread)) return
+
+  const data = parseBody<GitTextgenBody>(await readBody(req))
+  if (data === null || typeof data.mode !== 'string' || !TEXTGEN_MODES.has(data.mode)) {
+    return sendError(res, 400, 'validation_error', 'mode deve ser "commit" ou "pr".')
+  }
+  const mode = data.mode as TextgenMode
+
+  await withGitLease(res, resolved.project, threadId, 'git-textgen', async () => {
+    try {
+      const result = await generateGitText({
+        mode,
+        provider: resolved.thread.provider,
+        model: resolved.thread.model,
+        apiKey: resolveProviderApiKey(resolved.thread.provider),
+        cwd: resolveThreadCwd(resolved.thread, resolved.project),
+      })
+
+      if (result.usage) {
+        persistTextgenUsage(resolved.project, resolved.thread, result.usage, result.costUsd)
+      }
+
+      sendJson(res, 200, { subject: result.subject, body: result.body, title: result.title })
+    } catch (err) {
+      if (err instanceof TextgenError) return sendError(res, 502, err.code, err.message)
+      throw err
+    }
+  })
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 const GIT_COMMIT_RE = /^\/api\/threads\/([^/]+)\/git-commit$/
 const GIT_PUSH_RE = /^\/api\/threads\/([^/]+)\/git-push$/
 const PR_RE = /^\/api\/threads\/([^/]+)\/pr$/
+const GIT_TEXTGEN_RE = /^\/api\/threads\/([^/]+)\/git-textgen$/
 
 export async function handleGitRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = (req.url ?? '').split('?')[0]
   const method = req.method ?? ''
 
-  const matches = GIT_COMMIT_RE.test(url) || GIT_PUSH_RE.test(url) || PR_RE.test(url)
+  const matches = GIT_COMMIT_RE.test(url) || GIT_PUSH_RE.test(url) || PR_RE.test(url) || GIT_TEXTGEN_RE.test(url)
   if (!matches) return false
 
   if (!guard(req, res)) return true
@@ -234,6 +298,12 @@ export async function handleGitRequest(req: IncomingMessage, res: ServerResponse
     const prMatch = PR_RE.exec(url)
     if (prMatch && method === 'POST') {
       await handlePr(req, res, prMatch[1])
+      return true
+    }
+
+    const textgenMatch = GIT_TEXTGEN_RE.exec(url)
+    if (textgenMatch && method === 'POST') {
+      await handleGitTextgen(req, res, textgenMatch[1])
       return true
     }
   } catch (err) {

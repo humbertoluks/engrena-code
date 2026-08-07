@@ -24,6 +24,8 @@ const { acquireLease, clearAllLeases } = await import('../runner/project-executi
 const { handleGitRequest } = await import('./git-handler.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { createWorktree } = await import('../git/worktree.js')
+const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../git/git-textgen.js')
+const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd }).toString()
@@ -102,6 +104,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.mocked(axios.get).mockReset()
   vi.mocked(axios.post).mockReset()
+  resetRunCliTurnForTesting()
 })
 
 afterAll(() => {
@@ -299,6 +302,88 @@ describe('handleGitRequest', () => {
       expect.objectContaining({ title: `EngrenaCode: ${thread.title ?? thread.id}` }),
       expect.anything()
     )
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('git-textgen mode=commit returns subject/body and records a usage_event source=textgen (F14)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    writeFileSync(join(dir, 'novo.txt'), 'x\n')
+
+    setRunCliTurnForTesting(async () => ({
+      text: '{"subject": "feat: adiciona novo.txt", "body": "detalhe"}',
+      usage: { inputTokens: 50, outputTokens: 10, cacheReadTokens: null, cacheCreationTokens: null },
+      costUsd: 0.001,
+    }))
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/git-textgen`, { mode: 'commit' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect((body as { subject: string }).subject).toBe('feat: adiciona novo.txt')
+
+    const events = getThreadEvents(thread.id, undefined, 10, 0)
+    expect(events.events).toHaveLength(1)
+    expect(events.events[0]?.source).toBe('textgen')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('git-textgen rejects an invalid mode with validation_error (F14)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/git-textgen`, { mode: 'nope' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('git-textgen failure returns 502 textgen_failed and leaves manual commit path working (F14)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    writeFileSync(join(dir, 'novo.txt'), 'x\n')
+
+    setRunCliTurnForTesting(async () => {
+      throw new Error('provider indisponível')
+    })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/git-textgen`, { mode: 'commit' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(502)
+    expect((body as { error: { code: string } }).error.code).toBe('textgen_failed')
+
+    // caminho de commit manual continua funcionando após a falha de textgen
+    const commitReq = fakeReq('POST', `/api/threads/${thread.id}/git-commit`, { subject: 'feat: manual' }, session)
+    const commitRes = fakeRes()
+    await handleGitRequest(commitReq, commitRes)
+    expect((await commitRes.result()).status).toBe(200)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('git-textgen rejects with 409 thread_busy when thread.state is running (F14)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'running' })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/git-textgen`, { mode: 'commit' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(409)
+    expect((body as { error: { code: string } }).error.code).toBe('thread_busy')
 
     rmSync(dir, { recursive: true, force: true })
   })
