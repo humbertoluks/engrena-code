@@ -146,6 +146,8 @@ export function PrincipalScreen(): ReactElement {
         onNewThread={ws.newThread}
         onCommit={ws.gitCommit}
         onPush={ws.gitPush}
+        onOpenPr={ws.openPr}
+        onTextgen={ws.gitTextgen}
       />
 
       {ws.addProjectModalOpen ? (

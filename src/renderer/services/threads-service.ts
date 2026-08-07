@@ -146,7 +146,13 @@ export const threadsService = {
 
   pr: (
     threadId: string,
-    input?: { branch?: string; allowHostOverride?: boolean }
+    input?: { title?: string; body?: string; branch?: string; allowHostOverride?: boolean }
   ): Promise<{ url: string; number: number; existing: boolean } & ApiErrorBody> =>
     request('POST', `/api/threads/${threadId}/pr`, input ?? {}),
+
+  gitTextgen: (
+    threadId: string,
+    input: { mode: 'commit' | 'pr' }
+  ): Promise<{ subject: string; body?: string; title?: string } & ApiErrorBody> =>
+    request('POST', `/api/threads/${threadId}/git-textgen`, input),
 }

@@ -473,12 +473,25 @@ export function usePrincipalWorkspace() {
     return { ok: true as const, branch: res.branch }
   }, [selectedThreadId, selectedProjectId, loadVcsStatus])
 
-  const openPr = useCallback(async () => {
-    if (!selectedThreadId) return { ok: false as const, error: 'Nenhuma thread selecionada.' }
-    const res = await threadsService.pr(selectedThreadId)
-    if (res.error) return { ok: false as const, error: res.error.message }
-    return { ok: true as const, url: res.url, existing: res.existing }
-  }, [selectedThreadId])
+  const openPr = useCallback(
+    async (input?: { title?: string; body?: string }) => {
+      if (!selectedThreadId) return { ok: false as const, error: 'Nenhuma thread selecionada.' }
+      const res = await threadsService.pr(selectedThreadId, input)
+      if (res.error) return { ok: false as const, error: res.error.message }
+      return { ok: true as const, url: res.url, existing: res.existing }
+    },
+    [selectedThreadId]
+  )
+
+  const gitTextgen = useCallback(
+    async (mode: 'commit' | 'pr') => {
+      if (!selectedThreadId) return { ok: false as const, error: 'Nenhuma thread selecionada.' }
+      const res = await threadsService.gitTextgen(selectedThreadId, { mode })
+      if (res.error) return { ok: false as const, error: res.error.message }
+      return { ok: true as const, subject: res.subject, body: res.body, title: res.title }
+    },
+    [selectedThreadId]
+  )
 
   return {
     projects,
@@ -523,6 +536,7 @@ export function usePrincipalWorkspace() {
     gitCommit,
     gitPush,
     openPr,
+    gitTextgen,
   }
 }
 

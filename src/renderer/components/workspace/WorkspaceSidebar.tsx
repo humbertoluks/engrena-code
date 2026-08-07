@@ -37,8 +37,10 @@ export interface WorkspaceSidebarProps {
   selectedThread: Thread | null
   vcsStatus: VcsStatus | null
   onNewThread: () => void
-  onCommit: (subject: string) => Promise<{ ok: boolean; error?: string }>
+  onCommit: (subject: string, body?: string) => Promise<{ ok: boolean; error?: string }>
   onPush: () => Promise<{ ok: boolean; error?: string }>
+  onOpenPr: (input?: { title?: string; body?: string }) => Promise<{ ok: boolean; error?: string; url?: string }>
+  onTextgen: (mode: 'commit' | 'pr') => Promise<{ ok: boolean; error?: string; subject?: string; body?: string; title?: string }>
 }
 
 export function WorkspaceSidebar({
@@ -48,6 +50,8 @@ export function WorkspaceSidebar({
   onNewThread,
   onCommit,
   onPush,
+  onOpenPr,
+  onTextgen,
 }: Readonly<WorkspaceSidebarProps>): ReactElement {
   const [rulesCount, setRulesCount] = useState<number | null>(null)
   const [skillsCount, setSkillsCount] = useState<number | null>(null)
@@ -120,7 +124,14 @@ export function WorkspaceSidebar({
           ) : null}
 
           <section>
-            <GitActions vcsStatus={vcsStatus} selectedThread={selectedThread} onCommit={onCommit} onPush={onPush} />
+            <GitActions
+              vcsStatus={vcsStatus}
+              selectedThread={selectedThread}
+              onCommit={onCommit}
+              onPush={onPush}
+              onOpenPr={onOpenPr}
+              onTextgen={onTextgen}
+            />
           </section>
 
           <section>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
@@ -72,4 +72,11 @@ ipcMain.handle('engrenacode:dialog:open-folder', async () => {
   if (!mainWindow) return { canceled: true, path: null }
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
   return { canceled: result.canceled, path: result.canceled ? null : (result.filePaths[0] ?? null) }
+})
+
+// Git IPC handlers (F14) — abre a URL do PR no browser do SO; allowlist https only.
+ipcMain.handle('engrenacode:shell:open-external', async (_event, url: unknown) => {
+  if (typeof url !== 'string' || !url.startsWith('https://')) return false
+  await shell.openExternal(url)
+  return true
 })
