@@ -211,6 +211,63 @@ describe('engrenacode MCP (call_subagent + load_skill)', () => {
     }
   }, 15000)
 
+  it('test_mcp_tools_listed_with_flag exposes repo_graph tools and finds definition', async () => {
+    const indexPath = join(process.env.ENGRENACODE_USER_DATA as string, 'codegraph-index.json')
+    writeFileSync(
+      indexPath,
+      JSON.stringify({
+        version: 1,
+        files: {
+          'src/foo.ts': {
+            language: 'ts',
+            mtimeMs: 0,
+            symbols: [{ name: 'Foo', line: 1, kind: 'function', snippet: 'export function Foo()' }],
+            imports: [],
+          },
+        },
+        symbols: {
+          Foo: [
+            {
+              file: 'src/foo.ts',
+              line: 1,
+              kind: 'definition',
+              symbolKind: 'function',
+              snippet: 'export function Foo()',
+            },
+          ],
+        },
+      }),
+      'utf-8',
+    )
+
+    const def = buildEngrenaCodeMcpDef({ codegraphIndexPath: indexPath })
+    const scriptArgs = def.args?.slice(1) ?? []
+    await withMcpProcess(scriptArgs, async (send, nextResponse) => {
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+      await nextResponse()
+      send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+      const listResult = await nextResponse()
+      const names = (listResult.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name)
+      expect(names).toEqual([
+        'repo_graph_find_definition',
+        'repo_graph_find_references',
+        'repo_graph_module_deps',
+      ])
+
+      send({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'repo_graph_find_definition', arguments: { symbol: 'Foo' } },
+      })
+      const callResult = await nextResponse()
+      const result = callResult.result as { content: Array<{ text: string }>; isError: boolean }
+      expect(result.isError).toBe(false)
+      expect(result.content[0]?.text).toContain('Definition: Foo')
+      expect(result.content[0]?.text).toContain('src/foo.ts:1')
+    })
+  }, 15000)
+
   it('sets ELECTRON_RUN_AS_NODE=1 so the real Electron main process spawns the script as plain Node (F15)', () => {
     // command = process.execPath — no main process do Electron isso é o binário do Electron, não
     // um `node` puro. Sem essa env var o CLI spawna a GUI do Electron em vez do script MCP, e o

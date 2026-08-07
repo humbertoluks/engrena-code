@@ -342,15 +342,19 @@ describe('dispatchNewThread', () => {
     })
 
     await waitForState(thread.id, ['idle', 'error'])
-    expect(capturedMcpServers).toEqual([
-      {
-        name: 'filesystem',
-        transport: 'stdio',
-        command: 'npx',
-        args: ['-y', 'server-fs'],
-        env: {},
-      },
-    ])
+    const servers = capturedMcpServers as Array<{ name: string; transport: string; command: string; args?: string[]; env?: Record<string, string> }>
+    expect(servers[0]).toEqual({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-fs'],
+      env: {},
+    })
+    // F19: every turn that can use MCP also mounts engrenacode with --codegraph-index when an index exists.
+    const engrenacode = servers.find((m) => m.name === 'engrenacode')
+    expect(engrenacode?.transport).toBe('stdio')
+    expect(engrenacode?.args?.includes('--codegraph-index')).toBe(true)
+    expect(engrenacode?.env?.ELECTRON_RUN_AS_NODE).toBe('1')
     rmSync(dir, { recursive: true, force: true })
   })
 

@@ -31,6 +31,7 @@ import { createDelegationServer, type DelegationServerHandle } from './delegate.
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
+import { ensureIndexForTurn } from '../codegraph/ensure.js'
 import { vaultService } from '../vault/vault-service.js'
 import { DEFAULT_PROMPT } from '../http/config-handler.js'
 import {
@@ -257,20 +258,22 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
         : { resolved: [], omitted: [], cleanup: () => {} }
     mcpsCleanup = mcpsPrepared.cleanup
 
-    // MCP interno `engrenacode` (F11 call_subagent + F12 load_skill). Um único server — o nome
-    // `engrenacode` é reservado. Registrado quando há skills e/ou subagents e o provider aceita
-    // --mcp-config (MCP_UNSUPPORTED_PROVIDERS, hoje só minimax).
+    // MCP interno `engrenacode` (F11 call_subagent + F12 load_skill + F19 repo_graph_*).
+    // Um único server — o nome `engrenacode` é reservado. Registrado quando há skills,
+    // subagents e/ou CodeGraph, e o provider aceita --mcp-config.
+    const codegraphEnsure = ensureIndexForTurn(project.id, project.path)
     const subagentCatalogForDelegation = resolveSubagentCatalog(project.id)
     const providerSupportsMcp = !MCP_UNSUPPORTED_PROVIDERS.has(thread.provider)
     const wantsLoadSkill = skillSnapshot.catalog.length > 0
     const wantsCallSubagent = subagentCatalogForDelegation.length > 0
+    const wantsCodegraph = typeof codegraphEnsure.indexPath === 'string'
 
     // Lido por delegate.ts no início de cada delegação (spec F15 §3.2) para correlacionar o run
     // com a tool-call `call_subagent` do pai na timeline. Delegações no mesmo turno são
     // serializadas em FIFO, e o evento tool-start do pai chega antes da chamada HTTP `/delegate`.
     let lastCallSubagentToolCallId: string | null = null
 
-    if ((wantsLoadSkill || wantsCallSubagent) && providerSupportsMcp) {
+    if ((wantsLoadSkill || wantsCallSubagent || wantsCodegraph) && providerSupportsMcp) {
       let skillsSnapshotPath: string | undefined
       if (wantsLoadSkill) {
         skillsSnapshotPath = writeSkillSnapshotFile(skillSnapshot)
@@ -288,6 +291,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
           skillsSnapshotPath,
           port: delegationServer?.port,
           token: delegationServer?.token,
+          codegraphIndexPath: codegraphEnsure.indexPath ?? undefined,
         })
       )
     } else if (wantsLoadSkill && !providerSupportsMcp) {

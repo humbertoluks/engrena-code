@@ -7,16 +7,20 @@ import type { ResolvedMcpDef } from './mcp-secrets.js'
 export const SUBAGENT_MCP_NAME = 'engrenacode'
 export const CALL_SUBAGENT_MCP_TOOL_NAME = 'call_subagent'
 export const LOAD_SKILL_MCP_TOOL_NAME = 'load_skill'
+export const REPO_GRAPH_FIND_DEFINITION = 'repo_graph_find_definition'
+export const REPO_GRAPH_FIND_REFERENCES = 'repo_graph_find_references'
+export const REPO_GRAPH_MODULE_DEPS = 'repo_graph_module_deps'
 
 /**
- * Servidor MCP stdio mínimo (F11 call_subagent + F12 load_skill) — handshake newline-delimited
- * JSON-RPC. Tools expostas conforme flags:
+ * Servidor MCP stdio mínimo (F11/F12/F19) — handshake newline-delimited JSON-RPC.
+ * Tools conforme flags:
  * - `--skills-snapshot <path>` → `load_skill`
- * - `--port` + `--token` → `call_subagent` (HTTP loopback de delegação)
+ * - `--port` + `--token` → `call_subagent`
+ * - `--codegraph-index <path>` → `repo_graph_*`
  */
 const SCRIPT_SOURCE = `#!/usr/bin/env node
 import { createInterface } from 'node:readline'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 
 function flag(name) {
   const i = process.argv.indexOf(\`--\${name}\`)
@@ -26,6 +30,7 @@ function flag(name) {
 const port = flag('port')
 const token = flag('token')
 const skillsSnapshotPath = flag('skills-snapshot')
+const codegraphIndexPath = flag('codegraph-index')
 
 const CALL_SUBAGENT_SCHEMA = {
   name: 'call_subagent',
@@ -53,15 +58,140 @@ const LOAD_SKILL_SCHEMA = {
   },
 }
 
+const FIND_DEF_SCHEMA = {
+  name: 'repo_graph_find_definition',
+  description: 'Encontra a definição de um símbolo no índice CodeGraph do projeto.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      symbol: { type: 'string', description: 'Nome do símbolo' },
+      hintFile: { type: 'string', description: 'Path relativo opcional para desambiguar' },
+    },
+    required: ['symbol'],
+  },
+}
+
+const FIND_REFS_SCHEMA = {
+  name: 'repo_graph_find_references',
+  description: 'Lista usos conhecidos de um símbolo no índice CodeGraph.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      symbol: { type: 'string', description: 'Nome do símbolo' },
+      hintFile: { type: 'string', description: 'Path relativo opcional para escopo' },
+    },
+    required: ['symbol'],
+  },
+}
+
+const MODULE_DEPS_SCHEMA = {
+  name: 'repo_graph_module_deps',
+  description: 'Lista imports e importadores conhecidos de um módulo no índice CodeGraph.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file: { type: 'string', description: 'Path relativo do módulo' },
+    },
+    required: ['file'],
+  },
+}
+
 function listTools() {
   const tools = []
   if (skillsSnapshotPath) tools.push(LOAD_SKILL_SCHEMA)
   if (port && token) tools.push(CALL_SUBAGENT_SCHEMA)
+  if (codegraphIndexPath) {
+    tools.push(FIND_DEF_SCHEMA, FIND_REFS_SCHEMA, MODULE_DEPS_SCHEMA)
+  }
   return tools
 }
 
 function send(message) {
   process.stdout.write(\`\${JSON.stringify(message)}\\n\`)
+}
+
+function loadCodegraphIndex() {
+  if (!codegraphIndexPath || !existsSync(codegraphIndexPath)) return null
+  try {
+    return JSON.parse(readFileSync(codegraphIndexPath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+function normalizeHint(hint) {
+  if (typeof hint !== 'string' || hint.trim() === '') return undefined
+  return hint.split('\\\\').join('/')
+}
+
+function findDefinition(index, symbol, hintFile) {
+  const hint = normalizeHint(hintFile)
+  let defs = (index.symbols[symbol] || []).filter((h) => h.kind === 'definition')
+  if (hint) {
+    const scoped = defs.filter((h) => h.file === hint || h.file.endsWith('/' + hint))
+    if (scoped.length > 0) defs = scoped
+  }
+  if (defs.length === 0) return 'Definition not found for symbol "' + symbol + '".'
+  const lines = ['Definition: ' + symbol]
+  for (const h of defs) {
+    lines.push('- ' + h.file + ':' + h.line + ' (' + (h.symbolKind || 'definition') + ')')
+    if (h.snippet) lines.push('  ' + h.snippet)
+  }
+  return lines.join('\\n')
+}
+
+function findReferences(index, symbol, hintFile) {
+  const hint = normalizeHint(hintFile)
+  let raw = index.symbols[symbol] || []
+  if (hint) {
+    const scoped = raw.filter((h) => h.file === hint || h.file.endsWith('/' + hint))
+    if (scoped.length > 0) raw = scoped
+  }
+  let refs = raw.filter((h) => h.kind === 'reference')
+  if (refs.length === 0) refs = raw.filter((h) => h.kind === 'definition').slice(1)
+  if (refs.length === 0) return 'No references found for symbol "' + symbol + '".'
+  const lines = ['References: ' + symbol + ' (' + refs.length + ')']
+  for (const h of refs) lines.push('- ' + h.file + ':' + h.line + ' (' + h.kind + ')')
+  return lines.join('\\n')
+}
+
+function moduleDeps(index, file) {
+  const rel = normalizeHint(file) || file
+  const entry = index.files[rel] || Object.entries(index.files).find(([p]) => p === rel || p.endsWith('/' + rel))?.[1]
+  const imports = (entry && entry.imports) || []
+  const importedBy = []
+  for (const [path, fe] of Object.entries(index.files || {})) {
+    if ((fe.imports || []).some((imp) => imp === rel || imp.endsWith('/' + rel) || imp === './' + rel)) {
+      importedBy.push(path)
+    }
+  }
+  const lines = ['Module deps: ' + rel, 'imports (' + imports.length + '):']
+  for (const i of imports) lines.push('- ' + i)
+  lines.push('importedBy (' + importedBy.length + '):')
+  for (const i of importedBy) lines.push('- ' + i)
+  return lines.join('\\n')
+}
+
+function handleCodegraphTool(id, toolName, params) {
+  const args = (params && params.arguments) || {}
+  const index = loadCodegraphIndex()
+  if (!index) {
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: 'CodeGraph index unavailable.' }], isError: false },
+    })
+    return
+  }
+  let text = ''
+  if (toolName === 'repo_graph_find_definition') {
+    text = findDefinition(index, typeof args.symbol === 'string' ? args.symbol : '', args.hintFile)
+  } else if (toolName === 'repo_graph_find_references') {
+    text = findReferences(index, typeof args.symbol === 'string' ? args.symbol : '', args.hintFile)
+  } else if (toolName === 'repo_graph_module_deps') {
+    text = moduleDeps(index, typeof args.file === 'string' ? args.file : '')
+  }
+  send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: false } })
 }
 
 function handleLoadSkill(id, params) {
@@ -119,6 +249,14 @@ async function handleToolsCall(id, params) {
   }
   if (toolName === 'call_subagent') {
     await handleCallSubagent(id, params)
+    return
+  }
+  if (
+    toolName === 'repo_graph_find_definition' ||
+    toolName === 'repo_graph_find_references' ||
+    toolName === 'repo_graph_module_deps'
+  ) {
+    handleCodegraphTool(id, toolName, params)
     return
   }
   send({
@@ -189,17 +327,19 @@ export interface EngrenaCodeMcpDefOptions {
   skillsSnapshotPath?: string
   port?: number
   token?: string
+  codegraphIndexPath?: string
 }
 
 /**
  * `ResolvedMcpDef` do MCP interno `engrenacode`.
- * Exige ao menos skills snapshot **ou** par port/token de delegação.
+ * Exige ao menos skills snapshot, port/token de delegação, ou índice CodeGraph.
  */
 export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): ResolvedMcpDef {
   const hasSkills = typeof opts.skillsSnapshotPath === 'string' && opts.skillsSnapshotPath.length > 0
   const hasDelegate = opts.port !== undefined && typeof opts.token === 'string' && opts.token.length > 0
-  if (!hasSkills && !hasDelegate) {
-    throw new Error('buildEngrenaCodeMcpDef: informe skillsSnapshotPath e/ou port+token')
+  const hasCodegraph = typeof opts.codegraphIndexPath === 'string' && opts.codegraphIndexPath.length > 0
+  if (!hasSkills && !hasDelegate && !hasCodegraph) {
+    throw new Error('buildEngrenaCodeMcpDef: informe skillsSnapshotPath, port+token e/ou codegraphIndexPath')
   }
 
   const args = [ensureSubagentMcpServerScript()]
@@ -209,16 +349,15 @@ export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): Resolved
   if (hasDelegate) {
     args.push('--port', String(opts.port), '--token', opts.token as string)
   }
+  if (hasCodegraph) {
+    args.push('--codegraph-index', opts.codegraphIndexPath as string)
+  }
 
   return {
     name: SUBAGENT_MCP_NAME,
     transport: 'stdio',
     command: process.execPath,
     args,
-    // `process.execPath` no processo main é o binário do Electron, não um `node` puro — sem essa
-    // env var o CLI spawna a GUI do Electron em vez do script MCP, e o handshake stdio nunca
-    // acontece (achado real via smoke F15: `mcp__engrenacode__call_subagent` nunca aparecia pro
-    // modelo, sem erro visível — o MCP falhava silenciosamente ao iniciar).
     env: { ELECTRON_RUN_AS_NODE: '1' },
   }
 }
