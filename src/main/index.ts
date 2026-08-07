@@ -23,7 +23,13 @@ function createWindow() {
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    const fromVite = import.meta.env.VITE_DEV_SERVER_URL
+    const fromProcess = process.env.VITE_DEV_SERVER_URL
+    const devServerUrl =
+      (typeof fromVite === 'string' && fromVite.trim() !== '' ? fromVite : undefined) ??
+      (typeof fromProcess === 'string' && fromProcess.trim() !== '' ? fromProcess : undefined) ??
+      'http://localhost:5173'
+    mainWindow.loadURL(devServerUrl)
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
