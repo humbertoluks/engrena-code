@@ -958,10 +958,10 @@ graph TD
 - [x] Anexos e menções seguem no prompt do turno e aparecem no histórico
 
 ### F17. Catálogo Seed de Onboarding
-- [ ] Primeiro unlock (ou migração) insere o pacote de seeds sem duplicar em re-unlock
-- [ ] Contagens em `#skills` / `#subagents` / Dashboard refletem os seeds
-- [ ] Name já existente é skipped; usuário edita/desabilita/exclui seeds como itens normais
-- [ ] Seeds não vinculam projetos automaticamente
+- [x] Primeiro unlock (ou migração) insere o pacote de seeds sem duplicar em re-unlock
+- [x] Contagens em `#skills` / `#subagents` / Dashboard refletem os seeds
+- [x] Name já existente é skipped; usuário edita/desabilita/exclui seeds como itens normais
+- [x] Seeds não vinculam projetos automaticamente
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
@@ -983,4 +983,4 @@ graph TD
 - [x] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
 - [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
 - [x] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
-- [ ] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
+- [x] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
