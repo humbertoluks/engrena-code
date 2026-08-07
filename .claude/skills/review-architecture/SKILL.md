@@ -1,0 +1,151 @@
+---
+name: review-architecture
+description: Revisa arquitetura do EngrenaCode — isolamento do renderer Electron, fluxo explícito React → Preload → IPC → Main, fronteira HTTP loopback → handler → repositório, direção das camadas, nomes de domínio e abstrações sem uso concreto. Use ao revisar um diff, branch, PR ou feature quanto a estrutura, camadas, acoplamento, nomes ou over-engineering.
+---
+
+# Review — Arquitetura
+
+Revisão **somente leitura** de estrutura e fronteiras. Nunca edita código: observa, analisa e relata.
+
+**Idioma:** relatório em português do Brasil. Nomes de arquivo, símbolos, canais IPC e comandos permanecem em inglês.
+
+## Escopo
+
+| Revisa aqui | Não revisa aqui |
+|---|---|
+| Isolamento do renderer (sem Node/Electron indevido) | Validação de payload, tipagem, duplicação, erros → `review-robustness` |
+| Fluxo explícito React → Preload → IPC → Main | Testes, commits, cobertura → `review-delivery` |
+| Fronteira HTTP loopback: service → handler → repositório | Fidelidade visual (`ui.md`/`copy.md`) — fora das três frentes |
+| Direção das camadas e acoplamento entre elas | |
+| Nomes baseados no domínio | |
+| Abstração criada sem consumidor concreto | |
+
+## Entrada
+
+Formato livre. Default: **mudanças do branch** (`git diff --stat main...HEAD` + `git diff main...HEAD`).
+
+Outras entradas aceitas: `uncommitted` (`git status` + `git diff HEAD`), caminhos explícitos, ou um id de feature `F<ID>` (revisa os arquivos citados no Component Overview de `docs/F<ID>-*/spec.md`).
+
+Se o diff estiver vazio, pare e diga qual escopo foi tentado — não caia numa varredura do repositório inteiro.
+
+## Mapa de fronteiras real deste repo
+
+São **duas** fronteiras, com propósitos distintos. Confundi-las é o erro arquitetural mais caro aqui.
+
+**1. Dados de domínio — HTTP loopback (caminho dominante):**
+
+```
+src/renderer/screens/*.tsx | components/**    (React, sem Node)
+  → src/renderer/hooks/* ou services/<domínio>-service.ts
+  → fetch http://127.0.0.1:5174 + header x-engrenacode-session
+  → src/services/http/<domínio>-handler.ts    (registrado no roteador de unlock-handler.ts)
+  → src/services/db/repositories/* | runner/* | git/* | vault/*
+```
+
+Eventos ao vivo: `src/renderer/services/ws-client.ts` ↔ `src/services/http/ws-upgrade.ts` + `src/services/runner/ws-hub.ts`.
+
+**2. Capacidade nativa — IPC (superfície mínima):**
+
+```
+React → window.electronAPI.<grupo>.<ação>    (src/preload/index.ts, CommonJS)
+  → ipcMain.handle('engrenacode:<domínio>:<ação>')    (src/main/index.ts)
+  → capacidade do SO / vaultService
+```
+
+Hoje o IPC cobre só: sessão do vault (`get-session`, `is-locked`, `lock`, evento `locked`), `dialog:open-folder` e `shell:open-external`. Nada de leitura/escrita de domínio.
+
+## Checklist
+
+Marque cada item ✓ / ✗ / — e cite `arquivo:linha`.
+
+### 1. Isolamento do renderer
+
+- `rg -n "from '(node:|fs|path|os|child_process|http|https|electron)'" src/renderer` → deve sair vazio. Qualquer acerto é 🔴.
+- `rg -n "require\(" src/renderer` → vazio. 🔴.
+- Import de `src/services/**` dentro de `src/renderer/**` só é aceito como **`import type`** (precedente: `type SubagentRun` em `WorkspaceSidebar.tsx`) ou como **constante pura sem efeito colateral de Node** (precedente: `composer.logic.ts` importando `ALLOWED_IMAGE_MIME_TYPES` de `runner/providers/composer-images.js`). Import de *valor* que puxe SQLite, `fs`, `electron` ou spawn é 🔴.
+- `src/main/index.ts` mantém `nodeIntegration: false`, `contextIsolation: true` e `preload: preload.cjs`. Afrouxar qualquer um é 🔴 sem exceção.
+
+### 2. Preload como única ponte nativa
+
+- Capacidade nativa nova aparece como **método nomeado** no objeto `api` do preload, com tipo de retorno explícito — não pelo passthrough genérico `invoke`/`send`/`on`. Usar o passthrough para um canal novo é 🟡 (o passthrough é dívida existente, não porta de entrada).
+- Todo método novo do preload tem um `ipcMain.handle` correspondente em `src/main/index.ts`, no formato `engrenacode:<domínio>:<ação>`. Método órfão (sem handler) ou handler órfão (sem método) é 🔴.
+- Preload permanece CommonJS (`require('electron')`). Converter para `import` é 🔴 — `contextBridge` não é exportado em ESM (`CLAUDE.md`).
+- Preload não contém regra de negócio, cache nem transformação de dados: só repassa. 🔴 se contiver.
+- Retorno atravessa serializado (objeto plano). Devolver `BrowserWindow`, handle de stream, `Buffer` grande ou classe é 🔴.
+
+### 3. Dados de domínio não passam por IPC
+
+- Novo `ipcMain.handle` que leia/escreva SQLite, spawne agente, faça git ou toque credencial é 🔴 → pertence a um handler HTTP.
+- `fetch(` dentro de `screens/` ou `components/` é 🔴. Única exceção existente: o unlock em `LoginScreen.tsx` (rota pública, pré-sessão). Todo o resto passa por `src/renderer/services/<domínio>-service.ts`.
+- Service novo do renderer usa `BASE_URL = 'http://127.0.0.1:5174'` e o header `x-engrenacode-session`. BASE_URL divergente, porta hard-coded diferente ou header renomeado é 🔴.
+- Handler novo está registrado no roteador de `src/services/http/unlock-handler.ts` e devolve `false` para rota que não é dele (contrato de encadeamento). Handler não registrado é 🔴; handler que devolve `true` para rota alheia é 🔴 (engole a rota dos seguintes).
+- Rota nova sob `/api/...`, nunca um segundo servidor HTTP nem outra porta. `5174` é reservada ao loopback; Vite nunca a usa (`CLAUDE.md`).
+- Push ao vivo passa pelo WS hub existente. Polling novo em paralelo a um evento que o hub já emite é 🟡 com justificativa exigida.
+
+### 4. Direção das camadas
+
+- `rg -n "renderer/" src/services src/main` → vazio. `src/services/**` e `src/main/**` nunca importam do renderer. 🔴.
+- `src/main/index.ts` é fino: janela, menu, IPC nativo, boot do unlock server. Regra de negócio nova ali é 🔴 → vai para `src/services/**`.
+- Acesso a SQLite deveria passar por `src/services/db/repositories/*`. Exceções já existentes: `subagents-handler.ts`, `dashboard-handler.ts`, `runner/dispatch.ts`, `seeds/apply-catalog.ts` chamam `getDb()` direto. Novo `getDb()` fora de `src/services/db/**` é 🟡 e precisa de motivo explícito no diff; se for CRUD comum, é 🔴 (existe repositório para isso).
+- Migration nova entra em `src/services/db/migrations/NNN_<assunto>.ts` na ordem numérica, nunca alterando migration já aplicada. Editar migration existente é 🔴.
+- Import ciclado entre módulos de `src/services/**` é 🔴.
+
+### 5. Nomes de domínio
+
+Vocabulário do projeto: Vault, Session, Project, Thread, Message, Diff, Skill, Rule, SubAgent, Mcp, UsageEvent, LogEntry, Worktree, Provider, Dispatch, Delegate.
+
+- Símbolo ou arquivo novo usa esse vocabulário. `manager`, `helper`, `utils`, `service2`, `data`, `wrapper`, `handleStuff` são 🟡 e devem ser renomeados para o conceito de domínio.
+- Convenções de nome de arquivo: `src/services/**` em kebab-case (`rules-handler.ts`, `provider-keys.ts`); componentes React em PascalCase; regra extraída de componente em `<nome>.logic.ts`; repositório com o nome plural da entidade (`repositories/rules.ts`).
+- Marca: só EngrenaCode/engrenacode. Qualquer `Lion*`/`LionCode` em código, copy ou doc novo é 🔴 (`CLAUDE.md`).
+- Nome mente sobre o que o símbolo faz (ex.: `validate*` que também persiste) é 🟡.
+
+### 6. Abstração sem uso concreto
+
+- Todo símbolo exportado no diff tem pelo menos um consumidor fora do próprio teste. Verifique: `rg -n "<nomeDoSímbolo>" src`. Sem consumidor → 🔴 "abstração sem uso concreto: remova ou ligue".
+- Precedente real de dívida a não repetir: `src/services/vault/session-middleware.ts` exporta `sessionMiddleware`, `vaultGuard` e `isPublicRoute` numa forma estilo Express que **nenhum handler importa** — cada handler tem seu `guard()` local. Se o diff adicionar mais um caminho paralelo desse tipo, é 🔴; se o diff finalmente ligar ou remover esse módulo, registre como 🟢 positivo.
+- 🔴 para: interface/`type` de porta com uma única implementação e um único chamador; factory/registry para dois casos; camada genérica (`BaseHandler`, `Repository<T>`, `createCrudRoutes`) introduzida junto com o primeiro uso; flag de configuração sem UI nem consumidor.
+- 🟡 para: parâmetro opcional que nenhum chamador passa; branch de código inalcançável no diff; `export` de algo usado só dentro do próprio arquivo (deveria ser local).
+- Duplicação é assunto de `review-robustness`. Aqui só a mencione quando ela revelar fronteira mal posta (ex.: mesma regra vivendo nos dois lados da fronteira sem constante compartilhada).
+
+## Formato de saída
+
+```
+Review Arquitetura — <escopo revisado>
+Veredito: aprovado | ressalvas | bloqueado
+
+🔴 Bloqueia merge
+- `caminho:linha` — <problema em uma linha>. Correção: <ação concreta>.
+
+🟡 Ajustar antes de fechar a feature
+- `caminho:linha` — <problema>. Correção: <ação>.
+
+🟢 Opcional
+- `caminho:linha` — <observação>.
+
+Checklist:
+✓ 1. Isolamento do renderer — <evidência>
+✗ 4. Direção das camadas — <o que falta>
+— 2. Preload — nenhum canal IPC neste diff
+
+Não verificado:
+- <o que não deu para checar e por quê>
+```
+
+Veredito: **bloqueado** com qualquer 🔴; **ressalvas** com só 🟡/🟢; **aprovado** sem achados.
+
+## Sempre
+
+- Rodar os comandos `rg` da checklist em vez de julgar de memória.
+- Citar `arquivo:linha` em todo achado, com correção concreta em uma linha.
+- Ler `docs/F<ID>-*/spec.md` quando o diff pertence a uma feature, antes de chamar algo de desvio arquitetural — pode estar especificado.
+- Classificar como 🔴 apenas o que quebra fronteira, isolamento ou contrato de camada.
+- Declarar em "Não verificado" o que não deu para checar.
+
+## Nunca
+
+- Editar, formatar ou "corrigir de passagem" qualquer arquivo — a saída é o relatório.
+- Flagrar `import type` cruzando renderer/services: é o padrão aceito aqui.
+- Flagrar os helpers duplicados dos handlers (`sendJson`, `guard`, `readBody`): duplicação é de `review-robustness`.
+- Exigir camada, interface, DI ou padrão que o repo não usa — KISS é a regra, não a exceção.
+- Propor renomear módulo existente inteiro por causa de um arquivo novo no diff.
+- Reclamar de estilo/formatação: `biome` decide isso.
