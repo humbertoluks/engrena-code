@@ -88,7 +88,7 @@ export function startDelegatedRun(repo: SubagentsRepository, input: StartDelegat
 /** Chamar periodicamente (watchdog) ou sob demanda; persiste + retorna true se o run virou timeout agora. */
 export function checkIdleTimeout(repo: SubagentsRepository, run: DelegatedRun, now: number = Date.now()): boolean {
   if (!run.isTimedOut(now)) return false
-  repo.updateRun(run.childThreadId, { status: 'timeout' })
+  repo.updateRun(run.childThreadId, { status: 'timeout', durationMs: now - run.createdAt })
   run.markStatus('timeout')
   return true
 }
@@ -99,23 +99,29 @@ export interface CompleteRunResult {
   usageJson?: string | null
 }
 
-export function completeDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, result: CompleteRunResult): void {
+export function completeDelegatedRun(
+  repo: SubagentsRepository,
+  run: DelegatedRun,
+  result: CompleteRunResult,
+  now: number = Date.now()
+): void {
   repo.updateRun(run.childThreadId, {
     status: 'completed',
     text: result.text,
     actionCount: result.actionCount ?? 0,
     usageJson: result.usageJson ?? null,
+    durationMs: now - run.createdAt,
   })
   run.markStatus('completed')
 }
 
-export function cancelDelegatedRun(repo: SubagentsRepository, run: DelegatedRun): void {
-  repo.updateRun(run.childThreadId, { status: 'cancelled' })
+export function cancelDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, now: number = Date.now()): void {
+  repo.updateRun(run.childThreadId, { status: 'cancelled', durationMs: now - run.createdAt })
   run.markStatus('cancelled')
 }
 
-export function failDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, message: string): void {
-  repo.updateRun(run.childThreadId, { status: 'error', text: message })
+export function failDelegatedRun(repo: SubagentsRepository, run: DelegatedRun, message: string, now: number = Date.now()): void {
+  repo.updateRun(run.childThreadId, { status: 'error', text: message, durationMs: now - run.createdAt })
   run.markStatus('error')
 }
 
@@ -145,6 +151,15 @@ export interface DelegationContext {
   parentThread: Thread
   /** `turnId` do turno pai (dispatch.ts) — liga o usage_event do subagent ao mesmo turno. */
   parentTurnId: string
+  /**
+   * Lido no momento em que a delegação inicia (spec F15 §3.2 "quando disponível") — dispatch.ts
+   * mantém o id da última tool-call `call_subagent` vista no stream do pai. Como as delegações no
+   * mesmo turno são serializadas em FIFO (createDelegationServer) e o evento tool-start do pai
+   * chega antes do MCP filho abrir a chamada HTTP `/delegate`, o valor lido aqui é o correto na
+   * grande maioria dos casos; sem correlação exata, `parentToolCallId` fica `null` (UI casa por
+   * ordem/nome como fallback).
+   */
+  getParentToolCallId?: () => string | null
 }
 
 export interface DelegationRequest {
@@ -195,6 +210,7 @@ export async function runDelegatedSubagentTurn(
 
   const run = startDelegatedRun(ctx.repo, {
     parentThreadId: ctx.parentThread.id,
+    parentToolCallId: ctx.getParentToolCallId?.() ?? null,
     subagent,
   })
 
@@ -225,6 +241,9 @@ export async function runDelegatedSubagentTurn(
     // filho — omitir --mcp-config é o mecanismo estrutural que impede profundidade > 1 (spec §3.2).
     signal: controller.signal,
     onEvent: (event) => {
+      // Idle = silêncio de stream (spec F15 §3.2): qualquer evento do filho conta como atividade,
+      // não só texto — evita timeout de um filho ativo em tool calls longas sem texto.
+      run.recordActivity()
       if (event.type === 'text-delta') assistantText += event.text
     },
   }

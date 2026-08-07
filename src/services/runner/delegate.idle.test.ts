@@ -66,4 +66,26 @@ describe('delegate idle/hard timeout', () => {
     expect(checkIdleTimeout(repo, run, 10 * 60_000)).toBe(false)
     expect(repo.getRun(run.childThreadId)?.status).toBe('completed')
   })
+
+  it('persists durationMs on complete (F15)', () => {
+    const run = startDelegatedRun(repo, { parentThreadId: 'thread-1', subagent, now: 1_000 })
+    completeDelegatedRun(repo, run, { text: 'done' }, 5_000)
+    expect(repo.getRun(run.childThreadId)?.durationMs).toBe(4_000)
+  })
+
+  it('persists durationMs on timeout (F15)', () => {
+    const run = startDelegatedRun(repo, { parentThreadId: 'thread-1', subagent, now: 0 })
+    checkIdleTimeout(repo, run, 5 * 60_000)
+    expect(repo.getRun(run.childThreadId)?.durationMs).toBe(5 * 60_000)
+  })
+
+  it('persists parentToolCallId when provided at start (F15)', () => {
+    const run = startDelegatedRun(repo, {
+      parentThreadId: 'thread-1',
+      parentToolCallId: 'tc_abc',
+      subagent,
+      now: 0,
+    })
+    expect(repo.getRun(run.childThreadId)?.parentToolCallId).toBe('tc_abc')
+  })
 })

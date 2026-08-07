@@ -243,6 +243,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
     const wantsLoadSkill = skillSnapshot.catalog.length > 0
     const wantsCallSubagent = subagentCatalogForDelegation.length > 0
 
+    // Lido por delegate.ts no início de cada delegação (spec F15 §3.2) para correlacionar o run
+    // com a tool-call `call_subagent` do pai na timeline. Delegações no mesmo turno são
+    // serializadas em FIFO, e o evento tool-start do pai chega antes da chamada HTTP `/delegate`.
+    let lastCallSubagentToolCallId: string | null = null
+
     if ((wantsLoadSkill || wantsCallSubagent) && providerSupportsMcp) {
       let skillsSnapshotPath: string | undefined
       if (wantsLoadSkill) {
@@ -254,6 +259,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
           project,
           parentThread: thread,
           parentTurnId: turnId,
+          getParentToolCallId: () => lastCallSubagentToolCallId,
         })
       }
       mcpsPrepared.resolved.push(
@@ -314,6 +320,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string): Promis
           // erro, já coberto pelo tratamento genérico abaixo (spec F11 §3.2).
           const row = createToolCall({ threadId: thread.id, name: event.name, params: event.params })
           toolCallIdByProviderId.set(event.id, row.id)
+          if (event.name === CALL_SUBAGENT_TOOL_NAME) lastCallSubagentToolCallId = row.id
           emit(thread.id, { type: 'tool_call.start', threadId: thread.id, id: row.id, name: event.name, params: event.params })
           return
         }

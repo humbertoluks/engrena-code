@@ -12,6 +12,7 @@ const { createSubagentsRepository } = await import('../db/repositories/subagents
 const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
+const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const {
   createDelegationServer,
   runDelegatedSubagentTurn,
@@ -64,6 +65,7 @@ beforeEach(() => {
   getDb().exec('DELETE FROM projects')
   vaultService.lock()
   vaultService.unlock('workspace-teste', 'senha-forte-123')
+  clearAllSubscriptions()
 })
 
 afterEach(() => {
@@ -238,6 +240,71 @@ describe('runDelegatedSubagentTurn — erro', () => {
     const page = getThreadEvents(parentThread.id, undefined, 10, 0)
     expect(page.events).toHaveLength(1)
     expect(page.events[0]?.source).toBe('subagent')
+  })
+})
+
+describe('runDelegatedSubagentTurn — F15 hardening', () => {
+  it('persists durationMs > 0 on a completed run', async () => {
+    const { project, parentThread, repo } = makeContext()
+    const subagent = linkSubagent(repo, project.id)
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    await runDelegatedSubagentTurn({ repo, project, parentThread, parentTurnId: 'turn-1' }, { name: subagent.name, task: 't' })
+
+    const runs = repo.listRunsForParentThread(parentThread.id)
+    expect(runs[0]?.durationMs).not.toBeNull()
+    expect(runs[0]?.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('reads parentToolCallId from ctx.getParentToolCallId at start (F15)', async () => {
+    const { project, parentThread, repo } = makeContext()
+    const subagent = linkSubagent(repo, project.id)
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    await runDelegatedSubagentTurn(
+      { repo, project, parentThread, parentTurnId: 'turn-1', getParentToolCallId: () => 'tc_parent_1' },
+      { name: subagent.name, task: 't' }
+    )
+
+    const runs = repo.listRunsForParentThread(parentThread.id)
+    expect(runs[0]?.parentToolCallId).toBe('tc_parent_1')
+  })
+
+  it('records activity on every stream event from the child, not just text-delta (F15)', async () => {
+    const { project, parentThread, repo } = makeContext()
+    const subagent = linkSubagent(repo, project.id)
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'x', name: 'Read', params: {} })
+      input.onEvent({ type: 'tool-result', id: 'x', status: 'completed', result: null })
+      return { text: 'ok' }
+    })
+
+    const result = await runDelegatedSubagentTurn(
+      { repo, project, parentThread, parentTurnId: 'turn-1' },
+      { name: subagent.name, task: 't' }
+    )
+    expect(result.text).toBe('ok')
+    expect(repo.listRunsForParentThread(parentThread.id)[0]?.status).toBe('completed')
+  })
+
+  it('emits subagent.start and subagent.result over the parent thread WS with childThreadId/status (F15)', async () => {
+    const { project, parentThread, repo } = makeContext()
+    const subagent = linkSubagent(repo, project.id)
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(parentThread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await runDelegatedSubagentTurn({ repo, project, parentThread, parentTurnId: 'turn-1' }, { name: subagent.name, task: 't' })
+
+    const startEvent = received.find((e) => e.type === 'subagent.start')
+    const resultEvent = received.find((e) => e.type === 'subagent.result')
+    expect(startEvent).toMatchObject({ threadId: parentThread.id, name: subagent.name })
+    expect(typeof startEvent?.childThreadId).toBe('string')
+    expect(resultEvent).toMatchObject({ threadId: parentThread.id, status: 'completed' })
+    expect(resultEvent?.childThreadId).toBe(startEvent?.childThreadId)
   })
 })
 
