@@ -73,8 +73,18 @@ afterAll(() => {
 })
 
 describe('POST /api/config/keys/save', () => {
-  it('returns unauthorized without a valid session', async () => {
+  it('returns 423 vault_locked when vault is locked', async () => {
     const req = fakeReq('POST', '/api/config/keys/save', { claude: 'sk-ant-12345678' })
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(423)
+    expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+  })
+
+  it('returns unauthorized with unlocked vault and invalid session', async () => {
+    unlockVault()
+    const req = fakeReq('POST', '/api/config/keys/save', { claude: 'sk-ant-12345678' }, 'token-invalido')
     const res = fakeRes()
     await handleConfigRequest(req, res)
     const { status, body } = await res.result()

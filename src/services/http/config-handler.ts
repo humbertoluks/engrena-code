@@ -26,11 +26,25 @@ const FIND_CMD = IS_WIN ? 'where' : 'which'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function isAuthorized(req: IncomingMessage): boolean {
+function guard(req: IncomingMessage, res: ServerResponse): boolean {
+  if (vaultService.isLocked()) {
+    sendJson(res, 423, {
+      error: {
+        code: 'vault_locked',
+        message: 'Cofre local travado. Desbloqueie antes de continuar.',
+      },
+    })
+    return false
+  }
+
   const token = req.headers[SESSION_HEADER]
-  if (typeof token !== 'string' || !token) return false
   const valid = vaultService.getSessionToken()
-  return token === valid
+  if (typeof token !== 'string' || !token || token !== valid) {
+    sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
+    return false
+  }
+
+  return true
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -169,17 +183,13 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
 }
 
 async function handleGetStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   sendJson(res, 200, await computeConfigStatus())
 }
 
 async function handleClaudeMode(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   const data = parseBody<{ mode?: string }>(await readBody(req))
   if (!data || (data.mode !== 'subscription' && data.mode !== 'api-key')) {
@@ -202,9 +212,7 @@ async function handleClaudeMode(req: IncomingMessage, res: ServerResponse): Prom
 }
 
 async function handleClaudeTest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   try {
     const mode = (vaultService.getSecret('claude:mode') ?? 'subscription') as 'subscription' | 'api-key'
@@ -221,9 +229,7 @@ async function handleClaudeTest(req: IncomingMessage, res: ServerResponse): Prom
 }
 
 async function handleClisTest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   const [claudeCLI, codexCLI, kimiCLI] = await Promise.all([
     detectCLIFull('claude'),
@@ -238,9 +244,7 @@ async function handleClisTest(req: IncomingMessage, res: ServerResponse): Promis
 }
 
 async function handlePromptSave(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   const data = parseBody<{ prompt?: string | null }>(await readBody(req))
   if (data === null) {
@@ -277,9 +281,7 @@ async function handlePromptSave(req: IncomingMessage, res: ServerResponse): Prom
 }
 
 async function handlePromptRestore(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   vaultService.deleteSecret('prompt:global')
 
@@ -292,9 +294,7 @@ async function handlePromptRestore(req: IncomingMessage, res: ServerResponse): P
 }
 
 async function handleGithubToken(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   const data = parseBody<{ token?: string }>(await readBody(req))
   if (data === null) {
@@ -318,9 +318,7 @@ async function handleGithubToken(req: IncomingMessage, res: ServerResponse): Pro
 }
 
 async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isAuthorized(req)) {
-    return sendJson(res, 401, { error: { code: 'unauthorized', message: 'Sessão inválida.' } })
-  }
+  if (!guard(req, res)) return
 
   const data = parseBody<{ claude?: string; codex?: string; minimax?: string }>(await readBody(req))
   if (data === null) {

@@ -12,11 +12,20 @@ import {
 
 const SESSION_HEADER = 'x-engrenacode-session'
 
-function isAuthorized(req: IncomingMessage): boolean {
+function guard(req: IncomingMessage, res: ServerResponse): boolean {
+  if (vaultService.isLocked()) {
+    sendError(res, 423, 'vault_locked', 'Cofre local travado. Desbloqueie antes de continuar.')
+    return false
+  }
+
   const token = req.headers[SESSION_HEADER]
-  if (typeof token !== 'string' || !token) return false
   const valid = vaultService.getSessionToken()
-  return token === valid
+  if (typeof token !== 'string' || !token || token !== valid) {
+    sendError(res, 401, 'unauthorized', 'Sessão inválida.')
+    return false
+  }
+
+  return true
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -157,14 +166,9 @@ export async function handleSkillsRequest(req: IncomingMessage, res: ServerRespo
   const pathname = (req.url ?? '').split('?')[0]
   const method = req.method ?? ''
 
-  if (!isAuthorized(req)) {
-    const isSkillsRoute = pathname.startsWith('/api/skills') || pathname.startsWith('/api/projects/')
-    if (isSkillsRoute) {
-      sendError(res, 401, 'unauthorized', 'Sessão inválida.')
-      return true
-    }
-    return false
-  }
+  const isSkillsRoute = pathname.startsWith('/api/skills') || pathname.startsWith('/api/projects/')
+  if (!isSkillsRoute) return false
+  if (!guard(req, res)) return true
 
   try {
     if (method === 'GET' && pathname === '/api/skills/counts') {

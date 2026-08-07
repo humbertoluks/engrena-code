@@ -6,10 +6,12 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { EventEmitter } from 'events'
 
 const SESSION_TOKEN = 'test-session-token'
+const vaultState = { locked: false }
 
 vi.mock('../vault/vault-service.js', () => ({
   vaultService: {
     getSessionToken: () => SESSION_TOKEN,
+    isLocked: () => vaultState.locked,
   },
 }))
 
@@ -20,6 +22,7 @@ let tmpDir: string
 let prevUserData: string | undefined
 
 beforeEach(() => {
+  vaultState.locked = false
   tmpDir = mkdtempSync(join(tmpdir(), 'engrenacode-skills-handler-'))
   prevUserData = process.env.ENGRENACODE_USER_DATA
   process.env.ENGRENACODE_USER_DATA = tmpDir
@@ -64,6 +67,16 @@ function fakeResponse(): ServerResponse & { statusCode: number; body: string; he
 }
 
 describe('handleSkillsRequest', () => {
+  it('returns 423 vault_locked when vault is locked', async () => {
+    vaultState.locked = true
+    const req = fakeRequest('GET', '/api/skills')
+    const res = fakeResponse()
+    const handled = await handleSkillsRequest(req, res)
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(423)
+    expect(JSON.parse(res.body).error.code).toBe('vault_locked')
+  })
+
   it('rejects unauthorized requests with 401', async () => {
     const req = fakeRequest('GET', '/api/skills', undefined, false)
     const res = fakeResponse()
