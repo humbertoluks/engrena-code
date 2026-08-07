@@ -11,7 +11,17 @@ export default defineConfig({
     tailwindcss(),
     electron([
       {
-        entry: 'src/main/index.ts'
+        entry: 'src/main/index.ts',
+        // typescript (Compiler API, F19 codegraph) usa __filename estilo CJS em
+        // sys.ts; bundlar no main ESM quebra com "__filename is not defined".
+        // External força require() real via Node, preservando o contexto CJS.
+        vite: {
+          build: {
+            rollupOptions: {
+              external: ['typescript']
+            }
+          }
+        }
       },
       {
         // Preload precisa de nome próprio (main também emite index.js) e de saída
