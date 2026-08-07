@@ -284,11 +284,12 @@ Fora desta onda (permanecem PRD §7, Faixa C acima): Memory/dreaming, CodeGraph,
 
 **Esta auditoria de migração está ENCERRADA.** Não há próximo item obrigatório no escopo §9 / Faixas A+B.
 
+Handoff de produto: estender `docs/PRD.md` via skill `/prd-writer` (modo extensão) a partir da **Faixa C** (itens 11–20 em §6 / PRD §7). Próximos IDs livres: **F18+**. Não reabrir F01–F17 nem reauditar §9 salvo regressão.
+
 | # | Se quiser continuar o produto | Nota |
 |---|-------------------------------|------|
-| **1** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Memory, CodeGraph, slash, voz, write-parallel, GLM/Grok, … — **nova onda**, não residual desta auditoria |
-| — | Higiene de docs (Esclarecimentos F03/F11; smoke-results F14/F16) | Cosmético |
-| — | Caveat Windows worktree + path profundo | Só se doer |
+| **1** | `/prd-writer` → Faixa C (PRD §7) | Memory, CodeGraph, slash/pipeline, write-parallel, GLM/Grok, voz, PTY, AskUserQuestion, Multi-VCS, UsageLimits |
+| — | Higiene de docs / caveat Windows worktree | Cosmético / ambiente |
 
 ---
 
