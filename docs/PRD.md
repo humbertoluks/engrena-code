@@ -787,6 +787,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 
 **Adições ao Escopo Completo:**
 - Estratégias de merge configuráveis (ex.: preferir um filho específico); comparação lado a lado dos diffs dos filhos antes do merge
+- **Alvo de release:** Versão 2.0 (adiado). A Versão 1.3 entrega só o Escopo Central de F18; Completo não entra em 1.3 nem reabre gates 1.0–1.2.
 
 **Capacidades:**
 - Profundidade continua 1 (filho não delega a outro filho); paralelismo é entre filhos do mesmo pai, não recursão
@@ -1034,7 +1035,7 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 ### Pipelines e automação avançada (parcialmente promovido — ver F18, F22)
 - Comandos slash customizáveis pelo usuário além dos três nativos (`/spec`, `/featdevelop`, `/featbuild`); workflows multi-estágio definidos pelo usuário
 - Retomar um pipeline interrompido a partir do último checkpoint (F22 sempre reinicia do zero nesta versão)
-- Estratégias de merge configuráveis para write-parallel além de "conflito = pendente manual" (F18)
+- Estratégias de merge configuráveis e comparação lado a lado dos diffs dos filhos (Adições ao Escopo Completo de F18) — **adiado para Versão 2.0**; 1.3 fica só com conflito = pendente manual (Escopo Central)
 
 ### Terminal, voz e mídia (parcialmente promovido — ver F26, F27)
 - TTS (Cartesia/ElevenLabs) — só STT (ditado, F27) entra nesta versão
