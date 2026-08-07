@@ -76,6 +76,26 @@ describe('createUsageEvent', () => {
     expect(event.costApproximate).toBe(false)
     expect(event.subagentName).toBeNull()
   })
+
+  it('accepts source=textgen after migration 006 (F14)', () => {
+    const { project, thread } = makeThread()
+    const event = createUsageEvent({
+      turnId: 'textgen_turn-1',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'textgen',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      billingMode: 'subscription',
+      inputTokens: 40,
+      outputTokens: 10,
+      costUsd: 0.002,
+      costSource: 'sdk',
+    })
+
+    expect(event.source).toBe('textgen')
+    expect(event.totalTokens).toBe(50)
+  })
 })
 
 describe('calculateTableCost', () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { getDb } from '../client.js'
 import type { ThreadProvider } from './threads.js'
 
-export type UsageSource = 'agent' | 'subagent'
+export type UsageSource = 'agent' | 'subagent' | 'textgen'
 export type BillingMode = 'subscription' | 'api-key' | 'token-plan'
 export type CostSource = 'sdk' | 'table'
 
