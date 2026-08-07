@@ -2,10 +2,12 @@
 
 Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, com evidência no fonte do EngrenaCode e nota de paridade com o produto legado (LionCodeLabs).
 
-**Data da auditoria:** 2026-08-06  
+**Data da auditoria original:** 2026-08-06  
+**Data da revalidação (docs):** 2026-08-07 (pós F12–F17 + residuais de smoke)  
+**Data desta reauditoria (solution):** 2026-08-07 (2ª passagem — spot-check `src/**` + cruzamento PRD/PROGRESS/smoke-results)  
 **Escopo:** critérios marcados no PRD + gaps de produto relevantes da migração  
-**Método:** leitura de `src/**` + cruzamento com `docs/PROGRESS.md` e inventário do legado  
-**Uso:** base para a próxima onda de desenvolvimento (extensão do PRD via `/prd-writer`)
+**Método desta reauditoria:** (1) `grep` em `docs/PRD.md` §9 → **103 `[x]` / 0 `[ ]`**; (2) `docs/PROGRESS.md` + `docs/F13-*/smoke-results.md` + `docs/F15-*/smoke-results.md`; (3) spot-check em `dispatch.ts`, `subagent-mcp-server.ts` (`ELECTRON_RUN_AS_NODE`, `load_skill`/`call_subagent`), `dispatch.test.ts` (`worktree_create_failed`), `GitActions.tsx`, idle UI (`SubagentActivity` / `text-amber`)  
+**Uso:** registro de fechamento da migração; priorização do próximo trabalho útil (ver §8 deste doc)
 
 ### Legenda de veredito
 
@@ -24,72 +26,46 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 | **corrigir-doc** | Marcar `[x]` ou `[ ]` para refletir a realidade |
 | **corrigir-código** | Fechar gap de implementação na próxima onda |
 | **smoke** | Código parece ok; falta prova E2E/live |
-| **nova-feature** | Capacidade legada / desejada fora do critério atual; candidata a F12+ |
+| **nova-feature** | Capacidade legada / desejada fora do critério atual; candidata a onda futura |
 
 ---
 
 ## 1. Resumo executivo
 
-| Bloco | PASS | FAIL (marcado `[x]` indevido) | OPEN / PARTIAL | DOC-LAG |
-|-------|------|-------------------------------|----------------|---------|
-| F01–F02, F01.1, F04, F08, F10 | maioria PASS | 0 | 0 | 0 |
-| F03 Workspace | 5 PASS | **1 FAIL** (participação F05–F07) | worktree fantasma | 0 |
-| F05 Skills | 2 PASS | **1 FAIL** (`load_skill`) | — | 0 |
-| F06 Rules | 2 PASS | 0 | — | **1** (bloco no turno) |
-| F07 SubAgents | 2 PASS | 0 | **2 OPEN** | 0 |
-| F09 MCPs | 4 PASS | 0 | — | 0 |
-| F11 Consumo | 4–5 PASS | 0 | share subagent live | possível DOC-LAG cross |
-| Cross-Feature | 6 PASS | 0 | vários OPEN | **3–4** (prompt, rules, MCP, consumo) |
+**Estado em 2026-08-07 (reauditoria solution): §9 fechado — 103 `[x]` / 0 `[ ]`.** Nenhum FAIL de checkbox. Versão 1.2 (F12–F17) + residuais de smoke do mesmo dia confirmados por docs **e** spot-check de código.
 
-**Achados P0 (falso positivo no PRD):**
+| Bloco | PASS | FAIL | OPEN / PARTIAL | DOC-LAG | Confiança |
+|-------|------|------|----------------|---------|-----------|
+| F01–F02, F01.1, F04, F08, F09, F10 | todos | 0 | 0 | 0 | alta |
+| F03 Workspace | 6 (era 5+1 FAIL) | 0 | 0 | 0 | alta |
+| F05 Skills | 3 (era 2+1 FAIL) | 0 | 0 | 0 | média-alta¹ |
+| F06 Rules | 3 | 0 | 0 | 0 | alta |
+| F07 SubAgents | 4 (era 2+2 OPEN) | 0 | 0 | 0 | alta |
+| F11 Consumo | 5 | 0 | 0 | 0 | alta |
+| F12–F17 | todas | 0 | 0 | 0 | alta¹ |
+| Cross-Feature | 16+ | 0 | 0 | 0 | alta |
 
-1. **F05** `[x] load_skill entrega content sob demanda` → **FAIL** (tool nunca registrada)
-2. **F03** `[x] Skills, rules e subagents vinculados participam do turno conforme F05–F07` → **FAIL/PARTIAL** (rules/prompt ok; skills sem tool; subagent sem smoke)
+¹ F12 §9 (PRD) está `[x]` (tool registrada + testes MCP + spawn Electron corrigido via F15). Soft gap: ainda não há turno live dedicado em que o binário `claude` chame `load_skill` e receba markdown — ver §8 próximo trabalho.
 
-**Achados P0 de produto (não são checkbox §9, mas quebram expectativa de migração):**
+**Achados P0 da auditoria 2026-08-06 — status agora:**
 
-3. `executionMode: worktree` sem criação de worktree  
-4. Mensagem de commit/PR por IA ausente  
-5. Botão PR / fluxo “Commit, push & PR” incompleto na UI  
-6. Composer sem modelo/reasoning no agente pai  
+1. ~~**F05** `load_skill` → FAIL~~ → **RESOLVIDO (F12)** + spawn Electron (`ELECTRON_RUN_AS_NODE=1`) comprovado no smoke F15.
+2. ~~**F03** participação F05–F07 → FAIL/PARTIAL~~ → **RESOLVIDO** (rules + F12 + F15 E2E/idle).
+
+**Achados P0 de produto — status agora:**
+
+3. ~~worktree fantasma~~ → **RESOLVIDO (F13)** + residual `worktree_create_failed` UI+unit (2026-08-07).
+4. ~~textgen commit/PR~~ → **RESOLVIDO (F14)**.
+5. ~~Commit, push & PR~~ → **RESOLVIDO (F14)** incl. PR real `humbertoluks/engrenacode-f14-smoke#1`.
+6. ~~composer model/reasoning~~ → **RESOLVIDO (F16)** (provider imutável pós-1º envio = escopo §7).
+
+**Residuais fora de §9 do PRD (não bloqueiam):** soft smoke F12 live; copy provisória; nits de doc; caveat Windows path profundo em worktree — ver §6 e §8.
 
 ---
 
 ## 2. Matriz por feature (PRD §9)
 
-### F01. Vault e Sessão Local
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Primeiro uso cria cofre… | `[x]` | **PASS** | `src/services/vault/*`, `LoginScreen.tsx`, smoke F01 | — |
-| Unlock emite sessão… | `[x]` | **PASS** | `unlock-handler.ts`, IPC `engrenacode:vault:*` | — |
-| Senha inválida genérica | `[x]` | **PASS** | anti-enumeração no unlock | — |
-| Backoff após 5 falhas | `[x]` | **PASS** | gate de login | — |
-| Cofre travado 401/423 | `[x]` | **PASS** | `session-middleware.ts` | — |
-
-### F01.1 Design System
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Tokens CSS light/dark | `[x]` | **PASS** | tokens + Design Lock | — |
-| Spacing/radii | `[x]` | **PASS** | `@theme inline` | — |
-| Tema light\|dark\|system | `[x]` | **PASS** | `useTheme` | — |
-| Persistência `engrenacode:theme` | `[x]` | **PASS** | localStorage | — |
-| Fail-soft system | `[x]` | **PASS** | | — |
-| Anti-flash | `[x]` | **PASS** | | — |
-| Splash `#0a0a0b` | `[x]` | **PASS** | | — |
-| Shiki/xterm tokens | `[x]` | **PASS** | chat + temas | — |
-| Superfícies / tipografia / sem MUI | `[x]` | **PASS** | | — |
-
-### F02. Configuração MVP
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Card Claude + teste | `[x]` | **PASS** | `ConfiguracaoScreen`, `config-handler` | — |
-| CLIs Claude/Codex/Kimi | `[x]` | **PASS** | probe CLIs | — |
-| Prompt global save/restore/off | `[x]` | **PASS** | vault `prompt:global` | — |
-| Token GitHub validação | `[x]` | **PASS** | `github-token.ts` | — |
-| Sem API keys nesta feature | `[x]` | **PASS** | keys em F10 | — |
+Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) permanecem 100% PASS e não são repetidas aqui — ver auditoria original no histórico do git se precisar da matriz completa delas.
 
 ### F03. Workspace
 
@@ -100,26 +76,17 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 | Streaming, tools, histórico, fila | `[x]` | **PASS** | WS + smoke F03 | — |
 | Accept/reject; git bloqueado se running | `[x]` | **PASS** | `apply-diff`, `git-handler` | — |
 | `thread_busy` na 2ª execução | `[x]` | **PASS** | lease `project-execution` | — |
-| Skills/rules/subagents participam conforme F05–F07 | `[x]` | **FAIL** | Rules + prompt injetados (`dispatch.ts` `buildSystemPrompt`). Skills: só catálogo no prompt, **sem tool `load_skill`**. Subagents: MCP interno wired, **sem smoke live** de `call_subagent`. | **corrigir-código** + **corrigir-doc** (rebaixar até fechar) |
+| Skills/rules/subagents participam conforme F05–F07 | `[x]` | **PASS** (era FAIL) | Rules: `buildSystemPrompt`. Skills: tool `load_skill` real via MCP interno `engrenacode` (F12). Subagents: `call_subagent` E2E + diffs unificados + idle timeout, todos confirmados ao vivo (F15, `docs/F15-runtime-de-subagents/smoke-results.md`) | — |
 
-**Nota fora do checkbox (regressão vs legado / expectativa de produto):**
+**Nota fora do checkbox — status dos itens não-§9 da auditoria original:**
 
 | Capacidade | Veredito | Evidência | Ação |
 |------------|----------|-----------|------|
-| `executionMode: worktree` cria worktree | **FAIL** | UI oferece opção; `createThread` não seta `worktreePath`; dispatch cai em `project.path` | **corrigir-código** ou remover opção |
-| Commit / Commit & push / PR unificado + AI message | **PARTIAL** | API commit/push/PR existe; `GitActions` sem PR; título PR fixo; sem `textgen` | **nova-feature** / gap F03 |
-| Modelo/reasoning mid-thread no pai | **FAIL** vs legado | Provider imutável; composer sem picker de model/reasoning | **nova-feature** (PRD §7 corta multi-provider mid-thread; modelo ainda pode voltar) |
-| `@file`, imagens, voz, slash | **FAIL** vs legado | Ausentes em `src/` | **nova-feature** (voz/slash = §7) |
-
-### F04. Dashboard
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Pós-unlock `#dashboard` + saúde + 4 cards | `[x]` | **PASS** | smoke F04 | — |
-| Inbox ≤20 com kinds | `[x]` | **PASS** | | — |
-| Clique diff → aba Diff | `[x]` | **PASS** | deep-link query | — |
-| Contadores → catálogos | `[x]` | **PASS** | | — |
-| Não aceita diff / não dispara turno | `[x]` | **PASS** | | — |
+| `executionMode: worktree` cria worktree | **PASS** (era FAIL) | F13: `worktree.ts`, `dispatch.ts` persiste `worktreePath`, smoke real + residual de erro fechado | — |
+| Commit / Commit & push / PR unificado + AI message | **PASS** (era PARTIAL) | F14: `GitActions.tsx` com as 3 ações + textgen; PR real criado e confirmado via API em 2026-08-07 | — |
+| Modelo/reasoning mid-thread no pai | **PASS parcial por design** | F16: picker de model/reasoning no **follow-up**; provider segue imutável após o 1º envio, decisão deliberada de escopo (PRD §7 corta multi-provider mid-thread) | — |
+| `@file`, imagens | **PASS** (era FAIL) | F16: `FileMentionMenu`, `ComposerImageAttachments` | — |
+| voz, slash commands | ainda ausente | fora de escopo — PRD §7 (Faixa C) | **nova-feature** (roadmap) |
 
 ### F05. Skills
 
@@ -127,14 +94,14 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 |--------------|------------|----------|-----------|------|
 | CRUD global name único | `[x]` | **PASS** | `#skills`, handlers | — |
 | Vínculo por projeto no catálogo do turno | `[x]` | **PASS** | `createSkillSnapshot` + lista no prompt | — |
-| `load_skill` entrega content sob demanda; skill não roda sozinha | `[x]` | **FAIL** | `skill-registry.ts` expõe `loadSkill()` no snapshot, mas `dispatch.ts` **nunca registra tool/MCP**. Agente só vê nomes/descrições. Legado: `mcp__lioncode__load_skill`. | **corrigir-código** + **corrigir-doc** |
+| `load_skill` entrega content sob demanda; skill não roda sozinha | `[x]` | **PASS** (era FAIL) | Runtime fechado em F12: MCP interno `engrenacode` registra `load_skill`, snapshot congela no início do turno, nome ausente devolve erro de tool, skill não executa código | — |
 
 ### F06. Rules
 
 | Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
 |--------------|------------|----------|-----------|------|
 | Globais/projeto + override | `[x]` | **PASS** | | — |
-| Bloco em todo turno com precedência | `[ ]` | **DOC-LAG → PASS no código** | `RuleRegistry.composeBlockForTurn` + `buildSystemPrompt`; unit `dispatch.test.ts` | **corrigir-doc** → `[x]` |
+| Bloco em todo turno com precedência | `[x]` | **PASS** (era DOC-LAG) | `RuleRegistry.composeBlockForTurn` + `buildSystemPrompt`; checkbox já corrigido no PRD | — |
 | Name com CR/LF rejeitado | `[x]` | **PASS** | | — |
 
 ### F07. SubAgents
@@ -142,48 +109,75 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 | Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
 |--------------|------------|----------|-----------|------|
 | CRUD + vínculo `kind=dev` + providers | `[x]` | **PASS** | | — |
-| `call_subagent` run efêmero; diffs filho na revisão do pai | `[ ]` | **OPEN / PARTIAL** | `subagent-mcp-server.ts` + `delegate.ts` wired no dispatch; sem smoke contra binário real; diffs do filho na revisão do pai não comprovados E2E | **smoke** + fechar se faltar wiring de diff |
+| `call_subagent` run efêmero; diffs filho na revisão do pai | `[x]` | **PASS** (era OPEN/PARTIAL) | Fechado em F15: smoke real contra binário `claude`, diff do filho confirmado na revisão do pai | — |
 | Codex pai sem full-access não delega | `[x]` | **PASS** | `subagent-caller-gate.ts` | — |
-| Idle timeout 20 min visível na UI | `[ ]` | **OPEN / PARTIAL** | `checkIdleTimeout` / `DelegatedRun` no backend; UI de status de timeout não fechada | **corrigir-código** (UI) |
+| Idle timeout 20 min visível na UI | `[x]` | **PASS** (era OPEN/PARTIAL) | Fechado ao vivo em 2026-08-07 (`docs/F15-runtime-de-subagents/smoke-results.md`): `idleTimeoutMinutes=1` só no fixture de smoke, default de produto (20 min) inalterado; watchdog abortou o filho, UI foi a `status=timeout` com `text-amber` sem refresh manual | — |
 
-**Nota vs legado:** write-parallel / child worktree / merge-tree / `kind=pipeline` estão em PRD §7 (fora de escopo) — não são FAIL do §9.
-
-### F08. Registros
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Eventos task/tool/git automáticos | `[x]` | **PASS** | smoke F08 + F03 | — |
-| Filtro/paginação/empty | `[x]` | **PASS** | | — |
-| Clique thread id → workspace | `[x]` | **PASS** | | — |
-| Sem edit/delete/export | `[x]` | **PASS** | | — |
-
-### F09. MCPs
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Preset/custom + validação nome | `[x]` | **PASS** | | — |
-| HTTPS / HTTP loopback | `[x]` | **PASS** | | — |
-| Omit sem abortar + OAuth live | `[x]` | **PASS** | Linear smoke 2026-08-05 | — |
-| Tools `mcp__…` no turno | `[x]` | **PASS** | `--mcp-config` + prepare | — |
-
-### F10. API Keys dos Providers
-
-| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
-|--------------|------------|----------|-----------|------|
-| Toggle Claude assinatura ↔ key | `[x]` | **PASS** | | — |
-| Keys Claude/Codex/Minimax + save parcial | `[x]` | **PASS** | | — |
-| Minimax disponível com key | `[x]` | **PASS** | | — |
-| Modo key sem key avisa/bloqueia | `[x]` | **PASS** | | — |
+**Nota vs legado:** write-parallel / child worktree / merge-tree / `kind=pipeline` continuam em PRD §7 (fora de escopo) — não são gap de §9.
 
 ### F11. Consumo
 
 | Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
 |--------------|------------|----------|-----------|------|
-| usage_event por turno agent/subagent | `[x]` | **PARTIAL** | Agent: smoke F03/F11. Subagent: wiring + testes; **sem turno live** de `call_subagent` | **smoke** |
-| Drill-down + share subagents | `[x]` | **PARTIAL** | UI/API ok; share `—` nos threads reais sem delegação live | **smoke** |
+| usage_event por turno agent/subagent | `[x]` | **PASS** (era PARTIAL) | Agent: smoke F03/F11. Subagent: turno live real confirmado em F15 | — |
+| Drill-down + share subagents | `[x]` | **PASS** (era PARTIAL) | Share subagents = 55.5% confirmado real na thread de delegação de F15 | — |
 | cost_source sdk/table | `[x]` | **PASS** | | — |
 | Editar preço só nulls table | `[x]` | **PASS** | smoke F11 | — |
 | Flags / empty / erro | `[x]` | **PASS** | | — |
+
+### F12. Runtime de Skills (load_skill) — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| Turno registra tool `load_skill`; agente obtém markdown sob demanda | `[x]` | **PASS** (confiança média-alta) | Tool + snapshot + testes MCP subprocesso; spawn Electron OK via path compartilhado F15. Soft residual: turno live `claude`→`load_skill` ainda “opcional” no PROGRESS | **smoke** opcional (prioridade #1 em §8 deste doc) |
+| Nome ausente devolve erro de tool; skill desvinculada não carrega | `[x]` | **PASS** | | — |
+| Snapshot congela no início do turno | `[x]` | **PASS** | | — |
+| Skill não executa código; providers sem tool degradam com notice | `[x]` | **PASS** | | — |
+
+### F13. Isolamento Worktree — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| 1º envio `executionMode=worktree` cria worktree real e persiste `worktreePath` | `[x]` | **PASS** | `docs/F13-isolamento-worktree/smoke-results.md` (2026-08-06) | — |
+| Dispatch/diffs/git da thread usam `worktreePath`; `main` continua em `project.path` | `[x]` | **PASS** | `resolveThreadCwd` compartilhado | — |
+| Falha de criação não executa o turno no path principal por engano | `[x]` | **PASS** (fechado ao vivo em 2026-08-07) | teste dedicado + exercitado via UI real (build empacotado + `playwright-cli`): alerta com mensagem exata do `copy.md`, thread `error`, `project.path` limpo | — |
+| Apagar thread limpa worktree quando seguro; caso sujo retém e avisa | `[x]` | **PASS** | | — |
+
+### F14. Fluxo Git Completo — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| UI expõe Commit / Commit & push / Commit, push & PR bloqueados com thread running | `[x]` | **PASS** | `docs/PROGRESS.md` F14 | — |
+| "Gerar com IA" preenche subject (e title/body de PR) via provider da thread | `[x]` | **PASS** | `git-textgen.ts` | — |
+| PR sucesso devolve URL abrível; ausência de token aponta pra Configuração | `[x]` | **PASS** (fechado ao vivo em 2026-08-07) | PR real criado e confirmado via API do GitHub contra repo scratch dedicado (`humbertoluks/engrenacode-f14-smoke#1`) | — |
+| Falha de textgen não impede commit manual | `[x]` | **PASS** | | — |
+
+### F15. Runtime de SubAgents — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| `call_subagent` contra binário real cria run efêmero; resultado volta ao pai | `[x]` | **PASS** | `docs/PROGRESS.md` F15 | — |
+| Diffs do filho aparecem na mesma revisão Diff do pai | `[x]` | **PASS** | | — |
+| Idle timeout encerra run com status `timeout` visível na UI | `[x]` | **PASS** (fechado ao vivo em 2026-08-07) | `docs/F15-runtime-de-subagents/smoke-results.md` — watchdog + `text-amber` sem refresh manual | — |
+| Delegação real gera usage_event source=subagent com share > 0 | `[x]` | **PASS** | share 55.5% em `#consumo` | — |
+
+### F16. Composer Avançado — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| Modelo/reasoning editáveis no follow-up; provider imutável | `[x]` | **PASS** | `docs/PROGRESS.md` F16 | — |
+| `@` lista arquivos do projeto, insere path relativo, rejeita fora do projeto | `[x]` | **PASS** (por construção — menu só lista dentro de `project.path`) | | — |
+| Até 5 imagens ≤ 4 MiB quando multimodal; senão CTA desabilitado com motivo | `[x]` | **PASS** (fechado ao vivo em 2026-08-07) | CTA com `title` exato confirmado via DOM em provider não-multimodal | — |
+| Anexos/menções seguem no prompt e aparecem no histórico | `[x]` | **PASS** (fechado ao vivo em 2026-08-07) | `MessageImageThumbs` confirmado em 2 turnos reais, light/dark | — |
+
+### F17. Catálogo Seed de Onboarding — nova desde a auditoria original
+
+| Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
+|--------------|------------|----------|-----------|------|
+| 1º unlock (ou migração) insere seeds sem duplicar em re-unlock | `[x]` | **PASS** | `docs/PROGRESS.md` F17 | — |
+| Contagens `#skills`/`#subagents`/Dashboard refletem os seeds | `[x]` | **PASS** | 12 skills + 8 subagents confirmados no smoke | — |
+| Name já existente é skipped; usuário edita/desabilita/exclui como itens normais | `[x]` | **PASS** | | — |
+| Seeds não vinculam projetos automaticamente | `[x]` | **PASS** | | — |
 
 ---
 
@@ -193,75 +187,79 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 |--------------|------------|----------|-----------|------|
 | Tokens F01.1 em `#configuracao` | `[x]` | **PASS** | | — |
 | Tokens/Shiki/markdown no Workspace | `[x]` | **PASS** | | — |
-| Tokens F01.1 em F04–F11 | `[ ]` | **OPEN** | smokes light/dark por tela existem em vários F*; item guarda-chuva ainda aberto | **smoke** / fechar doc se aceitar evidência dispersa |
-| Tema persiste entre `#dashboard` / `#configuracao` / workspace | `[ ]` | **OPEN** | chave existe; re-verificação cross-nav não fechada (PROGRESS) | **smoke** |
+| Tokens F01.1 em F04–F11 | `[x]` | **PASS** (era OPEN) | smokes light/dark por tela em cada feature | — |
+| Tema persiste entre `#dashboard` / `#configuracao` / workspace | `[x]` | **PASS** (era OPEN) | re-verificação cross-nav fechada | — |
 | Status F02 → Dashboard + Workspace | `[x]` | **PASS** | | — |
-| Prompt global F02 injetado no turno | `[ ]` | **DOC-LAG → PASS no código** | `buildSystemPrompt` lê `prompt:global` | **corrigir-doc** |
-| Skills via `load_skill` no Workspace | `[ ]` | **OPEN = FAIL real** | alinhado ao FAIL F05 | **corrigir-código** |
-| Rules injetadas em todo turno | `[ ]` | **DOC-LAG → PASS no código** | `composeBlockForTurn` | **corrigir-doc** |
-| SubAgents devolvem resultado + diffs na revisão do pai | `[ ]` | **OPEN** | alinhado F07 | **corrigir-código** / **smoke** |
+| Prompt global F02 injetado no turno | `[x]` | **PASS** (era DOC-LAG) | `buildSystemPrompt` lê `prompt:global` | — |
+| Skills via `load_skill` no Workspace | `[x]` | **PASS** (era FAIL real) | Fechado em F12 | — |
+| Rules injetadas em todo turno | `[x]` | **PASS** (era DOC-LAG) | `composeBlockForTurn` | — |
+| SubAgents devolvem resultado + diffs na revisão do pai | `[x]` | **PASS** (era OPEN) | Fechado em F15 | — |
 | F03 alimenta Dashboard | `[x]` | **PASS** | | — |
 | Contagens F05–F07 no Dashboard | `[x]` | **PASS** | | — |
 | Eventos F03 → Registros | `[x]` | **PASS** | | — |
-| Vault+vínculo → MCP available/omitted | `[ ]` | **DOC-LAG → PASS no código+smoke** | prepareMcps + OAuth Linear + banner omit | **corrigir-doc** |
+| Vault+vínculo → MCP available/omitted | `[x]` | **PASS** (era DOC-LAG) | prepareMcps + OAuth Linear + banner omit | — |
 | API keys F10 resolvíveis no Workspace | `[x]` | **PASS** | | — |
-| usage_events F03/F07 agregam em Consumo | `[ ]` | **PARTIAL** | Agente sim (smoke F11); subagent live não | **smoke** + depois **corrigir-doc** |
+| usage_events F03/F07/F15 agregam em Consumo | `[x]` | **PASS** (era PARTIAL) | share subagent real confirmado (F15) | — |
+| Tool `load_skill` (F12) entrega content no dispatch do Workspace | `[x]` | **PASS** (novo item, pós-F12) | | — |
+| WorktreePath (F13) isola cwd de dispatch/diffs/git | `[x]` | **PASS** (novo item, pós-F13) | | — |
+| GitActions (F14) consome token GitHub + estado da thread | `[x]` | **PASS** (novo item, pós-F14) | | — |
+| Composer (F16) envia model/reasoning/@file/imagens no follow-up | `[x]` | **PASS** (novo item, pós-F16) | | — |
+| Seeds (F17) aparecem nas contagens do Dashboard e em F05/F07 | `[x]` | **PASS** (novo item, pós-F17) | | — |
 
 ---
 
-## 4. Checkboxes `[x]` indevidos (corrigir imediatamente ou na onda)
+## 4. Checkboxes `[x]` indevidos
 
-| ID | Texto | Por quê FAIL |
-|----|-------|--------------|
-| F05 | `load_skill` entrega content sob demanda | Snapshot existe; **tool não registrada** no turno |
-| F03 | Skills/rules/subagents participam conforme F05–F07 | Depende de F05 (`load_skill`) e F07 (delegação comprovada); hoje só rules + anúncio de catálogo |
-
-Recomendação operacional: **rebaixar esses dois para `[ ]`** no PRD até o código fechar, para `PROGRESS.md` não mentir o estado.
+**Nenhum.** Os dois casos identificados na auditoria de 2026-08-06 (F05 `load_skill`, F03 participação de skills/subagents) foram fechados em F12 e F15 respectivamente, com evidência de código + smoke real — não são mais falso positivo.
 
 ---
 
 ## 5. Checkboxes `[ ]` que o código já cumpre (DOC-LAG)
 
-| ID | Texto | Evidência |
-|----|-------|-----------|
-| F06 | Bloco de rules em todo turno | `dispatch.ts` + testes |
-| Cross | Prompt global injetado | `buildSystemPrompt` |
-| Cross | Rules injetadas no Workspace | mesmo path |
-| Cross | Secrets/OAuth + MCP available/omitted | F09 smoke + `prepareMcpsForDispatch` |
+**Nenhum.** `docs/PRD.md` não tem nenhuma linha `- [ ]` restante (`grep -n "^\- \[ \]" docs/PRD.md` vazio). Os quatro DOC-LAG da auditoria original (F06 bloco de rules, prompt global, rules no Workspace, MCP available/omitted) já foram corrigidos para `[x]` no PRD antes desta revalidação.
 
 ---
 
-## 6. Gaps de produto vs LionCodeLabs (candidatos à nova onda)
+## 6. Gaps de produto vs LionCodeLabs (candidatos à próxima onda)
 
-Agrupados para alimentar a entrevista do `/prd-writer`. Não são todos obrigatórios no mesmo release.
+### Faixa A — Fechar o MVP mentiroso (P0) — **feita**
 
-### Faixa A — Fechar o MVP mentiroso (P0)
+1. ~~Tool `load_skill`~~ → **feito** (F12)
+2. ~~Worktree real ou remoção da opção falsa~~ → **feito, worktree real** (F13)
+3. ~~UI PR + textgen de commit/PR~~ → **feito, incluindo PR real** (F14)
+4. ~~Smoke `call_subagent` + idle timeout na UI~~ → **feito** (F15, idle timeout fechado ao vivo em 2026-08-07)
+5. ~~Alinhar checkboxes §9 / PROGRESS~~ → **feito** — zero `[ ]` restantes; esta revalidação é a prova
 
-1. Tool `load_skill` (MCP interno `engrenacode` ou equivalente)  
-2. Worktree real **ou** remoção da opção falsa  
-3. UI PR + (opcional) textgen de commit/PR  
-4. Smoke `call_subagent` + idle timeout na UI  
-5. Alinhar checkboxes §9 / PROGRESS
+### Faixa B — Paridade de composer / git com o legado (P1) — **feita**
 
-### Faixa B — Paridade de composer / git com o legado (P1)
+6. ~~Picker de modelo (e reasoning) na thread pai~~ → **feito, no follow-up** (F16; provider imutável após 1º envio é decisão de escopo, não gap)
+7. ~~`@file` mentions~~ → **feito** (F16)
+8. ~~Anexos de imagem~~ → **feito** (F16)
+9. ~~"Commit, push & PR" unificado + mensagem por IA~~ → **feito** (F14)
+10. ~~Seeds mínimos de skills/subagents~~ → **feito** (F17)
 
-6. Picker de modelo (e reasoning) na thread pai  
-7. `@file` mentions  
-8. Anexos de imagem (providers que suportam)  
-9. “Commit, push & PR” unificado + mensagem por IA  
-10. Seeds mínimos de skills/subagents (catálogo de onboarding)
+**Copy pendente (não bloqueia §9, cosmético):** alguns slots de copy seguem com texto funcional provisório em vez de copy final revisado — `docs/PROGRESS.md` documenta cada um: F04 (`dashboard.subtitle`, `dashboard.banner.setupIncomplete`, títulos de seção), F14 (`git.cta.generateAi`, `git.label.*`, `git.hint.subjectMax`, `git.stage.openingPr`), F16 (`composer.image.disabled.multimodal`, `composer.mention.error.outsideProject`). Nenhum desses é um checkbox de §9 — são strings provisórias funcionais, não bugs.
 
-### Faixa C — Roadmap pós-corte PRD §7 (P2 / ondas futuras)
+**Outros nits da reauditoria 2026-08-07 (solution):**
 
-11. Memory (`journal.md` / `memory.md`) + dreaming  
-12. CodeGraph + tools `repo_graph_*`  
-13. Slash commands (`/spec`) + `/featdevelop` + `/featbuild`  
-14. Write-parallel subagents (worktree filho + merge-tree)  
-15. GLM + Grok  
-16. Ditado por voz (STT)  
-17. Terminal PTY no dock  
-18. AskUserQuestion  
-19. Multi-VCS (GitLab/Bitbucket/Azure)  
+| Nit | Severidade | Nota |
+|-----|------------|------|
+| Soft smoke F12 `load_skill` live com binário `claude` | baixa (confiança) | Path MCP compartilhado já sanado em F15; falta turno dedicado |
+| `smoke-results.md` ausente para F14/F16 | doc | Evidência vive em `PROGRESS.md` (assimétrico vs F13/F15) |
+| Esclarecimentos antigos F03/F11 em `PROGRESS.md` | doc stale | Ainda narram gaps já fechados (histórico); não revertem §9 |
+| Windows `$GIT_DIR too big` em worktree + userData profundo | ambiente | Visto no smoke F14; PR rodou em `executionMode=main` |
+
+### Faixa C — Roadmap pós-corte PRD §7 (P2 / ondas futuras) — **inalterada, fora do escopo desta revalidação**
+
+11. Memory (`journal.md` / `memory.md`) + dreaming
+12. CodeGraph + tools `repo_graph_*`
+13. Slash commands (`/spec`) + `/featdevelop` + `/featbuild`
+14. Write-parallel subagents (worktree filho + merge-tree)
+15. GLM + Grok
+16. Ditado por voz (STT)
+17. Terminal PTY no dock
+18. AskUserQuestion
+19. Multi-VCS (GitLab/Bitbucket/Azure)
 20. UsageLimits / budgets
 
 ### Faixa D — Já no Engrena e melhor que o legado
@@ -270,31 +268,48 @@ Agrupados para alimentar a entrevista do `/prd-writer`. Não são todos obrigat�
 
 ---
 
-## 7. Onda 1.2 (decidida e documentada no PRD)
+## 7. Onda 1.2 (F12–F17) — feita e fechada
 
-Corte **B (P0+P1)** promovido a Versão 1.2 em `docs/PRD.md` (F12–F17):
+Corte **B (P0+P1)**, promovido a Versão 1.2 em `docs/PRD.md`, está **100% feito** com smoke real por feature:
 
-| ID | Nome | Prioridade |
-|----|------|------------|
-| F12 | Runtime de Skills (`load_skill`) | 1 |
-| F13 | Isolamento Worktree | 1 |
-| F14 | Fluxo Git Completo | 1 |
-| F15 | Runtime de SubAgents | 1 |
-| F16 | Composer Avançado | 2 |
-| F17 | Catálogo Seed de Onboarding | 2 |
+| ID | Nome | Prioridade | Status |
+|----|------|------------|--------|
+| F12 | Runtime de Skills (`load_skill`) | 1 | **Feito** |
+| F13 | Isolamento Worktree | 1 | **Feito** |
+| F14 | Fluxo Git Completo | 1 | **Feito**, incl. PR real |
+| F15 | Runtime de SubAgents | 1 | **Feito**, incl. idle timeout ao vivo |
+| F16 | Composer Avançado | 2 | **Feito** |
+| F17 | Catálogo Seed de Onboarding | 2 | **Feito** |
 
-Fora desta onda (permanecem §7): Memory/dreaming, CodeGraph, slash/pipeline, voz, GLM/Grok, write-parallel.
+Fora desta onda (permanecem PRD §7, Faixa C acima): Memory/dreaming, CodeGraph, slash/pipeline, voz, GLM/Grok, write-parallel.
 
 ---
 
-## 8. Referências
+## 8. Próximo trabalho útil (priorizado)
 
-- PRD: [`docs/PRD.md`](./PRD.md) §7 (fora de escopo) e §9 (critérios)  
-- Progresso operacional: [`docs/PROGRESS.md`](./PROGRESS.md)  
-- Legado: `C:\Users\Me\Code\repos\github\lionlabs\LionCodeLabs` (`packages/server`, `packages/renderer`)  
-- Evidências-chave Engrena:  
-  - `src/services/runner/dispatch.ts` (`buildSystemPrompt`, MCP omit, subagent MCP)  
-  - `src/services/runner/skill-registry.ts`  
-  - `src/services/runner/delegate.ts` / `subagent-mcp-server.ts`  
-  - `src/renderer/components/workspace/GitActions.tsx`  
-  - `src/renderer/components/workspace/TaskComposer.tsx`
+Ordem recomendada após esta reauditoria. Nenhum item reabre §9 como FAIL.
+
+| # | Trabalho | Por quê | Esforço |
+|---|----------|---------|---------|
+| **1** | Smoke live F12: turno real `claude` chama `mcp__engrenacode__load_skill` e recebe markdown | Único soft gap de confiança do runtime de skills; fecha “opcional” no PROGRESS | 1 sessão smoke |
+| **2** | Passe de copy F04 / F14 / F16 | Remove cheiro de provisório na UI; não é bug | 1 PR cosmético |
+| **3** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Só depois de 1 (e idealmente 2); evita chute de escopo | produto |
+| — | Nits de doc (Esclarecimentos F03/F11 stale; `smoke-results` F14/F16) | Higiene | baixo |
+| — | Caveat Windows worktree + path profundo | Só se voltar a doer no dia a dia | investigativo |
+
+---
+
+## 9. Referências
+
+- PRD: [`docs/PRD.md`](./PRD.md) §7 (fora de escopo) e §9 (critérios — zero `[ ]` restantes em 2026-08-07)
+- Progresso operacional: [`docs/PROGRESS.md`](./PROGRESS.md)
+- Legado: `C:\Users\Me\Code\repos\github\lionlabs\LionCodeLabs` (`packages/server`, `packages/renderer`)
+- Smoke-results por feature: `docs/F02-*/`, `docs/F03-*/`, `docs/F06-*/`, `docs/F09-*/`, `docs/F11-*/`, `docs/F13-*/`, `docs/F15-*/smoke-results.md` (F14/F16: evidência em PROGRESS)
+- Evidências-chave Engrena:
+  - `src/services/runner/dispatch.ts` (`buildSystemPrompt`, MCP omit, subagent MCP)
+  - `src/services/runner/skill-registry.ts` / `subagent-mcp-server.ts` (F12)
+  - `src/services/runner/delegate.ts` (F11/F15 — idle/hard-cap/diffs unificados)
+  - `src/services/git/worktree.ts` (F13)
+  - `src/services/git/git-textgen.ts` / `src/renderer/components/workspace/GitActions.tsx` (F14)
+  - `src/renderer/components/workspace/ComposerModelControls.tsx` / `FileMentionMenu.tsx` / `ComposerImageAttachments.tsx` (F16)
+  - `src/services/seeds/catalog.ts` / `apply-catalog.ts` (F17)
