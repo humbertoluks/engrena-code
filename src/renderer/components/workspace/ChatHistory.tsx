@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import type { Message, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
+import { correlateSubagentRuns } from './chatHistory.logic'
 
 const COPY = {
   loading: 'Carregando histórico…',
@@ -56,29 +57,6 @@ function MessageImageThumbs({ blocks }: Readonly<{ blocks: unknown[] | null }>):
       ))}
     </div>
   )
-}
-
-/** Fonte: `src/services/runner/subagent-registry.ts` (CALL_SUBAGENT_TOOL_NAME) — não importável no renderer (módulo server-only). */
-const CALL_SUBAGENT_TOOL_NAME = 'mcp__engrenacode__call_subagent'
-
-/**
- * Casa cada tool call `call_subagent` do pai com o `subagent_runs` correspondente (spec F15 §3.2):
- * primeiro por `parentToolCallId` (quando delegate.ts conseguiu correlacionar); o que sobrar casa
- * por ordem (FIFO — delegações no mesmo turno são serializadas, então a ordem é estável).
- */
-function correlateSubagentRuns(toolCalls: ToolCall[], runs: SubagentRun[]): Map<string, SubagentRun> {
-  const byToolCallId = new Map<string, SubagentRun>()
-  const unmatchedRuns: SubagentRun[] = []
-  for (const run of runs) {
-    if (run.parentToolCallId) byToolCallId.set(run.parentToolCallId, run)
-    else unmatchedRuns.push(run)
-  }
-
-  const unmatchedToolCalls = toolCalls.filter((t) => t.name === CALL_SUBAGENT_TOOL_NAME && !byToolCallId.has(t.id))
-  for (let i = 0; i < unmatchedToolCalls.length && i < unmatchedRuns.length; i++) {
-    byToolCallId.set(unmatchedToolCalls[i].id, unmatchedRuns[i])
-  }
-  return byToolCallId
 }
 
 export interface ChatHistoryProps {

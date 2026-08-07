@@ -16,6 +16,12 @@ import {
   type ConfigStatus,
   type ProviderKeyName,
 } from '../services/configuracao-service'
+import {
+  KEY_VALIDATION_MESSAGES,
+  validateClaudeKeyLocal,
+  validateCodexKeyLocal,
+  validateMinimaxKeyLocal,
+} from './configuracaoScreen.logic'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
 
@@ -87,14 +93,14 @@ const COPY = {
   keysBadgeMissing: 'não configurada',
   keysLabelClaude: 'Claude',
   keysPlaceholderClaude: 'sk-ant-…',
-  keysErrorClaudeFormat: 'Formato inválido. Esperado: sk-ant-…',
+  keysErrorClaudeFormat: KEY_VALIDATION_MESSAGES.claudeFormat,
   keysLabelCodex: 'Codex',
   keysPlaceholderCodex: 'sk-codex-…',
-  keysErrorCodexFormat: 'Formato inválido. Esperado: sk-… ou sk-codex-…',
+  keysErrorCodexFormat: KEY_VALIDATION_MESSAGES.codexFormat,
   keysLabelMinimax: 'Minimax',
   keysPlaceholderMinimax: 'mm-…',
-  keysErrorSpaces: 'A chave não pode conter espaços.',
-  keysErrorShort: 'Chave muito curta para ser válida.',
+  keysErrorSpaces: KEY_VALIDATION_MESSAGES.spaces,
+  keysErrorShort: KEY_VALIDATION_MESSAGES.short,
   keysErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
   keysErrorGeneric: 'Não foi possível salvar. Tente novamente.',
   keysReveal: (label: string) => `Revelar ${label}`,
@@ -382,29 +388,6 @@ function PromptCard({
 }
 
 // ── Keys Card ─────────────────────────────────────────────────────────────────
-
-function validateClaudeKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return COPY.keysErrorSpaces
-  if (v.length < 8) return COPY.keysErrorShort
-  if (!v.startsWith('sk-ant-')) return COPY.keysErrorClaudeFormat
-  return null
-}
-
-function validateCodexKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return COPY.keysErrorSpaces
-  if (v.length < 8) return COPY.keysErrorShort
-  if (!v.startsWith('sk-')) return COPY.keysErrorCodexFormat
-  return null
-}
-
-function validateMinimaxKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return COPY.keysErrorSpaces
-  if (v.length < 8) return COPY.keysErrorShort
-  return null
-}
 
 interface KeyRowState {
   draft: string
