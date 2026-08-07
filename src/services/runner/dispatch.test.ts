@@ -10,7 +10,7 @@ const { getDb, closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { getThread, listThreadsForProject } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
-const { listToolCallsForThread } = await import('../db/repositories/messages.js')
+const { listToolCallsForThread, listMessagesForThread } = await import('../db/repositories/messages.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
@@ -513,6 +513,80 @@ describe('dispatchFollowUp', () => {
 
   it('throws DispatchValidationError for an unknown thread', () => {
     expect(() => dispatchFollowUp({ threadId: 'thr_nao_existe', prompt: 'oi' })).toThrow(DispatchValidationError)
+  })
+})
+
+describe('F16 composer avançado — reasoning + images no dispatch', () => {
+  it('test_create_thread_persists_reasoning_and_model', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      model: 'claude-opus-4-1',
+      reasoningLevel: 'high',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    expect(thread.model).toBe('claude-opus-4-1')
+    expect(thread.reasoningLevel).toBe('high')
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(getThread(thread.id)?.reasoningLevel).toBe('high')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('test_follow_up_updates_model_and_reasoning', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'primeira' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'codex',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    setRunCliTurnForTesting(async () => ({ text: 'segunda' }))
+    const followed = dispatchFollowUp({
+      threadId: thread.id,
+      prompt: 'de novo',
+      model: 'gpt-5.1-codex',
+      reasoningLevel: 'max',
+    })
+
+    expect(followed.model).toBe('gpt-5.1-codex')
+    expect(followed.reasoningLevel).toBe('max')
+    await waitForState(thread.id, ['idle', 'error'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('test_user_message_persists_image_blocks', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'veja este print',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      images: [{ mimeType: 'image/png', name: 'screenshot.png', dataBase64: 'aGVsbG8=' }],
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const userMessage = listMessagesForThread(thread.id).find((m) => m.role === 'user')
+    expect(userMessage?.blocks).toEqual([
+      { type: 'image', mimeType: 'image/png', name: 'screenshot.png', dataBase64: 'aGVsbG8=' },
+    ])
+    rmSync(dir, { recursive: true, force: true })
   })
 })
 

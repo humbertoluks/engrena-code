@@ -6,6 +6,7 @@ import { handleSkillsRequest } from './skills-handler.js'
 import { handleRulesRequest } from './rules-handler.js'
 import { handleProjectsRequest } from './projects-handler.js'
 import { handleThreadsRequest } from './threads-handler.js'
+import { handleProjectFilesRequest } from './project-files-handler.js'
 import { handleGitRequest } from './git-handler.js'
 import { handleDashboardRequest } from './dashboard-handler.js'
 import { handleMcpsRequest } from './mcps-handler.js'
@@ -123,6 +124,18 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // Projects routes (async — must not mix with data event listeners)
     if (req.url?.startsWith('/api/projects')) {
       const handled = await handleProjectsRequest(req, res)
+      if (handled) return
+    }
+
+    // Composer routes — catálogo model/reasoning/multimodal (F16 §5.1)
+    if (req.url?.startsWith('/api/composer/')) {
+      const handled = await handleThreadsRequest(req, res)
+      if (handled) return
+    }
+
+    // Project files routes — menu `@file` (F16 §5.2)
+    if (req.url?.startsWith('/api/projects/') && req.url.includes('/files')) {
+      const handled = await handleProjectFilesRequest(req, res)
       if (handled) return
     }
 

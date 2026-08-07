@@ -9,6 +9,7 @@ import * as migration003Mcps from './migrations/003_mcps.js'
 import * as migration004LogEntries from './migrations/004_log_entries.js'
 import * as migration005Consumo from './migrations/005_consumo.js'
 import * as migration006UsageSourceTextgen from './migrations/006_usage_source_textgen.js'
+import * as migration007ComposerAvancado from './migrations/007_composer_avancado.js'
 
 interface Migration {
   id: string
@@ -23,6 +24,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration004LogEntries.id, sql: migration004LogEntries.sql },
   { id: migration005Consumo.id, sql: migration005Consumo.sql },
   { id: migration006UsageSourceTextgen.id, sql: migration006UsageSourceTextgen.sql },
+  { id: migration007ComposerAvancado.id, sql: migration007ComposerAvancado.sql },
 ]
 
 function resolveUserData(): string {

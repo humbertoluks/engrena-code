@@ -36,6 +36,7 @@ import {
   type ProviderTurnInput,
   type ProviderUsage,
 } from './providers/cli-driver.js'
+import type { ComposerImageInput } from './providers/composer-images.js'
 
 export class DispatchValidationError extends Error {
   code: string
@@ -51,15 +52,19 @@ export interface DispatchNewThreadInput {
   prompt: string
   provider: ThreadProvider
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
+  images?: ComposerImageInput[]
 }
 
 export interface DispatchFollowUpInput {
   threadId: string
   prompt: string
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel?: ThreadAccessLevel
+  images?: ComposerImageInput[]
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -161,6 +166,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       projectId: project.id,
       provider: input.provider,
       model: input.model ?? null,
+      reasoningLevel: input.reasoningLevel ?? null,
       accessLevel: input.accessLevel,
       executionMode: input.executionMode,
       state: 'running',
@@ -184,7 +190,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
     }
   }
 
-  void runTurn(project, thread, input.prompt)
+  void runTurn(project, thread, input.prompt, input.images)
 
   return thread
 }
@@ -198,9 +204,15 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 
   acquireLease(project.id, 'agent', 'follow-up', thread.id)
 
-  const patch: { accessLevel?: ThreadAccessLevel; model?: string | null; state: 'running' } = { state: 'running' }
+  const patch: {
+    accessLevel?: ThreadAccessLevel
+    model?: string | null
+    reasoningLevel?: string | null
+    state: 'running'
+  } = { state: 'running' }
   if (input.accessLevel) patch.accessLevel = input.accessLevel
   if (input.model !== undefined) patch.model = input.model
+  if (input.reasoningLevel !== undefined) patch.reasoningLevel = input.reasoningLevel
 
   let updated: Thread
   try {
@@ -211,17 +223,21 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
   }
 
   emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
-  void runTurn(project, updated, input.prompt)
+  void runTurn(project, updated, input.prompt, input.images)
 
   return updated
 }
 
-async function runTurn(project: Project, thread: Thread, prompt: string): Promise<void> {
+async function runTurn(project: Project, thread: Thread, prompt: string, images?: ComposerImageInput[]): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
   const turnId = randomUUID()
   try {
-    appendMessage({ threadId: thread.id, role: 'user', content: prompt })
+    const imageBlocks =
+      images && images.length > 0
+        ? images.map((img) => ({ type: 'image' as const, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
+        : null
+    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks: imageBlocks })
 
     const skillSnapshot = createSkillSnapshot(project.id)
     const systemPrompt = buildSystemPrompt(project, skillSnapshot)

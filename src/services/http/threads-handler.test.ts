@@ -574,4 +574,183 @@ describe('handleThreadsRequest', () => {
     expect(status).toBe(404)
     expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
   })
+
+  describe('GET /api/composer/catalog (F16 §5.1)', () => {
+    it('returns the static provider catalog', async () => {
+      const req = fakeReq('GET', '/api/composer/catalog', undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      const parsed = body as { providers: Record<string, { models: string[]; defaultModel: string; multimodal: boolean }> }
+      expect(parsed.providers.claude.multimodal).toBe(true)
+      expect(parsed.providers.claude.models).toContain(parsed.providers.claude.defaultModel)
+      expect(parsed.providers.minimax.multimodal).toBe(false)
+    })
+
+    it('rejects unauthorized requests with 401', async () => {
+      const req = fakeReq('GET', '/api/composer/catalog', undefined, 'invalid-token')
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      expect((await res.result()).status).toBe(401)
+    })
+  })
+
+  describe('F16 composer avançado — create/follow-up validation', () => {
+    it('rejects an out-of-catalog model with 400 validation_error', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'claude', model: 'gpt-unknown', accessLevel: 'supervised', executionMode: 'main' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('rejects an out-of-catalog reasoningLevel with 400 validation_error', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'minimax', reasoningLevel: 'high', accessLevel: 'supervised', executionMode: 'main' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    describe('test_images_rejected_when_not_multimodal', () => {
+      it('rejects images on create for a non-multimodal provider (minimax)', async () => {
+        const dir = makeProjectDir()
+        const project = createProject({ path: dir })
+        const req = fakeReq(
+          'POST',
+          `/api/projects/${project.id}/threads`,
+          {
+            prompt: 'oi',
+            provider: 'minimax',
+            accessLevel: 'supervised',
+            executionMode: 'main',
+            images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }],
+          },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status, body } = await res.result()
+        expect(status).toBe(400)
+        expect((body as { error: { code: string } }).error.code).toBe('image_not_supported')
+        rmSync(dir, { recursive: true, force: true })
+      })
+    })
+
+    it('accepts images on create for a multimodal provider (claude) and persists blocks', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        {
+          prompt: 'veja este print',
+          provider: 'claude',
+          accessLevel: 'supervised',
+          executionMode: 'main',
+          images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }],
+        },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(201)
+      const parsed = body as { thread: { id: string } }
+      await waitFor(() => getThread(parsed.thread.id)?.state === 'idle')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('test_follow_up_rejects_provider_field', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+      const createReq = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+        session
+      )
+      const created = (await (async () => {
+        const res = fakeRes()
+        await handleThreadsRequest(createReq, res)
+        return res.result()
+      })()).body as { thread: { id: string } }
+      await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+      const req = fakeReq('POST', `/api/threads/${created.thread.id}/messages`, { prompt: 'de novo', provider: 'codex' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('follow-up updates model + reasoningLevel and rejects images for a non-multimodal thread', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+      const createReq = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'kimi', accessLevel: 'supervised', executionMode: 'main' },
+        session
+      )
+      const createRes = fakeRes()
+      await handleThreadsRequest(createReq, createRes)
+      const created = (await createRes.result()).body as { thread: { id: string } }
+      await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+      const okReq = fakeReq(
+        'POST',
+        `/api/threads/${created.thread.id}/messages`,
+        { prompt: 'de novo', model: 'kimi-latest', reasoningLevel: 'high' },
+        session
+      )
+      const okRes = fakeRes()
+      await handleThreadsRequest(okReq, okRes)
+      const okResult = await okRes.result()
+      expect(okResult.status).toBe(201)
+      expect(getThread(created.thread.id)?.reasoningLevel).toBe('high')
+      await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+      const imgReq = fakeReq(
+        'POST',
+        `/api/threads/${created.thread.id}/messages`,
+        { prompt: 'com imagem', images: [{ mimeType: 'image/png', name: 'a.png', dataBase64: 'aGVsbG8=' }] },
+        session
+      )
+      const imgRes = fakeRes()
+      await handleThreadsRequest(imgReq, imgRes)
+      const imgResult = await imgRes.result()
+      expect(imgResult.status).toBe(400)
+      expect((imgResult.body as { error: { code: string } }).error.code).toBe('image_not_supported')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
 })

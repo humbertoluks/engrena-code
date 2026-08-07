@@ -11,6 +11,7 @@ export interface Thread {
   projectId: string
   provider: ThreadProvider
   model: string | null
+  reasoningLevel: string | null
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   worktreePath: string | null
@@ -35,6 +36,7 @@ interface ThreadRow {
   project_id: string
   provider: string
   model: string | null
+  reasoning_level: string | null
   access_level: string
   execution_mode: string
   worktree_path: string | null
@@ -51,6 +53,7 @@ function toThread(row: ThreadRow): Thread {
     projectId: row.project_id,
     provider: row.provider as ThreadProvider,
     model: row.model,
+    reasoningLevel: row.reasoning_level,
     accessLevel: row.access_level as ThreadAccessLevel,
     executionMode: row.execution_mode as ThreadExecutionMode,
     worktreePath: row.worktree_path,
@@ -66,6 +69,7 @@ export interface CreateThreadInput {
   projectId: string
   provider: ThreadProvider
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   worktreePath?: string | null
@@ -80,14 +84,15 @@ export function createThread(input: CreateThreadInput): Thread {
   getDb()
     .prepare(
       `INSERT INTO threads
-        (id, project_id, provider, model, access_level, execution_mode, worktree_path, state, title, system_prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+        (id, project_id, provider, model, reasoning_level, access_level, execution_mode, worktree_path, state, title, system_prompt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
     )
     .run(
       id,
       input.projectId,
       input.provider,
       input.model ?? null,
+      input.reasoningLevel ?? null,
       input.accessLevel,
       input.executionMode,
       input.worktreePath ?? null,
@@ -115,6 +120,7 @@ export function listThreadsForProject(projectId: string): Thread[] {
 export interface UpdateThreadInput {
   state?: ThreadState
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel?: ThreadAccessLevel
   worktreePath?: string | null
   title?: string | null
@@ -128,6 +134,7 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
   const next = {
     state: patch.state ?? existing.state,
     model: patch.model !== undefined ? patch.model : existing.model,
+    reasoningLevel: patch.reasoningLevel !== undefined ? patch.reasoningLevel : existing.reasoningLevel,
     accessLevel: patch.accessLevel ?? existing.accessLevel,
     worktreePath: patch.worktreePath !== undefined ? patch.worktreePath : existing.worktreePath,
     title: patch.title !== undefined ? patch.title : existing.title,
@@ -136,10 +143,20 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
 
   getDb()
     .prepare(
-      `UPDATE threads SET state = ?, model = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, updated_at = ?
+      `UPDATE threads SET state = ?, model = ?, reasoning_level = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, updated_at = ?
        WHERE id = ?`
     )
-    .run(next.state, next.model, next.accessLevel, next.worktreePath, next.title, next.systemPrompt, Date.now(), id)
+    .run(
+      next.state,
+      next.model,
+      next.reasoningLevel,
+      next.accessLevel,
+      next.worktreePath,
+      next.title,
+      next.systemPrompt,
+      Date.now(),
+      id
+    )
 
   return getThread(id)
 }

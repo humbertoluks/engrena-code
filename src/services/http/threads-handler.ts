@@ -18,6 +18,8 @@ import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from 
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
+import { getComposerCatalog, isMultimodal, isValidModel, isValidReasoningLevel } from '../runner/providers/provider-catalog.js'
+import { validateComposerImages, type ComposerImageInput } from '../runner/providers/composer-images.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
 const PROVIDERS = ['claude', 'codex', 'kimi', 'minimax'] as const
@@ -124,8 +126,10 @@ interface CreateThreadBody {
   prompt?: string
   provider?: string
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel?: string
   executionMode?: string
+  images?: unknown[]
 }
 
 async function handleCreateThread(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -145,14 +149,39 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'validation_error', 'executionMode inválido.')
   }
 
+  const provider = data.provider as DispatchNewThreadInput['provider']
+
+  if (data.model !== undefined && data.model !== null && !isValidModel(provider, data.model)) {
+    return sendError(res, 400, 'validation_error', 'model fora do catálogo do provider.')
+  }
+  if (
+    data.reasoningLevel !== undefined &&
+    data.reasoningLevel !== null &&
+    !isValidReasoningLevel(provider, data.reasoningLevel)
+  ) {
+    return sendError(res, 400, 'validation_error', 'reasoningLevel fora do catálogo do provider.')
+  }
+
+  let images: ComposerImageInput[] | undefined
+  if (data.images !== undefined && data.images.length > 0) {
+    if (!isMultimodal(provider)) {
+      return sendError(res, 400, 'image_not_supported', `Provider "${provider}" não aceita anexos de imagem.`)
+    }
+    const imgErr = validateComposerImages(data.images)
+    if (imgErr) return sendError(res, 400, imgErr.code, imgErr.message)
+    images = data.images as ComposerImageInput[]
+  }
+
   try {
     const thread = await dispatchNewThread({
       projectId,
       prompt: data.prompt,
-      provider: data.provider as DispatchNewThreadInput['provider'],
+      provider,
       model: data.model ?? null,
+      reasoningLevel: data.reasoningLevel ?? null,
       accessLevel: data.accessLevel as DispatchNewThreadInput['accessLevel'],
       executionMode: data.executionMode as DispatchNewThreadInput['executionMode'],
+      images,
     })
     sendJson(res, 201, { thread, stream: streamPathFor(thread.id) })
   } catch (err) {
@@ -164,8 +193,10 @@ interface FollowUpBody {
   prompt?: string
   provider?: string
   model?: string | null
+  reasoningLevel?: string | null
   accessLevel?: string
   executionMode?: string
+  images?: unknown[]
 }
 
 async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -185,9 +216,35 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
     return sendError(res, 400, 'validation_error', 'accessLevel inválido.')
   }
 
+  const existingThread = getThread(threadId)
+  if (existingThread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  if (data.model !== undefined && data.model !== null && !isValidModel(existingThread.provider, data.model)) {
+    return sendError(res, 400, 'validation_error', 'model fora do catálogo do provider.')
+  }
+  if (
+    data.reasoningLevel !== undefined &&
+    data.reasoningLevel !== null &&
+    !isValidReasoningLevel(existingThread.provider, data.reasoningLevel)
+  ) {
+    return sendError(res, 400, 'validation_error', 'reasoningLevel fora do catálogo do provider.')
+  }
+
+  let images: ComposerImageInput[] | undefined
+  if (data.images !== undefined && data.images.length > 0) {
+    if (!isMultimodal(existingThread.provider)) {
+      return sendError(res, 400, 'image_not_supported', `Provider "${existingThread.provider}" não aceita anexos de imagem.`)
+    }
+    const imgErr = validateComposerImages(data.images)
+    if (imgErr) return sendError(res, 400, imgErr.code, imgErr.message)
+    images = data.images as ComposerImageInput[]
+  }
+
   const input: DispatchFollowUpInput = { threadId, prompt: data.prompt }
   if (data.model !== undefined) input.model = data.model
+  if (data.reasoningLevel !== undefined) input.reasoningLevel = data.reasoningLevel
   if (data.accessLevel !== undefined) input.accessLevel = data.accessLevel as DispatchFollowUpInput['accessLevel']
+  if (images) input.images = images
 
   try {
     const thread = dispatchFollowUp(input)
@@ -308,6 +365,7 @@ const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
+const COMPOSER_CATALOG_RE = /^\/api\/composer\/catalog$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = (req.url ?? '').split('?')[0]
@@ -321,13 +379,19 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     DIFFS_RE.test(url) ||
     CANCEL_RE.test(url) ||
     PERMISSION_RE.test(url) ||
-    ACCEPT_RE.test(url)
+    ACCEPT_RE.test(url) ||
+    COMPOSER_CATALOG_RE.test(url)
 
   if (!matchesThreadsRoute) return false
 
   if (!guard(req, res)) return true
 
   try {
+    if (COMPOSER_CATALOG_RE.test(url) && method === 'GET') {
+      sendJson(res, 200, getComposerCatalog())
+      return true
+    }
+
     const createMatch = CREATE_THREAD_RE.exec(url)
     if (createMatch && method === 'POST') {
       await handleCreateThread(req, res, createMatch[1])
