@@ -934,16 +934,16 @@ graph TD
 - [x] Skill não executa código; providers sem tool degradam com notice sem abortar o turno
 
 ### F13. Isolamento Worktree
-- [ ] Primeiro envio com `executionMode=worktree` cria worktree real e persiste `worktreePath`
-- [ ] Dispatch, diffs e git da thread usam `worktreePath`; `main` continua em `project.path`
-- [ ] Falha de criação não executa o turno no path principal por engano; mensagem específica
-- [ ] Apagar thread limpa worktree quando seguro; caso sujo, retém e avisa
+- [x] Primeiro envio com `executionMode=worktree` cria worktree real e persiste `worktreePath`
+- [x] Dispatch, diffs e git da thread usam `worktreePath`; `main` continua em `project.path`
+- [ ] Falha de criação não executa o turno no path principal por engano; mensagem específica — pass unitário/integração (`dispatch.test.ts`); não exercitado via UI real (gate de F03 bloqueia envio de projetos sem HEAD antes do código de F13 rodar)
+- [x] Apagar thread limpa worktree quando seguro; caso sujo, retém e avisa
 
 ### F14. Fluxo Git Completo
-- [ ] UI expõe Commit, Commit & push e Commit, push & PR bloqueados com thread running
-- [ ] “Gerar com IA” preenche subject (e title/body de PR) via provider da thread; usuário edita antes de confirmar
-- [ ] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração
-- [ ] Falha de textgen não impede commit manual
+- [x] UI expõe Commit, Commit & push e Commit, push & PR bloqueados com thread running
+- [x] “Gerar com IA” preenche subject (e title/body de PR) via provider da thread; usuário edita antes de confirmar
+- [ ] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração — token ausente confirmado ao vivo + unitário (`git-handler.test.ts`); sucesso de PR real contra o GitHub não exercitado nesta rodada (ação externa/irreversível fora do escopo automático — contrato coberto por teste HTTP com axios mockado, ver `docs/PROGRESS.md`)
+- [x] Falha de textgen não impede commit manual
 
 ### F15. Runtime de SubAgents
 - [ ] `call_subagent` contra binário real cria run efêmero; resultado volta ao pai
@@ -980,7 +980,7 @@ graph TD
 - [x] API keys (F10) tornam Claude modo key / Codex key / Minimax resolvíveis no Workspace (F03)
 - [ ] usage_events do Workspace (F03) e de SubAgents (F07/F15) agregam corretamente na tela Consumo (F11)
 - [x] Tool `load_skill` (F12) entrega content das skills vinculadas (F05) no dispatch do Workspace (F03)
-- [ ] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
-- [ ] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
+- [x] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
+- [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
 - [ ] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
 - [ ] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
