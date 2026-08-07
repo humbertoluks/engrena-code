@@ -1361,10 +1361,10 @@ graph TD
 - [ ] Comando slash inválido não dispara nenhum estágio; erro aparece inline no composer
 
 ### F23. Providers GLM e Grok
-- [ ] Key válida de GLM/Grok salva em Configuração e passa em "Testar conexão"
-- [ ] GLM/Grok aparecem no picker de provider do composer quando a key é válida
-- [ ] Key inválida/formato errado não salva; erro específico exibido
-- [ ] Threads antigas com key removida ficam somente leitura
+- [x] Key válida de GLM/Grok salva em Configuração e passa em "Testar conexão"
+- [x] GLM/Grok aparecem no picker de provider do composer quando a key é válida
+- [x] Key inválida/formato errado não salva; erro específico exibido
+- [x] Threads antigas com key removida ficam somente leitura
 
 ### F24. Multi-VCS (GitLab/Bitbucket/Azure)
 - [ ] Conectar GitLab/Bitbucket/Azure via OAuth PKCE salva o token só no vault
@@ -1416,7 +1416,7 @@ graph TD
 - [x] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
 - [x] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
 - [ ] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
-- [ ] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
+- [x] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
 - [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
 - [ ] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
 - [ ] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
