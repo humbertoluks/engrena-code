@@ -166,8 +166,15 @@ export async function handleSkillsRequest(req: IncomingMessage, res: ServerRespo
   const pathname = (req.url ?? '').split('?')[0]
   const method = req.method ?? ''
 
-  const isSkillsRoute = pathname.startsWith('/api/skills') || pathname.startsWith('/api/projects/')
-  if (!isSkillsRoute) return false
+  if (!pathname.startsWith('/api/skills') && !pathname.startsWith('/api/projects/')) return false
+  if (
+    pathname.startsWith('/api/projects/') &&
+    !PROJECT_SKILLS_RE.test(pathname) &&
+    !PROJECT_SKILL_LINK_RE.test(pathname) &&
+    !PROJECT_CATALOG_ORDER_RE.test(pathname)
+  ) {
+    return false
+  }
   if (!guard(req, res)) return true
 
   try {

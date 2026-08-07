@@ -157,3 +157,34 @@ describe('createUnlockServer seed catalog application', () => {
     spy.mockRestore()
   })
 })
+
+describe('createUnlockServer project route chain with vault locked', () => {
+  beforeEach(() => {
+    vaultService.lock()
+  })
+
+  afterEach(() => {
+    vaultService.lock()
+  })
+
+  it('returns 423 vault_locked for project nested routes through the real handler chain', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const projectId = 'proj_chain_test'
+    const paths = [
+      `/api/projects/${projectId}/skills`,
+      `/api/projects/${projectId}/rules`,
+      `/api/projects/${projectId}/mcps`,
+      `/api/projects/${projectId}/subagents`,
+      `/api/projects/${projectId}/files`,
+    ]
+
+    for (const path of paths) {
+      const res = await axios.get(`http://127.0.0.1:${port}${path}`, {
+        validateStatus: () => true,
+      })
+      expect(res.status, path).toBe(423)
+      expect(res.data?.error?.code, path).toBe('vault_locked')
+    }
+  })
+})
