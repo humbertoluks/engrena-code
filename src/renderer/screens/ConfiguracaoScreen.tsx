@@ -71,6 +71,7 @@ const COPY = {
   githubHint: 'Escopos recomendados: `repo`, `workflow`.',
   githubSaveCta: 'Salvar token',
   githubSaveLoading: 'Salvando...',
+  githubSaveConfirm: 'Salvar este token do GitHub no cofre local?',
   githubReveal: 'Revelar token',
   githubHide: 'Ocultar token',
   githubBadgePresent: 'Customizado',
@@ -554,6 +555,7 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
       return
     }
     setLocalError(null)
+    if (tokenDraft !== '' && !window.confirm(COPY.githubSaveConfirm)) return
     void onSave(tokenDraft)
   }, [tokenDraft, onSave])
 
