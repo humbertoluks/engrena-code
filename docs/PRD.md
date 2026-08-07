@@ -952,10 +952,10 @@ graph TD
 - [x] Delegação real gera usage_event source=subagent com share > 0 em Consumo
 
 ### F16. Composer Avançado
-- [ ] Modelo e reasoning editáveis no follow-up; provider permanece imutável após o primeiro envio
-- [ ] `@` lista arquivos do projeto e insere path relativo; fora do projeto é rejeitado
-- [ ] Até 5 imagens ≤ 4 MiB nos tipos permitidos quando o provider é multimodal; senão CTA desabilitado com motivo
-- [ ] Anexos e menções seguem no prompt do turno e aparecem no histórico
+- [x] Modelo e reasoning editáveis no follow-up; provider permanece imutável após o primeiro envio
+- [x] `@` lista arquivos do projeto e insere path relativo; fora do projeto é rejeitado
+- [x] Até 5 imagens ≤ 4 MiB nos tipos permitidos quando o provider é multimodal; senão CTA desabilitado com motivo
+- [x] Anexos e menções seguem no prompt do turno e aparecem no histórico
 
 ### F17. Catálogo Seed de Onboarding
 - [ ] Primeiro unlock (ou migração) insere o pacote de seeds sem duplicar em re-unlock
@@ -982,5 +982,5 @@ graph TD
 - [x] Tool `load_skill` (F12) entrega content das skills vinculadas (F05) no dispatch do Workspace (F03)
 - [x] WorktreePath (F13) isola cwd de dispatch/diffs/git do Workspace (F03) quando executionMode=worktree
 - [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
-- [ ] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
+- [x] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
 - [ ] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
