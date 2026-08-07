@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import axios from 'axios'
+import { stderrTail } from '../process-error.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -17,18 +18,6 @@ const AUTHOR_CONFIG = ['-c', 'user.name=EngrenaCode', '-c', 'user.email=engrenac
 
 async function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync('git', args, { cwd, timeout: 15000 })
-}
-
-/** Cauda do stderr de um erro de `execFile` (populado pelo Node em falhas de processo) — cai para `err.message` se ausente. */
-function stderrTail(err: unknown, max = 300): string {
-  const raw =
-    err && typeof err === 'object' && 'stderr' in err && typeof (err as { stderr?: unknown }).stderr === 'string'
-      ? ((err as { stderr: string }).stderr as string)
-      : err instanceof Error
-        ? err.message
-        : String(err)
-  const trimmed = raw.trim()
-  return trimmed.length > max ? trimmed.slice(-max) : trimmed
 }
 
 export async function isGitRepo(cwd: string): Promise<boolean> {

@@ -9,6 +9,7 @@ import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, Provid
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn } from './minimax-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
+import { sanitizeProcessError } from '../../process-error.js'
 
 export type {
   ProviderStreamEvent,
@@ -325,7 +326,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         reject(
           new ProviderError(
             'provider_turn_error',
-            stderrBuf.trim() || `Provider "${binary}" encerrou com código ${code}.`
+            sanitizeProcessError(stderrBuf.trim()) || `Provider "${binary}" encerrou com código ${code}.`
           )
         )
         return

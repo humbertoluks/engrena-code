@@ -2,6 +2,7 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { gitBranchForceDelete, gitWorktreeAdd, gitWorktreeRemove, getVcsStatus, hasGitHead, isGitRepo } from './git-client.js'
+import { sanitizeProcessError } from '../process-error.js'
 
 export class WorktreeError extends Error {
   code: string
@@ -32,7 +33,7 @@ export function worktreeBranchName(threadId: string): string {
 function lastErrorLine(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
   const lines = message.trim().split('\n')
-  return lines[lines.length - 1] ?? message
+  return sanitizeProcessError(lines[lines.length - 1] ?? message)
 }
 
 /**
