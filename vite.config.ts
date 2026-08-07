@@ -14,11 +14,15 @@ export default defineConfig({
         entry: 'src/main/index.ts',
         // typescript (Compiler API, F19 codegraph) usa __filename estilo CJS em
         // sys.ts; bundlar no main ESM quebra com "__filename is not defined".
-        // External força require() real via Node, preservando o contexto CJS.
+        // node-pty (F26) resolve seus .node nativos com um require dinâmico
+        // relativo ao próprio pacote (lib/utils.js); bundlado, esse require perde
+        // o __dirname real de node_modules/node-pty e nunca acha os prebuilds.
+        // External força require() real via Node para ambos, preservando o
+        // contexto CJS/caminho original.
         vite: {
           build: {
             rollupOptions: {
-              external: ['typescript']
+              external: ['typescript', 'node-pty']
             }
           }
         }
