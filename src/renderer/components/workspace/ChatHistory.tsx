@@ -29,6 +29,35 @@ const ROLE_LABEL: Record<Message['role'], string> = {
   system: 'Sistema',
 }
 
+interface ImageBlock {
+  type: 'image'
+  mimeType: string
+  name?: string
+  dataBase64: string
+}
+
+function isImageBlock(block: unknown): block is ImageBlock {
+  return typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'image'
+}
+
+/** `MessageImageThumbs` (ui.md) — thumbs sob a bolha do user a partir de `message.blocks`. */
+function MessageImageThumbs({ blocks }: Readonly<{ blocks: unknown[] | null }>): ReactElement | null {
+  const images = (blocks ?? []).filter(isImageBlock)
+  if (images.length === 0) return null
+  return (
+    <div className="mt-xs flex flex-wrap gap-xs">
+      {images.map((img, i) => (
+        <img
+          key={`${img.name ?? 'imagem'}-${i}`}
+          src={`data:${img.mimeType};base64,${img.dataBase64}`}
+          alt="Imagem anexada"
+          className="max-h-[120px] max-w-[200px] rounded-lg border border-border"
+        />
+      ))}
+    </div>
+  )
+}
+
 /** Fonte: `src/services/runner/subagent-registry.ts` (CALL_SUBAGENT_TOOL_NAME) — não importável no renderer (módulo server-only). */
 const CALL_SUBAGENT_TOOL_NAME = 'mcp__engrenacode__call_subagent'
 
@@ -107,6 +136,7 @@ export function ChatHistory({
           >
             {message.content}
           </div>
+          {message.role === 'user' ? <MessageImageThumbs blocks={message.blocks} /> : null}
         </div>
       ))}
 

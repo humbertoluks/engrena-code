@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactElement, KeyboardEvent } from 'react'
 import type { ComposerDraft, QueueItem } from '../../hooks/usePrincipalWorkspace'
-import type { Thread, ThreadAccessLevel, ThreadExecutionMode, ThreadProvider } from '../../services/threads-service'
+import type { ComposerCatalog, Thread, ThreadAccessLevel, ThreadExecutionMode } from '../../services/threads-service'
 import type { ConfigStatus } from '../../services/configuracao-service'
 import type { VcsStatus } from '../../services/projects-service'
+import { ComposerModelControls } from './ComposerModelControls'
+import { FileMentionMenu } from './FileMentionMenu'
+import { ComposerImageAttachments, ImageAttachmentThumbs } from './ComposerImageAttachments'
+import { extractMentionQuery, insertMentionPath, type MentionQuery } from './composer.logic'
 
 const COPY = {
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
@@ -17,7 +21,6 @@ const COPY = {
   executionGroup: 'Execution',
   executionMain: 'Main',
   executionWorktree: 'Worktree',
-  lockProvider: 'Modelos do provider da thread — o provider é imutável.',
   gitGateTitle: 'Inicialize o Git para conversar com o agente',
   gitGateBody: 'O EngrenaCode precisa de um commit inicial para proteger e acompanhar as alterações do agente.',
   gitGateCta: 'Inicializar Git',
@@ -32,7 +35,6 @@ const COPY = {
   queueCancel: 'Cancelar',
 } as const
 
-const PROVIDERS: ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax']
 const ACCESS_LEVELS: ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
 const EXECUTION_MODES: ThreadExecutionMode[] = ['main', 'worktree']
 
@@ -50,7 +52,9 @@ const EXECUTION_LABEL: Record<ThreadExecutionMode, string> = {
 export interface TaskComposerProps {
   composer: ComposerDraft
   updateComposer: (patch: Partial<ComposerDraft>) => void
+  composerCatalog: ComposerCatalog | null
   selectedThread: Thread | null
+  projectId: string | null
   queue: QueueItem[]
   onDequeue: (id: string) => void
   sendError: string | null
@@ -65,7 +69,9 @@ export interface TaskComposerProps {
 export function TaskComposer({
   composer,
   updateComposer,
+  composerCatalog,
   selectedThread,
+  projectId,
   queue,
   onDequeue,
   sendError,
@@ -77,16 +83,22 @@ export function TaskComposer({
   hasProject,
 }: Readonly<TaskComposerProps>): ReactElement {
   const [gitInitLoading, setGitInitLoading] = useState(false)
+  const [mention, setMention] = useState<MentionQuery | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isRunning = selectedThread?.state === 'running'
   const isStopping = selectedThread?.state === 'stopping'
   const providerLocked = selectedThread !== null
   const executionLocked = selectedThread !== null
+  const runtimeLocked = isRunning || isStopping || queue.length > 0
 
   const providerHealth = configStatus?.providers[composer.provider]
   const providerUnavailable = providerHealth !== undefined && !providerHealth.available
   const providerUnavailableReason = providerHealth?.reason ?? COPY.providerUnavailableFallback
   const gitGateActive = hasProject && vcsStatus !== null && !vcsStatus.hasHead
+
+  const multimodal = composerCatalog?.providers[composer.provider]?.multimodal ?? false
 
   const placeholder = isStopping
     ? COPY.placeholderStopping
@@ -96,8 +108,33 @@ export function TaskComposer({
         ? COPY.placeholderFollowUp
         : COPY.placeholderNew
 
+  function syncMention(text: string, cursor: number): void {
+    setMention(extractMentionQuery(text, cursor))
+  }
+
+  function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
+    updateComposer({ text: e.target.value })
+    syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+  }
+
+  function handleSelectMention(path: string): void {
+    if (!mention || !textareaRef.current) return
+    const cursor = textareaRef.current.selectionStart ?? composer.text.length
+    const result = insertMentionPath(composer.text, mention, path, cursor)
+    updateComposer({ text: result.text })
+    setMention(null)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+    })
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Escape' && mention) {
+      setMention(null)
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !mention) {
       e.preventDefault()
       onSend()
     }
@@ -161,28 +198,58 @@ export function TaskComposer({
         </p>
       ) : null}
 
-      <div className="rounded-xl border border-border bg-surface-2 p-sm focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
-        <textarea
-          value={composer.text}
-          onChange={(e) => updateComposer({ text: e.target.value })}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={3}
-          className="w-full resize-none bg-transparent text-[13px] text-fg placeholder:text-muted focus:outline-none disabled:opacity-60"
-        />
+      <div className="relative rounded-xl border border-border bg-surface-2 p-sm focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
+        {composer.images.length > 0 ? (
+          <div className="mb-xs">
+            <ImageAttachmentThumbs
+              images={composer.images}
+              onRemove={(id) => updateComposer({ images: composer.images.filter((img) => img.id !== id) })}
+            />
+          </div>
+        ) : null}
+
+        <div className="relative">
+          {mention !== null && projectId ? (
+            <FileMentionMenu projectId={projectId} query={mention.query} onSelect={handleSelectMention} />
+          ) : null}
+
+          <textarea
+            ref={textareaRef}
+            value={composer.text}
+            onChange={handleTextChange}
+            onKeyDown={handleKeyDown}
+            onKeyUp={(e) => syncMention(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
+            onClick={(e) => syncMention(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={3}
+            className="w-full resize-none bg-transparent text-[13px] text-fg placeholder:text-muted focus:outline-none disabled:opacity-60"
+          />
+        </div>
+
+        {imageError !== null ? (
+          <p role="alert" className="mt-sm text-xs text-amber">
+            {imageError}
+          </p>
+        ) : null}
 
         <div className="mt-xs flex flex-wrap items-center justify-between gap-xs">
           <div className="flex flex-wrap items-center gap-xs">
-            <PillGroup
-              label="Provider"
-              value={composer.provider}
-              options={PROVIDERS}
-              labels={{ claude: 'Claude', codex: 'Codex', kimi: 'Kimi', minimax: 'Minimax' }}
-              disabled={providerLocked}
-              title={providerLocked ? COPY.lockProvider : undefined}
-              onChange={(v) => updateComposer({ provider: v })}
+            <ComposerModelControls
+              catalog={composerCatalog}
+              provider={composer.provider}
+              model={composer.model}
+              reasoningLevel={composer.reasoningLevel}
+              lockProvider={providerLocked}
+              disabled={disabled || runtimeLocked}
+              onChangeProvider={(v) => {
+                const entry = composerCatalog?.providers[v]
+                updateComposer({ provider: v, model: entry?.defaultModel ?? null, reasoningLevel: entry?.defaultReasoningLevel ?? null })
+              }}
+              onChangeModel={(v) => updateComposer({ model: v })}
+              onChangeReasoningLevel={(v) => updateComposer({ reasoningLevel: v })}
             />
+            <div className="h-4 w-[1.5px] bg-border" />
             <PillGroup
               label={COPY.accessGroup}
               value={composer.accessLevel}
@@ -198,6 +265,17 @@ export function TaskComposer({
               labels={EXECUTION_LABEL}
               disabled={executionLocked}
               onChange={(v) => updateComposer({ executionMode: v })}
+            />
+            <div className="h-4 w-[1.5px] bg-border" />
+            <ComposerImageAttachments
+              currentCount={composer.images.length}
+              multimodal={multimodal}
+              disabled={disabled || runtimeLocked}
+              onAdd={(added) => {
+                updateComposer({ images: [...composer.images, ...added] })
+                setImageError(null)
+              }}
+              onError={setImageError}
             />
           </div>
 

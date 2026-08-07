@@ -128,7 +128,9 @@ export function PrincipalScreen(): ReactElement {
           <TaskComposer
             composer={ws.composer}
             updateComposer={ws.updateComposer}
+            composerCatalog={ws.composerCatalog}
             selectedThread={ws.selectedThread}
+            projectId={ws.selectedProjectId}
             queue={ws.queue}
             onDequeue={ws.dequeue}
             sendError={ws.sendError}

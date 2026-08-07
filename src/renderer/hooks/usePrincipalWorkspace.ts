@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectsService, type Project, type VcsStatus } from '../services/projects-service'
 import {
   threadsService,
+  type ComposerCatalog,
+  type ComposerImagePayload,
   type Diff,
   type Message,
   type ThreadAccessLevel,
@@ -18,17 +20,34 @@ const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
 export type ThreadTab = 'history' | 'diff'
 
+export interface ComposerImage {
+  id: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  name: string
+  dataBase64: string
+  byteLength: number
+}
+
 export interface QueueItem {
   id: string
   text: string
+  images: ComposerImage[]
+  model: string | null
+  reasoningLevel: string | null
 }
 
 export interface ComposerDraft {
   provider: ThreadProvider
   model: string | null
+  reasoningLevel: string | null
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   text: string
+  images: ComposerImage[]
+}
+
+function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
+  return images.map((img) => ({ mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
 }
 
 function loadQueue(threadKey: string): QueueItem[] {
@@ -82,13 +101,16 @@ export function usePrincipalWorkspace() {
   const [activeTab, setActiveTab] = useState<ThreadTab>('history')
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
+  const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
 
   const [composer, setComposer] = useState<ComposerDraft>({
     provider: 'claude',
     model: null,
+    reasoningLevel: null,
     accessLevel: 'supervised',
     executionMode: 'main',
     text: '',
+    images: [],
   })
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [sendError, setSendError] = useState<string | null>(null)
@@ -207,6 +229,12 @@ export function usePrincipalWorkspace() {
         if (mountedRef.current) setConfigStatus(status)
       })
       .catch(() => {})
+    threadsService
+      .composerCatalog()
+      .then((res) => {
+        if (mountedRef.current && !res.error) setComposerCatalog(res)
+      })
+      .catch(() => {})
   }, [loadProjects])
 
   useEffect(() => {
@@ -216,6 +244,17 @@ export function usePrincipalWorkspace() {
     if (selectedProjectId) void loadVcsStatus(selectedProjectId)
     else setVcsStatus(null)
   }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus])
+
+  // Rehidrata model/reasoning atuais da thread selecionada nos controles do composer (spec F16 plan §10).
+  useEffect(() => {
+    if (!selectedThread) return
+    setComposer((prev) => ({
+      ...prev,
+      provider: selectedThread.provider,
+      model: selectedThread.model,
+      reasoningLevel: selectedThread.reasoningLevel,
+    }))
+  }, [selectedThread?.id, selectedThread?.model, selectedThread?.reasoningLevel, selectedThread?.provider])
 
   useEffect(() => {
     setStreamingText('')
@@ -317,7 +356,7 @@ export function usePrincipalWorkspace() {
   const newThread = useCallback(() => {
     setSelectedThreadId(null)
     setSendError(null)
-    setComposer((prev) => ({ ...prev, text: '' }))
+    setComposer((prev) => ({ ...prev, text: '', images: [] }))
   }, [])
 
   const addProject = useCallback(
@@ -355,9 +394,12 @@ export function usePrincipalWorkspace() {
   }, [])
 
   const enqueue = useCallback(
-    (text: string) => {
+    (text: string, images: ComposerImage[], model: string | null, reasoningLevel: string | null) => {
       setQueue((prev) => {
-        const next = [...prev, { id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text }]
+        const next = [
+          ...prev,
+          { id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, images, model, reasoningLevel },
+        ]
         saveQueue(queueKey, next)
         return next
       })
@@ -380,18 +422,21 @@ export function usePrincipalWorkspace() {
     setQueue((prev) => {
       if (prev.length === 0 || !selectedThreadId) return prev
       const [head, ...rest] = prev
-      void sendFollowUp(head.text)
+      void sendFollowUp(head.text, head.images, head.model, head.reasoningLevel)
       saveQueue(queueKey, rest)
       return rest
     })
   }
 
   const sendFollowUp = useCallback(
-    async (text: string) => {
+    async (text: string, images: ComposerImage[] = [], model: string | null = null, reasoningLevel: string | null = null) => {
       if (!selectedThreadId) return
       const res = await threadsService.followUp(selectedThreadId, {
         prompt: text,
+        model,
+        reasoningLevel,
         accessLevel: composer.accessLevel,
+        images: images.length > 0 ? toImagePayloads(images) : undefined,
       })
       if (res.error) {
         setSendError(res.error.message)
@@ -408,8 +453,8 @@ export function usePrincipalWorkspace() {
     setSendError(null)
 
     if (selectedThread && selectedThread.state === 'running') {
-      enqueue(text)
-      setComposer((prev) => ({ ...prev, text: '' }))
+      enqueue(text, composer.images, composer.model, composer.reasoningLevel)
+      setComposer((prev) => ({ ...prev, text: '', images: [] }))
       return
     }
 
@@ -420,8 +465,10 @@ export function usePrincipalWorkspace() {
         prompt: text,
         provider: composer.provider,
         model: composer.model,
+        reasoningLevel: composer.reasoningLevel,
         accessLevel: composer.accessLevel,
         executionMode: composer.executionMode,
+        images: composer.images.length > 0 ? toImagePayloads(composer.images) : undefined,
       })
       if (res.error) {
         setSendError(res.error.message)
@@ -429,12 +476,12 @@ export function usePrincipalWorkspace() {
       }
       upsertThreadLocal(selectedProjectId, res.thread)
       setSelectedThreadId(res.thread.id)
-      setComposer((prev) => ({ ...prev, text: '' }))
+      setComposer((prev) => ({ ...prev, text: '', images: [] }))
       return
     }
 
-    await sendFollowUp(text)
-    setComposer((prev) => ({ ...prev, text: '' }))
+    await sendFollowUp(text, composer.images, composer.model, composer.reasoningLevel)
+    setComposer((prev) => ({ ...prev, text: '', images: [] }))
   }, [composer, selectedThread, selectedThreadId, selectedProjectId, enqueue, sendFollowUp, upsertThreadLocal])
 
   const cancel = useCallback(async () => {
@@ -533,6 +580,7 @@ export function usePrincipalWorkspace() {
     activeTab,
     setActiveTab,
     configStatus,
+    composerCatalog,
     composer,
     updateComposer,
     queue,

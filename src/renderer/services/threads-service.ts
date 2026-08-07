@@ -34,6 +34,7 @@ export interface Thread {
   projectId: string
   provider: ThreadProvider
   model: string | null
+  reasoningLevel: string | null
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   worktreePath: string | null
@@ -42,6 +43,24 @@ export interface Thread {
   systemPrompt: string | null
   createdAt: number
   updatedAt: number
+}
+
+export interface ComposerImagePayload {
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  name?: string
+  dataBase64: string
+}
+
+export interface ComposerCatalogProviderEntry {
+  models: string[]
+  defaultModel: string
+  reasoningLevels: string[]
+  defaultReasoningLevel: string | null
+  multimodal: boolean
+}
+
+export interface ComposerCatalog {
+  providers: Record<ThreadProvider, ComposerCatalogProviderEntry>
 }
 
 export interface Message {
@@ -110,15 +129,25 @@ export const threadsService = {
       prompt: string
       provider: ThreadProvider
       model?: string | null
+      reasoningLevel?: string | null
       accessLevel: ThreadAccessLevel
       executionMode: ThreadExecutionMode
+      images?: ComposerImagePayload[]
     }
   ): Promise<DispatchResponse & ApiErrorBody> => request('POST', `/api/projects/${projectId}/threads`, input),
 
   followUp: (
     threadId: string,
-    input: { prompt: string; model?: string | null; accessLevel?: ThreadAccessLevel }
+    input: {
+      prompt: string
+      model?: string | null
+      reasoningLevel?: string | null
+      accessLevel?: ThreadAccessLevel
+      images?: ComposerImagePayload[]
+    }
   ): Promise<DispatchResponse & ApiErrorBody> => request('POST', `/api/threads/${threadId}/messages`, input),
+
+  composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => request('GET', '/api/composer/catalog'),
 
   history: (
     threadId: string
