@@ -7,7 +7,9 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
-const { createThread, deleteThread, getThread, updateThread, recoverRunningThreads } = await import('./threads.js')
+const { createThread, deleteThread, getThread, updateThread, setThreadState, recoverRunningThreads } = await import(
+  './threads.js'
+)
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f08_threads_fixture_'))
 
@@ -51,6 +53,28 @@ describe('recoverRunningThreads', () => {
 
   it('returns an empty list when there is nothing to recover', () => {
     expect(recoverRunningThreads()).toEqual([])
+  })
+
+  it('moves waiting_user threads to error and returns them (F21 §3.2)', () => {
+    const project = createProject({ path: makeProjectDir('project-waiting-user') })
+    const waiting = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'waiting_user' })
+
+    const recovered = recoverRunningThreads()
+
+    expect(recovered.map((t) => t.id)).toEqual([waiting.id])
+    expect(getThread(waiting.id)?.state).toBe('error')
+  })
+})
+
+describe('setThreadState', () => {
+  it('accepts waiting_user as a valid state (F21)', () => {
+    const project = createProject({ path: makeProjectDir('project-set-waiting-user') })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'idle' })
+
+    const updated = setThreadState(thread.id, 'waiting_user')
+
+    expect(updated?.state).toBe('waiting_user')
+    expect(getThread(thread.id)?.state).toBe('waiting_user')
   })
 })
 

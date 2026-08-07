@@ -4,7 +4,7 @@ import { getDb } from '../client.js'
 export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
-export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping'
+export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping' | 'waiting_user'
 
 export interface Thread {
   id: string
@@ -172,13 +172,17 @@ export function deleteThread(id: string): boolean {
 }
 
 /**
- * Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` de uma execução
- * anterior interrompida viram `error`. Retorna as threads afetadas para o chamador gravar
- * `log_entries` `kind='task'` por thread.
+ * Reconciliação de boot (spec.md F08 §3.2; estendido F21 §3.2): threads presas em `running`
+ * ou `waiting_user` de uma execução anterior interrompida viram `error` — o resolver em
+ * memória de uma pergunta pendente (F21 `ask-user-question.ts`) não sobrevive a um restart,
+ * então `waiting_user` preso não pode ser respondido nem cancelado sem essa reconciliação.
+ * Retorna as threads afetadas para o chamador gravar `log_entries` `kind='task'` por thread.
  */
 export function recoverRunningThreads(): Thread[] {
   const rows = getDb()
-    .prepare(`UPDATE threads SET state = 'error', updated_at = ? WHERE state = 'running' RETURNING *`)
+    .prepare(
+      `UPDATE threads SET state = 'error', updated_at = ? WHERE state = 'running' OR state = 'waiting_user' RETURNING *`
+    )
     .all(Date.now()) as unknown as ThreadRow[]
 
   return rows.map(toThread)
