@@ -1412,7 +1412,7 @@ graph TD
 - [x] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
 - [x] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
 - [ ] `call_subagent` paralelo (F18) reusa gate/idle/usage_events de F07/F15 e worktree isolado de F13 por filho
-- [ ] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
+- [x] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
 - [ ] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
 - [ ] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
 - [ ] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
