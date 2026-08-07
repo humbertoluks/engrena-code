@@ -228,13 +228,22 @@ export function usePrincipalWorkspace() {
       .then((status) => {
         if (mountedRef.current) setConfigStatus(status)
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        console.error('[workspace] config status:', err)
+      })
     threadsService
       .composerCatalog()
       .then((res) => {
-        if (mountedRef.current && !res.error) setComposerCatalog(res)
+        if (!mountedRef.current) return
+        if (res.error) {
+          console.error('[workspace] composer catalog:', res.error.message)
+          return
+        }
+        setComposerCatalog(res)
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        console.error('[workspace] composer catalog:', err)
+      })
   }, [loadProjects])
 
   useEffect(() => {
