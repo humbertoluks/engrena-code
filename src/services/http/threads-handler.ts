@@ -279,6 +279,19 @@ async function handleAccept(req: IncomingMessage, res: ServerResponse, threadId:
     return sendError(res, 400, 'validation_error', 'action deve ser "accept" ou "reject".')
   }
 
+  if (
+    data.ids !== undefined &&
+    !(Array.isArray(data.ids) && data.ids.every((i) => typeof i === 'string'))
+  ) {
+    return sendError(res, 400, 'validation_error', 'ids deve ser um array de strings.')
+  }
+  if (
+    data.paths !== undefined &&
+    !(Array.isArray(data.paths) && data.paths.every((p) => typeof p === 'string'))
+  ) {
+    return sendError(res, 400, 'validation_error', 'paths deve ser um array de strings.')
+  }
+
   const input: AcceptDiffInput = { threadId }
   if (data.action !== undefined) input.action = data.action as AcceptDiffInput['action']
   if (data.ids !== undefined) input.ids = data.ids

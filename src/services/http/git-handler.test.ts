@@ -235,6 +235,22 @@ describe('handleGitRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('pr rejects non-string branch with 400 validation_error', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    vaultService.setSecret('github:token', 'ghp_faketoken')
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, { branch: 42 }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('pr failure (no remote configured) is recorded as a git log_entries', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

@@ -133,6 +133,14 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
   const data = parseBody<PrBody>(await readBody(req))
   if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
 
+  let branch: string | undefined
+  if (data.branch !== undefined) {
+    if (typeof data.branch !== 'string' || data.branch.trim() === '') {
+      return sendError(res, 400, 'validation_error', 'branch deve ser uma string não vazia.')
+    }
+    branch = data.branch.trim()
+  }
+
   const token = vaultService.getSecret('github:token')
   if (!token) {
     return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de abrir PRs.')
@@ -144,7 +152,7 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
   await withGitLease(res, resolved.project, threadId, 'pr', async () => {
     try {
       const result = await createPullRequest(resolveThreadCwd(resolved.thread, resolved.project), token, {
-        branch: data.branch,
+        branch,
         title,
         body,
       })
