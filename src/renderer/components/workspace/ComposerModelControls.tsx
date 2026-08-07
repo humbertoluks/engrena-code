@@ -16,6 +16,8 @@ const PROVIDER_LABEL: Record<ThreadProvider, string> = {
   codex: 'Codex',
   kimi: 'Kimi',
   minimax: 'Minimax',
+  glm: 'GLM',
+  grok: 'Grok',
 }
 
 const REASONING_LABEL: Record<string, string> = {

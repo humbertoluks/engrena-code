@@ -8,7 +8,7 @@ export interface CLIStatusData {
   path?: string
 }
 
-export type ProviderKeyName = 'claude' | 'codex' | 'minimax'
+export type ProviderKeyName = 'claude' | 'codex' | 'minimax' | 'glm' | 'grok'
 
 export interface ProviderAvailability {
   available: boolean
@@ -21,7 +21,19 @@ export interface ConfigStatus {
   prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
   github: { tokenPresent: boolean }
   keys: Record<ProviderKeyName, boolean>
-  providers: { claude: ProviderAvailability; codex: ProviderAvailability; kimi: ProviderAvailability; minimax: ProviderAvailability }
+  providers: {
+    claude: ProviderAvailability
+    codex: ProviderAvailability
+    kimi: ProviderAvailability
+    minimax: ProviderAvailability
+    glm: ProviderAvailability
+    grok: ProviderAvailability
+  }
+}
+
+export interface ProviderTestResult {
+  success: boolean
+  detail: string
 }
 
 export interface ClaudeTestResult {
@@ -81,4 +93,8 @@ export const configuracaoService = {
 
   saveProviderKeys: (fields: Partial<Record<ProviderKeyName, string>>): Promise<SaveKeysResult> =>
     apiRequest('POST', '/api/config/keys/save', fields),
+
+  testGlm: (): Promise<ProviderTestResult> => apiRequest('POST', '/api/config/glm/test'),
+
+  testGrok: (): Promise<ProviderTestResult> => apiRequest('POST', '/api/config/grok/test'),
 }

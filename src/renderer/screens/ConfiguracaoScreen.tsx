@@ -21,6 +21,8 @@ import {
   validateClaudeKeyLocal,
   validateCodexKeyLocal,
   validateMinimaxKeyLocal,
+  validateGlmKeyLocal,
+  validateGrokKeyLocal,
 } from './configuracaoScreen.logic'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
@@ -105,6 +107,18 @@ const COPY = {
   keysErrorGeneric: 'Não foi possível salvar. Tente novamente.',
   keysReveal: (label: string) => `Revelar ${label}`,
   keysHide: (label: string) => `Ocultar ${label}`,
+  glmTitle: 'GLM',
+  glmSubtitle: 'Zhipu AI / BigModel — key salva no cofre local, sem CLI/assinatura.',
+  glmPlaceholder: '<id>.<secret>',
+  grokTitle: 'Grok',
+  grokSubtitle: 'xAI — key salva no cofre local, sem CLI/assinatura.',
+  grokPlaceholder: 'xai-…',
+  providerCardSaveCta: 'Salvar chave',
+  providerCardSaveLoading: 'Salvando...',
+  providerCardTestCta: 'Testar conexão',
+  providerCardTestLoading: 'Testando...',
+  providerCardTestError: 'Não foi possível testar a conexão agora.',
+  providerCardSaveError: 'Não foi possível salvar. Tente novamente.',
 } as const
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -399,8 +413,12 @@ function emptyKeyRow(): KeyRowState {
   return { draft: '', revealed: false, error: null }
 }
 
+/** Subconjunto de `ProviderKeyName` que ainda vive em `KeysCard` (save em lote) — GLM/Grok ganharam
+ * cards standalone com "Testar conexão" próprio (F23 spec §3.2), fora deste componente. */
+type KeysCardProviderName = 'claude' | 'codex' | 'minimax'
+
 interface KeyRowDef {
-  name: ProviderKeyName
+  name: KeysCardProviderName
   label: string
   placeholder: string
   validate: (v: string) => string | null
@@ -414,29 +432,29 @@ const KEY_ROWS: KeyRowDef[] = [
 
 interface KeysCardProps {
   keysStatus: ConfigStatus['keys'] | null
-  onSave: (fields: Partial<Record<ProviderKeyName, string>>) => Promise<void>
+  onSave: (fields: Partial<Record<KeysCardProviderName, string>>) => Promise<void>
   saveLoading: boolean
   feedback: Feedback | null
 }
 
 function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCardProps>): ReactElement {
-  const [rows, setRows] = useState<Record<ProviderKeyName, KeyRowState>>({
+  const [rows, setRows] = useState<Record<KeysCardProviderName, KeyRowState>>({
     claude: emptyKeyRow(),
     codex: emptyKeyRow(),
     minimax: emptyKeyRow(),
   })
 
-  const updateDraft = useCallback((name: ProviderKeyName, value: string): void => {
+  const updateDraft = useCallback((name: KeysCardProviderName, value: string): void => {
     setRows((prev) => ({ ...prev, [name]: { ...prev[name], draft: value, error: null } }))
   }, [])
 
-  const toggleReveal = useCallback((name: ProviderKeyName): void => {
+  const toggleReveal = useCallback((name: KeysCardProviderName): void => {
     setRows((prev) => ({ ...prev, [name]: { ...prev[name], revealed: !prev[name].revealed } }))
   }, [])
 
   const handleSave = useCallback((): void => {
-    const errors: Partial<Record<ProviderKeyName, string>> = {}
-    const fields: Partial<Record<ProviderKeyName, string>> = {}
+    const errors: Partial<Record<KeysCardProviderName, string>> = {}
+    const fields: Partial<Record<KeysCardProviderName, string>> = {}
 
     for (const row of KEY_ROWS) {
       const draft = rows[row.name].draft
@@ -451,7 +469,7 @@ function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCa
     if (Object.keys(errors).length > 0) {
       setRows((prev) => {
         const next = { ...prev }
-        for (const name of Object.keys(errors) as ProviderKeyName[]) {
+        for (const name of Object.keys(errors) as KeysCardProviderName[]) {
           next[name] = { ...next[name], error: errors[name] ?? null }
         }
         return next
@@ -612,6 +630,94 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
   )
 }
 
+// ── Provider Key Test Card (GLM/Grok, F23) ──────────────────────────────────────
+//
+// GLM e Grok não têm CLI/assinatura (F23 spec §3.2) — cada um ganha um card standalone
+// (não uma linha em KeysCard, que salva as 3 keys existentes em lote sem "Testar conexão"
+// por linha) com key + salvar + testar conexão próprios. Um único componente parametrizado
+// cobre os dois, já que a anatomia é idêntica; sem ui.md/copy.md ainda, então esta é a forma
+// mínima do contrato (F23 spec §1 "UI/copy — lacuna registrada").
+
+interface ProviderKeyTestCardProps {
+  title: string
+  subtitle: string
+  placeholder: string
+  configured: boolean
+  validate: (v: string) => string | null
+  onSave: (key: string) => Promise<void>
+  onTest: () => Promise<void>
+  saveLoading: boolean
+  testLoading: boolean
+  saveFeedback: Feedback | null
+  testFeedback: Feedback | null
+}
+
+function ProviderKeyTestCard({
+  title,
+  subtitle,
+  placeholder,
+  configured,
+  validate,
+  onSave,
+  onTest,
+  saveLoading,
+  testLoading,
+  saveFeedback,
+  testFeedback,
+}: Readonly<ProviderKeyTestCardProps>): ReactElement {
+  const [draft, setDraft] = useState('')
+  const [revealed, setRevealed] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = useCallback((): void => {
+    const err = validate(draft)
+    if (err !== null) {
+      setError(err)
+      return
+    }
+    if (draft === '') return
+    setError(null)
+    void onSave(draft)
+  }, [draft, validate, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={title} subtitle={subtitle} />
+      <div className="flex flex-col gap-md">
+        <div className="grid grid-cols-1 items-start gap-sm min-[720px]:grid-cols-[1fr_auto]">
+          <Field
+            id={`provider-key-${title}`}
+            ariaLabel={title}
+            value={draft}
+            onChange={(v) => { setDraft(v); setError(null) }}
+            placeholder={configured ? '••••••••••••••••' : placeholder}
+            revealed={revealed}
+            onToggleReveal={() => setRevealed((v) => !v)}
+            revealLabel={COPY.keysReveal(title)}
+            hideLabel={COPY.keysHide(title)}
+            error={error}
+          />
+          <Badge tone={configured ? 'positive' : 'neutral'}>
+            {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-md">
+          <ButtonPrimary loading={saveLoading} loadingLabel={COPY.providerCardSaveLoading} onClick={handleSave}>
+            {COPY.providerCardSaveCta}
+          </ButtonPrimary>
+          {saveFeedback !== null ? <InlineFeedback variant={saveFeedback.variant} message={saveFeedback.message} /> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-md">
+          <ButtonSecondary loading={testLoading} onClick={() => { void onTest() }}>
+            {COPY.providerCardTestCta}
+          </ButtonSecondary>
+          {testFeedback !== null ? <InlineFeedback variant={testFeedback.variant} message={testFeedback.message} /> : null}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 // ── ConfiguracaoScreen ────────────────────────────────────────────────────────
 
 interface ActionState {
@@ -633,6 +739,10 @@ export function ConfiguracaoScreen(): ReactElement {
   const [promptRestoreAction, setPromptRestoreAction] = useState<ActionState>(makeAction)
   const [githubAction, setGithubAction] = useState<ActionState>(makeAction)
   const [keysAction, setKeysAction] = useState<ActionState>(makeAction)
+  const [glmSaveAction, setGlmSaveAction] = useState<ActionState>(makeAction)
+  const [glmTestAction, setGlmTestAction] = useState<ActionState>(makeAction)
+  const [grokSaveAction, setGrokSaveAction] = useState<ActionState>(makeAction)
+  const [grokTestAction, setGrokTestAction] = useState<ActionState>(makeAction)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -768,6 +878,60 @@ export function ConfiguracaoScreen(): ReactElement {
     }
   }, [])
 
+  const handleGlmSave = useCallback(async (key: string): Promise<void> => {
+    setGlmSaveAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys({ glm: key })
+      if (!mountedRef.current) return
+      if (res.error) {
+        setGlmSaveAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.providerCardSaveError } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys }))
+      setGlmSaveAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setGlmSaveAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
+  const handleGlmTest = useCallback(async (): Promise<void> => {
+    setGlmTestAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.testGlm()
+      if (!mountedRef.current) return
+      setGlmTestAction({ loading: false, feedback: { variant: res.success ? 'success' : 'warn', message: res.detail } })
+    } catch {
+      if (mountedRef.current) setGlmTestAction({ loading: false, feedback: { variant: 'error', message: COPY.providerCardTestError } })
+    }
+  }, [])
+
+  const handleGrokSave = useCallback(async (key: string): Promise<void> => {
+    setGrokSaveAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys({ grok: key })
+      if (!mountedRef.current) return
+      if (res.error) {
+        setGrokSaveAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.providerCardSaveError } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys }))
+      setGrokSaveAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setGrokSaveAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
+  const handleGrokTest = useCallback(async (): Promise<void> => {
+    setGrokTestAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.testGrok()
+      if (!mountedRef.current) return
+      setGrokTestAction({ loading: false, feedback: { variant: res.success ? 'success' : 'warn', message: res.detail } })
+    } catch {
+      if (mountedRef.current) setGrokTestAction({ loading: false, feedback: { variant: 'error', message: COPY.providerCardTestError } })
+    }
+  }, [])
+
   if (loadError !== null) {
     return (
       <section id="configuracao" className="mx-auto max-w-[760px] px-lg py-xl">
@@ -822,6 +986,34 @@ export function ConfiguracaoScreen(): ReactElement {
           onSave={handleKeysSave}
           saveLoading={keysAction.loading}
           feedback={keysAction.feedback}
+        />
+
+        <ProviderKeyTestCard
+          title={COPY.glmTitle}
+          subtitle={COPY.glmSubtitle}
+          placeholder={COPY.glmPlaceholder}
+          configured={status?.keys.glm ?? false}
+          validate={validateGlmKeyLocal}
+          onSave={handleGlmSave}
+          onTest={handleGlmTest}
+          saveLoading={glmSaveAction.loading}
+          testLoading={glmTestAction.loading}
+          saveFeedback={glmSaveAction.feedback}
+          testFeedback={glmTestAction.feedback}
+        />
+
+        <ProviderKeyTestCard
+          title={COPY.grokTitle}
+          subtitle={COPY.grokSubtitle}
+          placeholder={COPY.grokPlaceholder}
+          configured={status?.keys.grok ?? false}
+          validate={validateGrokKeyLocal}
+          onSave={handleGrokSave}
+          onTest={handleGrokTest}
+          saveLoading={grokSaveAction.loading}
+          testLoading={grokTestAction.loading}
+          saveFeedback={grokSaveAction.feedback}
+          testFeedback={grokTestAction.feedback}
         />
 
         <GithubCard

@@ -4,6 +4,8 @@ import {
   validateClaudeKeyLocal,
   validateCodexKeyLocal,
   validateMinimaxKeyLocal,
+  validateGlmKeyLocal,
+  validateGrokKeyLocal,
 } from './configuracaoScreen.logic'
 
 describe('validateClaudeKeyLocal', () => {
@@ -31,5 +33,24 @@ describe('validateMinimaxKeyLocal', () => {
   it('only checks emptiness, spaces and length', () => {
     expect(validateMinimaxKeyLocal('abcdefgh')).toBeNull()
     expect(validateMinimaxKeyLocal('short')).toBe(KEY_VALIDATION_MESSAGES.short)
+  })
+})
+
+describe('validateGlmKeyLocal', () => {
+  it('only checks emptiness, spaces and length (F23 — no documented prefix)', () => {
+    expect(validateGlmKeyLocal('')).toBeNull()
+    expect(validateGlmKeyLocal('abcdef01234.5678secretpart')).toBeNull()
+    expect(validateGlmKeyLocal('short')).toBe(KEY_VALIDATION_MESSAGES.short)
+    expect(validateGlmKeyLocal('abc def12345')).toBe(KEY_VALIDATION_MESSAGES.spaces)
+  })
+})
+
+describe('validateGrokKeyLocal', () => {
+  it('requires xai- prefix without spaces (F23)', () => {
+    expect(validateGrokKeyLocal('')).toBeNull()
+    expect(validateGrokKeyLocal('xai-abcdefgh')).toBeNull()
+    expect(validateGrokKeyLocal('xai-abc def')).toBe(KEY_VALIDATION_MESSAGES.spaces)
+    expect(validateGrokKeyLocal('xai-a12')).toBe(KEY_VALIDATION_MESSAGES.short)
+    expect(validateGrokKeyLocal('other-abcdefgh')).toBe(KEY_VALIDATION_MESSAGES.grokFormat)
   })
 })
