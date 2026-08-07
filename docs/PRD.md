@@ -936,7 +936,7 @@ graph TD
 ### F13. Isolamento Worktree
 - [x] Primeiro envio com `executionMode=worktree` cria worktree real e persiste `worktreePath`
 - [x] Dispatch, diffs e git da thread usam `worktreePath`; `main` continua em `project.path`
-- [ ] Falha de criação não executa o turno no path principal por engano; mensagem específica — pass unitário/integração (`dispatch.test.ts`); não exercitado via UI real (gate de F03 bloqueia envio de projetos sem HEAD antes do código de F13 rodar)
+- [x] Falha de criação não executa o turno no path principal por engano; mensagem específica
 - [x] Apagar thread limpa worktree quando seguro; caso sujo, retém e avisa
 
 ### F14. Fluxo Git Completo

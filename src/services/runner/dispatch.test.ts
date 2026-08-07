@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -455,6 +455,45 @@ describe('dispatchNewThread worktree mode (F13)', () => {
     const [thread] = listThreadsForProject(project.id)
     expect(thread.state).toBe('error')
     rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejects with worktree_create_failed and never runs the turn in project.path when `git worktree add` fails', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    // Occupa o segmento <projectId> com um arquivo (não diretório) sob userData/worktrees/,
+    // fazendo `git worktree add` falhar de verdade independente do threadId (imprevisível de antemão).
+    const worktreesBase = join(process.env.ENGRENACODE_USER_DATA as string, 'worktrees')
+    mkdirSync(worktreesBase, { recursive: true })
+    const blockedProjectDir = join(worktreesBase, project.id)
+    writeFileSync(blockedProjectDir, 'bloqueando o diretório do projeto de propósito')
+
+    let cliCalled = false
+    setRunCliTurnForTesting(async (input) => {
+      cliCalled = true
+      // Se isso rodar, o turno vazou pra project.path por engano — nunca deveria acontecer.
+      expect(input.cwd).not.toBe(project.path)
+      return { text: 'nao deveria rodar' }
+    })
+
+    await expect(
+      dispatchNewThread({
+        projectId: project.id,
+        prompt: 'oi',
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'worktree',
+      })
+    ).rejects.toMatchObject({ code: 'worktree_create_failed' })
+
+    expect(cliCalled).toBe(false)
+    expect(isLeased(project.id)).toBe(false)
+    const [thread] = listThreadsForProject(project.id)
+    expect(thread.state).toBe('error')
+    expect(thread.worktreePath).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(blockedProjectDir, { force: true })
   })
 
   it('skips worktree creation and keeps cwd=project.path for executionMode=main', async () => {
