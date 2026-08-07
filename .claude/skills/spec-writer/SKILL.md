@@ -25,6 +25,7 @@ Gera especificações técnicas prontas para implementação com base no PRD do 
   - Se existirem, leia-os por completo e trate seu conteúdo (anatomia, tokens, tabela de copy, aceite visual) como respondido — não pergunte sobre isso na entrevista, referencie os ids de copy e a anatomia diretamente na spec.
   - Se não existirem, anote a lacuna em Assumptions/Decisions ("`ui.md`/`copy.md` ainda não escritos para esta feature") e prossiga com a spec técnica; não invente copy final nem anatomia de tela — descreva o contrato de dados/estado que a UI vai consumir e sinalize que o processo de design de UI é pré-requisito antes da implementação visual.
 - Referências de template usadas por esta skill vivem em `references/feature-template.md` e `references/research-brief-template.md`, dentro desta mesma pasta de skill (não em `refrerences/` nem fora de `.claude/skills/spec-writer/`).
+- **Precedência entre PRD e `PROGRESS.md`:** a composição das ondas e as dependências vêm sempre do PRD §8; o status real de implementação vem da tabela "Resumo por feature" de `docs/PROGRESS.md`. A tabela de Ondas do `PROGRESS.md` é apenas um espelho e pode estar stale — se ela divergir do PRD §8 (feature do PRD ausente da tabela, ou onda marcada "Completa" com feature pendente), **não** use o espelho para resolver ondas nem para julgar dependências: use o PRD, e avise o usuário da divergência no relatório final (Passo 6 / B.6) para que ela seja corrigida.
 
 ---
 
@@ -287,6 +288,7 @@ O Passo 1 (Resolver Entrada e Pré-Análise) é adaptado para o contexto de lote
 
 - **Localize o PRD** usando regras do Passo 1.1 (`docs/PRD.md` neste repositório). Se nenhum PRD for encontrado, pare e dirija o usuário para `prd-writer`. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar ANTES de continuar — esta é a primeira possível pausa interativa no orquestrador.
 - Analise entrada em uma lista de features-alvo (expanda ondas, mescle listas, deduplicat).
+- Ao expandir uma referência de onda, expanda a partir das Ondas de Execução do PRD §8, nunca do espelho em `docs/PROGRESS.md`. Se alguma feature da tabela de dependências do PRD não aparecer em nenhuma onda, pare e reporte a lacuna — não adivinhe a onda dela nem a exclua silenciosamente do lote.
 - Se o PRD não tem subseção `Ondas de Execução` na Seção 8 e a entrada referencia uma onda (ex.: `onda 3`), rejeite com: "Referências de onda exigem uma subseção 'Ondas de Execução' na Seção 8 do PRD, que este PRD não tem. Use IDs de feature diretamente ou atualize o PRD." Não tente sintetizar ondas.
 - Se qualquer nome de feature na entrada for ambíguo (bate múltiplas features no PRD, ex.: "upload" bate F03 e F11), liste os candidatos ao usuário e peça desambiguação ANTES de prosseguir para o resto de B.1. Esta é a segunda possível pausa interativa antes do plano consolidado.
 - Se qualquer ID ou nome de feature não existir no PRD, rejeite com a lista de features disponíveis.

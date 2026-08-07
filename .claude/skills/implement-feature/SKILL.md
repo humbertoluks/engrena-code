@@ -215,7 +215,12 @@ Nunca reporte `success` quando qualquer das checagens acima tiver falha não res
 
 Quando o Passo 6.5 resultar em `success`:
 
-- Atualize a linha da feita-feature na tabela "Resumo por feature" de `docs/PROGRESS.md` (status, evidência, próximo passo) e a linha de Onda correspondente, se existir.
+- Atualize a linha da feita-feature na tabela "Resumo por feature" de `docs/PROGRESS.md` (status, evidência, próximo passo).
+- Reconcilie a tabela de Ondas de `docs/PROGRESS.md` contra as Ondas de Execução do PRD §8 — não basta editar "a linha da onda correspondente, se existir". Localize a onda desta feature no PRD e:
+  - Se a feature não aparece na linha daquela onda no `PROGRESS.md`, **adicione-a** — a tabela deve listar toda feature do PRD, pendente ou feita, e nunca deixar backlog vivendo só em texto narrativo ("próxima frente de produto", release gate).
+  - Reavalie o estado da onda inteira: com qualquer feature dela ainda pendente, a onda é **Parcial**, nunca "Completa", por mais que esta execução tenha fechado a sua.
+  - Mantenha o sinal de paralelismo da linha: se as features daquela onda podem ser construídas em paralelo e qual serialização se aplica (fundação, ou acoplamento real de arquivos que você observou nesta execução).
+  - Se a divergência for maior que a sua feature (várias features do PRD ausentes da tabela), corrija a tabela inteira nesta mesma passada e cite isso em `Deviations`.
 - No PRD, marque `[x]` nos itens de "Critérios de Aceitação" desta feature que passaram na re-checagem do Passo 6.3 (não marque os que ficaram `—` sem teste, nem os cobertos só por soft-fail/smoke pulado).
 - Faça stage só de `docs/PROGRESS.md` + `docs/PRD.md` e inclua num commit `docs(F<ID>): ...` separado dos commits de fase (ou junto do commit da última fase, se nenhum override desabilitou commits) — nunca misture com commits de código de outra fase.
 - Se `docs/PROGRESS.md` não existir neste repositório, pule silenciosamente (não é universal a todo projeto-alvo desta skill).
@@ -293,6 +298,7 @@ Se abortado, o relatório ainda lista o que as fases commitadas alcançaram e ma
 - Executar o Passo 6 (Verificação Final) por completo antes de reportar — re-run da suite completa, walk-through do Component Overview, re-checagem de AC, smoke check de ambiente.
 - Derivar o status final exclusivamente do Passo 6.5. Reportar `success` só quando toda checagem do Passo 6 estiver verde.
 - Quando o status final for `success` e `docs/PROGRESS.md` existir no repositório-alvo, executar o Passo 6.6 (atualizar a tabela de progresso + `[x]` no PRD) antes do relatório — nunca deixar o fechamento só no chat.
+- No Passo 6.6, reconciliar a tabela de Ondas contra o PRD §8: garantir que a feature fechada está listada na onda dela, que ondas com pendências não figuram como "Completa", e que cada linha declara o paralelismo.
 - Comunicar com o usuário em português do Brasil.
 
 **Nunca:**
@@ -308,6 +314,7 @@ Se abortado, o relatório ainda lista o que as fases commitadas alcançaram e ma
 - Re-rodar fases já commitadas no branch (detectadas por match de mensagem de commit).
 - Inserir stubs de serviço em módulos de produção — stubs só são permitidos em arquivos de teste.
 - Explorar o codebase de antemão com varredura ampla — ler arquivos sob demanda conforme as fases exigirem.
+- Marcar uma onda como "Completa" em `docs/PROGRESS.md` enquanto o PRD §8 listar nela qualquer feature ainda pendente, nem deixar a feature fechada fora da linha de onda dela.
 - Declarar uma fase completa só com base em "eu escrevi os arquivos". O checklist de conclusão em 5.2 deve valer.
 - Inventar copy ou layout para uma fase de UI quando `ui.md`/`copy.md` existem e dizem o contrário.
 - Commitar com mensagem genérica e sem inferência `feat(F<ID>): <phase name>` — sempre inferir o tipo real de Conventional Commits primeiro.
@@ -359,6 +366,8 @@ Overrides não reconhecidos ou contraditórios: o default vence; logados em `Ove
 **PRD sem conteúdo de AC para esta feature**: prossiga com checklist AC vazia e anote em soft-fails.
 
 **PRD sem conteúdo de dependências**: pule o Passo 4 e prossiga.
+
+**`docs/PROGRESS.md` com tabela de Ondas divergente do PRD §8** (features do PRD ausentes da tabela, onda marcada "Completa" com pendências, backlog só em texto narrativo): corrija a tabela no Passo 6.6 usando o PRD §8 como fonte de verdade da composição das ondas e a tabela "Resumo por feature" como fonte do status. Registre a correção em `Deviations`. Não abra um commit separado só para isso — vai junto do commit `docs(F<ID>): ...` de fechamento.
 
 **Estilo de mensagem de commit inconsistente no histórico recente**: aplique Conventional Commits puro — infira o tipo do conteúdo real da fase e escolha o scope pelas regras em 5.4 — em vez de defaultar para um genérico `feat(F<ID>): <phase name>`.
 
