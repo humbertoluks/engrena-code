@@ -12,6 +12,7 @@ import {
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
+import type { SubagentRun } from '../../services/db/repositories/subagents.js'
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
@@ -71,6 +72,8 @@ export function usePrincipalWorkspace() {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
+  const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
+  const [activeSubagentRun, setActiveSubagentRun] = useState<SubagentRun | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [streamingText, setStreamingText] = useState('')
@@ -178,6 +181,7 @@ export function usePrincipalWorkspace() {
       }
       setMessages(res.messages)
       setToolCalls(res.toolCalls)
+      setSubagentRuns(res.subagentRuns)
     } catch {
       if (mountedRef.current) setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
@@ -222,6 +226,7 @@ export function usePrincipalWorkspace() {
     } else {
       setMessages([])
       setToolCalls([])
+      setSubagentRuns([])
       setDiffs([])
     }
   }, [selectedThreadId, loadHistory, loadDiffs])
@@ -270,6 +275,11 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
+      void loadHistory(event.threadId)
+      return
+    }
+    if (event.type === 'subagent.start' || event.type === 'subagent.result') {
+      // Refetch traz `subagentRuns` (e `toolCalls` correlacionados) sem exigir refresh manual (spec F15 §5.3).
       void loadHistory(event.threadId)
       return
     }
@@ -493,6 +503,9 @@ export function usePrincipalWorkspace() {
     [selectedThreadId]
   )
 
+  const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
+  const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
+
   return {
     projects,
     projectsError,
@@ -509,6 +522,10 @@ export function usePrincipalWorkspace() {
     vcsStatus,
     messages,
     toolCalls,
+    subagentRuns,
+    activeSubagentRun,
+    openSubagentRun,
+    closeSubagentRun,
     historyLoading,
     historyError,
     streamingText,

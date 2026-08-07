@@ -1,3 +1,5 @@
+import type { SubagentRun } from '../../services/db/repositories/subagents.js'
+
 const BASE_URL = 'http://127.0.0.1:5174'
 
 function sessionToken(): string {
@@ -118,7 +120,9 @@ export const threadsService = {
     input: { prompt: string; model?: string | null; accessLevel?: ThreadAccessLevel }
   ): Promise<DispatchResponse & ApiErrorBody> => request('POST', `/api/threads/${threadId}/messages`, input),
 
-  history: (threadId: string): Promise<{ messages: Message[]; toolCalls: ToolCall[] } & ApiErrorBody> =>
+  history: (
+    threadId: string
+  ): Promise<{ messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[] } & ApiErrorBody> =>
     request('GET', `/api/threads/${threadId}/history`),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>

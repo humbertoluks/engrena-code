@@ -14,6 +14,7 @@ const { getThread } = await import('../db/repositories/threads.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
+const { createSubagentsRepository } = await import('../db/repositories/subagents.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -293,14 +294,60 @@ describe('handleThreadsRequest', () => {
     const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
     const historyRes = fakeRes()
     await handleThreadsRequest(historyReq, historyRes)
-    const historyBody = (await historyRes.result()).body as { messages: unknown[] }
+    const historyBody = (await historyRes.result()).body as { messages: unknown[]; subagentRuns: unknown[] }
     expect(historyBody.messages.length).toBeGreaterThanOrEqual(1)
+    expect(historyBody.subagentRuns).toEqual([])
 
     const diffsReq = fakeReq('GET', `/api/threads/${created.thread.id}/diffs`, undefined, session)
     const diffsRes = fakeRes()
     await handleThreadsRequest(diffsReq, diffsRes)
     const diffsBody = (await diffsRes.result()).body as { diffs: unknown[] }
     expect(Array.isArray(diffsBody.diffs)).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('history includes subagentRuns ordered by created_at ASC (F15)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const subagentsRepo = createSubagentsRepository(getDb())
+    const subagent = subagentsRepo.create({
+      name: 'revisor',
+      description: 'revisa',
+      prompt: 'revise com cuidado',
+      provider: 'claude',
+    })
+    subagentsRepo.createRun({
+      childThreadId: 'child-1',
+      parentThreadId: created.thread.id,
+      subagentName: subagent.name,
+      provider: 'claude',
+      status: 'completed',
+    })
+
+    const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
+    const historyRes = fakeRes()
+    await handleThreadsRequest(historyReq, historyRes)
+    const historyBody = (await historyRes.result()).body as {
+      subagentRuns: Array<{ childThreadId: string; subagentName: string; status: string }>
+    }
+    expect(historyBody.subagentRuns).toHaveLength(1)
+    expect(historyBody.subagentRuns[0]?.childThreadId).toBe('child-1')
+    expect(historyBody.subagentRuns[0]?.subagentName).toBe('revisor')
+    expect(historyBody.subagentRuns[0]?.status).toBe('completed')
+
     rmSync(dir, { recursive: true, force: true })
   })
 

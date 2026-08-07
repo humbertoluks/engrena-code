@@ -4,6 +4,8 @@ import { getThread, deleteThread, listThreadsForProject } from '../db/repositori
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
 import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
 import { getProject } from '../db/repositories/projects.js'
+import { getDb } from '../db/client.js'
+import { createSubagentsRepository } from '../db/repositories/subagents.js'
 import {
   cancelThread,
   dispatchFollowUp,
@@ -202,9 +204,11 @@ function handleListThreads(_req: IncomingMessage, res: ServerResponse, projectId
 function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  const subagentsRepo = createSubagentsRepository(getDb())
   sendJson(res, 200, {
     messages: listMessagesForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
+    subagentRuns: subagentsRepo.listRunsForParentThread(threadId),
   })
 }
 
