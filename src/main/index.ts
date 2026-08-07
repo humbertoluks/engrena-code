@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
 import { vaultService } from '../services/vault/vault-service.js'
 import { createUnlockServer } from '../services/http/unlock-handler.js'
+import { ptySessionRegistry, type CreateSessionInput } from '../services/terminal/pty-session-registry.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -85,4 +86,56 @@ ipcMain.handle('engrenacode:shell:open-external', async (_event, url: unknown) =
   if (typeof url !== 'string' || !url.startsWith('https://')) return false
   await shell.openExternal(url)
   return true
+})
+
+// Terminal PTY IPC handlers (F26) — streaming main<->renderer, sem HTTP/vault envolvidos.
+function isCreateSessionInput(value: unknown): value is CreateSessionInput {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.projectId === 'string' &&
+    (v.threadId === null || typeof v.threadId === 'string') &&
+    typeof v.cols === 'number' &&
+    typeof v.rows === 'number'
+  )
+}
+
+ipcMain.handle('engrenacode:terminal:create', (_event, payload: unknown) => {
+  if (!isCreateSessionInput(payload)) {
+    return { error: { code: 'validation_error', message: 'Payload inválido para criar sessão de terminal.' } }
+  }
+  return ptySessionRegistry.create(payload)
+})
+
+ipcMain.handle('engrenacode:terminal:kill', (_event, payload: unknown) => {
+  const sessionId =
+    typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>).sessionId : undefined
+  if (typeof sessionId !== 'string') {
+    return { error: { code: 'validation_error', message: 'sessionId inválido.' } }
+  }
+  return ptySessionRegistry.kill(sessionId)
+})
+
+ipcMain.on('engrenacode:terminal:write', (_event, payload: unknown) => {
+  if (typeof payload !== 'object' || payload === null) return
+  const { sessionId, data } = payload as Record<string, unknown>
+  if (typeof sessionId === 'string' && typeof data === 'string') {
+    ptySessionRegistry.write(sessionId, data)
+  }
+})
+
+ipcMain.on('engrenacode:terminal:resize', (_event, payload: unknown) => {
+  if (typeof payload !== 'object' || payload === null) return
+  const { sessionId, cols, rows } = payload as Record<string, unknown>
+  if (typeof sessionId === 'string' && typeof cols === 'number' && typeof rows === 'number') {
+    ptySessionRegistry.resize(sessionId, cols, rows)
+  }
+})
+
+ptySessionRegistry.on('data', (event) => {
+  mainWindow?.webContents.send('engrenacode:terminal:data', event)
+})
+
+ptySessionRegistry.on('exit', (event) => {
+  mainWindow?.webContents.send('engrenacode:terminal:exit', event)
 })

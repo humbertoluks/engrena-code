@@ -64,6 +64,10 @@
       "dist-electron",
       "dist/**/*"
     ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**/*"
+    ],
+    "npmRebuild": false,
     "win": {
       "target": [
         "nsis",
