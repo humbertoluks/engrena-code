@@ -4,9 +4,9 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 
 **Data da auditoria original:** 2026-08-06  
 **Data da revalidação (docs):** 2026-08-07 (pós F12–F17 + residuais de smoke)  
-**Data desta reauditoria (solution):** 2026-08-07 (2ª passagem — spot-check `src/**` + cruzamento PRD/PROGRESS/smoke-results)  
+**Data desta reauditoria (solution):** 2026-08-07 (3ª passagem — F12 smoke live fechado; cruzamento PRD/PROGRESS/`docs/F12-*/smoke-results.md`)  
 **Escopo:** critérios marcados no PRD + gaps de produto relevantes da migração  
-**Método desta reauditoria:** (1) `grep` em `docs/PRD.md` §9 → **103 `[x]` / 0 `[ ]`**; (2) `docs/PROGRESS.md` + `docs/F13-*/smoke-results.md` + `docs/F15-*/smoke-results.md`; (3) spot-check em `dispatch.ts`, `subagent-mcp-server.ts` (`ELECTRON_RUN_AS_NODE`, `load_skill`/`call_subagent`), `dispatch.test.ts` (`worktree_create_failed`), `GitActions.tsx`, idle UI (`SubagentActivity` / `text-amber`)  
+**Método desta reauditoria:** (1) `grep` em `docs/PRD.md` §9 → **103 `[x]` / 0 `[ ]`**; (2) `docs/PROGRESS.md` + smoke-results F12/F13/F15; (3) soft residual F12 confirmado **PASS ao vivo** (`GIRASSOL-QUARTZO-4471` citado verbatim; sem `mcp.notice`)  
 **Uso:** registro de fechamento da migração; priorização do próximo trabalho útil (ver §8 deste doc)
 
 ### Legenda de veredito
@@ -32,25 +32,23 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 
 ## 1. Resumo executivo
 
-**Estado em 2026-08-07 (reauditoria solution): §9 fechado — 103 `[x]` / 0 `[ ]`.** Nenhum FAIL de checkbox. Versão 1.2 (F12–F17) + residuais de smoke do mesmo dia confirmados por docs **e** spot-check de código.
+**Estado em 2026-08-07 (3ª passagem): §9 fechado — 103 `[x]` / 0 `[ ]`.** Nenhum FAIL. Soft gap F12 (`load_skill` live) **fechado** nesta passagem (`docs/F12-runtime-de-skills/smoke-results.md`). Confiança F05/F12: **alta**.
 
 | Bloco | PASS | FAIL | OPEN / PARTIAL | DOC-LAG | Confiança |
 |-------|------|------|----------------|---------|-----------|
 | F01–F02, F01.1, F04, F08, F09, F10 | todos | 0 | 0 | 0 | alta |
 | F03 Workspace | 6 (era 5+1 FAIL) | 0 | 0 | 0 | alta |
-| F05 Skills | 3 (era 2+1 FAIL) | 0 | 0 | 0 | média-alta¹ |
+| F05 Skills | 3 (era 2+1 FAIL) | 0 | 0 | 0 | alta |
 | F06 Rules | 3 | 0 | 0 | 0 | alta |
 | F07 SubAgents | 4 (era 2+2 OPEN) | 0 | 0 | 0 | alta |
 | F11 Consumo | 5 | 0 | 0 | 0 | alta |
-| F12–F17 | todas | 0 | 0 | 0 | alta¹ |
+| F12–F17 | todas | 0 | 0 | 0 | alta |
 | Cross-Feature | 16+ | 0 | 0 | 0 | alta |
-
-¹ F12 §9 (PRD) está `[x]` (tool registrada + testes MCP + spawn Electron corrigido via F15). Soft gap: ainda não há turno live dedicado em que o binário `claude` chame `load_skill` e receba markdown — ver §8 próximo trabalho.
 
 **Achados P0 da auditoria 2026-08-06 — status agora:**
 
-1. ~~**F05** `load_skill` → FAIL~~ → **RESOLVIDO (F12)** + spawn Electron (`ELECTRON_RUN_AS_NODE=1`) comprovado no smoke F15.
-2. ~~**F03** participação F05–F07 → FAIL/PARTIAL~~ → **RESOLVIDO** (rules + F12 + F15 E2E/idle).
+1. ~~**F05** `load_skill` → FAIL~~ → **RESOLVIDO (F12)** + spawn Electron OK + **smoke live 2026-08-07** (`GIRASSOL-QUARTZO-4471`).
+2. ~~**F03** participação F05–F07 → FAIL/PARTIAL~~ → **RESOLVIDO** (rules + F12 live + F15 E2E/idle).
 
 **Achados P0 de produto — status agora:**
 
@@ -59,7 +57,7 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 5. ~~Commit, push & PR~~ → **RESOLVIDO (F14)** incl. PR real `humbertoluks/engrenacode-f14-smoke#1`.
 6. ~~composer model/reasoning~~ → **RESOLVIDO (F16)** (provider imutável pós-1º envio = escopo §7).
 
-**Residuais fora de §9 do PRD (não bloqueiam):** soft smoke F12 live; copy provisória; nits de doc; caveat Windows path profundo em worktree — ver §6 e §8.
+**Residuais fora de §9 do PRD (não bloqueiam):** copy provisória; nits de doc; caveat Windows path profundo em worktree — ver §6 e §8. Soft smoke F12 **não é mais residual**.
 
 ---
 
@@ -76,7 +74,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 | Streaming, tools, histórico, fila | `[x]` | **PASS** | WS + smoke F03 | — |
 | Accept/reject; git bloqueado se running | `[x]` | **PASS** | `apply-diff`, `git-handler` | — |
 | `thread_busy` na 2ª execução | `[x]` | **PASS** | lease `project-execution` | — |
-| Skills/rules/subagents participam conforme F05–F07 | `[x]` | **PASS** (era FAIL) | Rules: `buildSystemPrompt`. Skills: tool `load_skill` real via MCP interno `engrenacode` (F12). Subagents: `call_subagent` E2E + diffs unificados + idle timeout, todos confirmados ao vivo (F15, `docs/F15-runtime-de-subagents/smoke-results.md`) | — |
+| Skills/rules/subagents participam conforme F05–F07 | `[x]` | **PASS** (era FAIL) | Rules: `buildSystemPrompt`. Skills: `load_skill` live F12 (`smoke-results.md`). Subagents: `call_subagent` E2E + idle F15 | — |
 
 **Nota fora do checkbox — status dos itens não-§9 da auditoria original:**
 
@@ -94,7 +92,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 |--------------|------------|----------|-----------|------|
 | CRUD global name único | `[x]` | **PASS** | `#skills`, handlers | — |
 | Vínculo por projeto no catálogo do turno | `[x]` | **PASS** | `createSkillSnapshot` + lista no prompt | — |
-| `load_skill` entrega content sob demanda; skill não roda sozinha | `[x]` | **PASS** (era FAIL) | Runtime fechado em F12: MCP interno `engrenacode` registra `load_skill`, snapshot congela no início do turno, nome ausente devolve erro de tool, skill não executa código | — |
+| `load_skill` entrega content sob demanda; skill não roda sozinha | `[x]` | **PASS** (era FAIL) | Runtime F12 + smoke live 2026-08-07 (`docs/F12-runtime-de-skills/smoke-results.md`) | — |
 
 ### F06. Rules
 
@@ -129,7 +127,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 
 | Checkbox PRD | Estado PRD | Veredito | Evidência | Ação |
 |--------------|------------|----------|-----------|------|
-| Turno registra tool `load_skill`; agente obtém markdown sob demanda | `[x]` | **PASS** (confiança média-alta) | Tool + snapshot + testes MCP subprocesso; spawn Electron OK via path compartilhado F15. Soft residual: turno live `claude`→`load_skill` ainda “opcional” no PROGRESS | **smoke** opcional (prioridade #1 em §8 deste doc) |
+| Turno registra tool `load_skill`; agente obtém markdown sob demanda | `[x]` | **PASS** (confiança alta) | Smoke live 2026-08-07: `docs/F12-runtime-de-skills/smoke-results.md` — tool `mcp__engrenacode__load_skill — concluído`, frase distintiva `GIRASSOL-QUARTZO-4471` citada verbatim, sem `mcp.notice` | — |
 | Nome ausente devolve erro de tool; skill desvinculada não carrega | `[x]` | **PASS** | | — |
 | Snapshot congela no início do turno | `[x]` | **PASS** | | — |
 | Skill não executa código; providers sem tool degradam com notice | `[x]` | **PASS** | | — |
@@ -191,7 +189,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 | Tema persiste entre `#dashboard` / `#configuracao` / workspace | `[x]` | **PASS** (era OPEN) | re-verificação cross-nav fechada | — |
 | Status F02 → Dashboard + Workspace | `[x]` | **PASS** | | — |
 | Prompt global F02 injetado no turno | `[x]` | **PASS** (era DOC-LAG) | `buildSystemPrompt` lê `prompt:global` | — |
-| Skills via `load_skill` no Workspace | `[x]` | **PASS** (era FAIL real) | Fechado em F12 | — |
+| Skills via `load_skill` no Workspace | `[x]` | **PASS** (era FAIL real) | Fechado em F12 + smoke live | — |
 | Rules injetadas em todo turno | `[x]` | **PASS** (era DOC-LAG) | `composeBlockForTurn` | — |
 | SubAgents devolvem resultado + diffs na revisão do pai | `[x]` | **PASS** (era OPEN) | Fechado em F15 | — |
 | F03 alimenta Dashboard | `[x]` | **PASS** | | — |
@@ -200,7 +198,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 | Vault+vínculo → MCP available/omitted | `[x]` | **PASS** (era DOC-LAG) | prepareMcps + OAuth Linear + banner omit | — |
 | API keys F10 resolvíveis no Workspace | `[x]` | **PASS** | | — |
 | usage_events F03/F07/F15 agregam em Consumo | `[x]` | **PASS** (era PARTIAL) | share subagent real confirmado (F15) | — |
-| Tool `load_skill` (F12) entrega content no dispatch do Workspace | `[x]` | **PASS** (novo item, pós-F12) | | — |
+| Tool `load_skill` (F12) entrega content no dispatch do Workspace | `[x]` | **PASS** | Smoke live F12 confirma content real no turno | — |
 | WorktreePath (F13) isola cwd de dispatch/diffs/git | `[x]` | **PASS** (novo item, pós-F13) | | — |
 | GitActions (F14) consome token GitHub + estado da thread | `[x]` | **PASS** (novo item, pós-F14) | | — |
 | Composer (F16) envia model/reasoning/@file/imagens no follow-up | `[x]` | **PASS** (novo item, pós-F16) | | — |
@@ -210,7 +208,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 
 ## 4. Checkboxes `[x]` indevidos
 
-**Nenhum.** Os dois casos identificados na auditoria de 2026-08-06 (F05 `load_skill`, F03 participação de skills/subagents) foram fechados em F12 e F15 respectivamente, com evidência de código + smoke real — não são mais falso positivo.
+**Nenhum.** Os dois casos da auditoria de 2026-08-06 (F05 `load_skill`, F03 participação) foram fechados em F12/F15; F12 ganhou smoke live dedicado em 2026-08-07.
 
 ---
 
@@ -244,7 +242,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 
 | Nit | Severidade | Nota |
 |-----|------------|------|
-| Soft smoke F12 `load_skill` live com binário `claude` | baixa (confiança) | Path MCP compartilhado já sanado em F15; falta turno dedicado |
+| Soft smoke F12 `load_skill` live | ~~baixa~~ → **fechado** | `docs/F12-runtime-de-skills/smoke-results.md` (2026-08-07) |
 | `smoke-results.md` ausente para F14/F16 | doc | Evidência vive em `PROGRESS.md` (assimétrico vs F13/F15) |
 | Esclarecimentos antigos F03/F11 em `PROGRESS.md` | doc stale | Ainda narram gaps já fechados (histórico); não revertem §9 |
 | Windows `$GIT_DIR too big` em worktree + userData profundo | ambiente | Visto no smoke F14; PR rodou em `executionMode=main` |
@@ -274,7 +272,7 @@ Corte **B (P0+P1)**, promovido a Versão 1.2 em `docs/PRD.md`, está **100% feit
 
 | ID | Nome | Prioridade | Status |
 |----|------|------------|--------|
-| F12 | Runtime de Skills (`load_skill`) | 1 | **Feito** |
+| F12 | Runtime de Skills (`load_skill`) | 1 | **Feito**, incl. smoke live `claude`→`load_skill` |
 | F13 | Isolamento Worktree | 1 | **Feito** |
 | F14 | Fluxo Git Completo | 1 | **Feito**, incl. PR real |
 | F15 | Runtime de SubAgents | 1 | **Feito**, incl. idle timeout ao vivo |
@@ -287,14 +285,13 @@ Fora desta onda (permanecem PRD §7, Faixa C acima): Memory/dreaming, CodeGraph,
 
 ## 8. Próximo trabalho útil (priorizado)
 
-Ordem recomendada após esta reauditoria. Nenhum item reabre §9 como FAIL.
+Ordem recomendada após a 3ª passagem. Nenhum item reabre §9 como FAIL. Soft smoke F12 **feito**.
 
 | # | Trabalho | Por quê | Esforço |
 |---|----------|---------|---------|
-| **1** | Smoke live F12: turno real `claude` chama `mcp__engrenacode__load_skill` e recebe markdown | Único soft gap de confiança do runtime de skills; fecha “opcional” no PROGRESS | 1 sessão smoke |
-| **2** | Passe de copy F04 / F14 / F16 | Remove cheiro de provisório na UI; não é bug | 1 PR cosmético |
-| **3** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Só depois de 1 (e idealmente 2); evita chute de escopo | produto |
-| — | Nits de doc (Esclarecimentos F03/F11 stale; `smoke-results` F14/F16) | Higiene | baixo |
+| **1** | Passe de copy F04 / F14 / F16 | Remove cheiro de provisório na UI; não é bug | 1 PR cosmético |
+| **2** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Decide Memory/CodeGraph/slash/voz/etc. sem chute de escopo | produto |
+| — | Nits de doc (Esclarecimentos F03/F11 stale; `smoke-results` F14/F16) | Higiene; F12 agora tem `smoke-results.md` | baixo |
 | — | Caveat Windows worktree + path profundo | Só se voltar a doer no dia a dia | investigativo |
 
 ---
@@ -304,7 +301,7 @@ Ordem recomendada após esta reauditoria. Nenhum item reabre §9 como FAIL.
 - PRD: [`docs/PRD.md`](./PRD.md) §7 (fora de escopo) e §9 (critérios — zero `[ ]` restantes em 2026-08-07)
 - Progresso operacional: [`docs/PROGRESS.md`](./PROGRESS.md)
 - Legado: `C:\Users\Me\Code\repos\github\lionlabs\LionCodeLabs` (`packages/server`, `packages/renderer`)
-- Smoke-results por feature: `docs/F02-*/`, `docs/F03-*/`, `docs/F06-*/`, `docs/F09-*/`, `docs/F11-*/`, `docs/F13-*/`, `docs/F15-*/smoke-results.md` (F14/F16: evidência em PROGRESS)
+- Smoke-results por feature: `docs/F02-*/`, `docs/F03-*/`, `docs/F06-*/`, `docs/F09-*/`, `docs/F11-*/`, `docs/F12-*/`, `docs/F13-*/`, `docs/F15-*/smoke-results.md` (F14/F16: evidência em PROGRESS)
 - Evidências-chave Engrena:
   - `src/services/runner/dispatch.ts` (`buildSystemPrompt`, MCP omit, subagent MCP)
   - `src/services/runner/skill-registry.ts` / `subagent-mcp-server.ts` (F12)
