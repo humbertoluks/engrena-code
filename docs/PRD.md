@@ -6,7 +6,7 @@ O EngrenaCode é o produto da Lukse: uma IDE desktop local-first (Electron) para
 
 O público é single-user local: o dono da máquina. Personas primárias são o desenvolvedor solo/freelancer e o pleno em time pequeno que quer velocidade com controle; persona secundária é o tech lead que curadoria skills, rules e subagents como padrão da casa, sem RBAC nem multi-tenant no produto.
 
-O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei o diff, aceitei ou rejeitei e segui no mesmo fluxo”, com catálogo reutilizável (skills, rules, subagents), dashboard operacional multi-projeto, audit log (Registros), MCPs e consumo estimado de tokens/custo. A versão 1.2 fecha gaps de paridade com o produto legado (skills sob demanda de verdade, worktree real, git/PR com texto por IA, subagents runtime comprovado, composer com modelo/reasoning/@file/imagens e seeds de onboarding). Nada do código do usuário passa por servidor da Lukse: o app roda no loopback com cofre cifrado local.
+O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei o diff, aceitei ou rejeitei e segui no mesmo fluxo”, com catálogo reutilizável (skills, rules, subagents), dashboard operacional multi-projeto, audit log (Registros), MCPs e consumo estimado de tokens/custo. A versão 1.2 fecha gaps de paridade com o produto legado (skills sob demanda de verdade, worktree real, git/PR com texto por IA, subagents runtime comprovado, composer com modelo/reasoning/@file/imagens e seeds de onboarding). A versão 1.3 (F18–F27) abre a próxima fase — automação avançada (subagents em paralelo, pipeline por slash commands), superfícies novas (memória persistente, CodeGraph, terminal PTY, ditado por voz) e alcance ampliado (providers GLM/Grok, VCS além do GitHub, limites de consumo configuráveis) — itens antes fora de escopo (§7) e agora priorizados como próxima onda de produto. Nada do código do usuário passa por servidor da Lukse: o app roda no loopback com cofre cifrado local.
 
 ## 2. Problema e Oportunidade
 
@@ -51,8 +51,9 @@ O valor central é sair de “perguntei e copiei/colei” para “pedi, revisei 
 | Instruções reinventadas | Skills sob demanda, rules permanentes, subagents delegáveis com revisão unificada |
 | Integrações e custo opacos | Registros + MCPs (1.0) e Consumo com preços editáveis e custo congelado (1.1) |
 | Gaps pós-migração (catálogo sem runtime, worktree fantasma, git/PR incompleto, composer pobre) | Versão 1.2 (F12–F17): load_skill real, worktree isolado, git flow + textgen, subagents E2E, composer avançado, seeds |
+| Tarefas grandes ainda cabem num agente só; sem automação multi-estágio, memória entre sessões, navegação estrutural do código, entrada por voz/terminal embutido, alcance de provider/VCS limitado, custo sem teto configurável | Versão 1.3 (F18–F27): subagents em paralelo com merge-tree, pipeline por slash commands, memória persistente + dreaming, CodeGraph, AskUserQuestion, terminal PTY, ditado por voz, GLM/Grok, multi-VCS, limites de consumo |
 
-Diferencial: local-first, multi-provider por assinatura/CLI no MVP, revisão de diffs como gate obrigatório antes do disco. Ondas 1–4 entregaram o núcleo F01–F11; a 1.2 fecha a paridade operacional com o legado sem abrir ainda pipeline/memory/codegraph/voz (permanecem no §7).
+Diferencial: local-first, multi-provider por assinatura/CLI no MVP, revisão de diffs como gate obrigatório antes do disco. Ondas 1–4 entregaram o núcleo F01–F11; a 1.2 fechou a paridade operacional com o legado; a 1.3 abre automação avançada e superfícies novas sem tocar multi-tenant/cloud/RBAC (permanecem no §7).
 
 ## 3. Público-Alvo
 
@@ -99,6 +100,9 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 **Fechar a paridade operacional pós-migração (1.2)**
 - Skills carregam content sob demanda; worktree isola de verdade; git/PR e composer recuperam o nível do legado; subagents delegam com prova E2E
 
+**Abrir automação avançada e superfícies novas (1.3)**
+- Subagents rodam em paralelo com merge controlado; pipeline por slash commands orquestra tarefas grandes; memória persiste entre sessões; alcance de provider/VCS/consumo ampliado
+
 ### Métricas de Sucesso
 
 | Objetivo | Métrica | Condição de medição |
@@ -109,6 +113,7 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 | Integração 1.0 | ≥ 40% dos ativos semanais com ≥ 1 MCP vinculado e ≥ 1 registro consultado ou gerado por semana | Semanas 4–8 após release 1.0 (usuários com ≥ 2 projetos) |
 | Consumo 1.1 | ≥ 60% dos que gastam tokens abrem Consumo ≥ 1×/semana; ≥ 30% desses ajustam provider/modelo ou pausam thread após ver custo | Primeiros 30 dias pós-1.1, contas com ≥ 10 turnos no período |
 | Paridade 1.2 | ≥ 50% das threads com skill vinculada disparam ≥ 1 `load_skill`; ≥ 30% dos commits pelo app usam texto gerado por IA; ≥ 1 delegação `call_subagent` bem-sucedida por usuário ativo/semana | Primeiros 30 dias pós-1.2, contas com ≥ 5 turnos no período |
+| Automação 1.3 | ≥ 20% das threads ativas disparam ≥ 1 comando slash (`/spec`, `/featdevelop`, `/featbuild`); ≥ 10% dessas usam `call_subagent` em paralelo (≥ 2 filhos no mesmo run); ≥ 30% dos usuários ativos abrem ao menos 1 sessão com memória persistida (journal não vazio) | Primeiros 30 dias pós-1.3, contas com ≥ 5 turnos no período |
 
 ## 5. Histórias de Usuário
 
@@ -209,6 +214,62 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário novo, quero encontrar um conjunto inicial de skills e subagents já cadastrados após o primeiro unlock
 - Como lead técnico, quero poder editar, desabilitar ou excluir qualquer seed como item normal do catálogo
 - Como sistema, quero aplicar seeds no máximo uma vez por cofre (idempotente; não sobrescrever customizações)
+
+### F18. Subagents em Paralelo (Write-Parallel)
+- Como usuário, quero disparar vários subagents ao mesmo tempo no mesmo turno para paralelizar uma tarefa grande
+- Como sistema, quero isolar cada subagent paralelo no seu próprio worktree filho para não haver colisão de escrita
+- Como usuário, quero ver o merge dos resultados dos filhos numa única revisão de diff, com conflitos sinalizados
+- Como usuário, quero que um filho travado ou em erro não impeça os outros de terminar
+
+### F19. CodeGraph e Navegação Estrutural
+- Como usuário, quero que o agente encontre definição/uso de um símbolo sem precisar colar o código todo no prompt
+- Como sistema, quero indexar o codebase do projeto para responder consultas estruturais rapidamente
+- Como usuário, quero que o índice se atualize sozinho depois que o agente edita arquivos
+- Como lead técnico, quero um mapa de dependências entre módulos do meu projeto sem sair do EngrenaCode
+
+### F20. Memória Persistente (Memory)
+- Como usuário, quero que o agente lembre decisões e contexto de sessões anteriores no mesmo projeto
+- Como sistema, quero consolidar (“dreaming”) o histórico recente num resumo compacto entre sessões
+- Como usuário, quero ver e editar o que o agente “lembra” sobre o meu projeto
+- Como usuário, quero desligar a memória por projeto quando não quiser esse contexto entre turnos
+
+### F21. AskUserQuestion
+- Como usuário, quero que o agente me pergunte antes de tomar uma decisão ambígua em vez de assumir
+- Como usuário, quero responder a pergunta do agente com uma ou mais opções sem sair do fluxo da thread
+- Como sistema, quero pausar o turno até a resposta do usuário sem perder o estado do trabalho já feito
+
+### F22. Automação por Slash Commands (Pipeline)
+- Como usuário, quero rodar `/spec` para gerar spec/plan de uma feature sem trocar de ferramenta
+- Como usuário, quero rodar `/featdevelop` para orquestrar planner → implementer → reviewer → tester numa tarefa grande
+- Como usuário, quero rodar `/featbuild` para executar um plano já aprovado até o fim, com checkpoints de revisão
+- Como usuário, quero ver o progresso de cada estágio do pipeline na timeline da thread
+
+### F23. Providers GLM e Grok
+- Como usuário, quero configurar uma API key do GLM ou do Grok em Configuração
+- Como usuário, quero escolher GLM ou Grok como provider de uma nova thread quando a key estiver válida
+- Como usuário, quero ver erro claro quando a key for inválida ou a chamada falhar
+
+### F24. Multi-VCS (GitLab/Bitbucket/Azure)
+- Como usuário, quero conectar minha conta GitLab, Bitbucket ou Azure DevOps via OAuth
+- Como usuário, quero que Commit/Push/PR funcionem igual ao fluxo GitHub, mas contra o provider VCS escolhido do projeto
+- Como usuário, quero ver claramente qual VCS está conectado a cada projeto
+
+### F25. Limites de Consumo (UsageLimits)
+- Como usuário, quero definir um teto de gasto mensal por projeto ou global
+- Como usuário, quero ser avisado quando eu chegar perto do limite
+- Como usuário, quero decidir se o app bloqueia novos turnos ao estourar o limite ou só avisa
+
+### F26. Terminal PTY no Dock
+- Como usuário, quero abrir um terminal real dentro do EngrenaCode sem trocar de janela
+- Como usuário, quero que o terminal abra na cwd do projeto/thread ativo
+- Como usuário, quero múltiplas abas de terminal no dock
+
+### F27. Ditado por Voz (STT)
+- Como usuário, quero ditar minha mensagem no composer em vez de digitar
+- Como usuário, quero revisar e editar a transcrição antes de enviar
+- Como usuário, quero saber quando a transcrição falhou para não perder o que gravei
+
+## 6. Funcionalidades
 
 ### F01. Vault e Sessão Local
 
@@ -707,32 +768,288 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - Falha parcial ao inserir seed → log; continua com os demais; não bloqueia unlock
 - Re-unlock → não duplica
 
+### F18. Subagents em Paralelo (Write-Parallel)
+
+**Consome:**
+- F03: dispatch do turno pai, lease de projeto, DiffViewer
+- F07: definições de subagent `kind=dev`, gate Codex full-access
+- F13: mecanismo de `git worktree` isolado por thread
+- F15: runtime `call_subagent` (spawn de filho, idle timeout, usage_events)
+
+**Provê:**
+- Runs paralelos com resultado agregado e diff mergeado numa única revisão (usado por F03)
+- `kind=pipeline` de subagent disponível para orquestração (usado por F22)
+
+**Escopo Central:**
+- Até 4 filhos simultâneos no mesmo `call_subagent` paralelo, cada um em worktree próprio derivado do worktree/cwd do pai
+- Merge automático quando os filhos tocam arquivos diferentes; conflito no mesmo arquivo fica pendente de resolução manual, nunca resolvido por adivinhação
+- `kind=pipeline` disponível no catálogo de subagents, habilitando esse modo de invocação
+
+**Adições ao Escopo Completo:**
+- Estratégias de merge configuráveis (ex.: preferir um filho específico); comparação lado a lado dos diffs dos filhos antes do merge
+
+**Capacidades:**
+- Profundidade continua 1 (filho não delega a outro filho); paralelismo é entre filhos do mesmo pai, não recursão
+- Cada filho reusa hard-cap de 2h e idle timeout de F15 individualmente
+- Falha de um filho não aborta os demais; resultado final lista sucesso/erro/timeout por filho
+
+**Experiência:**
+- Card Subagents na sidebar mostra os filhos ativos com status individual e progresso agregado
+- Diff final único, com seção "conflitos" destacada quando houver
+
+**Tratamento de Erros:**
+- Conflito de merge no mesmo arquivo → diff marcado `conflict`; accept/reject bloqueado até resolução manual
+- Um filho falha/timeout → resultado parcial incluído; pai recebe relatório com sucesso parcial
+- Worktree do filho não pôde ser criado → esse filho não roda; demais continuam
+
+### F19. CodeGraph e Navegação Estrutural
+
+**Consome:**
+- F01.1: tokens de superfície para indicadores de indexação
+- F03: cwd do projeto/thread ativo, ciclo de dispatch
+- F12: MCP interno `engrenacode` (mesmo server de `load_skill`/`call_subagent`), reaproveitado para expor as novas tools
+
+**Provê:**
+- Tools `repo_graph_find_definition`, `repo_graph_find_references`, `repo_graph_module_deps` no turno (usado por F03)
+
+**Capacidades:**
+- Índice construído sob demanda no primeiro turno do projeto e persistido em disco (`userData`/cache por `projectId`); nunca enviado a servidor externo
+- Reindexação incremental quando o próprio turno aceita um diff que altera arquivo indexado; reindex completo é manual (botão) ou por idade do cache (> 24h)
+- TypeScript/JavaScript via parser AST na versão inicial; outras linguagens caem para busca textual como fallback, sem quebrar a tool
+- Tools só leem o índice; nunca executam código do projeto
+
+**Experiência:**
+- Indicador discreto no Repo Harness: "CodeGraph: indexado (Nh atrás)" | "indexando…" | "não suportado"
+- Sem tela dedicada nesta versão; navegação acontece via tool call do agente, visível na timeline
+
+Tratamento de Erros omitido — indexação e busca são somente-leitura; falha de indexação apenas degrada para busca textual, sem risco de perda de dado ou dinheiro.
+
+### F20. Memória Persistente (Memory)
+
+**Consome:**
+- F01: cofre para armazenar o journal cifrado junto dos demais segredos do projeto
+- F01.1: tokens de superfície para o painel de memória
+- F03: ciclo de dispatch (leitura no início do turno, escrita/consolidação no fim)
+
+**Provê:**
+- Bloco de memória (resumo consolidado + últimas entradas) injetado no system prompt do turno (usado por F03, mesmo mecanismo de precedência de F06 Rules)
+
+**Escopo Central:**
+- Escrita de entrada de journal ao fim de cada turno (resumo curto gerado pelo próprio provider da thread, sem chamada extra fora do turno)
+- Leitura do resumo consolidado mais recente injetada no prompt do próximo turno do mesmo projeto
+- Toggle "Memória" por projeto (ligado por padrão); desligar não apaga o journal existente, só para de ler/escrever
+
+**Adições ao Escopo Completo:**
+- "Dreaming": job periódico (idle do app por N minutos) que consolida entradas antigas do journal num resumo mais compacto, sem perder decisões importantes
+- Edição manual do journal pelo usuário numa tela dedicada
+
+**Capacidades:**
+- Journal por projeto, arquivo markdown (`journal.md`) cifrado no vault; limite de 256 KiB por projeto antes de forçar consolidação
+- Bloco injetado no prompt tem teto de ~2000 tokens (resumo consolidado, não o journal bruto)
+- Memória nunca grava segredos/credenciais; só contexto de produto/decisões
+
+**Experiência:**
+- Painel "Memória" no Repo Harness com toggle e link para ver/editar o journal
+- Nova entrada aparece no painel logo após o turno, sem reload
+
+**Tratamento de Erros:**
+- Falha ao escrever entrada → log; turno não falha por causa disso
+- Journal corrompido/ilegível → memória tratada como vazia nesse turno; aviso discreto, sem bloquear
+- Consolidação (dreaming) falha → mantém entradas brutas até a próxima tentativa
+
+### F21. AskUserQuestion
+
+**Consome:**
+- F01.1: tokens de superfície para o card de pergunta inline
+- F03: ciclo de dispatch, estado da thread (para pausar/retomar)
+
+**Provê:**
+- Estado de thread `waiting_user` com pergunta estruturada pendente (usado por F03; evento visível em F08 Registros)
+
+**Capacidades:**
+- Tool `ask_user_question` disponível a todo turno (Claude/Codex/Kimi via MCP interno; Minimax degrada com notice, sem tool)
+- Pergunta com até 4 opções + rótulo livre; suporta múltipla escolha quando o agente marcar `multiSelect`
+- Thread entra em `waiting_user` (não conta como `running` para lease/thread_busy) até o usuário responder
+- Sem timeout automático nesta versão — thread fica pendente até resposta ou cancelamento manual
+
+**Experiência:**
+- Card inline na timeline com as opções como botões; "Outra" sempre disponível como resposta livre
+- Enviar resposta retoma o turno automaticamente, sem precisar reabrir a thread
+
+**Tratamento de Erros:**
+- Turno abandonado com pergunta pendente → thread fica `waiting_user` indefinidamente; usuário pode cancelar manualmente (thread vai a `error`/`cancelled`)
+- Resposta malformada (nenhuma opção nem texto livre) → bloqueado no client antes de enviar
+
+### F22. Automação por Slash Commands (Pipeline)
+
+**Consome:**
+- F03: dispatch, composer, timeline da thread
+- F07: catálogo de subagents (planner/implementer/reviewer/tester)
+- F15: runtime `call_subagent` (delegação bloqueante padrão)
+- F18: modo paralelo + `kind=pipeline` para estágios que rodam filhos simultâneos
+- F19: tools `repo_graph_*` como contexto para os subagents de spec/implementação
+- F20: memória do projeto como contexto de entrada de cada estágio
+- F21: `ask_user_question` para checkpoints de aprovação entre estágios
+
+**Provê:**
+- Nenhuma outra feature consome dados desta nesta versão (artefatos ficam na própria thread)
+
+**Escopo Central:**
+- `/spec {descrição}`: dispara um subagent planner/spec-writer que devolve spec.md + plan.md como texto estruturado na resposta (não escreve arquivo sozinho — usuário decide salvar)
+- `/featdevelop {descrição}`: orquestra planner → implementer → reviewer → tester em sequência (ou parcialmente paralelo via F18 quando os estágios não conflitam), com checkpoint `ask_user_question` (F21) antes de aplicar qualquer diff
+- `/featbuild {plano}`: executa um plano já aprovado (markdown colado ou referência) até o fim, sem replanejar, com os mesmos checkpoints de revisão de diff já existentes em F03
+
+**Adições ao Escopo Completo:**
+- Comandos slash customizáveis pelo usuário (pipeline próprio, não só os três nativos)
+- Retomar um pipeline interrompido a partir do último checkpoint
+
+**Capacidades:**
+- Comandos reconhecidos no composer por prefixo `/`; autocomplete lista os disponíveis
+- Cada estágio do pipeline é uma delegação `call_subagent` (ou paralela via F18); resultado de cada estágio vira contexto do próximo
+- Pipeline inteiro roda dentro do hard-cap agregado de 2h (soma dos estágios); estourar aborta o estágio atual, mantém os já concluídos
+- Sem novos `kind` de subagent além de `dev` e `pipeline` (já cobertos por F07/F18)
+
+**Experiência:**
+- Timeline mostra cada estágio como um bloco próprio (nome do estágio, subagent usado, status)
+- Checkpoint de aprovação pausa o pipeline com o diff acumulado até ali visível antes de continuar
+
+**Tratamento de Erros:**
+- Estágio falha → pipeline para nesse ponto; estágios já concluídos com diff aceito permanecem; usuário decide retomar manualmente ou descartar
+- Hard-cap agregado estourado → pipeline interrompido com status `timeout`, mesmo tratamento de F15 por estágio
+- Comando slash inválido/mal formado → erro inline no composer, nada é disparado
+
+### F23. Providers GLM e Grok
+
+**Consome:**
+- F01: vault para armazenar as API keys
+- F02: card "API keys dos providers" reaproveitado como superfície de configuração
+- F10: padrão de validação/toggle já usado por Codex/Minimax
+
+**Provê:**
+- GLM e Grok como `ThreadProvider` disponíveis para nova thread quando a key é válida (usado por F03)
+
+**Capacidades:**
+- Dois novos cards em `#configuracao`, mesmo padrão de F10: campo de key, "Testar conexão", save vazio preserva a key anterior
+- Validação de formato mínimo por provider (prefixo/comprimento conhecidos); teste de conexão real contra o endpoint do provider
+- Sem assinatura CLI para esses dois — só modo API key (mesmo caminho de Minimax em F10)
+- `usage_events`/custo seguem o mesmo pipeline de F11 (`cost_source=table` até haver preço cadastrado)
+
+**Experiência:**
+- Picker de provider do composer passa a listar GLM/Grok quando a key é válida, igual ao comportamento atual do Minimax
+
+**Tratamento de Erros:**
+- Key inválida/formato errado → erro específico no card, sem salvar
+- Falha de rede no teste de conexão → mensagem distinta de "key inválida" (evita o usuário trocar a key à toa)
+- Key removida com threads antigas naquele provider → threads antigas ficam somente leitura (mesmo comportamento hoje para provider indisponível)
+
+### F24. Multi-VCS (GitLab/Bitbucket/Azure)
+
+**Consome:**
+- F01: vault para tokens OAuth por provider VCS
+- F02: superfície de Configuração para o card de conexão
+- F09: padrão OAuth PKCE + loopback já usado para MCPs (Linear etc.)
+- F14: `GitActions` (Commit/Push/PR) como superfície reaproveitada — F24 estende essa UI para os novos providers VCS, sem alterar o contrato existente de F14 com GitHub
+
+**Capacidades:**
+- Um provider VCS por projeto (não múltiplos simultâneos no mesmo repo); GitHub continua o padrão quando nada for conectado
+- OAuth PKCE por provider (GitLab, Bitbucket, Azure DevOps), mesmo mecanismo de F09; token só no vault, nunca em claro
+- `GitActions` mapeia a terminologia: "PR" vira "Merge Request" no GitLab automaticamente na UI
+- Sem suporte a self-hosted GitLab/Bitbucket Server nesta versão (só as nuvens públicas)
+
+**Experiência:**
+- Card por VCS em `#configuracao`, mesmo padrão do card GitHub existente, com botão "Conectar" abrindo o fluxo OAuth
+- Badge do provider VCS conectado visível no painel Repositório do workspace
+
+**Tratamento de Erros:**
+- OAuth falha/cancelado → volta ao estado desconectado, sem token parcial salvo
+- Push/PR/MR rejeitado pela API do VCS → mesmo tratamento de stderr resumido já usado em F14, sem reverter commit local
+- Token expirado/revogado → push/PR falha com mensagem apontando para reconectar em Configuração
+
+### F25. Limites de Consumo (UsageLimits)
+
+**Consome:**
+- F01.1: tokens de superfície para o card de limite e o banner de aviso
+- F11: `usage_events` agregados por projeto/global já existentes
+
+**Provê:**
+- Sinal de "limite atingido" consumido por F03 para decidir bloquear ou só avisar antes de novo turno
+
+**Capacidades:**
+- Limite configurável em USD, por projeto ou global; vazio = sem limite (comportamento atual)
+- Dois modos: "Avisar" (banner, turno continua) e "Bloquear" (novo turno recusado até o usuário aumentar o limite ou o período resetar)
+- Período de referência: mensal, resetando no dia 1 (fuso do sistema operacional)
+- Baseado nos mesmos `usage_events`/`cost_source` de F11 — sem novo cálculo de custo paralelo
+
+**Experiência:**
+- Card "Limites de consumo" em `#consumo`, com barra de progresso do gasto do período
+- Aviso em 80%/100% do limite; bloqueio (quando ativado) mostra mensagem clara com link para ajustar o limite
+
+**Tratamento de Erros:**
+- `cost_source=null` (sem preço cadastrado) não conta para o limite até haver preço — mesma regra de F11, evita bloqueio por dado incompleto
+- Falha ao calcular o agregado do período → limite não bloqueia por padrão (fail-open, para não travar o usuário por bug de agregação)
+- Limite ajustado durante um turno `running` → só vale a partir do próximo turno, não interrompe o atual
+
+### F26. Terminal PTY no Dock
+
+**Consome:**
+- F01.1: tokens de superfície, mono JetBrains já usado no xterm do chat
+- F03: cwd do projeto/thread ativo
+
+**Capacidades:**
+- Terminal real (PTY) via `node-pty` ou equivalente, rodando o shell padrão do SO do usuário
+- Abre sempre na cwd do projeto ativo (ou do worktree da thread ativa, quando aplicável); nunca fora do projeto
+- Múltiplas abas por projeto; processo do terminal morre quando a aba fecha ou o app fecha
+- Terminal roda com os mesmos privilégios do usuário do SO — sem sandbox adicional do EngrenaCode (mesma superfície de risco de abrir um terminal do sistema operacional diretamente); documentado como tal na UI
+
+**Experiência:**
+- Dock inferior expansível com abas de terminal, ao lado (não substituindo) o painel principal do workspace
+- Atalho de teclado para abrir/fechar o dock
+
+**Tratamento de Erros:**
+- Shell padrão não encontrado → mensagem de erro no lugar do terminal, sem travar o resto do app
+- Processo do terminal morre inesperadamente → aba mostra "Sessão encerrada", com botão para reabrir
+
+### F27. Ditado por Voz (STT)
+
+**Consome:**
+- F01.1: tokens de superfície do composer
+- F03: composer/thread ativa
+- F16: campo de texto do composer onde a transcrição é inserida
+
+**Capacidades:**
+- Botão de microfone no composer; grava enquanto pressionado ou até parar manualmente (toggle)
+- Transcrição via serviço STT configurável (local quando disponível no SO, ou provider externo se o usuário configurar key em Configuração)
+- Texto transcrito entra no composer como rascunho editável — nunca envia automaticamente
+
+**Experiência:**
+- Ícone de microfone ao lado do clipe de anexos; estado "gravando…" visível
+- Transcrição aparece no textarea conforme finaliza; usuário revisa e edita antes de Enviar
+
+**Tratamento de Erros:**
+- Sem permissão de microfone do SO → CTA desabilitado com `title` explicando como habilitar
+- Falha na transcrição → mensagem "Não foi possível transcrever. Tente novamente." sem perder o áudio gravado (permite nova tentativa)
+
 ## 7. Fora de Escopo
 
-### Pipelines e automação avançada
-- Feature pipeline (`/featdevelop`) e feature build (`/featbuild`)
-- Comandos slash avançados (`/spec`, workflows, feature-pipeline, feature-build)
-- Subagents `kind=pipeline`, write paralelo com worktree/merge-tree de filhos, workflows multi-estágio
+### Pipelines e automação avançada (parcialmente promovido — ver F18, F22)
+- Comandos slash customizáveis pelo usuário além dos três nativos (`/spec`, `/featdevelop`, `/featbuild`); workflows multi-estágio definidos pelo usuário
+- Retomar um pipeline interrompido a partir do último checkpoint (F22 sempre reinicia do zero nesta versão)
+- Estratégias de merge configuráveis para write-parallel além de "conflito = pendente manual" (F18)
 
-### Memória e CodeGraph
-- Memory (`journal.md` / `memory.md`), dreaming
-- Indexação CodeGraph e tools `repo_graph_*`
-
-### Terminal, voz e mídia
-- Terminal PTY no dock, ditado por voz (STT), TTS (Cartesia/ElevenLabs)
-- (Anexos de imagem no composer entram em F16; voz continua fora)
+### Terminal, voz e mídia (parcialmente promovido — ver F26, F27)
+- TTS (Cartesia/ElevenLabs) — só STT (ditado, F27) entra nesta versão
+- Terminal PTY com sandbox adicional do EngrenaCode além da sandbox nativa do SO (F26 roda com privilégios normais do usuário)
 
 ### Providers e VCS além do roadmap
-- Grok e GLM como produto nesta versão; troca de **provider** no meio da thread (modelo/reasoning mid-thread entram em F16 com provider travado)
-- GitLab/Bitbucket/Azure DevOps como fluxo de PR de produto (foco GitHub)
-- OAuth VCS além de PAT GitHub
+- Troca de **provider** no meio da thread (modelo/reasoning mid-thread já entram em F16 com provider travado; GLM/Grok em F23 não mudam essa regra)
+- GitLab/Bitbucket/Azure DevOps **self-hosted** (F24 cobre só as nuvens públicas)
 
 ### Cloud e colaboração
 - Multi-tenant, RBAC, sync nuvem, conta Lukse remota, API SaaS pública, colaboração em tempo real
 - Marketplace de skills/MCPs de terceiros sem curadoria
 
-### Consumo e registros além do corte
-- Fatura real dos providers, budget/alertas/projeção, export CSV/PDF, UsageLimits como feature de produto
+### Consumo e registros além do corte (parcialmente promovido — ver F25)
+- Fatura real dos providers, projeção de gasto, export CSV/PDF de consumo
 - Export/purge de audit log, edição/apagar registro individual
 
 ### IDE completa e distribuição
@@ -764,6 +1081,16 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 | F14 | Fluxo Git Completo | 1 | F01.1, F02, F03 |
 | F15 | Runtime de SubAgents | 1 | F01.1, F03, F07 |
 | F16 | Composer Avançado | 2 | F01.1, F03, F10 |
+| F18 | Subagents em Paralelo (Write-Parallel) | 2 | F03, F07, F13, F15 |
+| F19 | CodeGraph e Navegação Estrutural | 2 | F01.1, F03, F12 |
+| F20 | Memória Persistente (Memory) | 2 | F01, F01.1, F03 |
+| F21 | AskUserQuestion | 2 | F01.1, F03 |
+| F23 | Providers GLM e Grok | 2 | F01, F01.1, F02, F10 |
+| F24 | Multi-VCS (GitLab/Bitbucket/Azure) | 2 | F01, F01.1, F02, F09, F14 |
+| F25 | Limites de Consumo (UsageLimits) | 2 | F01.1, F11 |
+| F26 | Terminal PTY no Dock | 3 | F01.1, F03 |
+| F27 | Ditado por Voz (STT) | 3 | F01.1, F03, F16 |
+| F22 | Automação por Slash Commands (Pipeline) | 1 | F03, F07, F15, F18, F19, F20, F21 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -779,9 +1106,11 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 - **Onda 1**: F01, F01.1
 - **Onda 2**: F02, F05, F06, F07
 - **Onda 3**: F03, F10, F17
-- **Onda 4**: F04, F08, F09, F11, F12, F13, F14, F15, F16
+- **Onda 4**: F04, F08, F09, F11, F12, F13, F14, F15, F16, F20, F21, F23, F26
+- **Onda 5**: F18, F19, F24, F25, F27
+- **Onda 6**: F22
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; **Versão 1.2 = F12–F17**. Ondas 1–4 com F01–F11 já entregues no repo; o backlog ativo da 1.2 é F12–F17 (F17 mecanicamente na Onda 3; F12–F16 na Onda 4). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**. Ondas 1–4 com F01–F17 já entregues no repo; o backlog ativo da 1.3 é F18–F27: F20 (Memory), F21 (AskUserQuestion), F23 (GLM/Grok) e F26 (Terminal PTY) caem mecanicamente na Onda 4 (dependem só de fundação + F03/F09-F16, não de features novas entre si); F18 (Write-Parallel), F19 (CodeGraph), F24 (Multi-VCS) e F25 (UsageLimits) e F27 (Voz) na Onda 5 (dependem de F12/F13/F14/F15/F16, já Onda 4); F22 (Pipeline) fecha sozinho na Onda 6, pois orquestra F18/F19/F20/F21. Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -838,6 +1167,41 @@ graph TD
   F011 --> F16[Composer]
   F03 --> F16
   F10 --> F16
+  F03 --> F18[Parallel]
+  F07 --> F18
+  F13 --> F18
+  F15 --> F18
+  F011 --> F19[CodeGraph]
+  F03 --> F19
+  F12 --> F19
+  F01 --> F20[Memory]
+  F011 --> F20
+  F03 --> F20
+  F011 --> F21[AskUser]
+  F03 --> F21
+  F01 --> F23[NewProviders]
+  F011 --> F23
+  F02 --> F23
+  F10 --> F23
+  F01 --> F24[MultiVCS]
+  F011 --> F24
+  F02 --> F24
+  F09 --> F24
+  F14 --> F24
+  F011 --> F25[UsageLimits]
+  F11 --> F25
+  F011 --> F26[PTY]
+  F03 --> F26
+  F011 --> F27[Voice]
+  F03 --> F27
+  F16 --> F27
+  F03 --> F22[Pipeline]
+  F07 --> F22
+  F15 --> F22
+  F18 --> F22
+  F19 --> F22
+  F20 --> F22
+  F21 --> F22
 ```
 
 ## 9. Critérios de Aceitação
@@ -963,6 +1327,67 @@ graph TD
 - [x] Name já existente é skipped; usuário edita/desabilita/exclui seeds como itens normais
 - [x] Seeds não vinculam projetos automaticamente
 
+### F18. Subagents em Paralelo (Write-Parallel)
+- [ ] Chamada paralela de `call_subagent` roda até 4 filhos simultâneos, cada um em worktree isolado
+- [ ] Filhos que tocam arquivos diferentes mergeiam automaticamente numa única revisão de diff
+- [ ] Conflito no mesmo arquivo marca o diff como `conflict`; accept/reject bloqueado até resolução manual
+- [ ] Falha/timeout de um filho não aborta os demais; relatório final lista status por filho
+
+### F19. CodeGraph e Navegação Estrutural
+- [ ] Com projeto TypeScript/JavaScript indexado, `repo_graph_find_definition` devolve a definição real de um símbolo existente
+- [ ] `repo_graph_find_references` lista todos os usos conhecidos de um símbolo no índice
+- [ ] Diff aceito que altera arquivo indexado dispara reindexação incremental sem exigir ação manual
+- [ ] Linguagem não suportada não quebra a tool — cai para busca textual
+
+### F20. Memória Persistente (Memory)
+- [ ] Ao fim de um turno, uma entrada de journal é escrita para o projeto
+- [ ] Próximo turno do mesmo projeto recebe o resumo consolidado mais recente no system prompt
+- [ ] Toggle "Memória" desligado impede leitura/escrita sem apagar o journal existente
+- [ ] Journal corrompido não falha o turno; memória tratada como vazia com aviso
+
+### F21. AskUserQuestion
+- [ ] Chamada da tool `ask_user_question` pausa a thread em `waiting_user` sem contar como `running` para lease
+- [ ] Resposta do usuário retoma o turno automaticamente sem reabrir a thread
+- [ ] Provider sem suporte à tool degrada com notice, sem abortar o turno
+- [ ] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário
+
+### F22. Automação por Slash Commands (Pipeline)
+- [ ] `/spec {descrição}` devolve spec.md + plan.md estruturados na resposta da thread
+- [ ] `/featdevelop {descrição}` executa planner → implementer → reviewer → tester com checkpoint de aprovação antes de aplicar diff
+- [ ] `/featbuild {plano}` executa um plano já aprovado até o fim usando os checkpoints de revisão de diff existentes
+- [ ] Falha de um estágio interrompe o pipeline nesse ponto; estágios já concluídos com diff aceito permanecem
+- [ ] Comando slash inválido não dispara nenhum estágio; erro aparece inline no composer
+
+### F23. Providers GLM e Grok
+- [ ] Key válida de GLM/Grok salva em Configuração e passa em "Testar conexão"
+- [ ] GLM/Grok aparecem no picker de provider do composer quando a key é válida
+- [ ] Key inválida/formato errado não salva; erro específico exibido
+- [ ] Threads antigas com key removida ficam somente leitura
+
+### F24. Multi-VCS (GitLab/Bitbucket/Azure)
+- [ ] Conectar GitLab/Bitbucket/Azure via OAuth PKCE salva o token só no vault
+- [ ] Com VCS conectado, `GitActions` abre Merge Request/Pull Request contra a API correta do provider
+- [ ] OAuth cancelado/falho não deixa token parcial salvo
+- [ ] Token expirado faz push/PR falhar com mensagem apontando para reconectar em Configuração
+
+### F25. Limites de Consumo (UsageLimits)
+- [ ] Limite configurado em USD (projeto ou global) mostra barra de progresso do gasto do período em `#consumo`
+- [ ] Modo "Avisar" mostra banner ao atingir 80%/100% sem bloquear novo turno
+- [ ] Modo "Bloquear" recusa novo turno ao estourar o limite, com mensagem apontando o ajuste
+- [ ] Eventos com `cost_source=null` não contam para o limite até haver preço cadastrado
+
+### F26. Terminal PTY no Dock
+- [ ] Dock abre terminal real na cwd do projeto (ou worktree da thread ativa) sem sair do app
+- [ ] Múltiplas abas de terminal funcionam por projeto; fechar aba encerra o processo
+- [ ] Shell padrão ausente mostra erro no lugar do terminal sem travar o app
+- [ ] Processo morto inesperadamente mostra "Sessão encerrada" com opção de reabrir
+
+### F27. Ditado por Voz (STT)
+- [ ] Botão de microfone grava e transcreve para o composer como rascunho editável
+- [ ] Usuário revisa/edita a transcrição antes de Enviar; nada é enviado automaticamente
+- [ ] Sem permissão de microfone, CTA fica desabilitado com explicação
+- [ ] Falha de transcrição preserva o áudio gravado para nova tentativa
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
@@ -984,3 +1409,13 @@ graph TD
 - [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
 - [x] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
 - [x] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
+- [ ] `call_subagent` paralelo (F18) reusa gate/idle/usage_events de F07/F15 e worktree isolado de F13 por filho
+- [ ] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
+- [ ] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
+- [ ] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
+- [ ] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
+- [ ] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
+- [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
+- [ ] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
+- [ ] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
+- [ ] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
