@@ -5,7 +5,7 @@ export type { ApiErrorBody }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax'
+export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax' | 'glm' | 'grok'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
 export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping' | 'waiting_user'

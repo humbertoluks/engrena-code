@@ -97,7 +97,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'validation_error', 'prompt é obrigatório.')
   }
   if (typeof data.provider !== 'string' || !isValidProvider(data.provider)) {
-    return sendError(res, 400, 'validation_error', 'provider deve ser claude, codex, kimi ou minimax.')
+    return sendError(res, 400, 'validation_error', 'provider deve ser claude, codex, kimi, minimax, glm ou grok.')
   }
   if (typeof data.accessLevel !== 'string' || !(ACCESS_LEVELS as readonly string[]).includes(data.accessLevel)) {
     return sendError(res, 400, 'validation_error', 'accessLevel inválido.')

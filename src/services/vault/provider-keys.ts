@@ -38,3 +38,19 @@ export function validateMinimaxKey(key: string): ProviderKeyValidation {
   if (base) return base
   return { ok: true, action: 'save', key }
 }
+
+/** GLM (Zhipu/BigModel) has no documented stable prefix — loose validator, same level as Minimax. */
+export function validateGlmKey(key: string): ProviderKeyValidation {
+  const base = baseChecks(key)
+  if (base) return base
+  return { ok: true, action: 'save', key }
+}
+
+export function validateGrokKey(key: string): ProviderKeyValidation {
+  const base = baseChecks(key)
+  if (base) return base
+  if (!key.startsWith('xai-')) {
+    return { ok: false, message: 'Formato inválido. Esperado: xai-…' }
+  }
+  return { ok: true, action: 'save', key }
+}
