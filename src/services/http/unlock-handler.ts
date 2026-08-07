@@ -15,6 +15,7 @@ import { handleConsumoRequest } from './consumo-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
+import { applySeedCatalog } from '../seeds/apply-catalog.js'
 
 const BOOT_RESTART_REASON = 'Aplicação reiniciada durante a execução.'
 
@@ -85,6 +86,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
           if (result.unlocked) {
             const token = vaultService.getSessionToken()
             if (token) response.sessionToken = token
+
+            try {
+              applySeedCatalog()
+            } catch (seedErr) {
+              console.error('[seeds] applySeedCatalog failed, unlock proceeds anyway:', seedErr)
+            }
           }
 
           if (result.retryAfterMs !== undefined) {
