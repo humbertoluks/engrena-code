@@ -1,15 +1,32 @@
 import { spawn } from 'child_process'
 import { createInterface } from 'readline'
-import { writeFileSync, unlinkSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { app } from 'electron'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
 import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn } from './minimax-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
+
+/** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
+function resolveUserData(): string {
+  const override = process.env.ENGRENACODE_USER_DATA
+  if (override) {
+    mkdirSync(override, { recursive: true })
+    return override
+  }
+  return app.getPath('userData')
+}
+
+/** Artefatos efêmeros do turno (mcp-config, imagens) — fora de os.tmpdir(). */
+function resolveTurnArtifactsDir(): string {
+  const dir = join(resolveUserData(), 'tmp')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
 
 export type {
   ProviderStreamEvent,
@@ -75,9 +92,10 @@ const MIME_EXTENSION: Record<string, string> = {
 
 /** Materializa anexos em ficheiros temporários (spec F16 §3.2) — cwd do provider não é confiável p/ escrita solta. */
 function writeTempImages(images: ComposerImageInput[]): { paths: string[]; cleanup: () => void } {
+  const artifactsDir = resolveTurnArtifactsDir()
   const paths = images.map((img) => {
     const ext = MIME_EXTENSION[img.mimeType] ?? 'bin'
-    const path = join(tmpdir(), `engrenacode-image-${randomUUID()}.${ext}`)
+    const path = join(artifactsDir, `engrenacode-image-${randomUUID()}.${ext}`)
     writeFileSync(path, Buffer.from(img.dataBase64, 'base64'), { mode: 0o600 })
     return path
   })
@@ -120,7 +138,7 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
     }
   }
 
-  const path = join(tmpdir(), `engrenacode-mcp-${randomUUID()}.json`)
+  const path = join(resolveTurnArtifactsDir(), `engrenacode-mcp-${randomUUID()}.json`)
   writeFileSync(path, JSON.stringify({ mcpServers: entries }), { mode: 0o600 })
   return path
 }
@@ -268,70 +286,77 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
   const cleanupTempImages = (): void => tempImages?.cleanup()
 
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(binary, args, { cwd: input.cwd, env })
-    const rl = createInterface({ input: child.stdout })
-    let finalText = ''
-    let sawResult = false
-    let stderrBuf = ''
-    let resultUsage: ProviderUsage | undefined
-    let resultCostUsd: number | null | undefined
+    try {
+      const child = spawnImpl(binary, args, { cwd: input.cwd, env })
+      const rl = createInterface({ input: child.stdout })
+      let finalText = ''
+      let sawResult = false
+      let stderrBuf = ''
+      let resultUsage: ProviderUsage | undefined
+      let resultCostUsd: number | null | undefined
 
-    input.signal?.addEventListener('abort', () => {
-      child.kill()
-    })
+      input.signal?.addEventListener('abort', () => {
+        child.kill()
+      })
 
-    rl.on('line', (line) => {
-      for (const event of parseLine(line)) input.onEvent(event)
+      rl.on('line', (line) => {
+        for (const event of parseLine(line)) input.onEvent(event)
 
-      try {
-        const payload = JSON.parse(line.trim()) as Record<string, unknown>
-        if (payload.type === 'result') {
-          sawResult = true
-          const text = extractFinalText(payload)
-          if (text !== null) finalText = text
-          resultUsage = extractUsage(payload)
-          resultCostUsd = extractCostUsd(payload)
-          if (payload.is_error === true) {
-            reject(
-              new ProviderError('provider_turn_error', String(payload.result ?? 'Erro no provider.'), {
-                usage: resultUsage,
-                costUsd: resultCostUsd,
-              })
-            )
+        try {
+          const payload = JSON.parse(line.trim()) as Record<string, unknown>
+          if (payload.type === 'result') {
+            sawResult = true
+            const text = extractFinalText(payload)
+            if (text !== null) finalText = text
+            resultUsage = extractUsage(payload)
+            resultCostUsd = extractCostUsd(payload)
+            if (payload.is_error === true) {
+              reject(
+                new ProviderError('provider_turn_error', String(payload.result ?? 'Erro no provider.'), {
+                  usage: resultUsage,
+                  costUsd: resultCostUsd,
+                })
+              )
+            }
           }
+        } catch {
+          // linha não é JSON de nível superior — ignora
         }
-      } catch {
-        // linha não é JSON de nível superior — ignora
-      }
-    })
+      })
 
-    child.stderr.on('data', (chunk) => {
-      stderrBuf += chunk.toString()
-    })
+      child.stderr.on('data', (chunk) => {
+        stderrBuf += chunk.toString()
+      })
 
-    child.on('error', (err) => {
-      cleanupMcpConfig()
-      cleanupTempImages()
-      reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
-    })
+      child.on('error', (err) => {
+        cleanupMcpConfig()
+        cleanupTempImages()
+        reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
+      })
 
-    child.on('close', (code) => {
-      cleanupMcpConfig()
-      cleanupTempImages()
-      if (sawResult) {
-        resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
-        return
-      }
-      if (code !== 0) {
-        reject(
-          new ProviderError(
-            'provider_turn_error',
-            sanitizeProcessError(stderrBuf.trim()) || `Provider "${binary}" encerrou com código ${code}.`
+      child.on('close', (code) => {
+        cleanupMcpConfig()
+        cleanupTempImages()
+        if (sawResult) {
+          resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
+          return
+        }
+        if (code !== 0) {
+          reject(
+            new ProviderError(
+              'provider_turn_error',
+              sanitizeProcessError(stderrBuf.trim()) || `Provider "${binary}" encerrou com código ${code}.`
+            )
           )
-        )
-        return
-      }
-      resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
-    })
+          return
+        }
+        resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
+      })
+    } catch (err) {
+      cleanupMcpConfig()
+      cleanupTempImages()
+      const message = err instanceof Error ? err.message : String(err)
+      reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${message}`))
+    }
   })
 }

@@ -1,12 +1,17 @@
 import { PassThrough } from 'stream'
 import { EventEmitter } from 'events'
 import { existsSync, readFileSync } from 'fs'
+import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProviderError, resetSpawnForTesting, runCliTurn, setSpawnForTesting } from './cli-driver'
 import { resetFetchForTesting, setFetchForTesting } from './minimax-driver'
 import type { ProviderTurnInput } from './provider-types'
 
 type SpawnFn = Parameters<typeof setSpawnForTesting>[0]
+
+function expectUnderTurnArtifacts(path: string): void {
+  expect(dirname(path)).toBe(join(process.env.ENGRENACODE_USER_DATA as string, 'tmp'))
+}
 
 class FakeChild extends EventEmitter {
   stdout = new PassThrough()
@@ -99,7 +104,7 @@ describe('runCliTurn — cli providers', () => {
     await expect(runCliTurn(baseInput())).rejects.toBeInstanceOf(ProviderError)
   })
 
-  it('writes a --mcp-config file and deletes it after the process closes', async () => {
+  it('writes a --mcp-config file under userData/tmp and deletes it after the process closes', async () => {
     let capturedArgs: string[] = []
     let writtenAtSpawnTime: string | undefined
     const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
@@ -124,9 +129,34 @@ describe('runCliTurn — cli providers', () => {
     const flagIndex = capturedArgs.indexOf('--mcp-config')
     expect(flagIndex).toBeGreaterThan(-1)
     const configPath = capturedArgs[flagIndex + 1]
+    expectUnderTurnArtifacts(configPath)
     const written = JSON.parse(writtenAtSpawnTime as string)
     expect(written.mcpServers.github).toEqual({ command: 'npx', args: ['-y', 'server-github'], env: { TOKEN: 'ghp_x' } })
     expect(written.mcpServers.notion).toEqual({ type: 'http', url: 'https://mcp.notion.com/mcp', headers: { Authorization: 'Bearer y' } })
+    expect(existsSync(configPath)).toBe(false)
+  })
+
+  it('cleans up mcp-config when spawn throws synchronously', async () => {
+    let configPath = ''
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+      const flagIndex = args.indexOf('--mcp-config')
+      configPath = args[flagIndex + 1]
+      expect(existsSync(configPath)).toBe(true)
+      throw new Error('spawn sync boom')
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const err = await runCliTurn(
+      baseInput({
+        mcpServers: [
+          { name: 'github', transport: 'stdio', command: 'npx', args: ['-y', 'server-github'], env: { TOKEN: 'ghp_x' } },
+        ],
+      })
+    ).catch((e) => e)
+
+    expect(err).toBeInstanceOf(ProviderError)
+    expect((err as ProviderError).code).toBe('provider_spawn_failed')
+    expectUnderTurnArtifacts(configPath)
     expect(existsSync(configPath)).toBe(false)
   })
 
@@ -178,7 +208,7 @@ describe('runCliTurn — cli providers', () => {
       expect(capturedArgs).not.toContain('--effort')
     })
 
-    it('materializes images as temp files, references them in the prompt, and deletes them after close', async () => {
+    it('materializes images under userData/tmp, references them in the prompt, and deletes them after close', async () => {
       let capturedArgs: string[] = []
       let promptDuringSpawn = ''
       let imagePathDuringSpawn = ''
@@ -187,7 +217,10 @@ describe('runCliTurn — cli providers', () => {
         promptDuringSpawn = args[args.indexOf('-p') + 1]
         const match = /- (.+\.png)/.exec(promptDuringSpawn)
         imagePathDuringSpawn = match ? match[1] : ''
-        if (imagePathDuringSpawn) expect(existsSync(imagePathDuringSpawn)).toBe(true)
+        if (imagePathDuringSpawn) {
+          expectUnderTurnArtifacts(imagePathDuringSpawn)
+          expect(existsSync(imagePathDuringSpawn)).toBe(true)
+        }
         const child = new FakeChild()
         emitResultAndClose(child, 'ok')
         return child as unknown as ReturnType<SpawnFn>
