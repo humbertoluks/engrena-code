@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { Project, VcsStatus } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
+import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
 import { rulesService } from '../../services/rules-service'
 import { skillsService } from '../../services/skills-service'
 import { subagentsService } from '../../services/subagents-service'
@@ -10,6 +11,7 @@ import { ProjectRulesModal } from '../rules/ProjectRulesModal'
 import { ProjectSkillsModal } from '../skills/ProjectSkillsModal'
 import { ProjectSubagentsModal } from '../subagents/ProjectSubagentsModal'
 import { ProjectMcpsModal } from '../mcps/ProjectMcpsModal'
+import { SubagentActivity } from '../subagents/SubagentActivity'
 import { GitActions } from './GitActions'
 
 const COPY = {
@@ -36,6 +38,8 @@ export interface WorkspaceSidebarProps {
   project: Project | null
   selectedThread: Thread | null
   vcsStatus: VcsStatus | null
+  subagentRuns: SubagentRun[]
+  onOpenSubagentRun: (run: SubagentRun) => void
   onNewThread: () => void
   onCommit: (subject: string, body?: string) => Promise<{ ok: boolean; error?: string }>
   onPush: () => Promise<{ ok: boolean; error?: string }>
@@ -47,6 +51,8 @@ export function WorkspaceSidebar({
   project,
   selectedThread,
   vcsStatus,
+  subagentRuns,
+  onOpenSubagentRun,
   onNewThread,
   onCommit,
   onPush,
@@ -122,6 +128,8 @@ export function WorkspaceSidebar({
               </p>
             </section>
           ) : null}
+
+          {selectedThread ? <SubagentActivity runs={subagentRuns} onOpenRun={onOpenSubagentRun} /> : null}
 
           <section>
             <GitActions

@@ -55,7 +55,8 @@ export function SubagentRunAuditModal({ run, onClose }: Readonly<SubagentRunAudi
             <p className="mt-xs font-mono text-[11.5px] text-muted">
               {run.provider}
               {run.model ? ` · ${run.model}` : ''}
-              {run.reasoningLevel ? ` · ${run.reasoningLevel}` : ''} · {statusLabel(run)}
+              {run.reasoningLevel ? ` · ${run.reasoningLevel}` : ''} ·{' '}
+              <span className={run.status === 'timeout' ? 'text-amber' : undefined}>{statusLabel(run)}</span>
             </p>
           </div>
           <button

@@ -22,10 +22,14 @@ function timelineStatusLabel(run: SubagentRun): string {
   }
 }
 
+/** Timeout de idle usa tom âmbar do Design Lock (spec F15 §6/§3.2). */
+function timelineStatusClassName(run: SubagentRun): string {
+  return run.status === 'timeout' ? 'text-amber' : 'text-muted'
+}
+
 /**
- * Bloco aninhado na timeline (F03 ChatHistory, peer). ChatHistory ainda não existe neste repo —
- * componente pronto para ser montado por linha de tool call assim que F03 existir; a tool
- * call_subagent correlacionada não deve duplicar no work log (vira cabeçalho deste bloco).
+ * Bloco aninhado na timeline (ChatHistory.tsx) — substitui a linha genérica de tool call quando
+ * `call_subagent` é correlacionado a um `subagent_runs` (spec F15 §3.2), sem duplicar no work log.
  */
 export function SubagentTimelineBlock({ run, onOpen }: Readonly<SubagentTimelineBlockProps>): ReactElement {
   return (
@@ -40,7 +44,7 @@ export function SubagentTimelineBlock({ run, onOpen }: Readonly<SubagentTimeline
         {run.provider}
         {run.model ? `/${run.model}` : ''}
       </span>
-      <span className="ml-auto text-muted">{timelineStatusLabel(run)}</span>
+      <span className={`ml-auto ${timelineStatusClassName(run)}`}>{timelineStatusLabel(run)}</span>
     </button>
   )
 }

@@ -24,6 +24,11 @@ function statusLabel(run: SubagentRun): string {
   }
 }
 
+/** Timeout de idle usa tom âmbar do Design Lock (spec F15 §6/§3.2); demais status seguem a cor neutra padrão. */
+function statusClassName(run: SubagentRun): string {
+  return run.status === 'timeout' ? 'text-amber' : 'text-muted'
+}
+
 interface RunRowProps {
   run: SubagentRun
   now: number
@@ -47,7 +52,7 @@ function RunRow({ run, now, onOpen }: Readonly<RunRowProps>): ReactElement {
       </span>
       <span className="flex shrink-0 items-center gap-xs font-mono text-muted">
         <span>{formatRunDuration(run.createdAt, run.durationMs, now)}</span>
-        <span>{statusLabel(run)}</span>
+        <span className={statusClassName(run)}>{statusLabel(run)}</span>
       </span>
     </button>
   )

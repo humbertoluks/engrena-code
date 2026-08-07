@@ -8,6 +8,7 @@ import { ChatHistory } from '../components/workspace/ChatHistory'
 import { DiffViewer } from '../components/workspace/DiffViewer'
 import { WorkspaceSidebar } from '../components/workspace/WorkspaceSidebar'
 import { PermissionPrompt } from '../components/workspace/PermissionPrompt'
+import { SubagentRunAuditModal } from '../components/subagents/SubagentRunAuditModal'
 
 const COPY = {
   tabHistory: 'Histórico',
@@ -105,6 +106,8 @@ export function PrincipalScreen(): ReactElement {
             <ChatHistory
               messages={ws.messages}
               toolCalls={ws.toolCalls}
+              subagentRuns={ws.subagentRuns}
+              onOpenSubagentRun={ws.openSubagentRun}
               loading={ws.historyLoading}
               error={ws.historyError}
               streamingText={ws.streamingText}
@@ -143,6 +146,8 @@ export function PrincipalScreen(): ReactElement {
         project={ws.selectedProject}
         selectedThread={ws.selectedThread}
         vcsStatus={ws.vcsStatus}
+        subagentRuns={ws.subagentRuns}
+        onOpenSubagentRun={ws.openSubagentRun}
         onNewThread={ws.newThread}
         onCommit={ws.gitCommit}
         onPush={ws.gitPush}
@@ -152,6 +157,10 @@ export function PrincipalScreen(): ReactElement {
 
       {ws.addProjectModalOpen ? (
         <AddProjectModal onClose={() => ws.setAddProjectModalOpen(false)} onSubmit={(path, name) => ws.addProject(path, name)} />
+      ) : null}
+
+      {ws.activeSubagentRun ? (
+        <SubagentRunAuditModal run={ws.activeSubagentRun} onClose={ws.closeSubagentRun} />
       ) : null}
 
       {currentPermission ? (
