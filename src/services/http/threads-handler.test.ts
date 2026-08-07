@@ -594,6 +594,16 @@ describe('handleThreadsRequest', () => {
       await handleThreadsRequest(req, res)
       expect((await res.result()).status).toBe(401)
     })
+
+    it('returns 423 vault_locked when vault is locked', async () => {
+      vaultService.lock()
+      const req = fakeReq('GET', '/api/composer/catalog', undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+    })
   })
 
   describe('F16 composer avançado — create/follow-up validation', () => {

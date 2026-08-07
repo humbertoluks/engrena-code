@@ -80,6 +80,20 @@ describe('handleProjectFilesRequest', () => {
     expect((await res.result()).status).toBe(401)
   })
 
+  it('returns 423 vault_locked when vault is locked', async () => {
+    const project = createProject({ path: fixtureRoot })
+    vaultService.lock()
+    const res = fakeRes()
+    const handled = await handleProjectFilesRequest(
+      fakeReq('GET', `/api/projects/${project.id}/files`, session),
+      res
+    )
+    expect(handled).toBe(true)
+    const { status, body } = await res.result()
+    expect(status).toBe(423)
+    expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+  })
+
   it('returns 404 for an unknown project', async () => {
     const res = fakeRes()
     await handleProjectFilesRequest(fakeReq('GET', '/api/projects/does-not-exist/files', session), res)
