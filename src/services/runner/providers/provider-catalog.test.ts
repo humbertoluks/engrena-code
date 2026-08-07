@@ -7,7 +7,7 @@ import {
   isMultimodal,
 } from './provider-catalog.js'
 
-const PROVIDERS = ['claude', 'codex', 'kimi', 'minimax'] as const
+const PROVIDERS = ['claude', 'codex', 'kimi', 'minimax', 'glm', 'grok'] as const
 
 describe('test_catalog_defaults_per_provider', () => {
   it('defaultModel is a member of models for every provider', () => {
@@ -25,11 +25,20 @@ describe('test_catalog_defaults_per_provider', () => {
     }
   })
 
-  it('multimodal flags match spec (claude/codex true, kimi/minimax false)', () => {
+  it('multimodal flags match spec (claude/codex true, kimi/minimax/glm/grok false)', () => {
     expect(PROVIDER_CATALOG.claude.multimodal).toBe(true)
     expect(PROVIDER_CATALOG.codex.multimodal).toBe(true)
     expect(PROVIDER_CATALOG.kimi.multimodal).toBe(false)
     expect(PROVIDER_CATALOG.minimax.multimodal).toBe(false)
+    expect(PROVIDER_CATALOG.glm.multimodal).toBe(false)
+    expect(PROVIDER_CATALOG.grok.multimodal).toBe(false)
+  })
+
+  it('glm/grok have no reasoning levels (F23 §3.2 — same profile as Minimax)', () => {
+    expect(PROVIDER_CATALOG.glm.reasoningLevels).toEqual([])
+    expect(PROVIDER_CATALOG.grok.reasoningLevels).toEqual([])
+    expect(PROVIDER_CATALOG.glm.defaultReasoningLevel).toBeNull()
+    expect(PROVIDER_CATALOG.grok.defaultReasoningLevel).toBeNull()
   })
 
   it('getComposerCatalog exposes all providers', () => {

@@ -7,7 +7,9 @@ import { app } from 'electron'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
 import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
-import { runHttpTurn } from './minimax-driver.js'
+import { runHttpTurn as runMinimaxHttpTurn } from './minimax-driver.js'
+import { runHttpTurn as runGlmHttpTurn } from './glm-driver.js'
+import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
 
@@ -44,6 +46,14 @@ const PROVIDER_KIND: Record<ThreadProvider, ProviderKind> = {
   codex: 'cli',
   kimi: 'cli',
   minimax: 'http',
+  glm: 'http',
+  grok: 'http',
+}
+
+const HTTP_TURN_BY_PROVIDER: Partial<Record<ThreadProvider, typeof runMinimaxHttpTurn>> = {
+  minimax: runMinimaxHttpTurn,
+  glm: runGlmHttpTurn,
+  grok: runGrokHttpTurn,
 }
 
 /** Env var injetada no spawn quando o provider roda com API key (Claude modo api-key, Codex). */
@@ -262,7 +272,8 @@ function extractCostUsd(payload: Record<string, unknown>): number | null | undef
 
 export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurnResult> {
   if (PROVIDER_KIND[input.provider] === 'http') {
-    return runHttpTurn(input)
+    const httpTurn = HTTP_TURN_BY_PROVIDER[input.provider]
+    if (httpTurn) return httpTurn(input)
   }
 
   const binary = BINARY_BY_PROVIDER[input.provider]

@@ -40,6 +40,20 @@ export const PROVIDER_CATALOG: Record<ThreadProvider, ProviderCatalogEntry> = {
     defaultReasoningLevel: null,
     multimodal: false,
   },
+  glm: {
+    models: ['glm-4-plus'],
+    defaultModel: 'glm-4-plus',
+    reasoningLevels: [],
+    defaultReasoningLevel: null,
+    multimodal: false,
+  },
+  grok: {
+    models: ['grok-4'],
+    defaultModel: 'grok-4',
+    reasoningLevels: [],
+    defaultReasoningLevel: null,
+    multimodal: false,
+  },
 }
 
 export interface ComposerCatalogResponse {

@@ -11,6 +11,8 @@ export function resolveProviderApiKey(provider: ThreadProvider): string | undefi
   }
   if (provider === 'codex') return vaultService.getSecret('keys:codex')
   if (provider === 'minimax') return vaultService.getSecret('keys:minimax')
+  if (provider === 'glm') return vaultService.getSecret('keys:glm')
+  if (provider === 'grok') return vaultService.getSecret('keys:grok')
   return undefined
 }
 
@@ -18,7 +20,8 @@ export function resolveProviderApiKey(provider: ThreadProvider): string | undefi
  * Mapeia provider → billingMode do turno (spec F11 §3.2, confirmado via entrevista — sem conceito
  * `compat` no EngrenaCode, `'token-plan'` nunca é retornado neste MVP). Claude reusa `claude:mode`
  * (F10); Codex cai pra `'subscription'` sem key salva (sem toggle explícito); Kimi não tem key no F10,
- * sempre `'subscription'`; Minimax não tem CLI/login, sempre `'api-key'`.
+ * sempre `'subscription'`; Minimax/GLM/Grok não têm CLI/login, sempre `'api-key'` (F23 §3.2 — mesmo
+ * tratamento de Minimax, sem toggle assinatura↔key).
  */
 export function resolveBillingMode(provider: ThreadProvider): BillingMode {
   if (provider === 'claude') {
@@ -26,7 +29,7 @@ export function resolveBillingMode(provider: ThreadProvider): BillingMode {
     return mode === 'api-key' ? 'api-key' : 'subscription'
   }
   if (provider === 'codex') return vaultService.getSecret('keys:codex') ? 'api-key' : 'subscription'
-  if (provider === 'minimax') return 'api-key'
+  if (provider === 'minimax' || provider === 'glm' || provider === 'grok') return 'api-key'
   return 'subscription'
 }
 

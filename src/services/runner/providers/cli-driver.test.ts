@@ -5,6 +5,8 @@ import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProviderError, resetSpawnForTesting, runCliTurn, setSpawnForTesting } from './cli-driver'
 import { resetFetchForTesting, setFetchForTesting } from './minimax-driver'
+import { resetFetchForTesting as resetGlmFetch, setFetchForTesting as setGlmFetch } from './glm-driver'
+import { resetFetchForTesting as resetGrokFetch, setFetchForTesting as setGrokFetch } from './grok-driver'
 import type { ProviderTurnInput } from './provider-types'
 
 type SpawnFn = Parameters<typeof setSpawnForTesting>[0]
@@ -44,6 +46,8 @@ function emitResultAndClose(child: FakeChild, text: string, code = 0): void {
 afterEach(() => {
   resetSpawnForTesting()
   resetFetchForTesting()
+  resetGlmFetch()
+  resetGrokFetch()
 })
 
 describe('runCliTurn — cli providers', () => {
@@ -349,6 +353,36 @@ describe('runCliTurn — minimax (http provider)', () => {
 
     const result = await runCliTurn(baseInput({ provider: 'minimax', apiKey: 'mm-12345678' }))
     expect(result).toEqual({ text: 'oi da minimax' })
+    expect(spawnCalled).toBe(false)
+  })
+})
+
+describe('runCliTurn — glm/grok (http providers, F23)', () => {
+  it('routes glm to glm-driver instead of spawning a binary', async () => {
+    let spawnCalled = false
+    setSpawnForTesting((() => {
+      spawnCalled = true
+      return new FakeChild() as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn)
+
+    setGlmFetch(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'oi do glm' } }] }), { status: 200 }))
+
+    const result = await runCliTurn(baseInput({ provider: 'glm', apiKey: 'abcdef01234.5678secretpart' }))
+    expect(result).toEqual({ text: 'oi do glm' })
+    expect(spawnCalled).toBe(false)
+  })
+
+  it('routes grok to grok-driver instead of spawning a binary', async () => {
+    let spawnCalled = false
+    setSpawnForTesting((() => {
+      spawnCalled = true
+      return new FakeChild() as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn)
+
+    setGrokFetch(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'oi do grok' } }] }), { status: 200 }))
+
+    const result = await runCliTurn(baseInput({ provider: 'grok', apiKey: 'xai-abcdef0123456789' }))
+    expect(result).toEqual({ text: 'oi do grok' })
     expect(spawnCalled).toBe(false)
   })
 })
