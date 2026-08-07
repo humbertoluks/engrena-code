@@ -11,6 +11,7 @@ export type StreamEvent =
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string }
+  | { type: 'memory.entry'; threadId: string; projectId: string }
   | {
       type: 'mcp.notice'
       threadId: string

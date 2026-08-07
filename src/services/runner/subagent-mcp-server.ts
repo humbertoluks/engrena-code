@@ -11,6 +11,7 @@ export const REPO_GRAPH_FIND_DEFINITION = 'repo_graph_find_definition'
 export const REPO_GRAPH_FIND_REFERENCES = 'repo_graph_find_references'
 export const REPO_GRAPH_MODULE_DEPS = 'repo_graph_module_deps'
 export const ASK_USER_QUESTION_MCP_TOOL_NAME = 'ask_user_question'
+export const WRITE_MEMORY_MCP_TOOL_NAME = 'write_memory'
 
 /**
  * Servidor MCP stdio mínimo (F11/F12/F19/F21) — handshake newline-delimited JSON-RPC.
@@ -19,6 +20,7 @@ export const ASK_USER_QUESTION_MCP_TOOL_NAME = 'ask_user_question'
  * - `--port` + `--token` → `call_subagent`
  * - `--codegraph-index <path>` → `repo_graph_*`
  * - `--ask-port` + `--ask-token` → `ask_user_question`
+ * - `--memory-port` + `--memory-token` → `write_memory` (F20)
  */
 const SCRIPT_SOURCE = `#!/usr/bin/env node
 import { createInterface } from 'node:readline'
@@ -35,6 +37,8 @@ const skillsSnapshotPath = flag('skills-snapshot')
 const codegraphIndexPath = flag('codegraph-index')
 const askPort = flag('ask-port')
 const askToken = flag('ask-token')
+const memoryPort = flag('memory-port')
+const memoryToken = flag('memory-token')
 
 const CALL_SUBAGENT_SCHEMA = {
   name: 'call_subagent',
@@ -114,6 +118,18 @@ const ASK_USER_QUESTION_SCHEMA = {
   },
 }
 
+const WRITE_MEMORY_SCHEMA = {
+  name: 'write_memory',
+  description: 'Grava uma entrada curta de memória do projeto ao fim do turno (journal persistente entre turnos).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string', description: 'Resumo curto da decisão/contexto deste turno' },
+    },
+    required: ['summary'],
+  },
+}
+
 function listTools() {
   const tools = []
   if (skillsSnapshotPath) tools.push(LOAD_SKILL_SCHEMA)
@@ -122,6 +138,7 @@ function listTools() {
     tools.push(FIND_DEF_SCHEMA, FIND_REFS_SCHEMA, MODULE_DEPS_SCHEMA)
   }
   if (askPort && askToken) tools.push(ASK_USER_QUESTION_SCHEMA)
+  if (memoryPort && memoryToken) tools.push(WRITE_MEMORY_SCHEMA)
   return tools
 }
 
@@ -280,6 +297,26 @@ async function handleAskUserQuestion(id, params) {
   }
 }
 
+async function handleWriteMemory(id, params) {
+  const args = (params && params.arguments) || {}
+  try {
+    const res = await fetch(\`http://127.0.0.1:\${memoryPort}/memory-entry\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-memory-token': memoryToken },
+      body: JSON.stringify({ summary: args.summary }),
+    })
+    const body = await res.json()
+    send({ jsonrpc: '2.0', id, result: { content: body.content, isError: Boolean(body.isError) } })
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err)
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: \`Falha ao registrar memória: \${message}\` }], isError: true },
+    })
+  }
+}
+
 async function handleToolsCall(id, params) {
   const toolName = params && params.name
   if (toolName === 'load_skill') {
@@ -300,6 +337,10 @@ async function handleToolsCall(id, params) {
   }
   if (toolName === 'ask_user_question') {
     await handleAskUserQuestion(id, params)
+    return
+  }
+  if (toolName === 'write_memory') {
+    await handleWriteMemory(id, params)
     return
   }
   send({
@@ -373,20 +414,24 @@ export interface EngrenaCodeMcpDefOptions {
   codegraphIndexPath?: string
   askPort?: number
   askToken?: string
+  memoryPort?: number
+  memoryToken?: string
 }
 
 /**
  * `ResolvedMcpDef` do MCP interno `engrenacode`.
- * Exige ao menos skills snapshot, port/token de delegação, índice CodeGraph, ou port/token de ask_user_question.
+ * Exige ao menos skills snapshot, port/token de delegação, índice CodeGraph, port/token de
+ * ask_user_question, ou port/token de write_memory (F20).
  */
 export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): ResolvedMcpDef {
   const hasSkills = typeof opts.skillsSnapshotPath === 'string' && opts.skillsSnapshotPath.length > 0
   const hasDelegate = opts.port !== undefined && typeof opts.token === 'string' && opts.token.length > 0
   const hasCodegraph = typeof opts.codegraphIndexPath === 'string' && opts.codegraphIndexPath.length > 0
   const hasAsk = opts.askPort !== undefined && typeof opts.askToken === 'string' && opts.askToken.length > 0
-  if (!hasSkills && !hasDelegate && !hasCodegraph && !hasAsk) {
+  const hasMemory = opts.memoryPort !== undefined && typeof opts.memoryToken === 'string' && opts.memoryToken.length > 0
+  if (!hasSkills && !hasDelegate && !hasCodegraph && !hasAsk && !hasMemory) {
     throw new Error(
-      'buildEngrenaCodeMcpDef: informe skillsSnapshotPath, port+token, codegraphIndexPath e/ou askPort+askToken'
+      'buildEngrenaCodeMcpDef: informe skillsSnapshotPath, port+token, codegraphIndexPath, askPort+askToken e/ou memoryPort+memoryToken'
     )
   }
 
@@ -402,6 +447,9 @@ export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): Resolved
   }
   if (hasAsk) {
     args.push('--ask-port', String(opts.askPort), '--ask-token', opts.askToken as string)
+  }
+  if (hasMemory) {
+    args.push('--memory-port', String(opts.memoryPort), '--memory-token', opts.memoryToken as string)
   }
 
   return {

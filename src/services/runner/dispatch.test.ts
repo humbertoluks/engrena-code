@@ -7,7 +7,7 @@ import { join } from 'path'
 process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_dispatch_'))
 
 const { getDb, closeDb } = await import('../db/client.js')
-const { createProject } = await import('../db/repositories/projects.js')
+const { createProject, setMemoryEnabled } = await import('../db/repositories/projects.js')
 const { getThread, listThreadsForProject } = await import('../db/repositories/threads.js')
 const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { listToolCallsForThread, listMessagesForThread } = await import('../db/repositories/messages.js')
@@ -29,6 +29,7 @@ const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.j
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
+const { readJournal } = await import('../vault/memory-service.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -552,6 +553,142 @@ describe('dispatchNewThread', () => {
     expect(diffs).toHaveLength(1)
     expect(diffs[0].file).toBe('novo-arquivo.txt')
     expect(diffs[0].status).toBe('pending')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('F20 memória — write_memory wiring', () => {
+  it('registers the engrenacode MCP with memory-port/memory-token when memory is enabled (default)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedMcpServers: Array<{ name: string; args?: string[] }> | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedMcpServers = input.mcpServers as Array<{ name: string; args?: string[] }>
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const internal = capturedMcpServers?.find((m) => m.name === 'engrenacode')
+    expect(internal?.args?.includes('--memory-port')).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('omits memory-port/memory-token when the project toggle is off', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setMemoryEnabled(project.id, false)
+
+    let capturedMcpServers: Array<{ name: string; args?: string[] }> | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedMcpServers = input.mcpServers as Array<{ name: string; args?: string[] }>
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    const internal = capturedMcpServers?.find((m) => m.name === 'engrenacode')
+    expect(internal?.args?.includes('--memory-port')).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('runTurn_writeMemoryToolAppendsEntry — provider calling write_memory over the real loopback appends a journal entry without any extra LLM call', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let runCliTurnCallCount = 0
+    setRunCliTurnForTesting(async (input) => {
+      runCliTurnCallCount++
+      const internal = (input.mcpServers as Array<{ name: string; args?: string[] }>)?.find(
+        (m) => m.name === 'engrenacode'
+      )
+      const args = internal?.args ?? []
+      const memoryPort = args[args.indexOf('--memory-port') + 1]
+      const memoryToken = args[args.indexOf('--memory-token') + 1]
+
+      const res = await fetch(`http://127.0.0.1:${memoryPort}/memory-entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-memory-token': memoryToken },
+        body: JSON.stringify({ summary: 'decisão registrada pelo provider' }),
+      })
+      const body = (await res.json()) as { isError: boolean }
+      expect(body.isError).toBe(false)
+
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'grave uma memória',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(runCliTurnCallCount).toBe(1)
+    expect(readJournal(project.id).content).toContain('decisão registrada pelo provider')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('emits memory.entry over the ws-hub when a write_memory call lands', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async (input) => {
+      const internal = (input.mcpServers as Array<{ name: string; args?: string[] }>)?.find(
+        (m) => m.name === 'engrenacode'
+      )
+      const args = internal?.args ?? []
+      const memoryPort = args[args.indexOf('--memory-port') + 1]
+      const memoryToken = args[args.indexOf('--memory-token') + 1]
+
+      await fetch(`http://127.0.0.1:${memoryPort}/memory-entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-memory-token': memoryToken },
+        body: JSON.stringify({ summary: 'entrada com evento' }),
+      })
+
+      return { text: 'ok' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'grave uma memória',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<{ type: string; projectId?: string }> = []
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const event = received.find((e) => e.type === 'memory.entry')
+    expect(event?.projectId).toBe(project.id)
     rmSync(dir, { recursive: true, force: true })
   })
 })

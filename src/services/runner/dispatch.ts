@@ -26,6 +26,8 @@ import {
   type SkillSnapshot,
 } from './skill-registry.js'
 import { RuleRegistry } from './rule-registry.js'
+import { MemoryRegistry } from './memory-registry.js'
+import { createMemoryWriteServer, type MemoryWriteServerHandle } from './memory-write-server.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
 import {
@@ -131,7 +133,7 @@ function persistAgentUsage(params: {
   })
 }
 
-function buildSystemPrompt(project: Project, skillSnapshot: SkillSnapshot): string {
+function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: SkillSnapshot): string {
   const parts: string[] = []
 
   const promptGlobal = vaultService.getSecret('prompt:global')
@@ -140,6 +142,9 @@ function buildSystemPrompt(project: Project, skillSnapshot: SkillSnapshot): stri
 
   const rulesBlock = RuleRegistry.composeBlockForTurn(project.id)
   if (rulesBlock) parts.push(rulesBlock)
+
+  const memoryBlock = MemoryRegistry.composeBlockForTurn(project.id, threadId)
+  if (memoryBlock) parts.push(memoryBlock)
 
   if (skillSnapshot.catalog.length > 0) {
     parts.push(
@@ -241,6 +246,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
   let askUserQuestionServer: AskUserQuestionServerHandle | null = null
+  let memoryWriteServer: MemoryWriteServerHandle | null = null
   const turnId = randomUUID()
   try {
     const imageBlocks =
@@ -255,7 +261,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks: imageBlocks })
 
     const skillSnapshot = createSkillSnapshot(project.id)
-    const systemPrompt = buildSystemPrompt(project, skillSnapshot)
+    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot)
     const cwd = resolveThreadCwd(thread, project)
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)
@@ -295,6 +301,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
         })
       }
       askUserQuestionServer = await createAskUserQuestionServer(thread.id)
+      if (MemoryRegistry.isEnabledForProject(project.id)) {
+        memoryWriteServer = await createMemoryWriteServer({ projectId: project.id, threadId: thread.id }, () => {
+          emit(thread.id, { type: 'memory.entry', threadId: thread.id, projectId: project.id })
+        })
+      }
       mcpsPrepared.resolved.push(
         buildEngrenaCodeMcpDef({
           skillsSnapshotPath,
@@ -303,6 +314,8 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
           codegraphIndexPath: codegraphEnsure.indexPath ?? undefined,
           askPort: askUserQuestionServer.port,
           askToken: askUserQuestionServer.token,
+          memoryPort: memoryWriteServer?.port,
+          memoryToken: memoryWriteServer?.token,
         })
       )
     } else {
@@ -466,6 +479,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     // fechar o servidor — sem isso o `tools/call` do MCP filho ficaria pendurado (F21 §3.2).
     rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
+    memoryWriteServer?.close()
     activeControllers.delete(thread.id)
     releaseLease(project.id)
   }
