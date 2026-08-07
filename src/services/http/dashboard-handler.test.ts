@@ -82,12 +82,14 @@ describe('computeDashboardHealth', () => {
     },
     prompt: { isDefault: true, isEmpty: false, currentText: 'x' },
     github: { tokenPresent: false },
-    keys: { claude: false, codex: false, minimax: false },
+    keys: { claude: false, codex: false, minimax: false, glm: false, grok: false },
     providers: {
       claude: { available: false },
       codex: { available: false },
       kimi: { available: false },
       minimax: { available: false },
+      glm: { available: false },
+      grok: { available: false },
     },
   }
 

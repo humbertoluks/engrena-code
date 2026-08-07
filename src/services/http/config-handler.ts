@@ -7,9 +7,11 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendJson } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { validateGithubToken } from './github-token.js'
-import { validateClaudeKey, validateCodexKey, validateMinimaxKey } from '../vault/provider-keys.js'
+import { validateClaudeKey, validateCodexKey, validateMinimaxKey, validateGlmKey, validateGrokKey } from '../vault/provider-keys.js'
 import type { ProviderKeyValidation } from '../vault/provider-keys.js'
 import { runClaudeProbe } from './claude-probe.js'
+import { testConnection as testGlmConnection } from '../runner/providers/glm-driver.js'
+import { testConnection as testGrokConnection } from '../runner/providers/grok-driver.js'
 
 const execAsync = promisify(exec)
 
@@ -71,12 +73,14 @@ export interface ConfigStatus {
   clis: { claude: CLIStatus; codex: CLIStatus; kimi: CLIStatus }
   prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
   github: { tokenPresent: boolean }
-  keys: { claude: boolean; codex: boolean; minimax: boolean }
+  keys: { claude: boolean; codex: boolean; minimax: boolean; glm: boolean; grok: boolean }
   providers: {
     claude: { available: boolean; reason?: string }
     codex: { available: boolean; reason?: string }
     kimi: { available: boolean; reason?: string }
     minimax: { available: boolean; reason?: string }
+    glm: { available: boolean; reason?: string }
+    grok: { available: boolean; reason?: string }
   }
 }
 
@@ -96,6 +100,8 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
     claude: Boolean(vaultService.getSecret('keys:claude')),
     codex: Boolean(vaultService.getSecret('keys:codex')),
     minimax: Boolean(vaultService.getSecret('keys:minimax')),
+    glm: Boolean(vaultService.getSecret('keys:glm')),
+    grok: Boolean(vaultService.getSecret('keys:grok')),
   }
 
   // Fast PATH-only check for CLIs (login = null until Testar conexões)
@@ -123,6 +129,12 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
     minimax: keys.minimax
       ? { available: true }
       : { available: false, reason: 'Minimax sem key salva — configure em #configuracao.' },
+    glm: keys.glm
+      ? { available: true }
+      : { available: false, reason: 'GLM sem key salva — configure em #configuracao.' },
+    grok: keys.grok
+      ? { available: true }
+      : { available: false, reason: 'Grok sem key salva — configure em #configuracao.' },
   }
 
   return {
@@ -277,19 +289,24 @@ async function handleGithubToken(req: IncomingMessage, res: ServerResponse): Pro
 async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!guard(req, res)) return
 
-  const data = parseBody<{ claude?: string; codex?: string; minimax?: string }>(await readBody(req))
+  const data = parseBody<{ claude?: string; codex?: string; minimax?: string; glm?: string; grok?: string }>(
+    await readBody(req)
+  )
   if (data === null) {
     return sendJson(res, 400, { error: { code: 'invalid_json', message: 'Corpo inválido.' } })
   }
 
-  const fields: Array<{ name: 'claude' | 'codex' | 'minimax'; value?: string; validate: (key: string) => ProviderKeyValidation }> = [
+  type KeyFieldName = 'claude' | 'codex' | 'minimax' | 'glm' | 'grok'
+  const fields: Array<{ name: KeyFieldName; value?: string; validate: (key: string) => ProviderKeyValidation }> = [
     { name: 'claude', value: data.claude, validate: validateClaudeKey },
     { name: 'codex', value: data.codex, validate: validateCodexKey },
     { name: 'minimax', value: data.minimax, validate: validateMinimaxKey },
+    { name: 'glm', value: data.glm, validate: validateGlmKey },
+    { name: 'grok', value: data.grok, validate: validateGrokKey },
   ]
 
   const details: Record<string, string> = {}
-  const toApply: Array<{ name: 'claude' | 'codex' | 'minimax'; validation: Extract<ProviderKeyValidation, { ok: true }> }> = []
+  const toApply: Array<{ name: KeyFieldName; validation: Extract<ProviderKeyValidation, { ok: true }> }> = []
 
   for (const field of fields) {
     if (field.value === undefined) continue
@@ -318,9 +335,33 @@ async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promis
       claude: Boolean(vaultService.getSecret('keys:claude')),
       codex: Boolean(vaultService.getSecret('keys:codex')),
       minimax: Boolean(vaultService.getSecret('keys:minimax')),
+      glm: Boolean(vaultService.getSecret('keys:glm')),
+      grok: Boolean(vaultService.getSecret('keys:grok')),
     },
     message: 'Chaves salvas localmente (não validadas com o provider).',
   })
+}
+
+async function handleGlmTest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!guard(req, res)) return
+
+  try {
+    const result = await testGlmConnection(vaultService.getSecret('keys:glm'))
+    sendJson(res, 200, result)
+  } catch {
+    sendJson(res, 200, { success: false, detail: 'Não foi possível testar a conexão agora.' })
+  }
+}
+
+async function handleGrokTest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!guard(req, res)) return
+
+  try {
+    const result = await testGrokConnection(vaultService.getSecret('keys:grok'))
+    sendJson(res, 200, result)
+  } catch {
+    sendJson(res, 200, { success: false, detail: 'Não foi possível testar a conexão agora.' })
+  }
 }
 
 // ── Router ──────────────────────────────────────────────────────────────────
@@ -360,6 +401,14 @@ export async function handleConfigRequest(req: IncomingMessage, res: ServerRespo
     }
     if (method === 'POST' && url === '/api/config/keys/save') {
       await handleKeysSave(req, res)
+      return true
+    }
+    if (method === 'POST' && url === '/api/config/glm/test') {
+      await handleGlmTest(req, res)
+      return true
+    }
+    if (method === 'POST' && url === '/api/config/grok/test') {
+      await handleGrokTest(req, res)
       return true
     }
   } catch (err) {

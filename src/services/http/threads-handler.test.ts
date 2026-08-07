@@ -189,6 +189,29 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('test_threads_accept_glm_grok_providers (F23) — accepts glm and grok', async () => {
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    for (const provider of ['glm', 'grok']) {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider, accessLevel: 'supervised', executionMode: 'main' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(201)
+      const thread = (body as { thread: { id: string; provider: string } }).thread
+      expect(thread.provider).toBe(provider)
+      await waitFor(() => getThread(thread.id)?.state === 'idle')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('returns 409 thread_busy on a second dispatch while the project is leased', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

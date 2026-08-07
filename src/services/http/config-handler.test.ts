@@ -106,7 +106,7 @@ describe('POST /api/config/keys/save', () => {
     expect(status).toBe(200)
     expect(body).toEqual({
       saved: true,
-      keys: { claude: true, codex: true, minimax: true },
+      keys: { claude: true, codex: true, minimax: true, glm: false, grok: false },
       message: 'Chaves salvas localmente (não validadas com o provider).',
     })
   })
@@ -122,10 +122,12 @@ describe('POST /api/config/keys/save', () => {
     const res = fakeRes()
     await handleConfigRequest(req, res)
     const { body } = await res.result()
-    expect((body as { keys: { claude: boolean; codex: boolean; minimax: boolean } }).keys).toEqual({
+    expect((body as { keys: { claude: boolean; codex: boolean; minimax: boolean; glm: boolean; grok: boolean } }).keys).toEqual({
       claude: true,
       codex: false,
       minimax: true,
+      glm: false,
+      grok: false,
     })
   })
 
@@ -156,11 +158,77 @@ describe('GET /api/config/status', () => {
     const { status, body } = await res.result()
     expect(status).toBe(200)
     const parsed = body as {
-      keys: { claude: boolean; codex: boolean; minimax: boolean }
+      keys: { claude: boolean; codex: boolean; minimax: boolean; glm: boolean; grok: boolean }
       providers: { minimax: { available: boolean } }
     }
-    expect(parsed.keys).toEqual({ claude: false, codex: false, minimax: true })
+    expect(parsed.keys).toEqual({ claude: false, codex: false, minimax: true, glm: false, grok: false })
     expect(parsed.providers.minimax.available).toBe(true)
+  })
+})
+
+describe('POST /api/config/keys/save — glm/grok (F23)', () => {
+  it('saves valid glm/grok keys and reports presence', async () => {
+    const session = unlockVault()
+    const req = fakeReq(
+      'POST',
+      '/api/config/keys/save',
+      { glm: 'abcdef01234.5678secretpart', grok: 'xai-abcdef0123456789' },
+      session
+    )
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect((body as { keys: { glm: boolean; grok: boolean } }).keys).toMatchObject({ glm: true, grok: true })
+  })
+
+  it('rejects a grok key without the xai- prefix, nothing saved', async () => {
+    const session = unlockVault()
+    const req = fakeReq('POST', '/api/config/keys/save', { grok: 'not-a-grok-key' }, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    const err = (body as { error: { code: string; details?: Record<string, string> } }).error
+    expect(err.code).toBe('validation_error')
+    expect(err.details?.grok).toBe('Formato inválido. Esperado: xai-…')
+  })
+})
+
+describe('GET /api/config/status — glm/grok (F23)', () => {
+  it('reports glm/grok availability with reason when key is missing', async () => {
+    const session = unlockVault()
+    const req = fakeReq('GET', '/api/config/status', undefined, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { body } = await res.result()
+    const parsed = body as { providers: { glm: { available: boolean; reason?: string }; grok: { available: boolean; reason?: string } } }
+    expect(parsed.providers.glm).toEqual({ available: false, reason: 'GLM sem key salva — configure em #configuracao.' })
+    expect(parsed.providers.grok).toEqual({ available: false, reason: 'Grok sem key salva — configure em #configuracao.' })
+  })
+})
+
+describe('POST /api/config/glm/test and /api/config/grok/test (F23)', () => {
+  it('returns 423 vault_locked when vault is locked', async () => {
+    const req = fakeReq('POST', '/api/config/glm/test')
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    expect((await res.result()).status).toBe(423)
+  })
+
+  it('returns success:false with a key-missing detail when no key is saved', async () => {
+    const session = unlockVault()
+    const glmReq = fakeReq('POST', '/api/config/glm/test', undefined, session)
+    const glmRes = fakeRes()
+    await handleConfigRequest(glmReq, glmRes)
+    const glmBody = (await glmRes.result()).body as { success: boolean; detail: string }
+    expect(glmBody.success).toBe(false)
+
+    const grokReq = fakeReq('POST', '/api/config/grok/test', undefined, session)
+    const grokRes = fakeRes()
+    await handleConfigRequest(grokReq, grokRes)
+    const grokBody = (await grokRes.result()).body as { success: boolean; detail: string }
+    expect(grokBody.success).toBe(false)
   })
 })
 
