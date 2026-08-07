@@ -34,7 +34,7 @@ Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, c
 
 ### Status: FECHADO
 
-**§9 do PRD: 103 `[x]` / 0 `[ ]`].** FAIL = 0 · DOC-LAG = 0 · `[x]` indevido = 0.  
+**§9 do PRD: 103 `[x]` / 0 `[ ]`.** FAIL = 0 · DOC-LAG = 0 · `[x]` indevido = 0.  
 **Versão 1.2 (F12–F17) + residuais de smoke + passe de copy: feitos.**  
 **Esta auditoria de migração não tem mais itens abertos no escopo.**
 
