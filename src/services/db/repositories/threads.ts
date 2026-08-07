@@ -148,6 +148,12 @@ export function setThreadState(id: string, state: ThreadState): Thread | null {
   return updateThread(id, { state })
 }
 
+/** `messages`/`tool_calls` têm FK `ON DELETE CASCADE`; `diffs` não — chamador deve apagar via `deleteDiffsForThread` antes (spec F13 §6). */
+export function deleteThread(id: string): boolean {
+  const result = getDb().prepare('DELETE FROM threads WHERE id = ?').run(id)
+  return Number(result.changes) > 0
+}
+
 /**
  * Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` de uma execução
  * anterior interrompida viram `error`. Retorna as threads afetadas para o chamador gravar

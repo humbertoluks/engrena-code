@@ -13,6 +13,7 @@ const COPY = {
   threadsNew: 'Nova thread',
   threadsLoading: 'Carregando…',
   threadsError: 'Falha ao carregar as threads.',
+  badgeWorktree: 'Worktree',
 } as const
 
 function threadLabel(thread: Thread): string {
@@ -130,6 +131,11 @@ export function ProjectTree({
                           >
                             <span className={`h-[6px] w-[6px] shrink-0 rounded-full ${STATE_DOT[thread.state]}`} />
                             <span className="truncate">{threadLabel(thread)}</span>
+                            {thread.executionMode === 'worktree' ? (
+                              <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-[4px] py-[1px] font-mono text-[9.5px] text-accent-2">
+                                {COPY.badgeWorktree}
+                              </span>
+                            ) : null}
                           </button>
                         ))
                       )}

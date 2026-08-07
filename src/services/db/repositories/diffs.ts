@@ -124,6 +124,11 @@ export function countPendingForThread(threadId: string): number {
   return row.c
 }
 
+/** `diffs.thread_id` não tem FK CASCADE (migration 002) — apagar explicitamente antes de `deleteThread` (spec F13 §6). */
+export function deleteDiffsForThread(threadId: string): void {
+  getDb().prepare('DELETE FROM diffs WHERE thread_id = ?').run(threadId)
+}
+
 /** Total de diffs pending em todas as threads. Usado pelo card "Diffs pendentes" do Dashboard (F04). */
 export function countAllPending(): number {
   const row = getDb()

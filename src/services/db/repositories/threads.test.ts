@@ -7,7 +7,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
-const { createThread, getThread, recoverRunningThreads } = await import('./threads.js')
+const { createThread, deleteThread, getThread, recoverRunningThreads } = await import('./threads.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f08_threads_fixture_'))
 
@@ -51,5 +51,19 @@ describe('recoverRunningThreads', () => {
 
   it('returns an empty list when there is nothing to recover', () => {
     expect(recoverRunningThreads()).toEqual([])
+  })
+})
+
+describe('deleteThread', () => {
+  it('removes the thread row and returns true', () => {
+    const project = createProject({ path: makeProjectDir('project-c') })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'worktree', state: 'idle' })
+
+    expect(deleteThread(thread.id)).toBe(true)
+    expect(getThread(thread.id)).toBeNull()
+  })
+
+  it('returns false for an unknown thread id', () => {
+    expect(deleteThread('thr_nao_existe')).toBe(false)
   })
 })

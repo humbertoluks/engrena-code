@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { vaultService } from '../vault/vault-service.js'
-import { getThread, listThreadsForProject } from '../db/repositories/threads.js'
+import { getThread, deleteThread, listThreadsForProject } from '../db/repositories/threads.js'
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
-import { listDiffsForThread } from '../db/repositories/diffs.js'
+import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
+import { getProject } from '../db/repositories/projects.js'
 import {
   cancelThread,
   dispatchFollowUp,
@@ -12,7 +13,8 @@ import {
   type DispatchNewThreadInput,
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
-import { LeaseBusyError } from '../runner/project-execution.js'
+import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
+import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
 
 const SESSION_HEADER = 'x-engrenacode-session'
@@ -142,7 +144,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
   }
 
   try {
-    const thread = dispatchNewThread({
+    const thread = await dispatchNewThread({
       projectId,
       prompt: data.prompt,
       provider: data.provider as DispatchNewThreadInput['provider'],
@@ -264,9 +266,38 @@ async function handleAccept(req: IncomingMessage, res: ServerResponse, threadId:
   }
 }
 
+/** DELETE /api/threads/:id (spec F13 §5): apaga a thread e limpa a worktree quando seguro. */
+async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const project = getProject(thread.projectId)
+  if (project === null) return sendError(res, 404, 'project_not_found', 'Projeto não encontrado.')
+
+  try {
+    acquireLease(project.id, 'git', 'delete-thread', threadId)
+  } catch (err) {
+    if (err instanceof LeaseBusyError) {
+      sendError(res, 409, 'thread_busy', err.message, threadBusyDetails(err))
+      return
+    }
+    throw err
+  }
+
+  try {
+    const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
+    deleteDiffsForThread(thread.id)
+    deleteThread(thread.id)
+    sendJson(res, 200, { deleted: true, worktreeCleanup: cleanup.result, warning: cleanup.warning })
+  } finally {
+    releaseLease(project.id)
+  }
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 const CREATE_THREAD_RE = /^\/api\/projects\/([^/]+)\/threads$/
+const THREAD_RE = /^\/api\/threads\/([^/]+)$/
 const MESSAGES_RE = /^\/api\/threads\/([^/]+)\/messages$/
 const HISTORY_RE = /^\/api\/threads\/([^/]+)\/history$/
 const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
@@ -280,6 +311,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
 
   const matchesThreadsRoute =
     CREATE_THREAD_RE.test(url) ||
+    THREAD_RE.test(url) ||
     MESSAGES_RE.test(url) ||
     HISTORY_RE.test(url) ||
     DIFFS_RE.test(url) ||
@@ -299,6 +331,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     }
     if (createMatch && method === 'GET') {
       handleListThreads(req, res, createMatch[1])
+      return true
+    }
+
+    const threadMatch = THREAD_RE.exec(url)
+    if (threadMatch && method === 'DELETE') {
+      await handleDeleteThread(req, res, threadMatch[1])
       return true
     }
 

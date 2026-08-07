@@ -420,4 +420,111 @@ describe('handleThreadsRequest', () => {
 
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('dispatches a worktree thread: 201 with worktreePath set, cwd isolated from project.path', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const req = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'worktree' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(201)
+    const parsed = body as { thread: { id: string; worktreePath: string | null } }
+    expect(parsed.thread.worktreePath).toBeTruthy()
+    expect(parsed.thread.worktreePath).not.toBe(dir)
+
+    await waitFor(() => getThread(parsed.thread.id)?.state === 'idle')
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(parsed.thread.worktreePath as string, { recursive: true, force: true })
+  })
+
+  it('returns 400 worktree_git_required for a worktree dispatch when the project has no git HEAD', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_threads_http_nogit_'))
+    const project = createProject({ path: dir })
+
+    const req = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'worktree' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string; message: string } }).error.code).toBe('worktree_git_required')
+    expect((body as { error: { message: string } }).error.message).toBe('Inicialize o Git antes de usar Worktree.')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('DELETE /api/threads/:id removes a main-mode thread (worktreeCleanup=none)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq('DELETE', `/api/threads/${created.thread.id}`, undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect(body).toEqual({ deleted: true, worktreeCleanup: 'none', warning: null })
+    expect(getThread(created.thread.id)).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('DELETE /api/threads/:id removes a clean worktree and its branch (worktreeCleanup=removed)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'worktree' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string; worktreePath: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const req = fakeReq('DELETE', `/api/threads/${created.thread.id}`, undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect(body).toEqual({ deleted: true, worktreeCleanup: 'removed', warning: null })
+    expect(getThread(created.thread.id)).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('DELETE /api/threads/:id returns 404 thread_not_found for an unknown id', async () => {
+    const req = fakeReq('DELETE', '/api/threads/thr_nao_existe', undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(404)
+    expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+  })
 })
