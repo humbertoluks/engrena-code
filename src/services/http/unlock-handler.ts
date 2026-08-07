@@ -13,6 +13,7 @@ import { handleMcpsRequest } from './mcps-handler.js'
 import { handleLogsRequest } from './logs-handler.js'
 import { handleConsumoRequest } from './consumo-handler.js'
 import { handleCodegraphRequest } from './codegraph-handler.js'
+import { handleMemoryRequest } from './memory-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
@@ -222,6 +223,12 @@ export function createUnlockServer(port: number = 5174): http.Server {
     // CodeGraph status / reindex (F19) — before broad /api/projects/ handlers
     if (req.url?.startsWith('/api/projects/') && req.url.includes('/codegraph/')) {
       const handled = await handleCodegraphRequest(req, res)
+      if (handled) return
+    }
+
+    // Memory status/journal (F20) — before broad /api/projects/ handlers
+    if (req.url?.startsWith('/api/projects/') && req.url.includes('/memory/')) {
+      const handled = await handleMemoryRequest(req, res)
       if (handled) return
     }
 

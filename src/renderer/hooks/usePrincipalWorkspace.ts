@@ -14,6 +14,7 @@ import {
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
+import { memoryService, type MemoryStatus } from '../services/memory-service'
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion } from '../components/workspace/askUserQuestion.logic'
 
@@ -89,6 +90,7 @@ export function usePrincipalWorkspace() {
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [vcsStatus, setVcsStatus] = useState<VcsStatus | null>(null)
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
@@ -208,6 +210,16 @@ export function usePrincipalWorkspace() {
     }
   }, [])
 
+  const loadMemoryStatus = useCallback(async (projectId: string) => {
+    try {
+      const res = await memoryService.getStatus(projectId)
+      if (!mountedRef.current) return
+      if (!res.error) setMemoryStatus(res)
+    } catch {
+      // status de memória é best-effort na sidebar
+    }
+  }, [])
+
   const loadHistory = useCallback(async (threadId: string) => {
     setHistoryLoading(true)
     setHistoryError(null)
@@ -267,9 +279,14 @@ export function usePrincipalWorkspace() {
     if (selectedProjectId && !threadsByProject[selectedProjectId] && !threadsLoading[selectedProjectId]) {
       void loadThreads(selectedProjectId)
     }
-    if (selectedProjectId) void loadVcsStatus(selectedProjectId)
-    else setVcsStatus(null)
-  }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus])
+    if (selectedProjectId) {
+      void loadVcsStatus(selectedProjectId)
+      void loadMemoryStatus(selectedProjectId)
+    } else {
+      setVcsStatus(null)
+      setMemoryStatus(null)
+    }
+  }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus])
 
   // Rehidrata model/reasoning atuais da thread selecionada nos controles do composer (spec F16 plan §10).
   useEffect(() => {
@@ -337,6 +354,10 @@ export function usePrincipalWorkspace() {
     }
     if (event.type === 'diff.ready') {
       void loadDiffs(event.threadId)
+      return
+    }
+    if (event.type === 'memory.entry') {
+      void loadMemoryStatus(event.projectId)
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
@@ -595,6 +616,7 @@ export function usePrincipalWorkspace() {
     selectThread,
     newThread,
     vcsStatus,
+    memoryStatus,
     messages,
     toolCalls,
     subagentRuns,
