@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -13,6 +14,8 @@ const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
+const { diffWorkingTree } = await import('../git/git-client.js')
+const { resolveThreadCwd } = await import('./thread-cwd.js')
 const {
   createDelegationServer,
   runDelegatedSubagentTurn,
@@ -25,6 +28,17 @@ const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f11_delegate_
 function makeProjectDir(name: string): string {
   const dir = join(fixtureRoot, name)
   mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function makeGitProjectDir(name: string): string {
+  const dir = makeProjectDir(name)
+  execFileSync('git', ['init'], { cwd: dir })
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Test', '-c', 'user.email=test@local', 'commit', '--allow-empty', '-m', 'init'],
+    { cwd: dir }
+  )
   return dir
 }
 
@@ -305,6 +319,35 @@ describe('runDelegatedSubagentTurn — F15 hardening', () => {
     expect(typeof startEvent?.childThreadId).toBe('string')
     expect(resultEvent).toMatchObject({ threadId: parentThread.id, status: 'completed' })
     expect(resultEvent?.childThreadId).toBe(startEvent?.childThreadId)
+  })
+})
+
+describe('runDelegatedSubagentTurn — diffs unificados (F15 Fase 3)', () => {
+  it('a file written by the child during delegation shows up in diffWorkingTree(cwd) of the parent', async () => {
+    const dir = makeGitProjectDir(`project-${Math.random()}`)
+    const project = createProject({ path: dir })
+    const parentThread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'full-access',
+      executionMode: 'main',
+    })
+    const repo = createSubagentsRepository(getDb())
+    const subagent = linkSubagent(repo, project.id)
+
+    const cwd = resolveThreadCwd(parentThread, project)
+    setRunCliTurnForTesting(async (input) => {
+      // Mesmo cwd do pai — é isso que unifica o write do filho sem merge-tree (spec F15 §3.2).
+      writeFileSync(join(input.cwd, 'arquivo-do-filho.txt'), 'criado pelo subagent\n')
+      return { text: 'feito' }
+    })
+
+    await runDelegatedSubagentTurn({ repo, project, parentThread, parentTurnId: 'turn-1' }, { name: subagent.name, task: 't' })
+
+    const diffs = await diffWorkingTree(cwd)
+    expect(diffs.map((d) => d.file)).toContain('arquivo-do-filho.txt')
+
+    rmSync(dir, { recursive: true, force: true })
   })
 })
 
