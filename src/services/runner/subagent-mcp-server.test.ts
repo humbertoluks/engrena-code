@@ -210,4 +210,13 @@ describe('engrenacode MCP (call_subagent + load_skill)', () => {
       delegate.close()
     }
   }, 15000)
+
+  it('sets ELECTRON_RUN_AS_NODE=1 so the real Electron main process spawns the script as plain Node (F15)', () => {
+    // command = process.execPath — no main process do Electron isso é o binário do Electron, não
+    // um `node` puro. Sem essa env var o CLI spawna a GUI do Electron em vez do script MCP, e o
+    // handshake stdio nunca acontece (achado real via smoke F15 — regressão silenciosa que este
+    // teste sob Vitest/Node nunca teria pego, já que aqui `process.execPath` já é `node`).
+    const def = buildEngrenaCodeMcpDef({ port: 1234, token: 'tok' })
+    expect(def.env?.ELECTRON_RUN_AS_NODE).toBe('1')
+  })
 })

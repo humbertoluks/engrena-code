@@ -215,6 +215,11 @@ export function buildEngrenaCodeMcpDef(opts: EngrenaCodeMcpDefOptions): Resolved
     transport: 'stdio',
     command: process.execPath,
     args,
+    // `process.execPath` no processo main é o binário do Electron, não um `node` puro — sem essa
+    // env var o CLI spawna a GUI do Electron em vez do script MCP, e o handshake stdio nunca
+    // acontece (achado real via smoke F15: `mcp__engrenacode__call_subagent` nunca aparecia pro
+    // modelo, sem erro visível — o MCP falhava silenciosamente ao iniciar).
+    env: { ELECTRON_RUN_AS_NODE: '1' },
   }
 }
 
