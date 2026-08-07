@@ -13,6 +13,7 @@ import { ProjectSubagentsModal } from '../subagents/ProjectSubagentsModal'
 import { ProjectMcpsModal } from '../mcps/ProjectMcpsModal'
 import { SubagentActivity } from '../subagents/SubagentActivity'
 import { GitActions } from './GitActions'
+import { CodegraphSection } from '../codegraph/CodegraphSection'
 
 const COPY = {
   newThread: 'Nova Thread',
@@ -141,6 +142,8 @@ export function WorkspaceSidebar({
               onTextgen={onTextgen}
             />
           </section>
+
+          <CodegraphSection projectId={project.id} />
 
           <section>
             <h3 className="mb-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.harness}</h3>

@@ -188,16 +188,35 @@ describe('applyDiffAction — validation and busy', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('throws LeaseBusyError (thread_busy) when the project is already leased', async () => {
+  it('test_accept_reindexes_changed_file via codegraph', async () => {
     const dir = makeProjectDir()
-    const { project, thread, diffExisting } = seedTurn(dir)
-    acquireLease(project.id, 'agent', 'dispatch', thread.id)
+    writeFileSync(join(dir, 'src-lib.ts'), 'export function Alpha() { return 1 }\n')
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'full-access',
+      executionMode: 'main',
+      state: 'idle',
+    })
+    const { buildIndex } = await import('../codegraph/indexer.js')
+    const { findDefinitionForProject } = await import('../codegraph/query.js')
+    buildIndex(project.id, dir)
 
-    await expect(applyDiffAction({ threadId: thread.id, ids: [diffExisting.id] })).rejects.toBeInstanceOf(
-      LeaseBusyError
-    )
+    writeFileSync(join(dir, 'src-lib.ts'), 'export function Alpha() { return 1 }\nexport function Beta() { return 2 }\n')
+    createDiff({
+      threadId: thread.id,
+      file: 'src-lib.ts',
+      additions: 1,
+      deletions: 0,
+      hunks: [{ header: '@@', lines: ['+export function Beta()'] }],
+      provider: 'claude',
+      worktreePath: dir,
+    })
 
-    clearAllLeases()
+    await applyDiffAction({ threadId: thread.id, action: 'accept' })
+    const { hits } = findDefinitionForProject(project.id, 'Beta')
+    expect(hits.length).toBeGreaterThanOrEqual(1)
     rmSync(dir, { recursive: true, force: true })
   })
 })

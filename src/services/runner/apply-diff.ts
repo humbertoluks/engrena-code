@@ -12,6 +12,7 @@ import { discardFile, GitError } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
+import { reindexFile } from '../codegraph/indexer.js'
 
 export class ApplyDiffValidationError extends Error {
   code: string
@@ -84,6 +85,14 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
       }
       setDiffStatus(diff.id, action === 'accept' ? 'accepted' : 'rejected')
       doneIds.push(diff.id)
+
+      if (action === 'accept') {
+        try {
+          reindexFile(project.id, project.path, diff.file)
+        } catch (err) {
+          console.error('[codegraph] reindexFile after accept failed:', err)
+        }
+      }
     }
 
     const remainingPending = countPendingForThread(thread.id)
