@@ -16,7 +16,7 @@ class VaultService {
   private password: string = ''
   private lastFailureTime: Map<string, number> = new Map()
 
-  unlock(workspace: string, password: string): { unlocked: boolean; retryAfterMs?: number } {
+  unlock(workspace: string, password: string): { unlocked: boolean; retryAfterMs?: number; corrupted?: boolean } {
     const now = Date.now()
     const lastFailureKey = `${workspace}:lastFailure`
     const failureCountKey = `${workspace}:failures`
@@ -65,7 +65,13 @@ class VaultService {
 
       return { unlocked: true }
     } catch (err) {
-      // Increment failure count
+      const message = err instanceof Error ? err.message : ''
+      if (message.startsWith('vault_corrupted:')) {
+        // Structural damage — do not consume backoff (spec F01 §5).
+        return { unlocked: false, corrupted: true }
+      }
+
+      // Increment failure count (wrong password / decrypt failure)
       const newCount = failureCount + 1
       this.lastFailureTime.set(lastFailureKey, now)
       this.lastFailureTime.set(failureCountKey, newCount)

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import axios from 'axios'
@@ -242,5 +242,43 @@ describe('POST /api/vault/unlock payload validation', () => {
     })
     expect(res.status).toBe(404)
     expect(res.data).toEqual({ error: { code: 'not_found', message: 'Not found' } })
+  })
+})
+
+describe('test_corrupted_vault_message', () => {
+  const WORKSPACE = 'f01-corrupted-ws'
+  const PASSWORD = 'f01-corrupted-pass-123'
+
+  beforeEach(() => {
+    vaultService.lock()
+  })
+
+  afterEach(() => {
+    vaultService.lock()
+  })
+
+  it('returns 422 vault_corrupted without consuming backoff', async () => {
+    const vaultPath = join(process.env.ENGRENACODE_USER_DATA as string, 'vault.enc')
+    writeFileSync(vaultPath, Buffer.from([1, 0, 16, 1, 2, 3]))
+
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+
+    const first = await axios.post(
+      `http://127.0.0.1:${port}/api/vault/unlock`,
+      { workspace: WORKSPACE, password: PASSWORD },
+      { validateStatus: () => true }
+    )
+    expect(first.status).toBe(422)
+    expect(first.data?.error?.code).toBe('vault_corrupted')
+    expect(first.data?.error?.message).toContain('danificado ou ilegível')
+
+    const second = await axios.post(
+      `http://127.0.0.1:${port}/api/vault/unlock`,
+      { workspace: WORKSPACE, password: PASSWORD },
+      { validateStatus: () => true }
+    )
+    expect(second.status).toBe(422)
+    expect(second.data?.retryAfterMs).toBeUndefined()
   })
 })

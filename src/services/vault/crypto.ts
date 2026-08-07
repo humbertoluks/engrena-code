@@ -64,8 +64,9 @@ export function decrypt(envelope: CryptoEnvelope, password: string): Buffer {
       decipher.update(envelope.ciphertext),
       decipher.final()
     ])
-  } catch (err) {
-    throw new Error('vault_corrupted: decryption failed or auth tag mismatch')
+  } catch {
+    // Auth tag mismatch: wrong password or tampered ciphertext — not a structural corruption.
+    throw new Error('vault_decrypt_failed: decryption failed or auth tag mismatch')
   }
 }
 
@@ -96,36 +97,51 @@ export function serializeEnvelope(envelope: CryptoEnvelope): Buffer {
 }
 
 export function deserializeEnvelope(data: Buffer): CryptoEnvelope {
-  let offset = 0
+  try {
+    let offset = 0
 
-  const version = data.readUInt8(offset)
-  offset += 1
-  if (version !== 1) throw new Error('vault_corrupted: unsupported version')
+    if (data.length < 1) throw new Error('vault_corrupted: truncated envelope')
 
-  const saltLen = data.readUInt16BE(offset)
-  offset += 2
-  const salt = data.slice(offset, offset + saltLen)
-  offset += saltLen
+    const version = data.readUInt8(offset)
+    offset += 1
+    if (version !== 1) throw new Error('vault_corrupted: unsupported version')
 
-  const ivLen = data.readUInt16BE(offset)
-  offset += 2
-  const iv = data.slice(offset, offset + ivLen)
-  offset += ivLen
+    if (offset + 2 > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const saltLen = data.readUInt16BE(offset)
+    offset += 2
+    if (offset + saltLen > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const salt = data.subarray(offset, offset + saltLen)
+    offset += saltLen
 
-  const ciphertextLen = data.readUInt32BE(offset)
-  offset += 4
-  const ciphertext = data.slice(offset, offset + ciphertextLen)
-  offset += ciphertextLen
+    if (offset + 2 > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const ivLen = data.readUInt16BE(offset)
+    offset += 2
+    if (offset + ivLen > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const iv = data.subarray(offset, offset + ivLen)
+    offset += ivLen
 
-  const authTagLen = data.readUInt16BE(offset)
-  offset += 2
-  const authTag = data.slice(offset, offset + authTagLen)
+    if (offset + 4 > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const ciphertextLen = data.readUInt32BE(offset)
+    offset += 4
+    if (offset + ciphertextLen > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const ciphertext = data.subarray(offset, offset + ciphertextLen)
+    offset += ciphertextLen
 
-  return {
-    salt,
-    kdf: SCRYPT_PARAMS,
-    iv,
-    ciphertext,
-    authTag
+    if (offset + 2 > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const authTagLen = data.readUInt16BE(offset)
+    offset += 2
+    if (offset + authTagLen > data.length) throw new Error('vault_corrupted: truncated envelope')
+    const authTag = data.subarray(offset, offset + authTagLen)
+
+    return {
+      salt,
+      kdf: SCRYPT_PARAMS,
+      iv,
+      ciphertext,
+      authTag
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('vault_corrupted:')) throw err
+    throw new Error('vault_corrupted: invalid envelope')
   }
 }

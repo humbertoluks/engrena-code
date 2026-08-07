@@ -97,6 +97,21 @@ export function createUnlockServer(port: number = 5174): http.Server {
           }
 
           const result = vaultService.unlock(workspace, password)
+
+          if (result.corrupted) {
+            res.writeHead(422)
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'vault_corrupted',
+                  message:
+                    'O cofre local está danificado ou ilegível. Restaure um backup ou recrie o workspace.',
+                },
+              })
+            )
+            return
+          }
+
           const response: VaultUnlockResponse = {
             unlocked: result.unlocked
           }
