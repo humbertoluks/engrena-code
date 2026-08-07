@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { SubagentLinkState } from '../../../services/db/repositories/subagents.js'
-import { subagentsService } from '../../services/subagents-service.js'
+import { subagentsService, type SubagentLinkState } from '../../services/subagents-service.js'
 import { t } from './copy.js'
 import { exceedsSoftCap, filterLinkStates, reorderLinkedItems } from './projectSubagentsModal.logic.js'
 

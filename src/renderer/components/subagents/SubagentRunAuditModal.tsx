@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { ReactElement } from 'react'
-import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../../services/subagents-service'
 import { t } from './copy.js'
 
 export interface SubagentRunAuditModalProps {

@@ -1,4 +1,4 @@
-import type { SubagentRunStatus } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRunStatus } from '../../services/subagents-service'
 
 export function formatRunDuration(createdAt: number, durationMs: number | null, now: number = Date.now()): string {
   const elapsed = durationMs ?? Math.max(0, now - createdAt)

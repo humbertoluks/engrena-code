@@ -1,19 +1,77 @@
-import type {
-  CatalogOrderItem,
-  Subagent,
-  SubagentInput,
-  SubagentLinkState,
-  SubagentPatch,
-} from '../../services/db/repositories/subagents.js'
 import { apiRequest, type ApiErrorBody } from './api-client'
 
-export type { Subagent, SubagentInput, SubagentLinkState, SubagentPatch }
 export type { ApiErrorBody }
+
+// ── Types (espelham src/services/db/repositories/subagents — sem import Node) ─
+
+export type SubagentProvider = 'claude' | 'codex' | 'kimi' | 'inherit'
+
+export interface Subagent {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  provider: SubagentProvider
+  model: string | null
+  reasoningLevel: string | null
+  tools: string[] | null
+  category: string | null
+  idleTimeoutMinutes: number | null
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SubagentLinkState extends Omit<Subagent, 'prompt'> {
+  linked: boolean
+  enabledInProject: boolean | null
+  sortOrder: number | null
+}
+
+export type SubagentRunStatus = 'running' | 'completed' | 'cancelled' | 'error' | 'timeout'
+
+export interface SubagentRun {
+  childThreadId: string
+  parentThreadId: string
+  parentToolCallId: string | null
+  subagentName: string
+  provider: string
+  model: string | null
+  status: SubagentRunStatus
+  text: string | null
+  durationMs: number | null
+  reasoningLevel: string | null
+  actionCount: number
+  createdAt: number
+}
+
+export interface SubagentInput {
+  name: string
+  description: string
+  prompt: string
+  provider: SubagentProvider
+  model?: string | null
+  reasoningLevel?: string | null
+  tools?: string[] | null
+  category?: string | null
+  idleTimeoutMinutes?: number | null
+  enabled?: boolean
+}
+
+export type SubagentPatch = Partial<SubagentInput>
+
+export interface CatalogOrderItem {
+  id: string
+  enabled: boolean
+  sortOrder: number
+}
 
 export interface SubagentCounts {
   global: number
   linkedByProject: Record<string, number>
 }
+
+// ── API ──────────────────────────────────────────────────────────────────────
 
 export const subagentsService = {
   list: (): Promise<{ subagents: Subagent[] } & ApiErrorBody> => apiRequest('GET', '/api/subagents'),

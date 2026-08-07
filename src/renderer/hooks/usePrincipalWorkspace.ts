@@ -14,7 +14,7 @@ import {
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
-import type { SubagentRun } from '../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../services/subagents-service'
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 

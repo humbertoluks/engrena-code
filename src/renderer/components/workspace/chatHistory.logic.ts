@@ -1,5 +1,5 @@
 import type { ToolCall } from '../../services/threads-service'
-import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../../services/subagents-service'
 
 /** Fonte: `src/services/runner/subagent-registry.ts` (CALL_SUBAGENT_TOOL_NAME) — não importável no renderer (módulo server-only). */
 export const CALL_SUBAGENT_TOOL_NAME = 'mcp__engrenacode__call_subagent'

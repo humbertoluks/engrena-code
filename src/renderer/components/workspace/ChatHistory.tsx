@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import type { Message, ToolCall } from '../../services/threads-service'
-import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import { correlateSubagentRuns } from './chatHistory.logic'
 

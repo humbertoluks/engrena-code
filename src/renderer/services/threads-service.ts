@@ -1,5 +1,5 @@
-import type { SubagentRun } from '../../services/db/repositories/subagents.js'
 import { apiRequest, type ApiErrorBody } from './api-client'
+import type { SubagentRun } from './subagents-service'
 
 export type { ApiErrorBody }
 

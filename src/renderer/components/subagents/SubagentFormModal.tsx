@@ -3,8 +3,7 @@ import type { FormEvent, ReactElement, ReactNode } from 'react'
 import { ButtonPrimary } from '../ButtonPrimary'
 import { ButtonSecondary } from '../ButtonSecondary'
 import { InlineFeedback } from '../InlineFeedback'
-import type { SubagentInput, SubagentProvider } from '../../../services/db/repositories/subagents.js'
-import type { Subagent } from '../../services/subagents-service.js'
+import type { Subagent, SubagentInput, SubagentProvider } from '../../services/subagents-service.js'
 import {
   READONLY_TOOLS,
   buildSubagentPayload,

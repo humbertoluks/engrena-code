@@ -1,4 +1,4 @@
-import type { SubagentInput, SubagentProvider } from '../../../services/db/repositories/subagents.js'
+import type { SubagentInput, SubagentProvider } from '../../services/subagents-service'
 
 export const SUBAGENT_PROMPT_MAX_BYTES = 1_048_576
 

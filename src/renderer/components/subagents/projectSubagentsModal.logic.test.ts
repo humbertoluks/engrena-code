@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SubagentLinkState } from '../../../services/db/repositories/subagents.js'
+import type { SubagentLinkState } from '../../services/subagents-service'
 import { exceedsSoftCap, filterLinkStates, reorderLinkedItems } from './projectSubagentsModal.logic.js'
 
 function makeLink(overrides: Partial<SubagentLinkState> = {}): SubagentLinkState {

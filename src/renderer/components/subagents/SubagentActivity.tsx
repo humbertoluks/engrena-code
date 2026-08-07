@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../../services/subagents-service'
 import { t } from './copy.js'
 import { formatRunDuration, isActiveRunStatus } from './subagentRun.format.js'
 

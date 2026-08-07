@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CALL_SUBAGENT_TOOL_NAME, correlateSubagentRuns } from './chatHistory.logic'
 import type { ToolCall } from '../../services/threads-service'
-import type { SubagentRun } from '../../../services/db/repositories/subagents.js'
+import type { SubagentRun } from '../../services/subagents-service'
 
 function tool(id: string, name = CALL_SUBAGENT_TOOL_NAME): ToolCall {
   return {

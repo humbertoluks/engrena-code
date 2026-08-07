@@ -1,4 +1,4 @@
-import type { CatalogOrderItem, SubagentLinkState } from '../../../services/db/repositories/subagents.js'
+import type { CatalogOrderItem, SubagentLinkState } from '../../services/subagents-service'
 
 export const SUBAGENTS_LINK_SOFT_CAP = 10
 
