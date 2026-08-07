@@ -1348,10 +1348,10 @@ graph TD
 - [ ] Journal corrompido não falha o turno; memória tratada como vazia com aviso
 
 ### F21. AskUserQuestion
-- [ ] Chamada da tool `ask_user_question` pausa a thread em `waiting_user` sem contar como `running` para lease
-- [ ] Resposta do usuário retoma o turno automaticamente sem reabrir a thread
-- [ ] Provider sem suporte à tool degrada com notice, sem abortar o turno
-- [ ] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário
+- [x] Chamada da tool `ask_user_question` pausa a thread em `waiting_user` sem contar como `running` para lease
+- [x] Resposta do usuário retoma o turno automaticamente sem reabrir a thread
+- [x] Provider sem suporte à tool degrada com notice, sem abortar o turno
+- [ ] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário — `cancelThread` é agnóstico a estado (mecanismo genérico pré-existente, sem teste automatizado dedicado nem para `running`); sem cobertura própria nesta rodada, não marcado
 
 ### F22. Automação por Slash Commands (Pipeline)
 - [ ] `/spec {descrição}` devolve spec.md + plan.md estruturados na resposta da thread
@@ -1414,7 +1414,7 @@ graph TD
 - [ ] `call_subagent` paralelo (F18) reusa gate/idle/usage_events de F07/F15 e worktree isolado de F13 por filho
 - [x] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
 - [ ] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
-- [ ] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
+- [x] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
 - [ ] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
 - [ ] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
 - [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
