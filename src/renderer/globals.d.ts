@@ -51,8 +51,8 @@ interface EngrenaTerminalApi {
   kill: (sessionId: string) => Promise<{ ok: true } | EngrenaSessionError>
   write: (sessionId: string, data: string) => void
   resize: (sessionId: string, cols: number, rows: number) => void
-  onData: (listener: (event: EngrenaTerminalDataEvent) => void) => void
-  onExit: (listener: (event: EngrenaTerminalExitEvent) => void) => void
+  onData: (listener: (event: EngrenaTerminalDataEvent) => void) => () => void
+  onExit: (listener: (event: EngrenaTerminalExitEvent) => void) => () => void
 }
 
 interface EngrenaElectronApi {
