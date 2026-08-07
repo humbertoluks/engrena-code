@@ -188,3 +188,59 @@ describe('createUnlockServer project route chain with vault locked', () => {
     }
   })
 })
+
+describe('POST /api/vault/unlock payload validation', () => {
+  beforeEach(() => {
+    vaultService.lock()
+  })
+
+  afterEach(() => {
+    vaultService.lock()
+  })
+
+  it('returns 400 invalid_json for malformed JSON', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const res = await axios.post(`http://127.0.0.1:${port}/api/vault/unlock`, '{not-json', {
+      headers: { 'Content-Type': 'application/json' },
+      validateStatus: () => true,
+      transformRequest: [(data) => data],
+    })
+    expect(res.status).toBe(400)
+    expect(res.data?.error?.code).toBe('invalid_json')
+  })
+
+  it('returns 400 validation_error when workspace/password are non-strings', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const res = await axios.post(
+      `http://127.0.0.1:${port}/api/vault/unlock`,
+      { workspace: 1, password: true },
+      { validateStatus: () => true }
+    )
+    expect(res.status).toBe(400)
+    expect(res.data?.error?.code).toBe('validation_error')
+  })
+
+  it('returns 400 validation_error when workspace/password are missing', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const res = await axios.post(
+      `http://127.0.0.1:${port}/api/vault/unlock`,
+      { workspace: '', password: '' },
+      { validateStatus: () => true }
+    )
+    expect(res.status).toBe(400)
+    expect(res.data?.error?.code).toBe('validation_error')
+  })
+
+  it('returns 404 in the ApiErrorBody envelope for unknown routes', async () => {
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const res = await axios.get(`http://127.0.0.1:${port}/api/does-not-exist`, {
+      validateStatus: () => true,
+    })
+    expect(res.status).toBe(404)
+    expect(res.data).toEqual({ error: { code: 'not_found', message: 'Not found' } })
+  })
+})

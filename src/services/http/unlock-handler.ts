@@ -27,11 +27,6 @@ function recoverInterruptedThreads(): void {
   }
 }
 
-interface VaultUnlockRequest {
-  workspace: string
-  password: string
-}
-
 interface VaultUnlockResponse {
   unlocked: boolean
   sessionToken?: string
@@ -62,23 +57,46 @@ export function createUnlockServer(port: number = 5174): http.Server {
       })
 
       req.on('end', () => {
+        let data: unknown
         try {
-          const data = JSON.parse(body) as VaultUnlockRequest
+          data = JSON.parse(body)
+        } catch {
+          res.writeHead(400)
+          res.end(
+            JSON.stringify({
+              error: {
+                code: 'invalid_json',
+                message: 'Corpo inválido.',
+              },
+            })
+          )
+          return
+        }
 
-          if (!data.workspace || !data.password) {
+        try {
+          const workspace =
+            typeof data === 'object' && data !== null && 'workspace' in data
+              ? (data as { workspace: unknown }).workspace
+              : undefined
+          const password =
+            typeof data === 'object' && data !== null && 'password' in data
+              ? (data as { password: unknown }).password
+              : undefined
+
+          if (typeof workspace !== 'string' || typeof password !== 'string' || !workspace || !password) {
             res.writeHead(400)
             res.end(
               JSON.stringify({
                 error: {
                   code: 'validation_error',
-                  message: 'workspace e password são obrigatórios'
-                }
+                  message: 'workspace e password são obrigatórios',
+                },
               })
             )
             return
           }
 
-          const result = vaultService.unlock(data.workspace, data.password)
+          const result = vaultService.unlock(workspace, password)
           const response: VaultUnlockResponse = {
             unlocked: result.unlocked
           }
@@ -205,7 +223,7 @@ export function createUnlockServer(port: number = 5174): http.Server {
 
     // 404
     res.writeHead(404)
-    res.end(JSON.stringify({ error: 'Not found' }))
+    res.end(JSON.stringify({ error: { code: 'not_found', message: 'Not found' } }))
   })
 
   server.on('upgrade', (req, socket, head) => {
