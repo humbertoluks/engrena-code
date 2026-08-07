@@ -1379,10 +1379,10 @@ graph TD
 - [ ] Eventos com `cost_source=null` não contam para o limite até haver preço cadastrado
 
 ### F26. Terminal PTY no Dock
-- [ ] Dock abre terminal real na cwd do projeto (ou worktree da thread ativa) sem sair do app
-- [ ] Múltiplas abas de terminal funcionam por projeto; fechar aba encerra o processo
-- [ ] Shell padrão ausente mostra erro no lugar do terminal sem travar o app
-- [ ] Processo morto inesperadamente mostra "Sessão encerrada" com opção de reabrir
+- [x] Dock abre terminal real na cwd do projeto (ou worktree da thread ativa) sem sair do app
+- [x] Múltiplas abas de terminal funcionam por projeto; fechar aba encerra o processo
+- [x] Shell padrão ausente mostra erro no lugar do terminal sem travar o app
+- [x] Processo morto inesperadamente mostra "Sessão encerrada" com opção de reabrir
 
 ### F27. Ditado por Voz (STT)
 - [ ] Botão de microfone grava e transcreve para o composer como rascunho editável
@@ -1419,5 +1419,5 @@ graph TD
 - [x] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
 - [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
 - [ ] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
-- [ ] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
+- [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [ ] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
