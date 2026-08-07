@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { deserializeEnvelope, serializeEnvelope, type CryptoEnvelope } from './crypto'
@@ -36,8 +36,20 @@ class VaultStore {
     return readFileSync(this.vaultPath)
   }
 
+  /** Write via temp + rename so a crash mid-write cannot truncate vault.enc. */
   write(data: Buffer): void {
-    writeFileSync(this.vaultPath, data, { mode: 0o600 })
+    const tmpPath = `${this.vaultPath}.tmp`
+    writeFileSync(tmpPath, data, { mode: 0o600 })
+    try {
+      renameSync(tmpPath, this.vaultPath)
+    } catch (err) {
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        // best-effort cleanup of the temp file
+      }
+      throw err
+    }
   }
 
   serialize(envelope: CryptoEnvelope): Buffer {
