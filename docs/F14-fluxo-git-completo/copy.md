@@ -3,7 +3,7 @@
 **Produto:** EngrenaCode  
 **Fonte:** `C:\Users\Me\Code\repos\github\lionlabs\LionCodeLabs` → `packages/renderer/src/components/GitActions.tsx` (+ mount `WorkspaceSidebar.tsx`; ids `git.*` alinhados a `docs/F03-workspace/copy.md`)  
 **Mapa de rename:** `LionCode → EngrenaCode`; `lioncode → engrenacode` (nenhuma string Lion* na saída)  
-**Última atualização:** 2026-08-06
+**Última atualização:** 2026-08-07 (Lacunas de textgen/campos fechadas — texto já shipado em `GitActions.tsx` promovido a final, sem mudança de comportamento/layout)
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.
 
@@ -78,6 +78,20 @@ Tela host: `#principal` (região Repositório / GitActions). Prefixo de tela omi
 | `git.error.generic` | Falha inesperada na ação de git. | fallback |
 | `git.error.textgenUnexpected` | Resposta inesperada do gerador de mensagem. | throw no client fonte |
 
+### #principal — GitActions / textgen (novo vs fonte — sem equivalente legado)
+
+Ids exigidos pelo PRD Engrena (CTA "Gerar com IA" + campos editáveis) que a fonte não tinha, porque a fonte auto-executa textgen dentro do Commit sem campo editável. Texto já shipado em `GitActions.tsx`.
+
+| Id | Texto | Notas |
+|----|-------|-------|
+| `git.cta.generateAi` | Gerar com IA | botão ao lado do subject e do prTitle; `title` + label |
+| `git.stage.textgen` | Gerando com IA… | label dos botões de ação (Commit/Commit & push/Commit, push & PR) enquanto `stage==='textgen'` — cobre o slot `git.cta.generateAi.loading` da fonte |
+| `git.placeholder.subject` | Mensagem do commit | também cumpre o papel de label (superfície compacta, sem `<label>` visível — mesmo padrão de outros inputs desta superfície) |
+| `git.placeholder.body` | Descrição (opcional) | idem |
+| `git.placeholder.prTitle` | Título do PR | idem |
+| `git.placeholder.prBody` | Descrição do PR (markdown, opcional) | idem |
+| `git.stage.openingPr` | Abrindo PR… | label do botão "Commit, push & PR" durante `stage==='pr'` |
+
 ## Placeholders dinâmicos
 
 | Token | Significado |
@@ -87,20 +101,15 @@ Tela host: `#principal` (região Repositório / GitActions). Prefixo de tela omi
 | `{sha}` | SHA curto/completo do commit |
 | `{url}` | URL do PR ou do repo publicado (anexada ao feedback, não interpolada no texto base) |
 
-## Lacunas
+## Lacunas — resolvidas
 
-| Id necessário | Motivo | Status |
-|---------------|--------|--------|
-| `git.cta.generateAi` | PRD Engrena F14 exige botão explícito “Gerar com IA”; **ausente na fonte** (textgen auto no Commit) | TODO — adição destino-produto |
-| `git.cta.generateAi.loading` | Loading do CTA sob demanda (fonte só tem stage `git.stage.commitMsg`) | TODO — adição destino-produto |
-| `git.label.subject` | Campo editável de subject antes do commit; **ausente na fonte** | TODO — adição destino-produto |
-| `git.label.body` | Campo editável de body do commit; **ausente na fonte** | TODO — adição destino-produto |
-| `git.label.prTitle` | Campo editável de título do PR; **ausente na fonte** | TODO — adição destino-produto |
-| `git.label.prBody` | Campo editável de body markdown do PR; **ausente na fonte** | TODO — adição destino-produto |
-| `git.placeholder.subject` | Placeholder do subject | TODO — adição destino-produto |
-| `git.placeholder.body` | Placeholder do body | TODO — adição destino-produto |
-| `git.placeholder.prTitle` | Placeholder do título PR | TODO — adição destino-produto |
-| `git.placeholder.prBody` | Placeholder do body PR | TODO — adição destino-produto |
-| `git.hint.subjectMax` | Orientação soft ≤ 72 chars (PRD F14); **ausente na fonte** | TODO — adição destino-produto |
-| `git.stage.openingPr` | PRD menciona “Abrindo PR…”; fonte usa só `git.stage.stackPr` | TODO — confirmar se slot separado é necessário |
-| `git.hint.commit.enabled` (revisão) | Fonte diz “mensagem por LLM” (auto); destino não deve auto-commitar pós-textgen | TODO — reescrever após fechar fluxo Gerar com IA |
+Nenhum `TODO` restante nesta feature. Decisões tomadas para os itens que exigiam adição vs. a fonte:
+
+| Id necessário | Motivo | Decisão |
+|---------------|--------|---------|
+| `git.cta.generateAi` / `.loading` | Ausente na fonte (auto-textgen) | Implementado — ver tabela acima |
+| `git.label.subject` / `.body` / `.prTitle` / `.prBody` | Campos editáveis novos, ausentes na fonte | **Sem `<label>` visível separado** — o `git.placeholder.*` correspondente cumpre o papel de label nesta superfície compacta (mesmo padrão dos demais inputs do painel Repositório); adicionar um `<label>` seria mudança de layout fora do escopo deste passe de copy. Ids `git.label.*` ficam reservados, não usados |
+| `git.placeholder.subject` / `.body` / `.prTitle` / `.prBody` | Placeholders dos campos novos | Implementado — ver tabela acima |
+| `git.hint.subjectMax` | Orientação soft ≤ 72 chars (PRD F14) | **Não implementado nesta versão.** Adicionar um hint visível sob o campo subject é mudança de layout (novo elemento na superfície), fora do escopo deste passe de copy — reavaliar num passe de design dedicado. Id reservado |
+| `git.stage.openingPr` | PRD menciona “Abrindo PR…”; fonte usa só `git.stage.stackPr` | Implementado como slot separado — ver `git.stage.openingPr` na tabela principal |
+| `git.hint.commit.enabled` (revisão) | Fonte diz “mensagem por LLM” (auto); destino não deve auto-commitar pós-textgen | **Não portado.** Esse hint (title do quick action "Commit") nunca foi implementado no destino — o CTA explícito "Gerar com IA" substitui inteiramente o padrão de auto-geração da fonte, então a frase "mensagem por LLM" nunca existiu no Engrena. Nenhuma ação necessária |

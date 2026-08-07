@@ -3,10 +3,6 @@ import type { ReactElement } from 'react'
 import type { VcsStatus } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
 
-/**
- * Copy provisória (spec F14 §UI): `docs/F14-fluxo-git-completo/copy.md` marca os ids de textgen/campos
- * como TODO — mesmo tratamento dado a F04 (ver `docs/PROGRESS.md`), texto funcional até o passe de design.
- */
 const COPY = {
   section: 'Repositório',
   hintNoThread: 'Abra uma thread para executar ações de git',

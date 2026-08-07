@@ -236,7 +236,7 @@ Features sem mudança desde 2026-08-06 (F01, F01.1, F02, F04, F08, F09, F10) per
 9. ~~"Commit, push & PR" unificado + mensagem por IA~~ → **feito** (F14)
 10. ~~Seeds mínimos de skills/subagents~~ → **feito** (F17)
 
-**Copy pendente (não bloqueia §9, cosmético):** alguns slots de copy seguem com texto funcional provisório em vez de copy final revisado — `docs/PROGRESS.md` documenta cada um: F04 (`dashboard.subtitle`, `dashboard.banner.setupIncomplete`, títulos de seção), F14 (`git.cta.generateAi`, `git.label.*`, `git.hint.subjectMax`, `git.stage.openingPr`), F16 (`composer.image.disabled.multimodal`, `composer.mention.error.outsideProject`). Nenhum desses é um checkbox de §9 — são strings provisórias funcionais, não bugs.
+**Copy pendente — fechado em 2026-08-07:** os slots antes citados como "texto funcional provisório" (F04: `dashboard.subtitle`/`banner.setupIncomplete`/títulos de seção; F14: `git.cta.generateAi`, placeholders, `git.stage.openingPr`; F16: `composer.image.disabled.multimodal`, `composer.mention.error.outsideProject`) já eram texto final desde a implementação — só o registro em `copy.md` estava incompleto/ausente. `docs/F04-dashboard/copy.md` recriado, `docs/F14-fluxo-git-completo/copy.md` e `docs/F16-composer-avancado/copy.md` com Lacunas resolvidas; `docs/PROGRESS.md` atualizado. Nenhuma string de código mudou. `git.label.*` e `git.hint.subjectMax` (F14) ficaram documentados como não implementados por decisão (evitar mudança de layout), não como TODO pendente.
 
 **Outros nits da reauditoria 2026-08-07 (solution):**
 
@@ -285,12 +285,11 @@ Fora desta onda (permanecem PRD §7, Faixa C acima): Memory/dreaming, CodeGraph,
 
 ## 8. Próximo trabalho útil (priorizado)
 
-Ordem recomendada após a 3ª passagem. Nenhum item reabre §9 como FAIL. Soft smoke F12 **feito**.
+Ordem recomendada após a 3ª passagem. Nenhum item reabre §9 como FAIL. Soft smoke F12 **feito**. Passe de copy F04/F14/F16 **feito**.
 
 | # | Trabalho | Por quê | Esforço |
 |---|----------|---------|---------|
-| **1** | Passe de copy F04 / F14 / F16 | Remove cheiro de provisório na UI; não é bug | 1 PR cosmético |
-| **2** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Decide Memory/CodeGraph/slash/voz/etc. sem chute de escopo | produto |
+| **1** | Entrevista `/prd-writer` → Faixa C (PRD §7) | Decide Memory/CodeGraph/slash/voz/etc. sem chute de escopo | produto |
 | — | Nits de doc (Esclarecimentos F03/F11 stale; `smoke-results` F14/F16) | Higiene; F12 agora tem `smoke-results.md` | baixo |
 | — | Caveat Windows worktree + path profundo | Só se voltar a doer no dia a dia | investigativo |
 
