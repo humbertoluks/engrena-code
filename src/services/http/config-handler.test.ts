@@ -4,6 +4,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
 
+vi.mock('electron', () => ({ shell: { openExternal: vi.fn(async () => {}) } }))
+
 process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f10_config_http_'))
 
 const { vaultService } = await import('../vault/vault-service.js')
@@ -256,5 +258,91 @@ describe('POST /api/config/claude/mode', () => {
     const { status, body } = await res.result()
     expect(status).toBe(200)
     expect((body as { mode: string }).mode).toBe('api-key')
+  })
+})
+
+describe('VCS (F24)', () => {
+  it('GET /api/config/vcs/status returns 423 vault_locked when locked', async () => {
+    const req = fakeReq('GET', '/api/config/vcs/status')
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    expect((await res.result()).status).toBe(423)
+  })
+
+  it('lists github as pat and the 3 OAuth providers, defaulting to needs-client-id', async () => {
+    const session = unlockVault()
+    const req = fakeReq('GET', '/api/config/vcs/status', undefined, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    const providers = (body as { providers: Array<{ kind: string; auth: string; status: string; tokenPresent: boolean }> }).providers
+    expect(providers).toEqual([
+      { kind: 'github', auth: 'pat', status: 'disconnected', tokenPresent: false },
+      { kind: 'gitlab', auth: 'oauth', status: 'needs-client-id', tokenPresent: false },
+      { kind: 'bitbucket', auth: 'oauth', status: 'needs-client-id', tokenPresent: false },
+      { kind: 'azure', auth: 'oauth', status: 'needs-client-id', tokenPresent: false },
+    ])
+  })
+
+  it('github reports connected once the PAT is saved', async () => {
+    const session = unlockVault()
+    await handleConfigRequest(fakeReq('POST', '/api/config/github/token', { token: 'ghp_1234567890abcdef1234567890abcdef1234' }, session), fakeRes())
+
+    const req = fakeReq('GET', '/api/config/vcs/status', undefined, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const providers = ((await res.result()).body as { providers: Array<{ kind: string; status: string }> }).providers
+    expect(providers.find((p) => p.kind === 'github')).toMatchObject({ status: 'connected' })
+  })
+
+  it('PUT client rejects an unknown provider kind with 400', async () => {
+    const session = unlockVault()
+    const req = fakeReq('PUT', '/api/config/vcs/notaprovider/oauth/client', { clientId: 'x' }, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    expect((await res.result()).status).toBe(400)
+  })
+
+  it('PUT client without clientId returns 400 validation_error', async () => {
+    const session = unlockVault()
+    const req = fakeReq('PUT', '/api/config/vcs/gitlab/oauth/client', {}, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+  })
+
+  it('POST oauth/start reports needs-client-id before any client id is saved', async () => {
+    const session = unlockVault()
+    const req = fakeReq('POST', '/api/config/vcs/bitbucket/oauth/start', undefined, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect((body as { status: string }).status).toBe('needs-client-id')
+  })
+
+  it('saving a client id then starting oauth returns an authorizeUrl and status becomes pending, then disconnect clears it', async () => {
+    const session = unlockVault()
+    await handleConfigRequest(fakeReq('PUT', '/api/config/vcs/gitlab/oauth/client', { clientId: 'test-client' }, session), fakeRes())
+
+    const startReq = fakeReq('POST', '/api/config/vcs/gitlab/oauth/start', undefined, session)
+    const startRes = fakeRes()
+    await handleConfigRequest(startReq, startRes)
+    const startBody = (await startRes.result()).body as { authorizeUrl: string }
+    expect(typeof startBody.authorizeUrl).toBe('string')
+
+    const statusReq = fakeReq('GET', '/api/config/vcs/status', undefined, session)
+    const statusRes = fakeRes()
+    await handleConfigRequest(statusReq, statusRes)
+    const providers = ((await statusRes.result()).body as { providers: Array<{ kind: string; status: string }> }).providers
+    expect(providers.find((p) => p.kind === 'gitlab')).toMatchObject({ status: 'pending' })
+
+    const disconnectReq = fakeReq('POST', '/api/config/vcs/gitlab/oauth/disconnect', undefined, session)
+    const disconnectRes = fakeRes()
+    await handleConfigRequest(disconnectReq, disconnectRes)
+    expect((await disconnectRes.result()).status).toBe(200)
   })
 })

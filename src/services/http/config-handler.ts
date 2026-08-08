@@ -13,6 +13,8 @@ import { runClaudeProbe } from './claude-probe.js'
 import { testConnection as testGlmConnection } from '../runner/providers/glm-driver.js'
 import { testConnection as testGrokConnection } from '../runner/providers/grok-driver.js'
 import { DEFAULT_PROMPT } from '../config/defaults.js'
+import { disconnectOauth, getOauthStatus, saveClientId, startOauth, VcsOauthError } from '../vcs/oauth.js'
+import { VCS_OAUTH_KINDS, isVcsOauthKind } from '../vcs/oauth-config.js'
 
 const execAsync = promisify(exec)
 
@@ -371,13 +373,117 @@ async function handleGrokTest(req: IncomingMessage, res: ServerResponse): Promis
   }
 }
 
+// ── VCS (F24) ────────────────────────────────────────────────────────────────
+
+interface VcsProviderStatus {
+  kind: string
+  auth: 'pat' | 'oauth'
+  status: string
+  tokenPresent: boolean
+}
+
+/** Espelha `GET /api/config/vcs/status` (spec §5.1) — GitHub continua PAT (F02/F14); os 3 novos são OAuth. */
+function computeVcsStatus(): VcsProviderStatus[] {
+  const githubToken = vaultService.getSecret('github:token')
+  const providers: VcsProviderStatus[] = [
+    { kind: 'github', auth: 'pat', status: githubToken ? 'connected' : 'disconnected', tokenPresent: Boolean(githubToken) },
+  ]
+  for (const kind of VCS_OAUTH_KINDS) {
+    const status = getOauthStatus(kind)
+    providers.push({ kind, auth: 'oauth', status, tokenPresent: status === 'connected' })
+  }
+  return providers
+}
+
+async function handleVcsStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!guard(req, res)) return
+  sendJson(res, 200, { providers: computeVcsStatus() })
+}
+
+function handleVcsOauthError(res: ServerResponse, err: unknown): void {
+  if (err instanceof VcsOauthError) {
+    const status = err.code === 'vault_locked' ? 423 : err.code === 'oauth_flow_active' ? 409 : 400
+    sendJson(res, status, { error: { code: err.code, message: err.message } })
+    return
+  }
+  throw err
+}
+
+function invalidVcsKind(res: ServerResponse): void {
+  sendJson(res, 400, { error: { code: 'invalid_request', message: 'Provider VCS inválido.' } })
+}
+
+async function handleVcsOauthStart(req: IncomingMessage, res: ServerResponse, kind: string): Promise<void> {
+  if (!guard(req, res)) return
+  if (!isVcsOauthKind(kind)) return invalidVcsKind(res)
+
+  try {
+    const result = await startOauth(kind)
+    if ('needsClientId' in result) {
+      sendJson(res, 200, { status: 'needs-client-id' })
+      return
+    }
+    sendJson(res, 200, { authorizeUrl: result.authorizeUrl })
+  } catch (err) {
+    handleVcsOauthError(res, err)
+  }
+}
+
+function handleVcsOauthDisconnect(req: IncomingMessage, res: ServerResponse, kind: string): void {
+  if (!guard(req, res)) return
+  if (!isVcsOauthKind(kind)) return invalidVcsKind(res)
+
+  disconnectOauth(kind)
+  sendJson(res, 200, { status: 'disconnected' })
+}
+
+async function handleVcsOauthClient(req: IncomingMessage, res: ServerResponse, kind: string): Promise<void> {
+  if (!guard(req, res)) return
+  if (!isVcsOauthKind(kind)) return invalidVcsKind(res)
+
+  const data = parseBody<{ clientId?: string }>(await readBody(req))
+  if (data === null || typeof data.clientId !== 'string' || data.clientId.trim() === '') {
+    return sendJson(res, 400, { error: { code: 'validation_error', message: 'clientId é obrigatório.' } })
+  }
+
+  saveClientId(kind, data.clientId.trim())
+  sendJson(res, 200, { status: 'disconnected' })
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
+
+const VCS_OAUTH_START_RE = /^\/api\/config\/vcs\/([^/]+)\/oauth\/start$/
+const VCS_OAUTH_DISCONNECT_RE = /^\/api\/config\/vcs\/([^/]+)\/oauth\/disconnect$/
+const VCS_OAUTH_CLIENT_RE = /^\/api\/config\/vcs\/([^/]+)\/oauth\/client$/
 
 export async function handleConfigRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = req.url ?? ''
   const method = req.method ?? ''
 
   try {
+    if (method === 'GET' && url === '/api/config/vcs/status') {
+      await handleVcsStatus(req, res)
+      return true
+    }
+
+    const vcsStartMatch = VCS_OAUTH_START_RE.exec(url)
+    if (vcsStartMatch && method === 'POST') {
+      await handleVcsOauthStart(req, res, vcsStartMatch[1])
+      return true
+    }
+
+    const vcsDisconnectMatch = VCS_OAUTH_DISCONNECT_RE.exec(url)
+    if (vcsDisconnectMatch && method === 'POST') {
+      handleVcsOauthDisconnect(req, res, vcsDisconnectMatch[1])
+      return true
+    }
+
+    const vcsClientMatch = VCS_OAUTH_CLIENT_RE.exec(url)
+    if (vcsClientMatch && method === 'PUT') {
+      await handleVcsOauthClient(req, res, vcsClientMatch[1])
+      return true
+    }
+
     if (method === 'GET' && url === '/api/config/status') {
       await handleGetStatus(req, res)
       return true
