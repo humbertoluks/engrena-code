@@ -1373,10 +1373,10 @@ graph TD
 - [ ] Token expirado faz push/PR falhar com mensagem apontando para reconectar em Configuração
 
 ### F25. Limites de Consumo (UsageLimits)
-- [ ] Limite configurado em USD (projeto ou global) mostra barra de progresso do gasto do período em `#consumo`
-- [ ] Modo "Avisar" mostra banner ao atingir 80%/100% sem bloquear novo turno
-- [ ] Modo "Bloquear" recusa novo turno ao estourar o limite, com mensagem apontando o ajuste
-- [ ] Eventos com `cost_source=null` não contam para o limite até haver preço cadastrado
+- [x] Limite configurado em USD (projeto ou global) mostra barra de progresso do gasto do período em `#consumo`
+- [x] Modo "Avisar" mostra banner ao atingir 80%/100% sem bloquear novo turno
+- [x] Modo "Bloquear" recusa novo turno ao estourar o limite, com mensagem apontando o ajuste
+- [x] Eventos com `cost_source=null` não contam para o limite até haver preço cadastrado
 
 ### F26. Terminal PTY no Dock
 - [x] Dock abre terminal real na cwd do projeto (ou worktree da thread ativa) sem sair do app
@@ -1418,6 +1418,6 @@ graph TD
 - [x] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
 - [x] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
 - [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
-- [ ] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
+- [x] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [ ] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
