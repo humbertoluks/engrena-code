@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { Project, VcsStatus } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
+import type { MemoryStatus } from '../../services/memory-service'
 import { rulesService } from '../../services/rules-service'
 import { skillsService } from '../../services/skills-service'
 import { subagentsService } from '../../services/subagents-service'
@@ -11,6 +12,7 @@ import { ProjectRulesModal } from '../rules/ProjectRulesModal'
 import { ProjectSkillsModal } from '../skills/ProjectSkillsModal'
 import { ProjectSubagentsModal } from '../subagents/ProjectSubagentsModal'
 import { ProjectMcpsModal } from '../mcps/ProjectMcpsModal'
+import { ProjectMemoryModal } from '../memory/ProjectMemoryModal'
 import { SubagentActivity } from '../subagents/SubagentActivity'
 import { GitActions } from './GitActions'
 import { CodegraphSection } from '../codegraph/CodegraphSection'
@@ -25,11 +27,24 @@ const COPY = {
   harnessSkills: 'Skills',
   harnessSubagents: 'SubAgents',
   harnessMcps: 'MCPs',
+  harnessMemory: 'Memória',
   linkedOne: (n: number) => `${n} vinculado`,
   linkedMany: (n: number) => `${n} vinculados`,
   activeOne: (n: number) => `${n} ativa`,
   activeMany: (n: number) => `${n} ativas`,
+  memoryEntriesOne: (n: number) => `${n} entrada`,
+  memoryEntriesMany: (n: number) => `${n} entradas`,
+  memoryDisabled: 'desligada',
+  memoryCorrupted: 'journal ilegível',
 } as const
+
+/** Meta da linha Memória (F20 ui.md §A) — corrompido vence desligada, que vence a contagem. */
+function memoryMeta(status: MemoryStatus | null): string {
+  if (status === null) return ''
+  if (status.corrupted) return COPY.memoryCorrupted
+  if (!status.enabled) return COPY.memoryDisabled
+  return pluralCount(status.entryCount, COPY.memoryEntriesOne, COPY.memoryEntriesMany)
+}
 
 function pluralCount(n: number, one: (n: number) => string, many: (n: number) => string): string {
   return n === 1 ? one(n) : many(n)
@@ -39,6 +54,8 @@ export interface WorkspaceSidebarProps {
   project: Project | null
   selectedThread: Thread | null
   vcsStatus: VcsStatus | null
+  memoryStatus: MemoryStatus | null
+  onMemoryChanged: () => void
   subagentRuns: SubagentRun[]
   onOpenSubagentRun: (run: SubagentRun) => void
   onNewThread: () => void
@@ -52,6 +69,8 @@ export function WorkspaceSidebar({
   project,
   selectedThread,
   vcsStatus,
+  memoryStatus,
+  onMemoryChanged,
   subagentRuns,
   onOpenSubagentRun,
   onNewThread,
@@ -64,7 +83,7 @@ export function WorkspaceSidebar({
   const [skillsCount, setSkillsCount] = useState<number | null>(null)
   const [subagentsCount, setSubagentsCount] = useState<number | null>(null)
   const [mcpsCount, setMcpsCount] = useState<number | null>(null)
-  const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | null>(null)
+  const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | 'memory' | null>(null)
 
   useEffect(() => {
     if (!project) {
@@ -168,6 +187,11 @@ export function WorkspaceSidebar({
                 meta={mcpsCount === null ? '' : pluralCount(mcpsCount, COPY.linkedOne, COPY.linkedMany)}
                 onClick={() => setOpenModal('mcps')}
               />
+              <HarnessRow
+                label={COPY.harnessMemory}
+                meta={memoryMeta(memoryStatus)}
+                onClick={() => setOpenModal('memory')}
+              />
             </div>
           </section>
         </>
@@ -184,6 +208,14 @@ export function WorkspaceSidebar({
       ) : null}
       {project && openModal === 'mcps' ? (
         <ProjectMcpsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+      ) : null}
+      {project && openModal === 'memory' ? (
+        <ProjectMemoryModal
+          projectId={project.id}
+          status={memoryStatus}
+          onChanged={onMemoryChanged}
+          onClose={() => setOpenModal(null)}
+        />
       ) : null}
     </div>
   )

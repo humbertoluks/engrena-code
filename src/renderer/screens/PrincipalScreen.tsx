@@ -152,6 +152,8 @@ export function PrincipalScreen(): ReactElement {
           project={ws.selectedProject}
           selectedThread={ws.selectedThread}
           vcsStatus={ws.vcsStatus}
+          memoryStatus={ws.memoryStatus}
+          onMemoryChanged={ws.refreshMemoryStatus}
           subagentRuns={ws.subagentRuns}
           onOpenSubagentRun={ws.openSubagentRun}
           onNewThread={ws.newThread}

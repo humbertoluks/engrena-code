@@ -602,6 +602,12 @@ export function usePrincipalWorkspace() {
   const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
   const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
+  // Refetch manual do status de memória — o painel de Memória (F20) alterna o toggle
+  // por fora do fluxo de turno, então o evento `memory.entry` não cobre esse caso.
+  const refreshMemoryStatus = useCallback(() => {
+    if (selectedProjectId) void loadMemoryStatus(selectedProjectId)
+  }, [selectedProjectId, loadMemoryStatus])
+
   return {
     projects,
     projectsError,
@@ -617,6 +623,7 @@ export function usePrincipalWorkspace() {
     newThread,
     vcsStatus,
     memoryStatus,
+    refreshMemoryStatus,
     messages,
     toolCalls,
     subagentRuns,
