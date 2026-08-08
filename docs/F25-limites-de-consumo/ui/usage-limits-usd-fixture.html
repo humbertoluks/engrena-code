@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F25 Limites de consumo USD — anatomia PRD (não é o card Limites da fonte)</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f1f1f3; --border: #e2e2e6;
+    --fg: #1a1a1d; --muted: #6b6b73; --accent: #ff6b00; --amber: #b07d1f; --red: #cf3b3b; --green: #2e9e43;
+    --xs: 4px; --sm: 8px; --md: 16px; --lg: 24px;
+    --radius-sm: 5px; --radius-md: 8px;
+    font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
+  }
+  .dark {
+    --bg: #0a0a0b; --surface: #121214; --surface-2: #17171a; --border: #232327;
+    --fg: #ededee; --muted: #a1a1aa; --amber: #d2a23a; --red: #e05555; --green: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
+  h1 { margin: 0; font-size: 21px; font-weight: 600; }
+  .sub { margin: 8px 0 24px; font-size: 13.5px; color: var(--muted); }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface); padding: 24px;
+  }
+  .card h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .hint { margin: 8px 0 16px; font-size: 12.5px; color: var(--muted); }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface-2); color: var(--fg); padding: 0 8px; font-size: 13px; margin-bottom: 12px;
+  }
+  .seg {
+    display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface-2); padding: 4px; margin-bottom: 16px;
+  }
+  .seg button {
+    border: 0; background: transparent; color: var(--muted); padding: 6px 12px;
+    font-size: 12px; border-radius: 4px; cursor: default;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .bar-wrap { margin-top: 8px; }
+  .bar-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .bar-meta strong { font-family: ui-monospace, monospace; color: var(--accent); }
+  .bar {
+    height: 4px; width: 100%; border-radius: 999px; background: var(--surface-2); overflow: hidden;
+  }
+  .bar > i { display: block; height: 100%; width: 82%; background: var(--amber); border-radius: 999px; }
+  .banner {
+    margin-top: 16px; padding: 10px 12px; border-radius: var(--radius-sm);
+    border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--border));
+    background: color-mix(in srgb, var(--amber) 14%, transparent);
+    color: var(--amber); font-size: 12.5px;
+  }
+  .banner a { color: var(--accent); }
+  .note { margin-top: 20px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Consumo</h1>
+  <p class="sub">Fixture F25 conforme PRD Engrena (§6): card USD em <code>#consumo</code>, modos Avisar/Bloquear, barra do período. A fonte LionCodeLabs tem outro card (“Limites” na sidebar = cotas de assinatura por provider) — ver <code>usage-limits-sidebar-referencia.png</code>.</p>
+  <section class="card" aria-label="Limites de consumo">
+    <h2>Limites de consumo</h2>
+    <p class="hint">Limite em USD no período mensal (reset dia 1, fuso do SO). Vazio = sem limite. Baseado nos mesmos <code>usage_events</code> de Consumo.</p>
+    <label for="scope">Escopo</label>
+    <select id="scope">
+      <option>Global</option>
+      <option selected>Este projeto</option>
+    </select>
+    <label for="usd">Limite (USD)</label>
+    <input id="usd" value="50.00" inputmode="decimal" />
+    <label>Quando atingir o limite</label>
+    <div class="seg" role="group" aria-label="Modo do limite">
+      <button type="button" aria-pressed="true">Avisar</button>
+      <button type="button" aria-pressed="false">Bloquear</button>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-meta"><span>Gasto do período</span><strong>$41.00 / $50.00 · 82%</strong></div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="82" aria-label="Gasto do período: 82%"><i></i></div>
+    </div>
+    <div class="banner" role="status">
+      Você já usou 80% do limite deste período.
+      <a href="#consumo">Ajustar limite</a>
+    </div>
+  </section>
+  <p class="note">Copy desta fixture = texto do PRD §6 F25 (Experiência + erros), não strings literais da UI fonte. Barras/%/“usado”/“renova” da fonte ficam no SDD como referência visual de progresso, não como contrato de produto.</p>
+</main>
+</body>
+</html>

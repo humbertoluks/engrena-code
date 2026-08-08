@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F24 Multi-VCS — cards OAuth (síntese PRD + padrão McpOauthControls)</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f1f1f3; --border: #e2e2e6;
+    --fg: #1a1a1d; --muted: #6b6b73; --accent: #ff6b00; --green: #2e9e43; --amber: #b07d1f;
+    --xs: 4px; --sm: 8px; --md: 16px; --lg: 24px;
+    --radius-sm: 5px; --radius-md: 8px; --radius-lg: 12px;
+    font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
+  }
+  .dark {
+    --bg: #0a0a0b; --surface: #121214; --surface-2: #17171a; --border: #232327;
+    --fg: #ededee; --muted: #a1a1aa; --green: #3fb950; --amber: #d2a23a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
+  h1 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
+  .sub { margin: 8px 0 24px; font-size: 13.5px; color: var(--muted); }
+  .stack { display: grid; gap: 16px; }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface); padding: 24px;
+  }
+  .card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card p { margin: 8px 0 16px; font-size: 12.5px; color: var(--muted); }
+  .row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    padding-top: 8px; margin-top: 8px;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: 999px; border: 1px solid color-mix(in srgb, var(--green) 60%, transparent);
+    padding: 1px 8px; font-size: 11px; font-weight: 500; color: var(--green);
+  }
+  .pill.amber {
+    border-color: color-mix(in srgb, var(--amber) 60%, transparent); color: var(--amber);
+  }
+  .btn {
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface-2); padding: 4px 16px; font-size: 12px; font-weight: 500;
+    color: var(--fg); cursor: default;
+  }
+  .muted { font-size: 11.5px; color: var(--muted); }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 16px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface-2); padding: 1px 6px;
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 10.5px; font-weight: 600; color: var(--muted);
+  }
+  .note {
+    margin-top: 24px; padding: 12px 16px; border-radius: var(--radius-sm);
+    border: 1px dashed var(--border); font-size: 12px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Configuração — VCS</h1>
+  <p class="sub">Fixture de anatomia F24 (PRD: card por provider + Conectar OAuth). Chrome do card = KeysForm GitHub; CTAs = McpOauthControls. Não é screenshot vivo: a fonte só tem PAT GitHub.</p>
+  <div class="stack">
+    <section class="card" aria-label="GitHub">
+      <h3>GitHub</h3>
+      <p>Padrão quando nenhum outro VCS está conectado. Token PAT (legado) ou OAuth PKCE (destino F24).</p>
+      <div class="row">
+        <span class="pill">Conectado</span>
+        <button type="button" class="btn">Desconectar</button>
+      </div>
+    </section>
+    <section class="card" aria-label="GitLab">
+      <h3>GitLab</h3>
+      <p>OAuth PKCE na nuvem pública (gitlab.com). Token só no vault. Um provider VCS por projeto.</p>
+      <div class="row">
+        <button type="button" class="btn">Conectar</button>
+      </div>
+    </section>
+    <section class="card" aria-label="Bitbucket">
+      <h3>Bitbucket</h3>
+      <p>OAuth PKCE (bitbucket.org). Self-hosted fora de escopo nesta versão.</p>
+      <div class="row">
+        <span class="muted">Aguardando autorização no browser…</span>
+        <button type="button" class="btn">Cancelar</button>
+      </div>
+    </section>
+    <section class="card" aria-label="Azure DevOps">
+      <h3>Azure DevOps</h3>
+      <p>OAuth PKCE (dev.azure.com). Se o token expirar, reconecte aqui.</p>
+      <div class="row">
+        <span class="pill amber">requer reconexão</span>
+        <button type="button" class="btn">Reconectar</button>
+      </div>
+    </section>
+  </div>
+  <div class="note">
+    Badge no painel Repositório (fonte <code>VcsStatusBar</code> + terminologia MR via <code>changeRequestLabels('gitlab')</code>):
+    <div class="badge-row">
+      <span class="badge">GitLab</span>
+      <span class="badge">↑ 2</span>
+      <span class="badge">PR aberto → MR na UI GitLab</span>
+    </div>
+  </div>
+</main>
+</body>
+</html>
