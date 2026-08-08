@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ASK_USER_QUESTION_TOOL_NAME, findPendingAskUserQuestion, validateAnswer } from './askUserQuestion.logic'
+import {
+  ANSWER_ERROR_COPY,
+  ASK_USER_QUESTION_TOOL_NAME,
+  answerErrorMessage,
+  findPendingAskUserQuestion,
+  validateAnswer,
+} from './askUserQuestion.logic'
 import type { ToolCall } from '../../services/threads-service'
 
 function makeToolCall(overrides: Partial<ToolCall>): ToolCall {
@@ -68,5 +74,23 @@ describe('findPendingAskUserQuestion', () => {
       options: [],
       multiSelect: false,
     })
+  })
+})
+
+describe('answerErrorMessage', () => {
+  // Smoke real (2026-08-08) devolveu `no_pending_question`, não `thread_not_waiting`: a thread
+  // seguia em `waiting_user` mas o turno que segurava a pergunta tinha morrido. Cair no genérico
+  // "Tente novamente" mandava repetir algo impossível.
+  it('treats no_pending_question as a stale question, not a retryable failure', () => {
+    expect(answerErrorMessage('no_pending_question')).toBe(ANSWER_ERROR_COPY.notWaiting)
+  })
+
+  it('treats thread_not_waiting as a stale question', () => {
+    expect(answerErrorMessage('thread_not_waiting')).toBe(ANSWER_ERROR_COPY.notWaiting)
+  })
+
+  it('falls back to the retryable message for unknown codes and for network failures', () => {
+    expect(answerErrorMessage('internal_error')).toBe(ANSWER_ERROR_COPY.generic)
+    expect(answerErrorMessage(undefined)).toBe(ANSWER_ERROR_COPY.generic)
   })
 })

@@ -8,6 +8,17 @@
 
 > **Relação com F21 técnico:** backend, IPC de resposta e contrato de props já implementados (fases 1–11 do `plan.md`, commits `161bdbe`→`3c5a4f7`). Este doc fecha a fase visual, que o `plan.md` Fase 5 deixou explicitamente bloqueada até `ui.md`/`copy.md` existirem.
 
+## Referência visual
+
+| Artefato | Caminho | Papel |
+|----------|---------|-------|
+| Fixture da fonte (modal LionCodeLabs) | `docs/F21-askuserquestion/ui/ask-user-question-fixture.html` | Reprodução estática do `QuestionPrompt.tsx` para comparar anatomia |
+| Fonte — light | `docs/F21-askuserquestion/ui/ask-user-question-light.png` | Render da fixture |
+| Fonte — dark | `docs/F21-askuserquestion/ui/ask-user-question-dark.png` | Render da fixture |
+| **Destino** — card inline no `#principal` | `docs/F21-askuserquestion/ui/ask-user-question-card-destino.png` | O que o EngrenaCode shipou (Electron real, 2026-08-08) |
+
+> Os três primeiros mostram a **fonte** (modal, fila, radios com descrição, CTA `Responder`); o último mostra o **destino** (card inline, pills, CTA `Enviar`). A comparação lado a lado é o que justifica as divergências listadas no fim deste doc.
+
 ## Escopo
 
 **Inclui:**

@@ -25,7 +25,7 @@ Exemplos: `askQuestion.header`, `askQuestion.cta.send`.
 | `askQuestion.cta.send` | Enviar | |
 | `askQuestion.cta.sending` | Enviando… | Enquanto o `POST /answer` está em voo |
 | `askQuestion.error.generic` | Não foi possível enviar a resposta. Tente novamente. | Falha de rede ou erro inesperado |
-| `askQuestion.error.notWaiting` | Esta pergunta não está mais pendente. | `thread_not_waiting` (409) — turno já foi cancelado ou respondido por outro caminho |
+| `askQuestion.error.notWaiting` | Esta pergunta não está mais pendente. | Os dois 409 definitivos: `thread_not_waiting` (thread saiu de `waiting_user`) e `no_pending_question` (thread ainda no estado, mas o turno que segurava a pergunta morreu). Nunca usar `error.generic` aqui — o "Tente novamente" dele manda repetir algo que não pode dar certo |
 
 ## Placeholders dinâmicos
 

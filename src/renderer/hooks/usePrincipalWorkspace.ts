@@ -16,13 +16,8 @@ import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import type { SubagentRun } from '../services/subagents-service'
-import { findPendingAskUserQuestion } from '../components/workspace/askUserQuestion.logic'
+import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
 
-/** Copy de erro do envio de resposta (F21 `copy.md` — `askQuestion.error.*`). */
-const ANSWER_COPY = {
-  generic: 'Não foi possível enviar a resposta. Tente novamente.',
-  notWaiting: 'Esta pergunta não está mais pendente.',
-} as const
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
@@ -161,11 +156,9 @@ export function usePrincipalWorkspace() {
       setAnswerError(null)
       try {
         const res = await threadsService.answerQuestion(selectedThreadId, input)
-        if (res.error) {
-          setAnswerError(res.error.code === 'thread_not_waiting' ? ANSWER_COPY.notWaiting : ANSWER_COPY.generic)
-        }
+        if (res.error) setAnswerError(answerErrorMessage(res.error.code))
       } catch {
-        setAnswerError(ANSWER_COPY.generic)
+        setAnswerError(answerErrorMessage(undefined))
       } finally {
         if (mountedRef.current) setAnswerBusy(false)
       }
