@@ -11,6 +11,8 @@ const COPY = {
   statusPending: 'pendente',
   statusAccepted: 'aceito',
   statusRejected: 'rejeitado',
+  // Copy provisória — anatomia final do estado de conflito (F18) aguarda ui.md.
+  statusConflict: 'em conflito',
   accept: 'Aceitar',
   acceptLoading: 'Aplicando…',
   reject: 'Rejeitar',
@@ -28,12 +30,14 @@ const STATUS_LABEL: Record<DiffStatus, string> = {
   pending: COPY.statusPending,
   accepted: COPY.statusAccepted,
   rejected: COPY.statusRejected,
+  conflict: COPY.statusConflict,
 }
 
 const STATUS_CLASS: Record<DiffStatus, string> = {
   pending: 'text-amber',
   accepted: 'text-green',
   rejected: 'text-muted',
+  conflict: 'text-amber',
 }
 
 export interface DiffViewerProps {

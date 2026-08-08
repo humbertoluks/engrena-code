@@ -5,6 +5,7 @@ export type { ApiErrorBody }
 // ── Types (espelham src/services/db/repositories/subagents — sem import Node) ─
 
 export type SubagentProvider = 'claude' | 'codex' | 'kimi' | 'inherit'
+export type SubagentKind = 'dev' | 'pipeline'
 
 export interface Subagent {
   id: string
@@ -17,6 +18,8 @@ export interface Subagent {
   tools: string[] | null
   category: string | null
   idleTimeoutMinutes: number | null
+  /** `dev` (default) ou `pipeline` (F18/F22) — sem anatomia no formulário até `ui.md` de F18. */
+  kind: SubagentKind
   enabled: boolean
   createdAt: number
   updatedAt: number
@@ -42,6 +45,8 @@ export interface SubagentRun {
   durationMs: number | null
   reasoningLevel: string | null
   actionCount: number
+  /** UUID do batch `tasks[]` (F18); `null` no path serial F15. */
+  parallelBatchId: string | null
   createdAt: number
 }
 
@@ -55,6 +60,7 @@ export interface SubagentInput {
   tools?: string[] | null
   category?: string | null
   idleTimeoutMinutes?: number | null
+  kind?: SubagentKind
   enabled?: boolean
 }
 

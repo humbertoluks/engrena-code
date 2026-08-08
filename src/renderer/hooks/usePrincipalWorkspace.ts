@@ -576,6 +576,18 @@ export function usePrincipalWorkspace() {
     [selectedThreadId, loadDiffs]
   )
 
+  /** Escolhe o vencedor de um diff `conflict` de merge paralelo (F18) — sem CTA na UI até `ui.md` existir. */
+  const resolveDiffConflict = useCallback(
+    async (diffId: string, winningChildThreadId: string) => {
+      if (!selectedThreadId) return { ok: false as const, error: 'Nenhuma thread selecionada.' }
+      const res = await threadsService.resolveConflict(selectedThreadId, diffId, { winningChildThreadId })
+      if (res.error) return { ok: false as const, error: res.error.message }
+      void loadDiffs(selectedThreadId)
+      return { ok: true as const }
+    },
+    [selectedThreadId, loadDiffs]
+  )
+
   const gitCommit = useCallback(
     async (subject: string, body?: string) => {
       if (!selectedThreadId) return { ok: false as const, error: 'Nenhuma thread selecionada.' }
@@ -675,6 +687,7 @@ export function usePrincipalWorkspace() {
     mcpNotices,
     dismissMcpNotices,
     acceptDiffs,
+    resolveDiffConflict,
     gitCommit,
     gitPush,
     openPr,

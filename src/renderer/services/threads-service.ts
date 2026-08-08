@@ -69,11 +69,20 @@ export interface ToolCall {
   endedAt: number | null
 }
 
-export type DiffStatus = 'pending' | 'accepted' | 'rejected'
+export type DiffStatus = 'pending' | 'accepted' | 'rejected' | 'conflict'
 
 export interface DiffHunk {
   header: string
   lines: string[]
+}
+
+/** Candidato de conflito de merge paralelo (F18) — um por filho que tocou o mesmo path. */
+export interface DiffConflictCandidate {
+  childThreadId: string
+  subagentName: string
+  hunks: DiffHunk[]
+  additions: number
+  deletions: number
 }
 
 export interface Diff {
@@ -86,6 +95,8 @@ export interface Diff {
   provider: string
   status: DiffStatus
   worktreePath: string | null
+  /** Preenchido só quando `status === 'conflict'` (F18). */
+  conflictCandidates: DiffConflictCandidate[] | null
   createdAt: number
 }
 
@@ -152,6 +163,14 @@ export const threadsService = {
     input: { action?: 'accept' | 'reject'; ids?: string[]; paths?: string[] }
   ): Promise<{ applied: boolean; acceptedIds?: string[]; rejectedIds?: string[] } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/accept`, input),
+
+  /** Escolhe o vencedor de um diff `conflict` de merge paralelo (F18). */
+  resolveConflict: (
+    threadId: string,
+    diffId: string,
+    input: { winningChildThreadId: string }
+  ): Promise<{ diff: Diff } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/diffs/${diffId}/resolve-conflict`, input),
 
   gitCommit: (threadId: string, input: { subject: string; body?: string }): Promise<{ sha: string } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/git-commit`, input),
