@@ -1354,11 +1354,11 @@ graph TD
 - [x] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário — `cancelThread` sem execução ativa assenta a thread em `cancelled`, rejeita a pergunta pendente e libera a lease só quando é dela; coberto por 3 testes em `dispatch.test.ts`
 
 ### F22. Automação por Slash Commands (Pipeline)
-- [ ] `/spec {descrição}` devolve spec.md + plan.md estruturados na resposta da thread
-- [ ] `/featdevelop {descrição}` executa planner → implementer → reviewer → tester com checkpoint de aprovação antes de aplicar diff
-- [ ] `/featbuild {plano}` executa um plano já aprovado até o fim usando os checkpoints de revisão de diff existentes
-- [ ] Falha de um estágio interrompe o pipeline nesse ponto; estágios já concluídos com diff aceito permanecem
-- [ ] Comando slash inválido não dispara nenhum estágio; erro aparece inline no composer
+- [x] `/spec {descrição}` devolve spec.md + plan.md estruturados na resposta da thread
+- [x] `/featdevelop {descrição}` executa planner → implementer → reviewer → tester com checkpoint de aprovação antes de aplicar diff
+- [x] `/featbuild {plano}` executa um plano já aprovado até o fim usando os checkpoints de revisão de diff existentes
+- [x] Falha de um estágio interrompe o pipeline nesse ponto; estágios já concluídos com diff aceito permanecem
+- [x] Comando slash inválido não dispara nenhum estágio; erro aparece inline no composer
 
 ### F23. Providers GLM e Grok
 - [x] Key válida de GLM/Grok salva em Configuração e passa em "Testar conexão"
@@ -1415,7 +1415,7 @@ graph TD
 - [x] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
 - [x] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
 - [x] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
-- [ ] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
+- [x] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
 - [x] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
 - [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
 - [ ] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
