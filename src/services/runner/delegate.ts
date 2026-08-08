@@ -2,6 +2,7 @@ import { randomUUID, randomBytes } from 'crypto'
 import http from 'http'
 import {
   createSubagentRun,
+  getSubagentRun,
   updateSubagentRun,
   type Subagent,
   type SubagentRunStatus,
@@ -15,6 +16,7 @@ import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './pr
 import { emit } from './ws-hub.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { runCliTurn as defaultRunCliTurn, ProviderError, type ProviderTurnInput } from './providers/cli-driver.js'
+import { createWorktree, WorktreeError } from '../git/worktree.js'
 
 export const DEFAULT_IDLE_TIMEOUT_MINUTES = 20
 export const HARD_CAP_MS = 2 * 60 * 60 * 1000
@@ -67,12 +69,16 @@ export interface StartDelegatedRunInput {
   parentThreadId: string
   parentToolCallId?: string | null
   subagent: Subagent
+  /** Reservado por quem chama quando o worktree do filho precisa existir antes do run (batch paralelo F18). */
+  childThreadId?: string
+  /** UUID do batch `tasks[]` (spec F18 §3.2); omitido/`null` no path serial F15. */
+  parallelBatchId?: string | null
   now?: number
 }
 
 export function startDelegatedRun(input: StartDelegatedRunInput): DelegatedRun {
   const now = input.now ?? Date.now()
-  const childThreadId = randomUUID()
+  const childThreadId = input.childThreadId ?? randomUUID()
   createSubagentRun({
     childThreadId,
     parentThreadId: input.parentThreadId,
@@ -82,6 +88,7 @@ export function startDelegatedRun(input: StartDelegatedRunInput): DelegatedRun {
     model: input.subagent.model,
     reasoningLevel: input.subagent.reasoningLevel,
     status: 'running',
+    parallelBatchId: input.parallelBatchId ?? null,
   })
   return new DelegatedRun({
     childThreadId,
@@ -180,6 +187,13 @@ function resolveChildProvider(subagent: Subagent, parentProvider: ThreadProvider
   return subagent.provider === 'inherit' ? parentProvider : subagent.provider
 }
 
+export interface DelegationRunOptions {
+  /** Worktree já criado do filho (batch paralelo F18) — quando ausente, usa `resolveThreadCwd(pai)` (path serial F15). */
+  childThreadId?: string
+  cwdOverride?: string
+  parallelBatchId?: string | null
+}
+
 /**
  * Gate → resolve subagent do catálogo do projeto → spawna o turno filho via `runCliTurnImpl`
  * direto (sem diffs/lease/`--mcp-config` — profundidade 1 estrutural, spec F11 §3.2) → watchdog
@@ -189,7 +203,8 @@ function resolveChildProvider(subagent: Subagent, parentProvider: ThreadProvider
  */
 export async function runDelegatedSubagentTurn(
   ctx: DelegationContext,
-  request: DelegationRequest
+  request: DelegationRequest,
+  options: DelegationRunOptions = {}
 ): Promise<DelegationResult> {
   const gate = canDelegateSubagent({
     provider: ctx.parentThread.provider as ParentProvider,
@@ -212,12 +227,14 @@ export async function runDelegatedSubagentTurn(
 
   const provider = resolveChildProvider(subagent, ctx.parentThread.provider)
   const model = subagent.model
-  const cwd = resolveThreadCwd(ctx.parentThread, ctx.project)
+  const cwd = options.cwdOverride ?? resolveThreadCwd(ctx.parentThread, ctx.project)
 
   const run = startDelegatedRun({
     parentThreadId: ctx.parentThread.id,
     parentToolCallId: ctx.getParentToolCallId?.() ?? null,
     subagent,
+    childThreadId: options.childThreadId,
+    parallelBatchId: options.parallelBatchId,
   })
 
   emit(ctx.parentThread.id, {
@@ -225,6 +242,7 @@ export async function runDelegatedSubagentTurn(
     threadId: ctx.parentThread.id,
     childThreadId: run.childThreadId,
     name: subagent.name,
+    parallelBatchId: options.parallelBatchId ?? null,
   })
 
   const controller = new AbortController()
@@ -294,6 +312,7 @@ export async function runDelegatedSubagentTurn(
       threadId: ctx.parentThread.id,
       childThreadId: run.childThreadId,
       status: run.currentStatus(),
+      parallelBatchId: options.parallelBatchId ?? null,
     })
 
     return { text: finalText }
@@ -311,11 +330,121 @@ export async function runDelegatedSubagentTurn(
       threadId: ctx.parentThread.id,
       childThreadId: run.childThreadId,
       status: run.currentStatus(),
+      parallelBatchId: options.parallelBatchId ?? null,
     })
 
     const prefix = run.currentStatus() === 'timeout' ? 'interrompido por timeout' : 'falhou'
     return { text: `[subagent '${subagent.name}' ${prefix}: ${message}]`, isError: false }
   }
+}
+
+// ── Batch paralelo (spec F18 §3/§5.1) ───────────────────────────────────────
+//
+// `call_subagent` com `tasks[]` (1–4) substitui o path serial FIFO por spawn concorrente, cada
+// filho isolado num worktree próprio derivado do cwd resolvido do pai (não do `project.path` fixo
+// — se o pai já roda num worktree, os filhos nascem dali, herdando o mesmo ponto de partida).
+
+export const MAX_PARALLEL_TASKS = 4
+
+export type ParallelTaskStatus = 'completed' | 'error' | 'timeout' | 'skipped'
+
+export interface ParallelTaskResult {
+  childThreadId: string
+  subagentName: string
+  status: ParallelTaskStatus
+  text: string
+  worktreePath: string | null
+}
+
+export interface ParallelBatchResult {
+  parallelBatchId: string
+  results: ParallelTaskResult[]
+}
+
+function isValidDelegationRequest(value: unknown): value is DelegationRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const req = value as Record<string, unknown>
+  return typeof req.name === 'string' && req.name.trim() !== '' && typeof req.task === 'string' && req.task.trim() !== ''
+}
+
+/**
+ * Reserva um worktree por item **sequencialmente** (spec §3.2 — `git worktree add` concorrente na
+ * mesma administrative area do repo é frágil), depois roda os turnos filhos em paralelo via
+ * `Promise.all`. Falha ao criar um worktree — ou item com shape inválido — não aborta o batch:
+ * esse item vira `skipped` e os demais seguem (PRD Tratamento de Erros).
+ */
+export async function runParallelDelegatedBatch(
+  ctx: DelegationContext,
+  tasks: DelegationRequest[]
+): Promise<ParallelBatchResult> {
+  const parallelBatchId = randomUUID()
+  const baseCwd = resolveThreadCwd(ctx.parentThread, ctx.project)
+
+  interface PreparedTask {
+    task: DelegationRequest
+    childThreadId: string
+    worktreePath: string | null
+    skipReason: string | null
+  }
+
+  const prepared: PreparedTask[] = []
+  for (const task of tasks) {
+    const childThreadId = randomUUID()
+    if (!isValidDelegationRequest(task)) {
+      prepared.push({ task, childThreadId, worktreePath: null, skipReason: 'name e task são obrigatórios.' })
+      continue
+    }
+    try {
+      const worktreePath = await createWorktree(baseCwd, ctx.project.id, childThreadId)
+      prepared.push({ task, childThreadId, worktreePath, skipReason: null })
+    } catch (err) {
+      const message = err instanceof WorktreeError ? err.message : 'Não foi possível criar o worktree do filho.'
+      prepared.push({ task, childThreadId, worktreePath: null, skipReason: message })
+    }
+  }
+
+  const results = await Promise.all(
+    prepared.map(async (p): Promise<ParallelTaskResult> => {
+      if (p.skipReason || !p.worktreePath) {
+        return {
+          childThreadId: p.childThreadId,
+          subagentName: p.task.name ?? '',
+          status: 'skipped',
+          text: p.skipReason ?? 'Item ignorado.',
+          worktreePath: null,
+        }
+      }
+
+      const outcome = await runDelegatedSubagentTurn(ctx, p.task, {
+        childThreadId: p.childThreadId,
+        cwdOverride: p.worktreePath,
+        parallelBatchId,
+      })
+      // Sem run persistido = gate bloqueou ou o nome do subagent não existe no catálogo (falha
+      // antes de startDelegatedRun) — conta como 'error', não 'skipped' (o item chegou a ser tentado).
+      const persistedRun = getSubagentRun(p.childThreadId)
+      const status: ParallelTaskStatus =
+        persistedRun?.status === 'completed' || persistedRun?.status === 'timeout' ? persistedRun.status : 'error'
+
+      return {
+        childThreadId: p.childThreadId,
+        subagentName: p.task.name,
+        status,
+        text: outcome.text,
+        worktreePath: p.worktreePath,
+      }
+    })
+  )
+
+  return { parallelBatchId, results }
+}
+
+function formatBatchReport(batch: ParallelBatchResult): string {
+  const lines = [`Batch paralelo ${batch.parallelBatchId} — ${batch.results.length} tarefa(s):`]
+  for (const r of batch.results) {
+    lines.push(`- ${r.subagentName} (${r.childThreadId}): ${r.status} — ${r.text}`)
+  }
+  return lines.join('\n')
 }
 
 export interface DelegationServerHandle {
@@ -355,8 +484,20 @@ export function createDelegationServer(ctx: DelegationContext): Promise<Delegati
       const run = async (): Promise<void> => {
         let result: DelegationResult
         try {
-          const request = JSON.parse(body) as DelegationRequest
-          result = await runDelegatedSubagentTurn(ctx, request)
+          const parsed = JSON.parse(body) as DelegationRequest & { tasks?: unknown }
+          if (parsed.tasks !== undefined) {
+            if (parsed.name !== undefined || parsed.task !== undefined) {
+              result = { text: 'Ambíguo: envie "tasks" ou "name"/"task", não os dois.', isError: true }
+            } else if (!Array.isArray(parsed.tasks) || parsed.tasks.length === 0 || parsed.tasks.length > MAX_PARALLEL_TASKS) {
+              result = { text: `tasks deve ter entre 1 e ${MAX_PARALLEL_TASKS} itens.`, isError: true }
+            } else {
+              const batch = await runParallelDelegatedBatch(ctx, parsed.tasks as DelegationRequest[])
+              const allFailed = batch.results.every((r) => r.status === 'error' || r.status === 'skipped')
+              result = { text: formatBatchReport(batch), isError: allFailed }
+            }
+          } else {
+            result = await runDelegatedSubagentTurn(ctx, parsed)
+          }
         } catch (err) {
           result = {
             text: err instanceof Error ? err.message : 'Erro na delegação.',

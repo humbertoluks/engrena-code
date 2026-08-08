@@ -42,15 +42,30 @@ const memoryToken = flag('memory-token')
 
 const CALL_SUBAGENT_SCHEMA = {
   name: 'call_subagent',
-  description: 'Delega uma tarefa a um subagent cadastrado e vinculado a este projeto.',
+  description:
+    'Delega uma tarefa a um subagent cadastrado e vinculado a este projeto. Use name+task para uma delegação serial, ou tasks (1-4 itens) para rodar vários subagents em paralelo, cada um em um worktree isolado — nunca combine os dois.',
   inputSchema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: 'Nome do subagent cadastrado' },
-      task: { type: 'string', description: 'Tarefa a delegar' },
-      context: { type: 'string', description: 'Contexto adicional opcional' },
+      name: { type: 'string', description: 'Nome do subagent cadastrado (path serial — não use com tasks)' },
+      task: { type: 'string', description: 'Tarefa a delegar (path serial — não use com tasks)' },
+      context: { type: 'string', description: 'Contexto adicional opcional (path serial)' },
+      tasks: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 4,
+        description: 'Batch paralelo: 1 a 4 delegações simultâneas, cada uma em worktree isolado',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Nome do subagent cadastrado' },
+            task: { type: 'string', description: 'Tarefa a delegar' },
+            context: { type: 'string', description: 'Contexto adicional opcional' },
+          },
+          required: ['name', 'task'],
+        },
+      },
     },
-    required: ['name', 'task'],
   },
 }
 
@@ -267,7 +282,7 @@ async function handleCallSubagent(id, params) {
     const res = await fetch(\`http://127.0.0.1:\${port}/delegate\`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-delegate-token': token },
-      body: JSON.stringify({ name: args.name, task: args.task, context: args.context }),
+      body: JSON.stringify({ name: args.name, task: args.task, context: args.context, tasks: args.tasks }),
     })
     const body = await res.json()
     send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: body.text }], isError: Boolean(body.isError) } })

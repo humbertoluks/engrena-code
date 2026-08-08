@@ -19,8 +19,14 @@ const { ProviderError } = await import('./providers/cli-driver.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { diffWorkingTree } = await import('../git/git-client.js')
 const { resolveThreadCwd } = await import('./thread-cwd.js')
-const { createDelegationServer, runDelegatedSubagentTurn, setRunCliTurnForTesting, resetRunCliTurnForTesting } =
-  await import('./delegate.js')
+const {
+  createDelegationServer,
+  runDelegatedSubagentTurn,
+  runParallelDelegatedBatch,
+  setRunCliTurnForTesting,
+  resetRunCliTurnForTesting,
+  MAX_PARALLEL_TASKS,
+} = await import('./delegate.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f11_delegate_fixture_'))
 
@@ -387,6 +393,134 @@ describe('runDelegatedSubagentTurn — diffs unificados (F15 Fase 3)', () => {
     expect(diffs.map((d) => d.file)).toContain('arquivo-do-filho.txt')
 
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('runParallelDelegatedBatch (F18)', () => {
+  function makeGitContext() {
+    const dir = makeGitProjectDir(`project-parallel-${Math.random()}`)
+    const project = createProject({ path: dir })
+    const parentThread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'full-access',
+      executionMode: 'main',
+    })
+    return { project, parentThread }
+  }
+
+  it('test_parallel_two_children_disjoint_paths', async () => {
+    const { project, parentThread } = makeGitContext()
+    const a = linkSubagent(project.id, { name: 'implementer-a' })
+    const b = linkSubagent(project.id, { name: 'implementer-b' })
+
+    const cwds: string[] = []
+    setRunCliTurnForTesting(async (input) => {
+      cwds.push(input.cwd)
+      writeFileSync(join(input.cwd, `${input.prompt}.txt`), 'ok\n')
+      return {
+        text: 'feito',
+        usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: null, cacheCreationTokens: null },
+      }
+    })
+
+    const batch = await runParallelDelegatedBatch(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      [
+        { name: a.name, task: 'task-a' },
+        { name: b.name, task: 'task-b' },
+      ]
+    )
+
+    expect(batch.results).toHaveLength(2)
+    expect(batch.results.every((r) => r.status === 'completed')).toBe(true)
+    expect(new Set(cwds).size).toBe(2)
+    expect(cwds).not.toContain(resolveThreadCwd(parentThread, project))
+
+    const runs = listSubagentRunsForParentThread(parentThread.id)
+    expect(runs).toHaveLength(2)
+    expect(runs.every((r) => r.parallelBatchId === batch.parallelBatchId)).toBe(true)
+
+    expect(getThreadEvents(parentThread.id, undefined, 10, 0).events).toHaveLength(2)
+  })
+
+  it('test_parallel_child_name_invalid_others_continue', async () => {
+    const { project, parentThread } = makeGitContext()
+    const valid = linkSubagent(project.id, { name: 'implementer-valid' })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const batch = await runParallelDelegatedBatch(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      [
+        { name: 'nao-existe', task: 't' },
+        { name: valid.name, task: 't' },
+      ]
+    )
+
+    expect(batch.results).toHaveLength(2)
+    const invalid = batch.results.find((r) => r.subagentName === 'nao-existe')
+    const ok = batch.results.find((r) => r.subagentName === valid.name)
+    expect(invalid?.status).toBe('error')
+    expect(ok?.status).toBe('completed')
+    expect(listSubagentRunsForParentThread(parentThread.id)).toHaveLength(1)
+  })
+
+  it('test_tasks_over_limit rejects a batch above MAX_PARALLEL_TASKS via HTTP, zero runs', async () => {
+    const { project, parentThread } = makeGitContext()
+    const subagent = linkSubagent(project.id)
+    setRunCliTurnForTesting(async () => ({ text: 'nunca deveria rodar' }))
+
+    const server = await createDelegationServer({ project, parentThread, parentTurnId: 'turn-1' })
+    const tasks = Array.from({ length: MAX_PARALLEL_TASKS + 1 }, () => ({ name: subagent.name, task: 't' }))
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/delegate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-delegate-token': server.token },
+      body: JSON.stringify({ tasks }),
+    })
+    const body = (await res.json()) as { isError: boolean }
+    server.close()
+
+    expect(body.isError).toBe(true)
+    expect(listSubagentRunsForParentThread(parentThread.id)).toHaveLength(0)
+  })
+
+  it('rejects an ambiguous body mixing tasks and top-level name/task', async () => {
+    const { project, parentThread } = makeGitContext()
+    const subagent = linkSubagent(project.id)
+    const server = await createDelegationServer({ project, parentThread, parentTurnId: 'turn-1' })
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/delegate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-delegate-token': server.token },
+      body: JSON.stringify({ name: subagent.name, task: 't', tasks: [{ name: subagent.name, task: 't' }] }),
+    })
+    const body = (await res.json()) as { isError: boolean; text: string }
+    server.close()
+
+    expect(body.isError).toBe(true)
+    expect(body.text).toContain('Ambíguo')
+  })
+
+  it('runs a tasks[] batch over HTTP and returns an aggregated report', async () => {
+    const { project, parentThread } = makeGitContext()
+    const a = linkSubagent(project.id, { name: 'implementer-a' })
+    const b = linkSubagent(project.id, { name: 'implementer-b' })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const server = await createDelegationServer({ project, parentThread, parentTurnId: 'turn-1' })
+    const res = await fetch(`http://127.0.0.1:${server.port}/delegate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-delegate-token': server.token },
+      body: JSON.stringify({ tasks: [{ name: a.name, task: 't' }, { name: b.name, task: 't' }] }),
+    })
+    const body = (await res.json()) as { isError: boolean; text: string }
+    server.close()
+
+    expect(body.isError).toBe(false)
+    expect(body.text).toContain(a.name)
+    expect(body.text).toContain(b.name)
+    expect(listSubagentRunsForParentThread(parentThread.id)).toHaveLength(2)
   })
 })
 

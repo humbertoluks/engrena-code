@@ -38,11 +38,17 @@ function lastErrorLine(err: unknown): string {
 
 /**
  * Cria a worktree isolada sob `userData/worktrees/<projectId>/<threadId>` na branch
- * `engrenacode/<threadId>`, a partir do HEAD do repo principal (spec F13 §3.2/§6).
+ * `engrenacode/<threadId>`, a partir do HEAD de `baseCwd` (spec F13 §3.2/§6).
  * Lança `WorktreeError` tipado — o chamador (dispatch.ts) nunca deve degradar para `project.path`.
+ *
+ * `baseCwd` normalmente é `project.path` (thread na raiz do projeto — F13). Filhos paralelos do
+ * batch `tasks[]` (F18 §3.2) passam `resolveThreadCwd(pai)`: `git worktree add` só precisa rodar
+ * dentro de *algum* checkout do repo (principal ou um worktree já linkado) para registrar o novo
+ * worktree na mesma administrative area do `.git` — herdando o HEAD de onde o pai está, mesmo que
+ * o pai já seja, ele próprio, um worktree.
  */
-export async function createWorktree(projectPath: string, projectId: string, threadId: string): Promise<string> {
-  if (!(await isGitRepo(projectPath)) || !(await hasGitHead(projectPath))) {
+export async function createWorktree(baseCwd: string, projectId: string, threadId: string): Promise<string> {
+  if (!(await isGitRepo(baseCwd)) || !(await hasGitHead(baseCwd))) {
     throw new WorktreeError('worktree_git_required', 'Inicialize o Git antes de usar Worktree.')
   }
 
@@ -50,7 +56,7 @@ export async function createWorktree(projectPath: string, projectId: string, thr
   const branch = worktreeBranchName(threadId)
 
   try {
-    await gitWorktreeAdd(projectPath, worktreePath, branch)
+    await gitWorktreeAdd(baseCwd, worktreePath, branch)
   } catch (err) {
     throw new WorktreeError('worktree_create_failed', `Não foi possível criar o worktree: ${lastErrorLine(err)}.`)
   }
