@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -18,6 +18,7 @@ const { vaultService } = await import('../vault/vault-service.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { diffWorkingTree } = await import('../git/git-client.js')
+const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { resolveThreadCwd } = await import('./thread-cwd.js')
 const {
   createDelegationServer,
@@ -442,6 +443,43 @@ describe('runParallelDelegatedBatch (F18)', () => {
     expect(runs.every((r) => r.parallelBatchId === batch.parallelBatchId)).toBe(true)
 
     expect(getThreadEvents(parentThread.id, undefined, 10, 0).events).toHaveLength(2)
+
+    // AC F18 §2: filhos em paths distintos mergeiam automaticamente numa única revisão no pai.
+    const diffs = listDiffsForThread(parentThread.id)
+    expect(diffs.map((d) => d.file).sort()).toEqual(['task-a.txt', 'task-b.txt'])
+    expect(diffs.every((d) => d.status === 'pending')).toBe(true)
+    const parentCwd = resolveThreadCwd(parentThread, project)
+    expect(readFileSync(join(parentCwd, 'task-a.txt'), 'utf-8')).toBe('ok\n')
+    expect(readFileSync(join(parentCwd, 'task-b.txt'), 'utf-8')).toBe('ok\n')
+  })
+
+  it('test_merge_same_path_conflict — two children writing the same file end up as a conflict diff, not applied to the parent', async () => {
+    const { project, parentThread } = makeGitContext()
+    const a = linkSubagent(project.id, { name: 'implementer-a' })
+    const b = linkSubagent(project.id, { name: 'implementer-b' })
+
+    setRunCliTurnForTesting(async (input) => {
+      writeFileSync(join(input.cwd, 'shared.ts'), `versao de ${input.prompt}\n`)
+      return { text: 'feito' }
+    })
+
+    const batch = await runParallelDelegatedBatch(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      [
+        { name: a.name, task: 'a' },
+        { name: b.name, task: 'b' },
+      ]
+    )
+
+    expect(batch.hadConflict).toBe(true)
+
+    const diffs = listDiffsForThread(parentThread.id)
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0].status).toBe('conflict')
+    expect(diffs[0].conflictCandidates).toHaveLength(2)
+
+    const parentCwd = resolveThreadCwd(parentThread, project)
+    expect(() => readFileSync(join(parentCwd, 'shared.ts'), 'utf-8')).toThrow()
   })
 
   it('test_parallel_child_name_invalid_others_continue', async () => {

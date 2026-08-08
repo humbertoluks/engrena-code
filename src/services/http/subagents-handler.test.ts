@@ -85,6 +85,33 @@ describe('subagents-handler', () => {
     expect(list.data.subagents).toHaveLength(1)
   })
 
+  it('test_kind_default_dev — create/update round-trip kind through the generic CRUD (F18)', async () => {
+    const create = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
+    expect(create.data.subagent.kind).toBe('dev')
+
+    const created = await client.post(
+      '/api/subagents',
+      baseInput({ name: 'implementer-pipeline', kind: 'pipeline' }),
+      { headers: authHeaders() }
+    )
+    expect(created.status).toBe(201)
+    expect(created.data.subagent.kind).toBe('pipeline')
+
+    const updated = await client.put(
+      `/api/subagents/${created.data.subagent.id}`,
+      { kind: 'dev' },
+      { headers: authHeaders() }
+    )
+    expect(updated.status).toBe(200)
+    expect(updated.data.subagent.kind).toBe('dev')
+
+    const invalid = await client.post('/api/subagents', baseInput({ name: 'x', kind: 'orchestrator' }), {
+      headers: authHeaders(),
+    })
+    expect(invalid.status).toBe(400)
+    expect(invalid.data.error.code).toBe('validation_error')
+  })
+
   it('rejects duplicate name with 409', async () => {
     await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
     const res = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
