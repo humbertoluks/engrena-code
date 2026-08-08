@@ -7,6 +7,7 @@ import {
   extractMentionQuery,
   insertMentionPath,
   isAllowedImageMimeType,
+  validateComposerSlash,
   validateImageFile,
 } from './composer.logic'
 
@@ -89,5 +90,24 @@ describe('isAllowedImageMimeType', () => {
     expect(isAllowedImageMimeType('image/png')).toBe(true)
     expect(isAllowedImageMimeType('image/gif')).toBe(true)
     expect(isAllowedImageMimeType('image/svg+xml')).toBe(false)
+  })
+})
+
+describe('validateComposerSlash (F22)', () => {
+  it('allows a normal prompt without a leading slash', () => {
+    expect(validateComposerSlash('faz um refactor')).toEqual({ ok: true })
+  })
+
+  it('allows a valid native slash command', () => {
+    expect(validateComposerSlash('/spec Adicionar X')).toEqual({ ok: true })
+  })
+
+  it('blocks an invalid slash with the canonical message, nothing dispatched', () => {
+    const result = validateComposerSlash('/foo bar')
+    expect(result).toEqual({ ok: false, message: 'Comando slash desconhecido.' })
+  })
+
+  it('blocks a known command with no args', () => {
+    expect(validateComposerSlash('/featbuild')).toEqual({ ok: false, message: 'Faltam argumentos após o comando.' })
   })
 })

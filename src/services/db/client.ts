@@ -12,6 +12,7 @@ import * as migration006UsageSourceTextgen from './migrations/006_usage_source_t
 import * as migration007ComposerAvancado from './migrations/007_composer_avancado.js'
 import * as migration008Memory from './migrations/008_memory.js'
 import * as migration009WriteParallel from './migrations/009_write_parallel.js'
+import * as migration010SlashPipeline from './migrations/010_slash_pipeline.js'
 
 interface Migration {
   id: string
@@ -29,6 +30,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration007ComposerAvancado.id, sql: migration007ComposerAvancado.sql },
   { id: migration008Memory.id, sql: migration008Memory.sql },
   { id: migration009WriteParallel.id, sql: migration009WriteParallel.sql },
+  { id: migration010SlashPipeline.id, sql: migration010SlashPipeline.sql },
 ]
 
 function resolveUserData(): string {

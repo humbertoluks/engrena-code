@@ -4,6 +4,7 @@ import {
   MAX_IMAGE_BYTES,
   type AllowedImageMimeType,
 } from '../../../services/runner/providers/composer-images.js'
+import { parseSlashCommand } from '../../../services/runner/slash-commands.js'
 
 /** Debounce piso do menu `@` (spec F16 §3.2/ui.md) — usado pelo componente, exportado para o contrato de teste. */
 export const MENTION_DEBOUNCE_MS = 150
@@ -71,4 +72,17 @@ export function canAddMoreImages(currentCount: number, incomingCount = 1): boole
 
 export function isAllowedImageMimeType(mimeType: string): mimeType is AllowedImageMimeType {
   return (ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(mimeType)
+}
+
+export type ComposerSlashValidation = { ok: true } | { ok: false; message: string }
+
+/**
+ * Bloqueio pré-envio de slash inválido (spec F22 §5.2 "Client: não envia + erro inline"). Prompt
+ * sem `/` inicial ou comando nativo válido passam; `/` malformado/desconhecido/sem args bloqueiam
+ * o envio com a mensagem canônica de `slash-commands.ts` (mesmo texto do 400 do server).
+ */
+export function validateComposerSlash(text: string): ComposerSlashValidation {
+  const result = parseSlashCommand(text)
+  if (result.kind === 'error') return { ok: false, message: result.message }
+  return { ok: true }
 }

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F22 Slash + Pipeline — fixture Engrena Central</title>
+<style>
+  :root {
+    --bg:#f7f7f8; --surface:#ffffff; --surface-2:#f1f1f3; --border:#e2e2e6;
+    --fg:#1a1a1d; --muted:#6b6b73; --accent:#ff6b00; --amber:#b07d1f; --green:#2e9e43; --red:#cf3b3b;
+    --radius-sm:5px; --radius-md:8px; --radius-lg:12px;
+    font-family:"DM Sans","Segoe UI",system-ui,sans-serif;
+  }
+  .dark {
+    --bg:#0a0a0b; --surface:#121214; --surface-2:#17171a; --border:#232327;
+    --fg:#ededee; --muted:#a1a1aa; --amber:#d2a23a; --green:#3fb950; --red:#e05555;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg); }
+  .wrap { max-width:920px; margin:0 auto; padding:28px 24px; display:flex; flex-direction:column; gap:20px; }
+  h1 { margin:0; font-size:16px; }
+  .note { margin:0; font-size:12px; color:var(--muted); line-height:1.45; }
+  .row { display:grid; grid-template-columns: 1fr 320px; gap:16px; align-items:start; }
+  @media (max-width:800px) { .row { grid-template-columns:1fr; } }
+
+  /* CommandMenu — tokens espelham CommandMenu.tsx fonte */
+  .composer-slot { position:relative; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); padding:12px; }
+  .menu {
+    position:absolute; bottom:calc(100% + 6px); left:0; z-index:5;
+    width:min(420px,92vw); overflow:hidden; border-radius:var(--radius-md);
+    border:1px solid var(--border); background:var(--surface); box-shadow:0 12px 40px rgba(0,0,0,.45);
+  }
+  .menu ul { margin:0; padding:4px; list-style:none; max-height:260px; overflow:auto; }
+  .menu li button {
+    display:flex; width:100%; align-items:center; gap:6px; text-align:left;
+    border:0; background:transparent; color:var(--fg); border-radius:6px;
+    padding:6px 8px; font-size:12.5px; cursor:default;
+  }
+  .menu li button.active { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .slash { color:var(--muted); font-size:14px; width:14px; text-align:center; }
+  .mono { font-family:ui-monospace,Consolas,monospace; font-weight:600; }
+  .desc { color:var(--muted); }
+  .ta {
+    width:100%; min-height:72px; resize:none; border:1px solid var(--border);
+    border-radius:var(--radius-md); background:var(--surface-2); color:var(--fg);
+    padding:10px 12px; font:inherit; font-size:13px;
+  }
+  .err { margin:8px 0 0; font-size:12px; color:var(--red); }
+
+  /* FeaturePipelinePanel-like — 4 estágios Central (não as 7 fases da fonte) */
+  .panel {
+    overflow:hidden; border-radius:12px; border:1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    box-shadow:0 10px 30px rgba(0,0,0,.35); backdrop-filter:blur(8px);
+  }
+  .panel-h {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:6px 8px; font-size:10.5px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--muted);
+  }
+  .panel-h .count { font-family:ui-monospace,monospace; font-size:10px; font-weight:600; text-transform:none; letter-spacing:0; }
+  .title-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:0 8px 4px; }
+  .title { flex:1; min-width:0; font-size:11.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pill {
+    border-radius:5px; border:1px solid var(--border); background:var(--surface-2);
+    padding:1px 5px; font-size:9.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--muted);
+  }
+  .pill.amber { border-color:rgba(210,162,58,.35); background:rgba(210,162,58,.12); color:var(--amber); }
+  .pill.green { border-color:rgba(63,185,80,.3); background:rgba(63,185,80,.12); color:var(--green); }
+  .steps { list-style:none; margin:0; padding:0; }
+  .steps li { display:flex; align-items:flex-start; gap:8px; padding:3px 8px; font-size:12px; line-height:1.35; }
+  .ico { width:12px; height:12px; margin-top:3px; flex:none; display:grid; place-items:center; }
+  .ico .done { color:var(--green); font-size:11px; font-weight:700; }
+  .ico .run { width:7px; height:7px; border-radius:999px; background:var(--accent); animation:pulse 1.2s infinite; }
+  .ico .pend { width:7px; height:7px; border-radius:999px; border:1px solid color-mix(in srgb, var(--muted) 70%, transparent); }
+  .ico .wait { color:var(--amber); font-size:9px; font-weight:700; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .lab { font-weight:500; }
+  .lab.muted { color:var(--muted); font-weight:400; }
+  .lab.wait { color:var(--amber); }
+  .sub { display:block; font-size:10.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .actions { padding:4px 8px 8px; display:flex; flex-direction:column; gap:6px; }
+  .hint { margin:0; font-size:10.5px; color:var(--muted); line-height:1.35; }
+  .btn {
+    width:100%; border:0; border-radius:6px; background:var(--accent); color:#fff;
+    padding:5px 8px; font-size:11.5px; font-weight:600; cursor:default;
+  }
+  .btn.ghost {
+    background:var(--surface-2); color:var(--muted); border:1px solid var(--border);
+  }
+
+  /* Timeline stage block (PRD Experiência) */
+  .timeline { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .timeline h2 { margin:0; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .stage-line {
+    margin:0; display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted);
+  }
+  .stage-line .pulse { width:5px; height:5px; border-radius:999px; background:#4c8ef0; animation:pulse 1.2s infinite; }
+  .stage-block {
+    border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px; background:var(--surface-2);
+  }
+  .stage-block .top { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .stage-block .meta { margin-top:2px; font-size:11px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>F22 — CommandMenu + Pipeline panel + timeline (Central)</h1>
+    <p class="note">
+      Menu e tokens do painel espelham LionCodeLabs (<code>CommandMenu.tsx</code>, <code>FeaturePipelinePanel.tsx</code>, <code>WorkflowStageLine.tsx</code>).
+      Descrições dos 3 slash e os 4 estágios são do contrato Engrena Central (PRD/spec F22), não das 7 fases PRD→sprints da fonte.
+      Checkpoint usa copy alinhada a F21 (não “Aprovar PRD”). Retomar / sprints / custom slash = fora do Central.
+    </p>
+
+    <div class="row">
+      <div class="composer-slot">
+        <div class="menu" role="listbox" aria-label="Comandos">
+          <ul>
+            <li><button type="button" class="active" role="option" aria-selected="true">
+              <span class="slash">/</span>
+              <span><span class="mono">/spec</span><span class="desc"> — Gera spec.md + plan.md como texto estruturado na thread (não grava ficheiro).</span></span>
+            </button></li>
+            <li><button type="button" role="option">
+              <span class="slash">/</span>
+              <span><span class="mono">/featdevelop</span><span class="desc"> — Orquestra planner → implementer → reviewer → tester com checkpoint antes de aplicar diffs.</span></span>
+            </button></li>
+            <li><button type="button" role="option">
+              <span class="slash">/</span>
+              <span><span class="mono">/featbuild</span><span class="desc"> — Executa um plano já aprovado (markdown) sem replanejar; checkpoints de diff F03.</span></span>
+            </button></li>
+          </ul>
+        </div>
+        <textarea class="ta" readonly>/feat</textarea>
+        <p class="err" role="alert">Comando slash inválido ou mal formado.</p>
+      </div>
+
+      <div class="panel" role="status" aria-label="Pipeline de feature">
+        <div class="panel-h">
+          <span>◈ Pipeline</span>
+          <span class="count">1/4 ⌄</span>
+        </div>
+        <div class="title-row">
+          <span class="title">Login com magic link</span>
+          <span class="pill amber">aguardando aprovação</span>
+        </div>
+        <ul class="steps">
+          <li>
+            <span class="ico"><span class="done">✓</span></span>
+            <span><span class="lab muted">Planejar · planner</span><span class="sub">spec + plan na thread</span></span>
+          </li>
+          <li>
+            <span class="ico"><span class="wait">⏸</span></span>
+            <span><span class="lab wait">Implementar · implementer</span><span class="sub">checkpoint — diffs pendentes</span></span>
+          </li>
+          <li>
+            <span class="ico"><span class="pend"></span></span>
+            <span><span class="lab">Revisar · reviewer</span></span>
+          </li>
+          <li>
+            <span class="ico"><span class="pend"></span></span>
+            <span><span class="lab">Testar · tester</span></span>
+          </li>
+        </ul>
+        <div class="actions">
+          <button type="button" class="btn">Continuar após revisar diffs</button>
+          <p class="hint">Revise os diffs acumulados no painel Diff antes de continuar o pipeline.</p>
+          <button type="button" class="btn ghost">Cancelar pipeline</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <h2>Timeline (blocos de estágio)</h2>
+      <p class="stage-line">
+        <span class="pulse" aria-hidden="true"></span>
+        <span class="mono" style="color:color-mix(in srgb, var(--fg) 80%, transparent)">implementer</span>
+        <span>— estágio 2/4 · em andamento…</span>
+      </p>
+      <div class="stage-block">
+        <div class="top"><span class="mono">planner</span><span class="pill green">concluído</span></div>
+        <div class="meta">Estágio Planejar · subagent planner</div>
+      </div>
+      <div class="stage-block">
+        <div class="top"><span class="mono">implementer</span><span class="pill amber">aguardando aprovação</span></div>
+        <div class="meta">Estágio Implementar · subagent implementer · diffs pendentes</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
