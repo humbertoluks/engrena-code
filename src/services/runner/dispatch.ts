@@ -42,7 +42,7 @@ import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
 import { ensureIndexForTurn } from '../codegraph/ensure.js'
 import { vaultService } from '../vault/vault-service.js'
-import { DEFAULT_PROMPT } from '../http/config-handler.js'
+import { DEFAULT_PROMPT } from '../config/defaults.js'
 import {
   runCliTurn as defaultRunCliTurn,
   ProviderError,

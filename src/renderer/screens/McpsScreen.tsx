@@ -5,6 +5,7 @@ import { McpFormModal } from '../components/mcps/McpFormModal'
 import { McpCatalogModal } from '../components/mcps/McpCatalogModal'
 import { McpOauthControls } from '../components/mcps/McpOauthControls'
 import { mcpsService, type Mcp, type McpCreateInput, type McpPreset } from '../services/mcps-service'
+import { matchesFilters } from './mcpsScreen.logic'
 
 const COPY = {
   title: 'MCPs',
@@ -30,13 +31,6 @@ const COPY = {
 } as const
 
 type ModalState = { mode: 'new' } | { mode: 'edit'; mcp: Mcp } | null
-
-function matchesFilters(mcp: Mcp, search: string, category: string | null): boolean {
-  if (category !== null && (mcp.category ?? '') !== category) return false
-  if (search === '') return true
-  const needle = search.toLowerCase()
-  return mcp.name.toLowerCase().includes(needle) || (mcp.description ?? '').toLowerCase().includes(needle)
-}
 
 interface McpCardProps {
   mcp: Mcp

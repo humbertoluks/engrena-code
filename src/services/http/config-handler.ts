@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import type { IncomingMessage, ServerResponse } from 'http'
-import { guard, parseBody, readBody, sendJson } from './_transport.js'
+import { guard, parseBody, readBody, sendJson, sendTransportError } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { validateGithubToken } from './github-token.js'
 import { validateClaudeKey, validateCodexKey, validateMinimaxKey, validateGlmKey, validateGrokKey } from '../vault/provider-keys.js'
@@ -12,15 +12,9 @@ import type { ProviderKeyValidation } from '../vault/provider-keys.js'
 import { runClaudeProbe } from './claude-probe.js'
 import { testConnection as testGlmConnection } from '../runner/providers/glm-driver.js'
 import { testConnection as testGrokConnection } from '../runner/providers/grok-driver.js'
+import { DEFAULT_PROMPT } from '../config/defaults.js'
 
 const execAsync = promisify(exec)
-
-export const DEFAULT_PROMPT =
-  'Você é um agente de desenvolvimento no EngrenaCode. Ao executar tarefas:\n' +
-  '• Analise o escopo antes de modificar arquivos\n' +
-  '• Submeta alterações para revisão via diff — não aplique diretamente no disco\n' +
-  '• Use subagents para subtarefas paralelas, skills para instruções especializadas e MCPs para ferramentas externas\n' +
-  '• Documente decisões não-óbvias nos commits'
 
 const IS_WIN = process.platform === 'win32'
 const FIND_CMD = IS_WIN ? 'where' : 'which'
@@ -217,7 +211,10 @@ async function handlePromptSave(req: IncomingMessage, res: ServerResponse): Prom
 
   const data = parseBody<{ prompt?: string | null }>(await readBody(req))
   if (data === null) {
-    return sendJson(res, 400, { error: { code: 'invalid_json', message: 'Corpo inválido.' } })
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Corpo inválido.' } })
+  }
+  if (data.prompt !== undefined && data.prompt !== null && typeof data.prompt !== 'string') {
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Campo "prompt" tem tipo inválido.' } })
   }
 
   const promptValue = data.prompt ?? null
@@ -267,7 +264,10 @@ async function handleGithubToken(req: IncomingMessage, res: ServerResponse): Pro
 
   const data = parseBody<{ token?: string }>(await readBody(req))
   if (data === null) {
-    return sendJson(res, 400, { error: { code: 'invalid_json', message: 'Corpo inválido.' } })
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Corpo inválido.' } })
+  }
+  if (data.token !== undefined && typeof data.token !== 'string') {
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Campo "token" tem tipo inválido.' } })
   }
 
   const token = data.token ?? ''
@@ -293,7 +293,7 @@ async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promis
     await readBody(req)
   )
   if (data === null) {
-    return sendJson(res, 400, { error: { code: 'invalid_json', message: 'Corpo inválido.' } })
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Corpo inválido.' } })
   }
 
   type KeyFieldName = 'claude' | 'codex' | 'minimax' | 'glm' | 'grok'
@@ -304,6 +304,13 @@ async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promis
     { name: 'glm', value: data.glm, validate: validateGlmKey },
     { name: 'grok', value: data.grok, validate: validateGrokKey },
   ]
+
+  const typeErrors = fields.filter((f) => f.value !== undefined && typeof f.value !== 'string')
+  if (typeErrors.length > 0) {
+    return sendJson(res, 400, {
+      error: { code: 'invalid_request', message: `Campo "${typeErrors[0].name}" tem tipo inválido.` },
+    })
+  }
 
   const details: Record<string, string> = {}
   const toApply: Array<{ name: KeyFieldName; validation: Extract<ProviderKeyValidation, { ok: true }> }> = []
@@ -412,6 +419,7 @@ export async function handleConfigRequest(req: IncomingMessage, res: ServerRespo
       return true
     }
   } catch (err) {
+    if (sendTransportError(res, err)) return true
     console.error('[config-handler] Unhandled error:', err)
     if (!res.headersSent) {
       sendJson(res, 500, { error: { code: 'internal_error', message: 'Erro interno.' } })

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { formatCompact, formatCostText, formatPercent, shareLabel } from './consumoScreen.logic'
+import { formatCompact, formatCostText, formatPercent, formatTimestamp, shareLabel } from './consumoScreen.logic'
+
+describe('formatTimestamp', () => {
+  it('formats an epoch-ms timestamp as a pt-BR locale string', () => {
+    const ms = new Date('2026-01-15T10:30:00Z').getTime()
+    expect(formatTimestamp(ms)).toBe(new Date(ms).toLocaleString('pt-BR'))
+  })
+})
 
 describe('formatCompact', () => {
   it('formats millions and thousands with 1 decimal, keeps small numbers as-is', () => {

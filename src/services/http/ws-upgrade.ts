@@ -24,10 +24,16 @@ export function handleWorkspaceUpgrade(req: IncomingMessage, socket: Duplex, hea
   const threadId = url.searchParams.get('threadId')
   if (threadId === null) return false
 
+  if (vaultService.isLocked()) {
+    socket.write('HTTP/1.1 423 Locked\r\n\r\n')
+    socket.destroy()
+    return true
+  }
+
   const token = extractToken(req, url)
   const valid = vaultService.getSessionToken()
 
-  if (vaultService.isLocked() || typeof token !== 'string' || !token || token !== valid) {
+  if (typeof token !== 'string' || !token || token !== valid) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
     socket.destroy()
     return true

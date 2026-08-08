@@ -18,15 +18,41 @@ export function sendError(
   sendJson(res, status, { error: { code, message, ...(details ? { details } : {}) } })
 }
 
+/** 32 MiB — acima do maior payload legítimo (composer: até 5 imagens x 4 MiB em base64 + overhead JSON). */
+export const MAX_BODY_BYTES = 32 * 1024 * 1024
+
+export class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Corpo da requisição excede o limite permitido.')
+    this.name = 'PayloadTooLargeError'
+  }
+}
+
 export async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = ''
+    let bytes = 0
     req.on('data', (chunk) => {
+      bytes += chunk.length
+      if (bytes > MAX_BODY_BYTES) {
+        req.destroy()
+        reject(new PayloadTooLargeError())
+        return
+      }
       body += chunk.toString()
     })
     req.on('end', () => resolve(body))
     req.on('error', reject)
   })
+}
+
+/** Trata erros do transport compartilhado (ex.: body grande demais) antes do catch-all genérico de cada handler. */
+export function sendTransportError(res: ServerResponse, err: unknown): boolean {
+  if (err instanceof PayloadTooLargeError) {
+    if (!res.headersSent) sendError(res, 413, 'payload_too_large', err.message)
+    return true
+  }
+  return false
 }
 
 export function parseBody<T>(raw: string): T | null {

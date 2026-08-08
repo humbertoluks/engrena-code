@@ -1,18 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_IMAGE_BYTES, estimateBase64ByteLength, validateComposerImages } from './composer-images.js'
+import { MAX_IMAGE_BYTES, validateComposerImages } from './composer-images.js'
 
 function base64OfLength(byteLength: number): string {
   return Buffer.alloc(byteLength, 1).toString('base64')
 }
-
-describe('estimateBase64ByteLength', () => {
-  it('matches Buffer decode length for various sizes', () => {
-    for (const n of [0, 1, 2, 3, 10, 4096]) {
-      const b64 = base64OfLength(n)
-      expect(estimateBase64ByteLength(b64)).toBe(n)
-    }
-  })
-})
 
 describe('test_validate_composer_images', () => {
   it('accepts a valid small png', () => {

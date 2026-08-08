@@ -5,6 +5,7 @@ import { InlineFeedback } from './InlineFeedback'
 import { ButtonSecondary } from './ButtonSecondary'
 import { logsService } from '../services/logs-service'
 import type { LogEntry, LogKind } from '../services/logs-service'
+import { formatTimestamp } from './logTable.logic'
 
 const COPY = {
   filterAria: 'Filtrar registros por tipo',
@@ -48,10 +49,6 @@ const KIND_LABEL: Record<LogKind, string> = {
   task: COPY.kindTask,
   tool: COPY.kindTool,
   git: COPY.kindGit,
-}
-
-function formatTimestamp(createdAt: number): string {
-  return new Date(createdAt).toLocaleString('pt-BR')
 }
 
 function navigateToThread(projectId: string, threadId: string): void {

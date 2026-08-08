@@ -6,6 +6,7 @@ import type { RuleFormSubmitResult, RuleFormValues } from '../components/rules/R
 import { formatContentSize } from '../components/rules/ruleForm.logic'
 import { rulesService } from '../services/rules-service'
 import type { Rule } from '../services/rules-service'
+import { matchesFilters } from './rulesScreen.logic'
 
 const COPY = {
   title: 'Rules',
@@ -153,12 +154,7 @@ export function RulesScreen(): ReactElement {
 
   const filteredRules = useMemo(() => {
     if (rules === null) return []
-    const query = search.trim().toLowerCase()
-    return rules.filter((rule) => {
-      if (activeCategory !== null && rule.category !== activeCategory) return false
-      if (query === '') return true
-      return rule.name.toLowerCase().includes(query) || (rule.description ?? '').toLowerCase().includes(query)
-    })
+    return rules.filter((rule) => matchesFilters(rule, search, activeCategory))
   }, [rules, search, activeCategory])
 
   const handleToggleEnabled = useCallback(async (rule: Rule): Promise<void> => {

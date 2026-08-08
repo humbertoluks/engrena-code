@@ -7,6 +7,8 @@ description: Revisa entrega do EngrenaCode — cobertura Vitest por camada, regr
 
 Revisão **somente leitura** de testes, evidência e granularidade de commit. Nunca edita código nem cria testes: observa, analisa e relata.
 
+**Auditoria full-base / artefato:** quando o pedido for reauditoria da base completa ou “rodar as 3 reviews”, use a skill `audit-full-base` (orquestra architecture + robustness + esta frente e grava `docs/AUDIT-CODE-REVIEW.md` categorizando achados por **Stack**: Electron, React, Node.js, SQLite, TypeScript, Vitest).
+
 **Idioma:** relatório em português do Brasil. Comandos, nomes de teste e mensagens de commit permanecem em inglês.
 
 ## Escopo

@@ -23,6 +23,7 @@ import {
   validateMinimaxKeyLocal,
   validateGlmKeyLocal,
   validateGrokKeyLocal,
+  validateGithubTokenLocal,
 } from './configuracaoScreen.logic'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
@@ -523,19 +524,8 @@ function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCa
 }
 
 // ── GitHub Card ───────────────────────────────────────────────────────────────
-
-const GITHUB_PREFIXES = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
-const HAS_SPACES_RE = /\s/
-
-function validateGithubToken(token: string): string | null {
-  if (token === '') return null
-  if (HAS_SPACES_RE.test(token)) return 'A chave não pode conter espaços.'
-  if (token.length < 8) return 'Chave muito curta para ser válida.'
-  if (!GITHUB_PREFIXES.some((p) => token.startsWith(p))) {
-    return 'Formato inválido. Esperado: ghp_… ou github_pat_…'
-  }
-  return null
-}
+// Validação (validateGithubTokenLocal) vive em configuracaoScreen.logic.ts (testada em
+// configuracaoScreen.logic.test.ts).
 
 interface GithubCardProps {
   tokenPresent: boolean
@@ -550,7 +540,7 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
   const [localError, setLocalError] = useState<string | null>(null)
 
   const handleSave = useCallback((): void => {
-    const err = validateGithubToken(tokenDraft)
+    const err = validateGithubTokenLocal(tokenDraft)
     if (err !== null) {
       setLocalError(err)
       return

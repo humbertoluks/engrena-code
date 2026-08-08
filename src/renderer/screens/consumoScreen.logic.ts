@@ -1,5 +1,10 @@
 import type { ThreadUsageRow } from '../services/consumo-service'
 
+/** Formata `updatedAt`/timestamps de linhas de consumo em locale pt-BR. */
+export function formatTimestamp(ms: number): string {
+  return new Date(ms).toLocaleString('pt-BR')
+}
+
 /** `{loaded} tokens` compactos — spec F11 ui.md (`{agentTokens}`/`{subagentTokens}` no tooltip de share, colunas Tokens). */
 export function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`

@@ -72,10 +72,11 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
   acquireLease(project.id, 'agent', action === 'accept' ? 'accept-diff' : 'reject-diff', thread.id)
 
   try {
-    const doneIds: string[] = []
-
-    for (const diff of subset) {
-      if (action === 'reject') {
+    // Tudo-ou-nada: descarta todos os arquivos do subset antes de persistir qualquer status. Se um
+    // discardFile falhar no meio, nenhum diff já foi marcado rejected — evita estado inconsistente
+    // (DB dizendo rejected com o arquivo ainda no working tree).
+    if (action === 'reject') {
+      for (const diff of subset) {
         try {
           await discardFile(diff.worktreePath ?? project.path, diff.file)
         } catch (err) {
@@ -83,6 +84,11 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
           throw err
         }
       }
+    }
+
+    const doneIds: string[] = []
+
+    for (const diff of subset) {
       setDiffStatus(diff.id, action === 'accept' ? 'accepted' : 'rejected')
       doneIds.push(diff.id)
 

@@ -190,109 +190,118 @@ export function createUnlockServer(port: number = 5174): http.Server {
       return
     }
 
-    // Dashboard routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/dashboard')) {
-      const handled = await handleDashboardRequest(req, res)
-      if (handled) return
-    }
+    try {
+      // Dashboard routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/dashboard')) {
+        const handled = await handleDashboardRequest(req, res)
+        if (handled) return
+      }
 
-    // Config routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/config/')) {
-      const handled = await handleConfigRequest(req, res)
-      if (handled) return
-    }
+      // Config routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/config/')) {
+        const handled = await handleConfigRequest(req, res)
+        if (handled) return
+      }
 
-    // Projects routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/projects')) {
-      const handled = await handleProjectsRequest(req, res)
-      if (handled) return
-    }
+      // Projects routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/projects')) {
+        const handled = await handleProjectsRequest(req, res)
+        if (handled) return
+      }
 
-    // Composer routes — catálogo model/reasoning/multimodal (F16 §5.1)
-    if (req.url?.startsWith('/api/composer/')) {
-      const handled = await handleThreadsRequest(req, res)
-      if (handled) return
-    }
+      // Composer routes — catálogo model/reasoning/multimodal (F16 §5.1)
+      if (req.url?.startsWith('/api/composer/')) {
+        const handled = await handleThreadsRequest(req, res)
+        if (handled) return
+      }
 
-    // Project files routes — menu `@file` (F16 §5.2)
-    if (req.url?.startsWith('/api/projects/') && req.url.includes('/files')) {
-      const handled = await handleProjectFilesRequest(req, res)
-      if (handled) return
-    }
+      // Project files routes — menu `@file` (F16 §5.2)
+      if (req.url?.startsWith('/api/projects/') && req.url.includes('/files')) {
+        const handled = await handleProjectFilesRequest(req, res)
+        if (handled) return
+      }
 
-    // CodeGraph status / reindex (F19) — before broad /api/projects/ handlers
-    if (req.url?.startsWith('/api/projects/') && req.url.includes('/codegraph/')) {
-      const handled = await handleCodegraphRequest(req, res)
-      if (handled) return
-    }
+      // CodeGraph status / reindex (F19) — before broad /api/projects/ handlers
+      if (req.url?.startsWith('/api/projects/') && req.url.includes('/codegraph/')) {
+        const handled = await handleCodegraphRequest(req, res)
+        if (handled) return
+      }
 
-    // Memory status/journal (F20) — before broad /api/projects/ handlers
-    if (req.url?.startsWith('/api/projects/') && req.url.includes('/memory/')) {
-      const handled = await handleMemoryRequest(req, res)
-      if (handled) return
-    }
+      // Memory status/journal (F20) — before broad /api/projects/ handlers
+      if (req.url?.startsWith('/api/projects/') && req.url.includes('/memory/')) {
+        const handled = await handleMemoryRequest(req, res)
+        if (handled) return
+      }
 
-    // Threads routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/threads') || req.url?.startsWith('/api/projects/')) {
-      const handled = await handleThreadsRequest(req, res)
-      if (handled) return
-    }
+      // Threads routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/threads') || req.url?.startsWith('/api/projects/')) {
+        const handled = await handleThreadsRequest(req, res)
+        if (handled) return
+      }
 
-    // Git mutable routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/threads/')) {
-      const handled = await handleGitRequest(req, res)
-      if (handled) return
-    }
+      // Git mutable routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/threads/')) {
+        const handled = await handleGitRequest(req, res)
+        if (handled) return
+      }
 
-    // SubAgents routes (async — must not mix with data event listeners)
-    if (
-      req.url?.startsWith('/api/subagents') ||
-      (req.url?.startsWith('/api/projects/') &&
-        (req.url.includes('/subagents') ||
-          (req.url.endsWith('/catalog-order') && !req.url.includes('/skills/'))))
-    ) {
-      const handled = await handleSubagentsRequest(req, res)
-      if (handled) return
-    }
+      // SubAgents routes (async — must not mix with data event listeners)
+      if (
+        req.url?.startsWith('/api/subagents') ||
+        (req.url?.startsWith('/api/projects/') &&
+          (req.url.includes('/subagents') ||
+            (req.url.endsWith('/catalog-order') && !req.url.includes('/skills/'))))
+      ) {
+        const handled = await handleSubagentsRequest(req, res)
+        if (handled) return
+      }
 
-    // Rules routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/rules') || req.url?.startsWith('/api/projects/')) {
-      const handled = await handleRulesRequest(req, res)
-      if (handled) return
-    }
+      // Rules routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/rules') || req.url?.startsWith('/api/projects/')) {
+        const handled = await handleRulesRequest(req, res)
+        if (handled) return
+      }
 
-    // Skills routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/skills') || req.url?.startsWith('/api/projects/')) {
-      const handled = await handleSkillsRequest(req, res)
-      if (handled) return
-    }
+      // Skills routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/skills') || req.url?.startsWith('/api/projects/')) {
+        const handled = await handleSkillsRequest(req, res)
+        if (handled) return
+      }
 
-    // MCPs routes (async — must not mix with data event listeners)
-    if (
-      req.url?.startsWith('/api/mcps') ||
-      req.url?.startsWith('/api/mcp-catalog') ||
-      req.url?.startsWith('/api/mcp-secrets') ||
-      req.url?.startsWith('/api/projects/')
-    ) {
-      const handled = await handleMcpsRequest(req, res)
-      if (handled) return
-    }
+      // MCPs routes (async — must not mix with data event listeners)
+      if (
+        req.url?.startsWith('/api/mcps') ||
+        req.url?.startsWith('/api/mcp-catalog') ||
+        req.url?.startsWith('/api/mcp-secrets') ||
+        req.url?.startsWith('/api/projects/')
+      ) {
+        const handled = await handleMcpsRequest(req, res)
+        if (handled) return
+      }
 
-    // Logs routes (sync — safe to await like the others)
-    if (req.url?.startsWith('/api/logs')) {
-      const handled = handleLogsRequest(req, res)
-      if (handled) return
-    }
+      // Logs routes (sync — safe to await like the others)
+      if (req.url?.startsWith('/api/logs')) {
+        const handled = handleLogsRequest(req, res)
+        if (handled) return
+      }
 
-    // Consumo routes (async — must not mix with data event listeners)
-    if (req.url?.startsWith('/api/metrics/') || req.url?.startsWith('/api/pricing')) {
-      const handled = await handleConsumoRequest(req, res)
-      if (handled) return
+      // Consumo routes (async — must not mix with data event listeners)
+      if (req.url?.startsWith('/api/metrics/') || req.url?.startsWith('/api/pricing')) {
+        const handled = await handleConsumoRequest(req, res)
+        if (handled) return
+      }
+    } catch (err) {
+      console.error('[unlock-handler] Unhandled error:', err)
+      if (!res.headersSent) {
+        res.writeHead(500)
+        res.end(JSON.stringify({ error: { code: 'internal_error', message: 'Erro interno.' } }))
+      }
+      return
     }
 
     // 404
     res.writeHead(404)
-    res.end(JSON.stringify({ error: { code: 'not_found', message: 'Not found' } }))
+    res.end(JSON.stringify({ error: { code: 'not_found', message: 'Rota não encontrada.' } }))
   })
 
   server.on('upgrade', (req, socket, head) => {

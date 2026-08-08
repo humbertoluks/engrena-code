@@ -5,6 +5,7 @@ import { SkillFormModal } from '../components/skills/SkillFormModal'
 import type { SkillFormSubmitInput } from '../components/skills/SkillFormModal'
 import { formatContentSize } from '../components/skills/skillForm.logic'
 import { skillsService, type Skill } from '../services/skills-service'
+import { matchesFilters } from './skillsScreen.logic'
 
 const COPY = {
   title: 'Skills',
@@ -31,13 +32,6 @@ const COPY = {
 } as const
 
 type ModalState = { mode: 'new' } | { mode: 'edit'; skill: Skill } | null
-
-function matchesFilters(skill: Skill, search: string, category: string | null): boolean {
-  if (category !== null && (skill.category ?? '') !== category) return false
-  if (search === '') return true
-  const needle = search.toLowerCase()
-  return skill.name.toLowerCase().includes(needle) || skill.description.toLowerCase().includes(needle)
-}
 
 // ── Card ─────────────────────────────────────────────────────────────────────
 

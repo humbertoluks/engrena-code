@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
-import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
+import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
@@ -267,6 +267,7 @@ export async function handleGitRequest(req: IncomingMessage, res: ServerResponse
       return true
     }
   } catch (err) {
+    if (sendTransportError(res, err)) return true
     console.error('[git-handler] Unhandled error:', err)
     if (!res.headersSent) sendError(res, 500, 'internal_error', 'Erro interno.')
     return true

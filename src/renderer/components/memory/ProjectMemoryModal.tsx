@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { memoryService, type MemoryStatus } from '../../services/memory-service'
+import { formatEntryDate, formatKb } from './projectMemoryModal.logic'
 
 const COPY = {
   title: 'Memória do projeto',
@@ -38,15 +39,6 @@ function CloseIcon(): ReactElement {
       <path d="M6 6l12 12M18 6L6 18" />
     </svg>
   )
-}
-
-function formatKb(bytes: number): string {
-  return `${(bytes / 1024).toFixed(1).replace('.', ',')} KB`
-}
-
-function formatEntryDate(iso: string): string {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('pt-BR')
 }
 
 export function ProjectMemoryModal({

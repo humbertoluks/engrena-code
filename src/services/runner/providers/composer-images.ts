@@ -23,7 +23,7 @@ export interface ImageValidationError {
 }
 
 /** Tamanho decodificado estimado a partir do comprimento base64 — sem alocar o buffer inteiro. */
-export function estimateBase64ByteLength(base64: string): number {
+function estimateBase64ByteLength(base64: string): number {
   const clean = base64.replace(/[^A-Za-z0-9+/=]/g, '')
   if (clean.length === 0) return 0
   const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0

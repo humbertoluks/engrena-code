@@ -13,7 +13,7 @@ import {
   type ThreadUsageRow,
   type UsageEventRow,
 } from '../services/consumo-service'
-import { formatCompact, formatCostText, formatPercent, shareLabel } from './consumoScreen.logic'
+import { formatCompact, formatCostText, formatPercent, formatTimestamp, shareLabel } from './consumoScreen.logic'
 
 // ── Copy literal (docs/F11-consumo/copy.md `consumo.*`) — não redescrever aqui, só citar ids ──
 const COPY = {
@@ -108,12 +108,8 @@ const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
 ]
 
 // ── Formatação ───────────────────────────────────────────────────────────────
-// Funções puras (formatCompact/formatPercent/formatCostText/shareLabel) vivem em
+// Funções puras (formatCompact/formatPercent/formatCostText/formatTimestamp/shareLabel) vivem em
 // consumoScreen.logic.ts (testadas em consumoScreen.logic.test.ts).
-
-function formatTimestamp(ms: number): string {
-  return new Date(ms).toLocaleString('pt-BR')
-}
 
 interface CostValueProps {
   costUsd: number | null

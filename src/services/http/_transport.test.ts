@@ -1,0 +1,165 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { IncomingMessage, ServerResponse } from 'http'
+import { EventEmitter } from 'events'
+
+const SESSION_TOKEN = 'test-session-token'
+const vaultState = { locked: false }
+
+vi.mock('../vault/vault-service.js', () => ({
+  vaultService: {
+    getSessionToken: () => SESSION_TOKEN,
+    isLocked: () => vaultState.locked,
+  },
+}))
+
+const {
+  guard,
+  parseBody,
+  readBody,
+  sendError,
+  sendJson,
+  sendTransportError,
+  MAX_BODY_BYTES,
+  PayloadTooLargeError,
+} = await import('./_transport.js')
+
+function fakeResponse(): ServerResponse & { statusCode: number; body: string; headersSent: boolean } {
+  const res = {
+    statusCode: 0,
+    body: '',
+    headersSent: false,
+    writeHead(status: number) {
+      res.statusCode = status
+      res.headersSent = true
+      return res
+    },
+    end(chunk?: string) {
+      if (chunk !== undefined) res.body = chunk
+    },
+  } as unknown as ServerResponse & { statusCode: number; body: string; headersSent: boolean }
+  return res
+}
+
+function fakeRequest(): IncomingMessage & { destroy: () => void; destroyed: boolean } {
+  const req = new EventEmitter() as IncomingMessage & { destroy: () => void; destroyed: boolean }
+  req.destroyed = false
+  req.destroy = () => {
+    req.destroyed = true
+  }
+  return req
+}
+
+describe('sendJson / sendError', () => {
+  it('writes status + JSON content-type header and serializes the body', () => {
+    const res = fakeResponse()
+    sendJson(res, 200, { ok: true })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ ok: true })
+  })
+
+  it('omits the body entirely when undefined (e.g. 204)', () => {
+    const res = fakeResponse()
+    sendJson(res, 204, undefined)
+    expect(res.body).toBe('')
+  })
+
+  it('wraps code/message (and optional details) in the { error } envelope', () => {
+    const res = fakeResponse()
+    sendError(res, 400, 'invalid_request', 'Corpo inválido.', { field: 'name' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({
+      error: { code: 'invalid_request', message: 'Corpo inválido.', details: { field: 'name' } },
+    })
+  })
+})
+
+describe('parseBody', () => {
+  it('returns an empty object for a blank body', () => {
+    expect(parseBody('')).toEqual({})
+    expect(parseBody('   ')).toEqual({})
+  })
+
+  it('parses valid JSON', () => {
+    expect(parseBody('{"a":1}')).toEqual({ a: 1 })
+  })
+
+  it('returns null for malformed JSON', () => {
+    expect(parseBody('{not-json')).toBeNull()
+  })
+})
+
+describe('readBody', () => {
+  it('concatenates chunks and resolves with the full string', async () => {
+    const req = fakeRequest()
+    const promise = readBody(req)
+    req.emit('data', Buffer.from('{"a":'))
+    req.emit('data', Buffer.from('1}'))
+    req.emit('end')
+    expect(await promise).toBe('{"a":1}')
+  })
+
+  it('rejects with the underlying stream error', async () => {
+    const req = fakeRequest()
+    const promise = readBody(req)
+    req.emit('error', new Error('boom'))
+    await expect(promise).rejects.toThrow('boom')
+  })
+
+  it('destroys the request and rejects with PayloadTooLargeError above MAX_BODY_BYTES', async () => {
+    const req = fakeRequest()
+    const promise = readBody(req)
+    req.emit('data', Buffer.alloc(MAX_BODY_BYTES + 1))
+    await expect(promise).rejects.toBeInstanceOf(PayloadTooLargeError)
+    expect(req.destroyed).toBe(true)
+  })
+})
+
+describe('sendTransportError', () => {
+  it('sends 413 payload_too_large for a PayloadTooLargeError and returns true', () => {
+    const res = fakeResponse()
+    const handled = sendTransportError(res, new PayloadTooLargeError())
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(413)
+    expect(JSON.parse(res.body).error.code).toBe('payload_too_large')
+  })
+
+  it('does not resend if headers were already sent', () => {
+    const res = fakeResponse()
+    res.headersSent = true
+    const handled = sendTransportError(res, new PayloadTooLargeError())
+    expect(handled).toBe(true)
+    expect(res.body).toBe('')
+  })
+
+  it('returns false for any other error, leaving the response untouched', () => {
+    const res = fakeResponse()
+    const handled = sendTransportError(res, new Error('generic'))
+    expect(handled).toBe(false)
+    expect(res.statusCode).toBe(0)
+  })
+})
+
+describe('guard', () => {
+  it('returns 423 vault_locked and false when the vault is locked', () => {
+    vaultState.locked = true
+    const req = { headers: {} } as IncomingMessage
+    const res = fakeResponse()
+    expect(guard(req, res)).toBe(false)
+    expect(res.statusCode).toBe(423)
+    vaultState.locked = false
+  })
+
+  it('returns 401 unauthorized and false when the session token is missing or wrong', () => {
+    const req = { headers: {} } as IncomingMessage
+    const res = fakeResponse()
+    expect(guard(req, res)).toBe(false)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('returns true without touching the response when the session token matches', () => {
+    const req = { headers: { 'x-engrenacode-session': SESSION_TOKEN } } as unknown as IncomingMessage
+    const res = fakeResponse()
+    expect(guard(req, res)).toBe(true)
+    expect(res.statusCode).toBe(0)
+  })
+})

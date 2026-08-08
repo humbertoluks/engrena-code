@@ -6,6 +6,7 @@ import {
   validateMinimaxKeyLocal,
   validateGlmKeyLocal,
   validateGrokKeyLocal,
+  validateGithubTokenLocal,
 } from './configuracaoScreen.logic'
 
 describe('validateClaudeKeyLocal', () => {
@@ -52,5 +53,19 @@ describe('validateGrokKeyLocal', () => {
     expect(validateGrokKeyLocal('xai-abc def')).toBe(KEY_VALIDATION_MESSAGES.spaces)
     expect(validateGrokKeyLocal('xai-a12')).toBe(KEY_VALIDATION_MESSAGES.short)
     expect(validateGrokKeyLocal('other-abcdefgh')).toBe(KEY_VALIDATION_MESSAGES.grokFormat)
+  })
+})
+
+describe('validateGithubTokenLocal', () => {
+  it('accepts empty draft and known GitHub token prefixes', () => {
+    expect(validateGithubTokenLocal('')).toBeNull()
+    expect(validateGithubTokenLocal('ghp_abcdefgh')).toBeNull()
+    expect(validateGithubTokenLocal('github_pat_abcdefgh')).toBeNull()
+  })
+
+  it('rejects spaces, short values, and an unknown prefix', () => {
+    expect(validateGithubTokenLocal('ghp_ab cd')).toBe(KEY_VALIDATION_MESSAGES.spaces)
+    expect(validateGithubTokenLocal('ghp_ab')).toBe(KEY_VALIDATION_MESSAGES.short)
+    expect(validateGithubTokenLocal('token-abcdefgh')).toBe('Formato inválido. Esperado: ghp_… ou github_pat_…')
   })
 })

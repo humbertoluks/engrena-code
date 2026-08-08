@@ -240,7 +240,7 @@ describe('POST /api/vault/unlock payload validation', () => {
       validateStatus: () => true,
     })
     expect(res.status).toBe(404)
-    expect(res.data).toEqual({ error: { code: 'not_found', message: 'Not found' } })
+    expect(res.data).toEqual({ error: { code: 'not_found', message: 'Rota não encontrada.' } })
   })
 })
 

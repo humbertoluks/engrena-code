@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
+import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
 import {
   distinctUnpricedModels,
   getProjectThreadUsage,
@@ -272,6 +272,7 @@ export async function handleConsumoRequest(req: IncomingMessage, res: ServerResp
       return true
     }
   } catch (err) {
+    if (sendTransportError(res, err)) return true
     console.error('[consumo-handler] Unhandled error:', err)
     if (!res.headersSent) sendError(res, 500, 'internal_error', 'Erro interno.')
     return true

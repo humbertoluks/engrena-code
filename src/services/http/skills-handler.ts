@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { guard, parseBody, readBody, sendError, sendJson } from './_transport.js'
+import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
 import {
   skillsRepository,
   ContentTooLongError,
@@ -30,6 +30,16 @@ function mapRepositoryError(res: ServerResponse, err: unknown): boolean {
   return false
 }
 
+/** Nome do primeiro campo com tipo inválido, ou null se todos os campos presentes forem do tipo esperado. */
+function invalidSkillFieldName(data: Partial<SkillCreateInput>): string | null {
+  if (data.name !== undefined && typeof data.name !== 'string') return 'name'
+  if (data.description !== undefined && typeof data.description !== 'string') return 'description'
+  if (data.content !== undefined && typeof data.content !== 'string') return 'content'
+  if (data.category !== undefined && data.category !== null && typeof data.category !== 'string') return 'category'
+  if (data.enabled !== undefined && typeof data.enabled !== 'boolean') return 'enabled'
+  return null
+}
+
 // ── Handlers ────────────────────────────────────────────────────────────────
 
 function handleList(_req: IncomingMessage, res: ServerResponse): void {
@@ -43,7 +53,11 @@ function handleCounts(_req: IncomingMessage, res: ServerResponse): void {
 async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const data = parseBody<SkillCreateInput>(await readBody(req))
   if (data === null) {
-    return sendError(res, 400, 'invalid_json', 'Corpo inválido.')
+    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+  const invalidField = invalidSkillFieldName(data)
+  if (invalidField !== null) {
+    return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
   }
   try {
     const skill = skillsRepository.create(data)
@@ -56,7 +70,11 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
 async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
   const data = parseBody<SkillUpdateInput>(await readBody(req))
   if (data === null) {
-    return sendError(res, 400, 'invalid_json', 'Corpo inválido.')
+    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+  const invalidField = invalidSkillFieldName(data)
+  if (invalidField !== null) {
+    return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
   }
   try {
     const skill = skillsRepository.update(id, data)
@@ -87,7 +105,13 @@ async function handleLinkSkill(
 ): Promise<void> {
   const data = parseBody<{ enabled?: boolean; sortOrder?: number }>(await readBody(req))
   if (data === null) {
-    return sendError(res, 400, 'invalid_json', 'Corpo inválido.')
+    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+  if (
+    (data.enabled !== undefined && typeof data.enabled !== 'boolean') ||
+    (data.sortOrder !== undefined && typeof data.sortOrder !== 'number')
+  ) {
+    return sendError(res, 400, 'invalid_request', 'Campos "enabled"/"sortOrder" têm tipo inválido.')
   }
   try {
     const link = skillsRepository.linkSkill(projectId, skillId, data)
@@ -189,6 +213,7 @@ export async function handleSkillsRequest(req: IncomingMessage, res: ServerRespo
       return true
     }
   } catch (err) {
+    if (sendTransportError(res, err)) return true
     console.error('[skills-handler] Unhandled error:', err)
     if (!res.headersSent) {
       sendError(res, 500, 'internal_error', 'Erro interno.')

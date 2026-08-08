@@ -4,6 +4,7 @@ import { ButtonPrimary } from '../components/ButtonPrimary'
 import { SubagentFormModal, type SubmitResult } from '../components/subagents/SubagentFormModal'
 import { t } from '../components/subagents/copy'
 import { subagentsService, type Subagent, type SubagentInput } from '../services/subagents-service'
+import { matchesFilters } from './subagentsScreen.logic'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,12 +31,6 @@ function providerLabel(s: Subagent): string {
     default:
       return t('subagents.provider.inherit')
   }
-}
-
-function matchesSearch(s: Subagent, query: string): boolean {
-  if (query.trim() === '') return true
-  const needle = query.trim().toLowerCase()
-  return s.name.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)
 }
 
 const MAX_TOOL_CHIPS = 4
@@ -208,12 +203,7 @@ export function SubagentsScreen(): ReactElement {
   }, [subagents])
 
   const filtered = useMemo(() => {
-    return (subagents ?? []).filter((s) => {
-      if (!matchesSearch(s, search)) return false
-      if (modelFilter !== '' && s.model !== modelFilter) return false
-      if (categoryTab !== '' && s.category !== categoryTab) return false
-      return true
-    })
+    return (subagents ?? []).filter((s) => matchesFilters(s, search, modelFilter, categoryTab))
   }, [subagents, search, modelFilter, categoryTab])
 
   const handleSubmit = useCallback(

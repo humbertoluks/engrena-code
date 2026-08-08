@@ -89,14 +89,20 @@ ipcMain.handle('engrenacode:shell:open-external', async (_event, url: unknown) =
 })
 
 // Terminal PTY IPC handlers (F26) — streaming main<->renderer, sem HTTP/vault envolvidos.
+
+/** `typeof x === 'number'` aceita NaN/Infinity/negativo — dimensão de PTY inválida quebra o host nativo. */
+function isValidPtyDimension(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 500
+}
+
 function isCreateSessionInput(value: unknown): value is CreateSessionInput {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return (
     typeof v.projectId === 'string' &&
     (v.threadId === null || typeof v.threadId === 'string') &&
-    typeof v.cols === 'number' &&
-    typeof v.rows === 'number'
+    isValidPtyDimension(v.cols) &&
+    isValidPtyDimension(v.rows)
   )
 }
 
@@ -127,7 +133,7 @@ ipcMain.on('engrenacode:terminal:write', (_event, payload: unknown) => {
 ipcMain.on('engrenacode:terminal:resize', (_event, payload: unknown) => {
   if (typeof payload !== 'object' || payload === null) return
   const { sessionId, cols, rows } = payload as Record<string, unknown>
-  if (typeof sessionId === 'string' && typeof cols === 'number' && typeof rows === 'number') {
+  if (typeof sessionId === 'string' && isValidPtyDimension(cols) && isValidPtyDimension(rows)) {
     ptySessionRegistry.resize(sessionId, cols, rows)
   }
 })

@@ -44,3 +44,15 @@ export function validateGrokKeyLocal(v: string): string | null {
   if (!v.startsWith('xai-')) return KEY_VALIDATION_MESSAGES.grokFormat
   return null
 }
+
+const GITHUB_TOKEN_PREFIXES = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
+
+export function validateGithubTokenLocal(token: string): string | null {
+  if (token === '') return null
+  if (/\s/.test(token)) return KEY_VALIDATION_MESSAGES.spaces
+  if (token.length < 8) return KEY_VALIDATION_MESSAGES.short
+  if (!GITHUB_TOKEN_PREFIXES.some((p) => token.startsWith(p))) {
+    return 'Formato inválido. Esperado: ghp_… ou github_pat_…'
+  }
+  return null
+}
