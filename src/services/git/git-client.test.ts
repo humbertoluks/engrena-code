@@ -17,6 +17,7 @@ const {
   gitWorktreeRemove,
   hasGitHead,
   injectTokenIntoHttpsUrl,
+  injectTokenIntoHttpsUrlByKind,
   isGitRepo,
   parseGithubRemote,
 } = await import('./git-client.js')
@@ -195,6 +196,36 @@ describe('injectTokenIntoHttpsUrl', () => {
     expect(injectTokenIntoHttpsUrl('https://olduser@github.com/acme/repo.git', 'tok123')).toBe(
       'https://x-access-token:tok123@github.com/acme/repo.git'
     )
+  })
+})
+
+describe('injectTokenIntoHttpsUrlByKind (F24)', () => {
+  it('push_inject_gitlab_oauth2 — URL contains oauth2:', () => {
+    expect(injectTokenIntoHttpsUrlByKind('https://gitlab.com/acme/repo.git', 'gitlab', 'tok123')).toBe(
+      'https://oauth2:tok123@gitlab.com/acme/repo.git'
+    )
+  })
+
+  it('injects x-token-auth for bitbucket', () => {
+    expect(injectTokenIntoHttpsUrlByKind('https://bitbucket.org/acme/repo.git', 'bitbucket', 'tok123')).toBe(
+      'https://x-token-auth:tok123@bitbucket.org/acme/repo.git'
+    )
+  })
+
+  it('injects an empty username for azure', () => {
+    expect(injectTokenIntoHttpsUrlByKind('https://dev.azure.com/acme/proj/_git/repo', 'azure', 'tok123')).toBe(
+      'https://:tok123@dev.azure.com/acme/proj/_git/repo'
+    )
+  })
+
+  it('matches the original x-access-token scheme for github', () => {
+    expect(injectTokenIntoHttpsUrlByKind('https://github.com/acme/repo.git', 'github', 'tok123')).toBe(
+      'https://x-access-token:tok123@github.com/acme/repo.git'
+    )
+  })
+
+  it('returns null for non-https URLs regardless of kind', () => {
+    expect(injectTokenIntoHttpsUrlByKind('git@gitlab.com:acme/repo.git', 'gitlab', 'tok')).toBeNull()
   })
 })
 

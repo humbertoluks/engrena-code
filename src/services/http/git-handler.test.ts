@@ -339,6 +339,89 @@ describe('handleGitRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('git_handler_vcs_token_missing — gitlab remote without a connected token returns 400 vcs_token_missing', async () => {
+    const dir = makeProjectDir()
+    git(dir, ['remote', 'add', 'origin', 'https://gitlab.com/engrena/repo.git'])
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, {}, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('vcs_token_missing')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('vcs_unsupported_remote — self-hosted-looking remote rejects push and pr', async () => {
+    const dir = makeProjectDir()
+    git(dir, ['remote', 'add', 'origin', 'https://git.internal.example.com/engrena/repo.git'])
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+
+    const pushReq = fakeReq('POST', `/api/threads/${thread.id}/git-push`, undefined, session)
+    const pushRes = fakeRes()
+    await handleGitRequest(pushReq, pushRes)
+    const push = await pushRes.result()
+    expect(push.status).toBe(400)
+    expect((push.body as { error: { code: string } }).error.code).toBe('vcs_unsupported_remote')
+
+    const prReq = fakeReq('POST', `/api/threads/${thread.id}/pr`, {}, session)
+    const prRes = fakeRes()
+    await handleGitRequest(prReq, prRes)
+    const pr = await prRes.result()
+    expect(pr.status).toBe(400)
+    expect((pr.body as { error: { code: string } }).error.code).toBe('vcs_unsupported_remote')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('create_mr_gitlab_success — opens a merge request via the GitLab REST API and labels the log entry MR', async () => {
+    const dir = makeProjectDir()
+    git(dir, ['remote', 'add', 'origin', 'https://gitlab.com/engrena/repo.git'])
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    vaultService.setSecret('vcsOauth:gitlab', JSON.stringify({ accessToken: 'gl-tok-123', tokenType: 'Bearer' }))
+
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: { default_branch: 'main' } })
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: { web_url: 'https://gitlab.com/engrena/repo/-/merge_requests/9', iid: 9 } })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, { title: 'feat: x' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ url: 'https://gitlab.com/engrena/repo/-/merge_requests/9', number: 9, existing: false })
+
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries[0]?.event).toContain('MR aberto com sucesso')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('pr_github_unchanged — github path still opens a PR (not MR) after the F24 dispatch change', async () => {
+    const dir = makeProjectDir()
+    git(dir, ['remote', 'add', 'origin', 'https://github.com/engrena/repo.git'])
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    vaultService.setSecret('github:token', 'ghp_faketoken')
+
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: { default_branch: 'main' } })
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: { html_url: 'https://github.com/engrena/repo/pull/11', number: 11 } })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, { title: 'feat: y' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    expect((await res.result()).status).toBe(200)
+
+    const entries = listLogEntries({ kind: 'git' })
+    expect(entries[0]?.event).toContain('PR aberto com sucesso')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('git-textgen mode=commit returns subject/body and records a usage_event source=textgen (F14)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

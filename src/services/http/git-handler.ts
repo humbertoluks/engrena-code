@@ -4,7 +4,9 @@ import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } f
 import { vaultService } from '../vault/vault-service.js'
 import { getThread, type Thread } from '../db/repositories/threads.js'
 import { getProject, type Project } from '../db/repositories/projects.js'
-import { createPullRequest, gitCommit, gitPush, GitError } from '../git/git-client.js'
+import { createChangeRequest, getRemoteOriginUrl, gitCommit, gitPush, GitError } from '../git/git-client.js'
+import { parseVcsRemote, type VcsKind } from '../vcs/remote.js'
+import { getValidAccessToken } from '../vcs/oauth.js'
 import { generateGitText, TextgenError, type TextgenMode } from '../git/git-textgen.js'
 import type { ProviderUsage } from '../runner/providers/provider-types.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
@@ -29,6 +31,23 @@ function checkThreadBusy(res: ServerResponse, thread: Thread): boolean {
     return true
   }
   return false
+}
+
+// ── Multi-VCS (F24) ─────────────────────────────────────────────────────────
+
+const VCS_LABEL: Record<VcsKind, string> = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', azure: 'Azure DevOps' }
+
+/** Detecta o kind pelo `origin` (spec §5.4). Sem remote configurado, mantém `github` — preserva o comportamento F14 pré-existente onde a ausência de remote só falha dentro do próprio `git push`/`createPullRequest`. */
+async function resolveVcsKind(cwd: string): Promise<VcsKind | 'unsupported'> {
+  const remoteUrl = await getRemoteOriginUrl(cwd)
+  if (!remoteUrl) return 'github'
+  const parsed = parseVcsRemote(remoteUrl)
+  return parsed?.kind ?? 'unsupported'
+}
+
+async function resolveVcsToken(kind: VcsKind): Promise<string | undefined> {
+  if (kind === 'github') return vaultService.getSecret('github:token') ?? undefined
+  return getValidAccessToken(kind)
 }
 
 interface Resolved {
@@ -96,14 +115,23 @@ async function handleGitPush(_req: IncomingMessage, res: ServerResponse, threadI
   if ('error' in resolved) return sendError(res, 404, resolved.error, 'Não encontrado.')
   if (checkThreadBusy(res, resolved.thread)) return
 
-  const token = vaultService.getSecret('github:token')
+  const cwd = resolveThreadCwd(resolved.thread, resolved.project)
+  const kind = await resolveVcsKind(cwd)
+  if (kind === 'unsupported') {
+    return sendError(res, 400, 'vcs_unsupported_remote', 'Remote origin não aponta para um provider suportado (GitHub, GitLab, Bitbucket ou Azure DevOps).')
+  }
+
+  const token = await resolveVcsToken(kind)
   if (!token) {
-    return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de fazer push.')
+    if (kind === 'github') {
+      return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de fazer push.')
+    }
+    return sendError(res, 400, 'vcs_token_missing', `Conecte sua conta ${VCS_LABEL[kind]} em Configuração antes de fazer push.`)
   }
 
   await withGitLease(res, resolved.project, threadId, 'git-push', async () => {
     try {
-      const result = await gitPush(resolveThreadCwd(resolved.thread, resolved.project), token)
+      const result = await gitPush(cwd, token, kind)
       createLogEntry({ threadId, kind: 'git', event: `Push da branch '${result.branch}' para origin.` })
       sendJson(res, 200, result)
     } catch (err) {
@@ -141,26 +169,33 @@ async function handlePr(req: IncomingMessage, res: ServerResponse, threadId: str
     branch = data.branch.trim()
   }
 
-  const token = vaultService.getSecret('github:token')
+  const cwd = resolveThreadCwd(resolved.thread, resolved.project)
+  const kind = await resolveVcsKind(cwd)
+  if (kind === 'unsupported') {
+    return sendError(res, 400, 'vcs_unsupported_remote', 'Remote origin não aponta para um provider suportado (GitHub, GitLab, Bitbucket ou Azure DevOps).')
+  }
+
+  const token = await resolveVcsToken(kind)
   if (!token) {
-    return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de abrir PRs.')
+    if (kind === 'github') {
+      return sendError(res, 400, 'github_token_missing', 'Configure um token do GitHub em Configuração antes de abrir PRs.')
+    }
+    return sendError(res, 400, 'vcs_token_missing', `Conecte sua conta ${VCS_LABEL[kind]} em Configuração antes de abrir PRs.`)
   }
 
   const title = typeof data.title === 'string' && data.title.trim() !== '' ? data.title.trim() : fallbackPrTitle(resolved.thread)
   const body = typeof data.body === 'string' && data.body.trim() !== '' ? data.body : undefined
+  const short = kind === 'gitlab' ? 'MR' : 'PR'
 
   await withGitLease(res, resolved.project, threadId, 'pr', async () => {
     try {
-      const result = await createPullRequest(resolveThreadCwd(resolved.thread, resolved.project), token, {
-        branch,
-        title,
-        body,
-      })
-      createLogEntry({ threadId, kind: 'git', event: `PR aberto: ${result.url}` })
+      const result = await createChangeRequest(cwd, token, kind, { branch, title, body })
+      const label = result.existing ? `${short} já existente reapresentado` : `${short} aberto com sucesso`
+      createLogEntry({ threadId, kind: 'git', event: `${label}: ${result.url}` })
       sendJson(res, 200, result)
     } catch (err) {
       if (err instanceof GitError) {
-        createLogEntry({ threadId, kind: 'git', event: `Falha ao abrir PR: ${err.message}` })
+        createLogEntry({ threadId, kind: 'git', event: `Falha ao abrir ${short}: ${err.message}` })
         return sendError(res, 500, err.code, err.message)
       }
       throw err

@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import axios from 'axios'
 import { stderrTail } from '../process-error.js'
+import { parseVcsRemote, type VcsKind } from '../vcs/remote.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -118,13 +119,31 @@ export function injectTokenIntoHttpsUrl(remoteUrl: string, token: string): strin
   return `https://x-access-token:${token}@${hostAndPath}`
 }
 
-/** Push via URL autenticada com o PAT (quando presente) em vez de depender do credential helper do SO. */
-export async function gitPush(cwd: string, token?: string | null): Promise<{ branch: string }> {
+/** Injeção de token por host (spec F24 §3.2) — cada VCS exige um esquema de credencial distinto na URL HTTPS. */
+export function injectTokenIntoHttpsUrlByKind(remoteUrl: string, kind: VcsKind, token: string): string | null {
+  if (!remoteUrl.startsWith('https://')) return null
+  const withoutScheme = remoteUrl.slice('https://'.length)
+  const hostAndPath = withoutScheme.includes('@') ? withoutScheme.split('@').slice(1).join('@') : withoutScheme
+
+  switch (kind) {
+    case 'github':
+      return `https://x-access-token:${token}@${hostAndPath}`
+    case 'gitlab':
+      return `https://oauth2:${token}@${hostAndPath}`
+    case 'bitbucket':
+      return `https://x-token-auth:${token}@${hostAndPath}`
+    case 'azure':
+      return `https://:${token}@${hostAndPath}`
+  }
+}
+
+/** Push via URL autenticada com o token (quando presente) em vez de depender do credential helper do SO. `kind` decide o esquema de injeção (spec F24 §3.2); default `github` preserva o comportamento F14. */
+export async function gitPush(cwd: string, token?: string | null, kind: VcsKind = 'github'): Promise<{ branch: string }> {
   const { stdout: branchOut } = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   const branch = branchOut.trim()
 
   const remoteUrl = token ? await getRemoteOriginUrl(cwd) : null
-  const authedUrl = remoteUrl && token ? injectTokenIntoHttpsUrl(remoteUrl, token) : null
+  const authedUrl = remoteUrl && token ? injectTokenIntoHttpsUrlByKind(remoteUrl, kind, token) : null
 
   try {
     if (authedUrl) {
@@ -264,6 +283,196 @@ export async function createPullRequest(cwd: string, token: string, input: Creat
       }
     }
     throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${githubErrorSummary(err)}`)
+  }
+}
+
+// ── Multi-VCS change request (F24) ──────────────────────────────────────────
+
+export type CreateChangeRequestInput = CreatePullRequestInput
+export type ChangeRequestResult = PullRequestResult
+
+function bearerHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` }
+}
+
+/** Resumo acionável de um erro REST — checa os formatos de payload de erro do GitLab/Bitbucket/Azure em ordem. */
+function restErrorSummary(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { message?: string; error?: { message?: string } } | undefined
+    if (typeof data?.message === 'string' && data.message.trim()) return data.message.trim()
+    if (typeof data?.error?.message === 'string' && data.error.message.trim()) return data.error.message.trim()
+  }
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** Erro de autenticação distinto (401) para o gate `vcs_token_expired` do handler (spec §5.4) — só nos 3 providers OAuth novos. */
+function throwIfExpiredToken(err: unknown): void {
+  if (axios.isAxiosError(err) && err.response?.status === 401) {
+    throw new GitError('vcs_token_expired', 'Sessão VCS expirada. Reconecte em Configuração.')
+  }
+}
+
+async function createGitlabMergeRequest(cwd: string, token: string, input: CreateChangeRequestInput): Promise<ChangeRequestResult> {
+  const remoteUrl = await getRemoteOriginUrl(cwd)
+  if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
+  const parsed = parseVcsRemote(remoteUrl)
+  if (!parsed || parsed.kind !== 'gitlab') throw new GitError('vcs_unsupported_remote', 'Remote origin não aponta para o GitLab.')
+
+  const projectId = encodeURIComponent(`${parsed.owner}/${parsed.repo}`)
+  const head = input.branch ?? (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+
+  let base = input.base
+  if (!base) {
+    try {
+      const info = await axios.get<{ default_branch: string }>(`https://gitlab.com/api/v4/projects/${projectId}`, {
+        headers: bearerHeaders(token),
+      })
+      base = info.data.default_branch
+    } catch (err) {
+      throwIfExpiredToken(err)
+      throw new GitError('pr_create_failed', `Falha ao abrir a MR: ${restErrorSummary(err)}`)
+    }
+  }
+
+  try {
+    const res = await axios.post<{ web_url: string; iid: number }>(
+      `https://gitlab.com/api/v4/projects/${projectId}/merge_requests`,
+      { source_branch: head, target_branch: base, title: input.title, description: input.body },
+      { headers: bearerHeaders(token) }
+    )
+    return { url: res.data.web_url, number: res.data.iid, existing: false }
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 409) {
+      try {
+        const list = await axios.get<Array<{ web_url: string; iid: number }>>(
+          `https://gitlab.com/api/v4/projects/${projectId}/merge_requests`,
+          { headers: bearerHeaders(token), params: { source_branch: head, state: 'opened' } }
+        )
+        if (Array.isArray(list.data) && list.data.length > 0) {
+          return { url: list.data[0].web_url, number: list.data[0].iid, existing: true }
+        }
+      } catch {
+        // segue para o erro genérico abaixo
+      }
+    }
+    throwIfExpiredToken(err)
+    throw new GitError('pr_create_failed', `Falha ao abrir a MR: ${restErrorSummary(err)}`)
+  }
+}
+
+async function createBitbucketPullRequest(cwd: string, token: string, input: CreateChangeRequestInput): Promise<ChangeRequestResult> {
+  const remoteUrl = await getRemoteOriginUrl(cwd)
+  if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
+  const parsed = parseVcsRemote(remoteUrl)
+  if (!parsed || parsed.kind !== 'bitbucket') throw new GitError('vcs_unsupported_remote', 'Remote origin não aponta para o Bitbucket.')
+
+  const { owner, repo } = parsed
+  const base_url = `https://api.bitbucket.org/2.0/repositories/${owner}/${repo}`
+  const head = input.branch ?? (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+
+  let base = input.base
+  if (!base) {
+    try {
+      const info = await axios.get<{ mainbranch: { name: string } }>(base_url, { headers: bearerHeaders(token) })
+      base = info.data.mainbranch.name
+    } catch (err) {
+      throwIfExpiredToken(err)
+      throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${restErrorSummary(err)}`)
+    }
+  }
+
+  try {
+    const res = await axios.post<{ links: { html: { href: string } }; id: number }>(
+      `${base_url}/pullrequests`,
+      { title: input.title, description: input.body, source: { branch: { name: head } }, destination: { branch: { name: base } } },
+      { headers: bearerHeaders(token) }
+    )
+    return { url: res.data.links.html.href, number: res.data.id, existing: false }
+  } catch (err) {
+    try {
+      const list = await axios.get<{ values: Array<{ links: { html: { href: string } }; id: number }> }>(`${base_url}/pullrequests`, {
+        headers: bearerHeaders(token),
+        params: { q: `source.branch.name="${head}" AND state="OPEN"` },
+      })
+      if (list.data.values.length > 0) {
+        const existing = list.data.values[0]
+        return { url: existing.links.html.href, number: existing.id, existing: true }
+      }
+    } catch {
+      // segue para o erro genérico abaixo
+    }
+    throwIfExpiredToken(err)
+    throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${restErrorSummary(err)}`)
+  }
+}
+
+const AZURE_API_VERSION = '7.1'
+
+async function createAzurePullRequest(cwd: string, token: string, input: CreateChangeRequestInput): Promise<ChangeRequestResult> {
+  const remoteUrl = await getRemoteOriginUrl(cwd)
+  if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
+  const parsed = parseVcsRemote(remoteUrl)
+  if (!parsed || parsed.kind !== 'azure' || !parsed.org) throw new GitError('vcs_unsupported_remote', 'Remote origin não aponta para o Azure DevOps.')
+
+  const { org, owner: project, repo } = parsed
+  const baseUrl = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}`
+  const head = input.branch ?? (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+
+  let base = input.base
+  if (!base) {
+    try {
+      const info = await axios.get<{ defaultBranch: string }>(`${baseUrl}?api-version=${AZURE_API_VERSION}`, { headers: bearerHeaders(token) })
+      base = info.data.defaultBranch.replace(/^refs\/heads\//, '')
+    } catch (err) {
+      throwIfExpiredToken(err)
+      throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${restErrorSummary(err)}`)
+    }
+  }
+
+  try {
+    const res = await axios.post<{ pullRequestId: number; repository: { webUrl: string } }>(
+      `${baseUrl}/pullrequests?api-version=${AZURE_API_VERSION}`,
+      { sourceRefName: `refs/heads/${head}`, targetRefName: `refs/heads/${base}`, title: input.title, description: input.body },
+      { headers: bearerHeaders(token) }
+    )
+    const url = `${res.data.repository.webUrl}/pullrequest/${res.data.pullRequestId}`
+    return { url, number: res.data.pullRequestId, existing: false }
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 409) {
+      try {
+        const list = await axios.get<Array<{ pullRequestId: number; repository: { webUrl: string } }>>(
+          `${baseUrl}/pullrequests?api-version=${AZURE_API_VERSION}`,
+          { headers: bearerHeaders(token), params: { 'searchCriteria.sourceRefName': `refs/heads/${head}`, 'searchCriteria.status': 'active' } }
+        )
+        if (Array.isArray(list.data) && list.data.length > 0) {
+          const existing = list.data[0]
+          return { url: `${existing.repository.webUrl}/pullrequest/${existing.pullRequestId}`, number: existing.pullRequestId, existing: true }
+        }
+      } catch {
+        // segue para o erro genérico abaixo
+      }
+    }
+    throwIfExpiredToken(err)
+    throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${restErrorSummary(err)}`)
+  }
+}
+
+/** Despacha por `kind` (spec §3.2) — GitHub reusa `createPullRequest` (F14) intacto; os 3 novos falam REST próprio. */
+export async function createChangeRequest(
+  cwd: string,
+  token: string,
+  kind: VcsKind,
+  input: CreateChangeRequestInput
+): Promise<ChangeRequestResult> {
+  switch (kind) {
+    case 'github':
+      return createPullRequest(cwd, token, input)
+    case 'gitlab':
+      return createGitlabMergeRequest(cwd, token, input)
+    case 'bitbucket':
+      return createBitbucketPullRequest(cwd, token, input)
+    case 'azure':
+      return createAzurePullRequest(cwd, token, input)
   }
 }
 
