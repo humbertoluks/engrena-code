@@ -172,10 +172,17 @@ export function deleteThread(id: string): boolean {
 }
 
 /**
- * Reconciliação de boot (spec.md F08 §3.2; estendido F21 §3.2): threads presas em `running`
- * ou `waiting_user` de uma execução anterior interrompida viram `error` — o resolver em
- * memória de uma pergunta pendente (F21 `ask-user-question.ts`) não sobrevive a um restart,
- * então `waiting_user` preso não pode ser respondido nem cancelado sem essa reconciliação.
+ * Reconciliação de boot (spec.md F08 §3.2; estendido F21 §3.2): threads presas em `running` ou
+ * `waiting_user` de uma execução anterior interrompida viram `error`. O resolver em memória de uma
+ * pergunta pendente (F21 `ask-user-question.ts`) não sobrevive a um restart, então a thread nunca
+ * seria respondida — mas `cancelThread` já sabe assentar uma órfã, então a reconciliação não existe
+ * mais para destravá-la.
+ *
+ * `error` (e não `cancelled`) por dois motivos: crash não é cancelamento — o usuário não pediu nada,
+ * e herdar `cancelled` mentiria sobre a intenção; e `error` é o que alimenta a métrica `errors` e a
+ * classificação do inbox "Precisa da sua atenção" (`dashboard.ts`), de onde uma thread quebrada
+ * desapareceria se virasse `cancelled`.
+ *
  * Retorna as threads afetadas para o chamador gravar `log_entries` `kind='task'` por thread.
  */
 export function recoverRunningThreads(): Thread[] {
