@@ -1351,7 +1351,7 @@ graph TD
 - [x] Chamada da tool `ask_user_question` pausa a thread em `waiting_user` sem contar como `running` para lease
 - [x] Resposta do usuário retoma o turno automaticamente sem reabrir a thread
 - [x] Provider sem suporte à tool degrada com notice, sem abortar o turno
-- [ ] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário — `cancelThread` é agnóstico a estado (mecanismo genérico pré-existente, sem teste automatizado dedicado nem para `running`); sem cobertura própria nesta rodada, não marcado
+- [x] Thread abandonada em `waiting_user` pode ser cancelada manualmente pelo usuário — `cancelThread` sem execução ativa assenta a thread em `cancelled`, rejeita a pergunta pendente e libera a lease só quando é dela; coberto por 3 testes em `dispatch.test.ts`
 
 ### F22. Automação por Slash Commands (Pipeline)
 - [ ] `/spec {descrição}` devolve spec.md + plan.md estruturados na resposta da thread

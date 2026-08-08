@@ -20,10 +20,12 @@ const {
   dispatchNewThread,
   dispatchFollowUp,
   DispatchValidationError,
+  cancelThread,
   setRunCliTurnForTesting,
   resetRunCliTurnForTesting,
 } = await import('./dispatch.js')
-const { clearAllLeases, isLeased } = await import('./project-execution.js')
+const { clearAllLeases, isLeased, acquireLease } = await import('./project-execution.js')
+const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
@@ -1223,6 +1225,73 @@ describe('usage_events write path (F11)', () => {
     await waitForState(thread.id, ['idle', 'error'])
 
     expect(getThreadEvents(thread.id, undefined, 10, 0).events[0]?.billingMode).toBe('api-key')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('cancelThread on an abandoned thread (F21 PRD AC4)', () => {
+  it('cancels a waiting_user thread whose turn is gone, releasing the project lease', () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    // Turno morto sem passar pelo cleanup: estado pendente na base e lease ainda retida.
+    updateThread(thread.id, { state: 'waiting_user' })
+    acquireLease(project.id, 'agent', 'turn', thread.id)
+
+    expect(cancelThread(thread.id)).toBe(true)
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+    expect(isLeased(project.id)).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('never releases a lease held by another thread', () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const abandoned = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    const other = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    updateThread(abandoned.id, { state: 'waiting_user' })
+    acquireLease(project.id, 'agent', 'turn', other.id)
+
+    expect(cancelThread(abandoned.id)).toBe(true)
+    expect(getThread(abandoned.id)?.state).toBe('cancelled')
+    expect(isLeased(project.id)).toBe(true)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('reports nothing to cancel for a thread that already settled', () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    updateThread(thread.id, { state: 'committed' })
+
+    expect(cancelThread(thread.id)).toBe(false)
+    expect(getThread(thread.id)?.state).toBe('committed')
+
     rmSync(dir, { recursive: true, force: true })
   })
 })

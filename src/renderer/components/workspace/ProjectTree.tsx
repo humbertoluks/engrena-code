@@ -26,9 +26,11 @@ const STATE_DOT: Record<Thread['state'], string> = {
   committed: 'bg-green',
   error: 'bg-red',
   stopping: 'bg-amber',
-  // F21: pausada aguardando resposta do usuário — mesma cor de "busy" de `running` até
-  // ui.md/copy.md de F21 definirem um tratamento visual próprio (ver spec §3.3, Assumptions).
+  // F21: pausada aguardando resposta do usuário — mesma cor de "busy" de `running`; o `ui.md` de F21
+  // especifica o card da timeline e deliberadamente não redefine o ponto da árvore.
   waiting_user: 'bg-accent',
+  // Cancelada pelo usuário: assentou, não é falha — neutro como `idle`, nunca o vermelho de `error`.
+  cancelled: 'bg-muted',
 }
 
 export interface ProjectTreeProps {

@@ -8,6 +8,7 @@ import {
   type ThreadAccessLevel,
   type ThreadExecutionMode,
   type ThreadProvider,
+  type ThreadState,
 } from '../db/repositories/threads.js'
 import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
@@ -17,7 +18,7 @@ import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './pr
 import { diffWorkingTree } from '../git/git-client.js'
 import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
-import { acquireLease, releaseLease } from './project-execution.js'
+import { acquireLease, getLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
 import {
   createSkillSnapshot,
@@ -94,15 +95,39 @@ export function resetRunCliTurnForTesting(): void {
 const activeControllers = new Map<string, AbortController>()
 const cancelledThreads = new Set<string>()
 
-/** `stopping` imediato + aborta o processo do provider. Retorna false se não há execução ativa para a thread. */
+/** Estados de onde um cancelamento manual ainda faz sentido; o resto já assentou. */
+const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>(['running', 'stopping', 'waiting_user'])
+
+/**
+ * Cancelamento manual. Com execução ativa: `stopping` imediato + aborta o processo do provider (o
+ * turno assenta em `cancelled` no cleanup). Sem execução ativa: a thread ficou órfã porque o turno
+ * morreu sem passar pelo cleanup (ex.: pergunta pendente de F21 cujo processo caiu com o app de pé),
+ * então o cancelamento assenta o estado aqui mesmo — antes disso a thread ficava presa
+ * indefinidamente, com o endpoint devolvendo `{cancelled:false}` e a UI oferecendo um "Parar
+ * execução" que não fazia nada. Retorna false só quando não há nada a cancelar.
+ */
 export function cancelThread(threadId: string): boolean {
   const controller = activeControllers.get(threadId)
-  if (!controller) return false
+  if (controller) {
+    cancelledThreads.add(threadId)
+    updateThread(threadId, { state: 'stopping' })
+    emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
+    controller.abort()
+    return true
+  }
 
-  cancelledThreads.add(threadId)
-  updateThread(threadId, { state: 'stopping' })
-  emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
-  controller.abort()
+  const thread = getThread(threadId)
+  if (thread === null || !CANCELLABLE_STATES.has(thread.state)) return false
+
+  // A pergunta pendente (se houver) precisa ser rejeitada antes do estado assentar, senão o
+  // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo.
+  rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+
+  // Lease é por projeto: só libera se for esta thread que a detém, nunca a de outra execução.
+  if (getLease(thread.projectId)?.ownerThreadId === threadId) releaseLease(thread.projectId)
+
+  updateThread(threadId, { state: 'cancelled' })
+  emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
   return true
 }
 
@@ -458,7 +483,9 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'idle' })
   } catch (err) {
     const wasCancelled = cancelledThreads.delete(thread.id)
-    const state = wasCancelled ? 'idle' : 'error'
+    // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
+    // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
+    const state: ThreadState = wasCancelled ? 'cancelled' : 'error'
     updateThread(thread.id, { state })
     emit(thread.id, { type: 'state.change', threadId: thread.id, state })
 
