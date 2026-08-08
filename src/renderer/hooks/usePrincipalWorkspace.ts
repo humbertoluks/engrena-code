@@ -6,6 +6,7 @@ import {
   type ComposerImagePayload,
   type Diff,
   type Message,
+  type PipelineHistory,
   type ThreadAccessLevel,
   type ThreadExecutionMode,
   type ThreadProvider,
@@ -96,6 +97,7 @@ export function usePrincipalWorkspace() {
   const [messages, setMessages] = useState<Message[]>([])
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
+  const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
   const [activeSubagentRun, setActiveSubagentRun] = useState<SubagentRun | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -249,6 +251,7 @@ export function usePrincipalWorkspace() {
       setMessages(res.messages)
       setToolCalls(res.toolCalls)
       setSubagentRuns(res.subagentRuns)
+      setPipeline(res.pipeline)
     } catch {
       if (mountedRef.current) setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
@@ -325,6 +328,7 @@ export function usePrincipalWorkspace() {
       setMessages([])
       setToolCalls([])
       setSubagentRuns([])
+      setPipeline(null)
       setDiffs([])
     }
   }, [selectedThreadId, loadHistory, loadDiffs])
@@ -382,6 +386,11 @@ export function usePrincipalWorkspace() {
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
       // Refetch traz `subagentRuns` (e `toolCalls` correlacionados) sem exigir refresh manual (spec F15 §5.3).
+      void loadHistory(event.threadId)
+      return
+    }
+    if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
+      // Mesmo padrão de F15 — refetch traz `pipeline` (estado + estágios) sem refresh manual (spec F22 §5.3).
       void loadHistory(event.threadId)
       return
     }
@@ -655,6 +664,7 @@ export function usePrincipalWorkspace() {
     messages,
     toolCalls,
     subagentRuns,
+    pipeline,
     activeSubagentRun,
     openSubagentRun,
     closeSubagentRun,

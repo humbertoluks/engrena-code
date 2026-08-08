@@ -6,6 +6,12 @@ import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/dif
 import { getProject } from '../db/repositories/projects.js'
 import { listSubagentRunsForParentThread } from '../db/repositories/subagents.js'
 import {
+  listPipelinesForThread,
+  listStagesForPipeline,
+  type Pipeline,
+  type PipelineStage,
+} from '../db/repositories/pipelines.js'
+import {
   cancelThread,
   dispatchFollowUp,
   dispatchNewThread,
@@ -222,6 +228,13 @@ function handleListThreads(_req: IncomingMessage, res: ServerResponse, projectId
   sendJson(res, 200, { threads: listThreadsForProject(projectId) })
 }
 
+/** Pipeline mais recente da thread (rodando ou já encerrado) + estágios — rehydrate de UI (spec F22 §4). */
+function resolveHistoryPipeline(threadId: string): { pipeline: Pipeline; stages: PipelineStage[] } | null {
+  const pipeline = listPipelinesForThread(threadId)[0]
+  if (pipeline === undefined) return null
+  return { pipeline, stages: listStagesForPipeline(pipeline.id) }
+}
+
 function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
@@ -229,6 +242,7 @@ function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: str
     messages: listMessagesForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
     subagentRuns: listSubagentRunsForParentThread(threadId),
+    pipeline: resolveHistoryPipeline(threadId),
   })
 }
 

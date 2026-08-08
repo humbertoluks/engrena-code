@@ -159,6 +159,11 @@ export function PrincipalScreen(): ReactElement {
           onMemoryChanged={ws.refreshMemoryStatus}
           subagentRuns={ws.subagentRuns}
           onOpenSubagentRun={ws.openSubagentRun}
+          pipeline={ws.pipeline}
+          onAnswerPipelineCheckpoint={(input) => void ws.answerQuestion(input)}
+          pipelineAnswerBusy={ws.answerBusy}
+          pipelineAnswerError={ws.answerError}
+          onCancelPipeline={() => void ws.cancel()}
           onNewThread={ws.newThread}
           onCommit={ws.gitCommit}
           onPush={ws.gitPush}

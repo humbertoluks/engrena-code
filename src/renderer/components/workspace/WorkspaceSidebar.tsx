@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { Project, VcsStatus } from '../../services/projects-service'
-import type { Thread } from '../../services/threads-service'
+import type { PipelineHistory, Thread } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import type { MemoryStatus } from '../../services/memory-service'
 import { rulesService } from '../../services/rules-service'
@@ -14,6 +14,7 @@ import { ProjectSubagentsModal } from '../subagents/ProjectSubagentsModal'
 import { ProjectMcpsModal } from '../mcps/ProjectMcpsModal'
 import { ProjectMemoryModal } from '../memory/ProjectMemoryModal'
 import { SubagentActivity } from '../subagents/SubagentActivity'
+import { PipelinePanel } from './PipelinePanel'
 import { GitActions } from './GitActions'
 import { CodegraphSection } from '../codegraph/CodegraphSection'
 
@@ -58,6 +59,11 @@ export interface WorkspaceSidebarProps {
   onMemoryChanged: () => void
   subagentRuns: SubagentRun[]
   onOpenSubagentRun: (run: SubagentRun) => void
+  pipeline: PipelineHistory | null
+  onAnswerPipelineCheckpoint: (input: { selectedOptions: string[]; freeText: string | null }) => void
+  pipelineAnswerBusy: boolean
+  pipelineAnswerError: string | null
+  onCancelPipeline: () => void
   onNewThread: () => void
   onCommit: (subject: string, body?: string) => Promise<{ ok: boolean; error?: string }>
   onPush: () => Promise<{ ok: boolean; error?: string }>
@@ -73,6 +79,11 @@ export function WorkspaceSidebar({
   onMemoryChanged,
   subagentRuns,
   onOpenSubagentRun,
+  pipeline,
+  onAnswerPipelineCheckpoint,
+  pipelineAnswerBusy,
+  pipelineAnswerError,
+  onCancelPipeline,
   onNewThread,
   onCommit,
   onPush,
@@ -150,6 +161,16 @@ export function WorkspaceSidebar({
           ) : null}
 
           {selectedThread ? <SubagentActivity runs={subagentRuns} onOpenRun={onOpenSubagentRun} /> : null}
+
+          {selectedThread && pipeline ? (
+            <PipelinePanel
+              pipeline={pipeline}
+              onAnswer={onAnswerPipelineCheckpoint}
+              answerBusy={pipelineAnswerBusy}
+              answerError={pipelineAnswerError}
+              onCancel={onCancelPipeline}
+            />
+          ) : null}
 
           <section>
             <GitActions

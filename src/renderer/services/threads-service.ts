@@ -105,6 +105,40 @@ export interface DispatchResponse {
   stream: { ws: string }
 }
 
+export type PipelineCommand = 'spec' | 'featdevelop' | 'featbuild'
+export type PipelineStatus = 'running' | 'waiting_checkpoint' | 'completed' | 'failed' | 'timeout' | 'cancelled'
+export type PipelineStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'skipped'
+
+export interface Pipeline {
+  id: string
+  threadId: string
+  projectId: string
+  command: PipelineCommand
+  status: PipelineStatus
+  argsText: string
+  startedAt: number
+  finishedAt: number | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export interface PipelineStage {
+  id: string
+  pipelineId: string
+  stageId: string
+  stageIndex: number
+  subagentName: string
+  status: PipelineStageStatus
+  subagentRunId: string | null
+  startedAt: number | null
+  finishedAt: number | null
+}
+
+export interface PipelineHistory {
+  pipeline: Pipeline
+  stages: PipelineStage[]
+}
+
 // ── API ──────────────────────────────────────────────────────────────────────
 
 export const threadsService = {
@@ -139,8 +173,9 @@ export const threadsService = {
 
   history: (
     threadId: string
-  ): Promise<{ messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[] } & ApiErrorBody> =>
-    apiRequest('GET', `/api/threads/${threadId}/history`),
+  ): Promise<
+    { messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[]; pipeline: PipelineHistory | null } & ApiErrorBody
+  > => apiRequest('GET', `/api/threads/${threadId}/history`),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),

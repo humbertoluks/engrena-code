@@ -53,6 +53,16 @@ function stageNameFromSystemPrompt(systemPrompt: string | undefined): string {
   return match?.[1] ?? 'unknown'
 }
 
+/** Poll em vez de sleep fixo — o passo espiado envolve spawns reais de `git`, cuja duração varia
+ * bastante sob a suite completa rodando em paralelo (flakou uma vez com sleep(400) fixo). */
+async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitUntil: timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
 beforeEach(() => {
   getDb().exec('DELETE FROM pipeline_stages')
   getDb().exec('DELETE FROM pipelines')
@@ -123,7 +133,7 @@ describe('runPipelineCommand — /featdevelop', () => {
     })
 
     // Deixa o loop chegar no checkpoint (planner + implementer já rodaram, diffs capturados).
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await waitUntil(() => listPipelinesForThread(thread.id)[0]?.status === 'waiting_checkpoint')
     expect(calledStages).toEqual(['planner', 'implementer'])
     const pipelineMid = listPipelinesForThread(thread.id)[0]
     expect(pipelineMid.status).toBe('waiting_checkpoint')
@@ -238,7 +248,7 @@ describe('runPipelineCommand — /featdevelop', () => {
       argsText: 'cancelar',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await waitUntil(() => getThread(thread.id)?.state === 'waiting_user')
     expect(getThread(thread.id)?.state).toBe('waiting_user')
 
     const cancelled = cancelThread(thread.id)

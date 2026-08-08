@@ -11,6 +11,26 @@ export type StreamEvent =
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string }
   | { type: 'mcp.notice'; threadId: string; code: string; mcpName: string; reason: string; message: string }
   | { type: 'memory.entry'; threadId: string; projectId: string }
+  | {
+      type: 'pipeline.state'
+      threadId: string
+      pipelineId: string
+      command: string
+      status: string
+      stageIndex: number
+      stageTotal: number
+    }
+  | {
+      type: 'pipeline.stage'
+      threadId: string
+      pipelineId: string
+      stageId: string
+      index: number
+      total: number
+      phase: string
+      subagentName: string
+      status: string
+    }
 
 const WS_BASE_URL = 'ws://127.0.0.1:5174'
 

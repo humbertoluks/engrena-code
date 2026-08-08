@@ -16,9 +16,13 @@ const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_
   '../runner/ask-user-question.js'
 )
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
+const {
+  setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
+} = await import('../runner/delegate.js')
 const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
-const { createSubagent, createSubagentRun } = await import('../db/repositories/subagents.js')
+const { createSubagent, createSubagentRun, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const { createDiff, getDiff } = await import('../db/repositories/diffs.js')
 
 function initGitRepo(path: string): void {
@@ -100,6 +104,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetRunCliTurnForTesting()
+  resetDelegateRunCliTurnForTesting()
 })
 
 afterAll(() => {
@@ -325,9 +330,11 @@ describe('handleThreadsRequest', () => {
     const historyBody = (await historyRes.result()).body as {
       messages: unknown[]
       subagentRuns: unknown[]
+      pipeline: unknown
     }
     expect(historyBody.messages.length).toBeGreaterThanOrEqual(1)
     expect(historyBody.subagentRuns).toEqual([])
+    expect(historyBody.pipeline).toBeNull()
 
     const diffsReq = fakeReq('GET', `/api/threads/${created.thread.id}/diffs`, undefined, session)
     const diffsRes = fakeRes()
@@ -1137,6 +1144,58 @@ describe('handleThreadsRequest', () => {
       expect((body as { error: { code: string } }).error.code).toBe('diff_conflict')
       rmSync(dir, { recursive: true, force: true })
       rmSync(childA, { recursive: true, force: true })
+    })
+  })
+
+  describe('slash pipeline history (F22)', () => {
+    it('rejects an unknown slash command with 400 before creating a thread', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: '/foo bar', provider: 'claude', accessLevel: 'full-access', executionMode: 'main' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('slash_unknown')
+    })
+
+    it('history exposes the pipeline + stages for a dispatched /spec', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const planner = createSubagent({ name: 'planner', description: 'planeja', prompt: 'Você é o planner.', provider: 'inherit' })
+      upsertProjectSubagentLink(project.id, planner.id, { enabled: true })
+      setDelegateRunCliTurnForTesting(async () => ({ text: '## spec.md\nx\n\n## plan.md\ny' }))
+
+      const createReq = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: '/spec Adicionar login', provider: 'claude', accessLevel: 'full-access', executionMode: 'main' },
+        session
+      )
+      const createRes = fakeRes()
+      await handleThreadsRequest(createReq, createRes)
+      const created = (await createRes.result()).body as { thread: { id: string } }
+      await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+      const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
+      const historyRes = fakeRes()
+      await handleThreadsRequest(historyReq, historyRes)
+      const body = (await historyRes.result()).body as {
+        pipeline: { pipeline: { command: string; status: string }; stages: Array<{ stageId: string; status: string }> } | null
+      }
+
+      expect(body.pipeline?.pipeline.command).toBe('spec')
+      expect(body.pipeline?.pipeline.status).toBe('completed')
+      expect(body.pipeline?.stages).toEqual([expect.objectContaining({ stageId: 'planner', status: 'completed' })])
+
+      rmSync(dir, { recursive: true, force: true })
     })
   })
 })

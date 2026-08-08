@@ -6,8 +6,11 @@ import type { ConfigStatus } from '../../services/configuracao-service'
 import type { VcsStatus } from '../../services/projects-service'
 import { ComposerModelControls } from './ComposerModelControls'
 import { FileMentionMenu } from './FileMentionMenu'
+import { CommandMenu } from './CommandMenu'
 import { ComposerImageAttachments, ImageAttachmentThumbs } from './ComposerImageAttachments'
-import { extractMentionQuery, insertMentionPath, type MentionQuery } from './composer.logic'
+import { extractMentionQuery, insertMentionPath, validateComposerSlash, type MentionQuery } from './composer.logic'
+import { extractSlashTrigger, insertSlashCommand, type SlashTrigger } from './commandTrigger'
+import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
 
 const COPY = {
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
@@ -84,6 +87,8 @@ export function TaskComposer({
 }: Readonly<TaskComposerProps>): ReactElement {
   const [gitInitLoading, setGitInitLoading] = useState(false)
   const [mention, setMention] = useState<MentionQuery | null>(null)
+  const [slashTrigger, setSlashTrigger] = useState<SlashTrigger | null>(null)
+  const [slashError, setSlashError] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -111,13 +116,18 @@ export function TaskComposer({
         ? COPY.placeholderFollowUp
         : COPY.placeholderNew
 
-  function syncMention(text: string, cursor: number): void {
-    setMention(extractMentionQuery(text, cursor))
+  // Multiplex `/` × `@` (ui.md §A "comando vence"): só computa o gatilho de menção quando o
+  // gatilho `/` (âncora de início) não está ativo.
+  function syncTriggers(text: string, cursor: number): void {
+    const slash = extractSlashTrigger(text, cursor)
+    setSlashTrigger(slash)
+    setMention(slash ? null : extractMentionQuery(text, cursor))
   }
 
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     updateComposer({ text: e.target.value })
-    syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+    syncTriggers(e.target.value, e.target.selectionStart ?? e.target.value.length)
+    if (slashError !== null) setSlashError(null)
   }
 
   function handleSelectMention(path: string): void {
@@ -132,14 +142,38 @@ export function TaskComposer({
     })
   }
 
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
-    if (e.key === 'Escape' && mention) {
-      setMention(null)
+  function handleSelectSlashCommand(name: SlashCommandName): void {
+    if (!textareaRef.current) return
+    const cursor = textareaRef.current.selectionStart ?? composer.text.length
+    const result = insertSlashCommand(composer.text, name, cursor)
+    updateComposer({ text: result.text })
+    setSlashTrigger(null)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+    })
+  }
+
+  /** Bloqueio pré-envio de slash inválido (spec F22 §5.2) — client nunca chega a chamar `onSend`. */
+  function handleSend(): void {
+    const validation = validateComposerSlash(composer.text)
+    if (!validation.ok) {
+      setSlashError(validation.message)
       return
     }
-    if (e.key === 'Enter' && !e.shiftKey && !mention) {
+    setSlashError(null)
+    onSend()
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.key === 'Escape' && (mention || slashTrigger)) {
+      setMention(null)
+      setSlashTrigger(null)
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !mention && !slashTrigger) {
       e.preventDefault()
-      onSend()
+      handleSend()
     }
   }
 
@@ -212,7 +246,9 @@ export function TaskComposer({
         ) : null}
 
         <div className="relative">
-          {mention !== null && projectId ? (
+          {slashTrigger !== null ? (
+            <CommandMenu query={slashTrigger.query} onSelect={handleSelectSlashCommand} />
+          ) : mention !== null && projectId ? (
             <FileMentionMenu projectId={projectId} query={mention.query} onSelect={handleSelectMention} />
           ) : null}
 
@@ -221,14 +257,20 @@ export function TaskComposer({
             value={composer.text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
-            onKeyUp={(e) => syncMention(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
-            onClick={(e) => syncMention(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
+            onKeyUp={(e) => syncTriggers(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
+            onClick={(e) => syncTriggers(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
             placeholder={placeholder}
             disabled={disabled}
             rows={3}
             className="w-full resize-none bg-transparent text-[13px] text-fg placeholder:text-muted focus:outline-none disabled:opacity-60"
           />
         </div>
+
+        {slashError !== null ? (
+          <p role="alert" className="mt-sm text-xs text-red">
+            {slashError}
+          </p>
+        ) : null}
 
         {imageError !== null ? (
           <p role="alert" className="mt-sm text-xs text-amber">
@@ -293,7 +335,7 @@ export function TaskComposer({
           ) : (
             <button
               type="button"
-              onClick={onSend}
+              onClick={handleSend}
               disabled={disabled || composer.text.trim() === ''}
               className="rounded-md bg-accent px-md py-xs text-[12px] font-medium text-white disabled:opacity-50"
             >
