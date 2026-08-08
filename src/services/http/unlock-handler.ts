@@ -286,7 +286,11 @@ export function createUnlockServer(port: number = 5174): http.Server {
       }
 
       // Consumo routes (async — must not mix with data event listeners)
-      if (req.url?.startsWith('/api/metrics/') || req.url?.startsWith('/api/pricing')) {
+      if (
+        req.url?.startsWith('/api/metrics/') ||
+        req.url?.startsWith('/api/pricing') ||
+        req.url?.startsWith('/api/usage-limits')
+      ) {
         const handled = await handleConsumoRequest(req, res)
         if (handled) return
       }

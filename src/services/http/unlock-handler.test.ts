@@ -176,6 +176,8 @@ describe('createUnlockServer project route chain with vault locked', () => {
       `/api/projects/${projectId}/mcps`,
       `/api/projects/${projectId}/subagents`,
       `/api/projects/${projectId}/files`,
+      '/api/usage-limits',
+      '/api/usage-limits/status',
     ]
 
     for (const path of paths) {
