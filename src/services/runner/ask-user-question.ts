@@ -40,6 +40,21 @@ function answerToText(answer: AskUserQuestionAnswer): string {
 }
 
 /**
+ * Registra um resolver pendente para `threadId` e devolve a Promise que resolve/rejeita quando
+ * `resolveAskUserQuestion`/`rejectAskUserQuestion` for chamado — mesmo mapa `pending` do `POST
+ * /ask` do MCP (F21), mas sem precisar de um request HTTP em aberto. Usado pelo checkpoint do
+ * pipeline-runner (F22), que pausa fora de qualquer tool-call de um CLI ao vivo.
+ */
+export function waitForAnswer(threadId: string): Promise<AskUserQuestionAnswer> {
+  return new Promise((resolve, reject) => {
+    pending.set(threadId, {
+      resolve,
+      reject: (reason) => reject(new Error(reason)),
+    })
+  })
+}
+
+/**
  * Servidor HTTP loopback efêmero por turno (mesmo padrão estrutural de
  * `delegate.ts:createDelegationServer`, F15) — mas em vez de responder de imediato, segura a
  * resposta HTTP do `POST /ask` em aberto até `resolveAskUserQuestion`/`rejectAskUserQuestion`
@@ -65,16 +80,16 @@ export function createAskUserQuestionServer(threadId: string): Promise<AskUserQu
       body += chunk.toString()
     })
     req.on('end', () => {
-      pending.set(threadId, {
-        resolve: (answer) => {
+      waitForAnswer(threadId).then(
+        (answer) => {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ content: [{ type: 'text', text: answerToText(answer) }], isError: false }))
         },
-        reject: (reason) => {
+        (err: Error) => {
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ content: [{ type: 'text', text: reason }], isError: true }))
-        },
-      })
+          res.end(JSON.stringify({ content: [{ type: 'text', text: err.message }], isError: true }))
+        }
+      )
     })
   })
 

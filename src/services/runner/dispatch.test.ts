@@ -32,6 +32,11 @@ const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { getThreadEvents } = await import('../db/repositories/usage-events.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
 const { readJournal, appendEntry } = await import('../vault/memory-service.js')
+const {
+  setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
+} = await import('./delegate.js')
+const { listPipelinesForThread } = await import('../db/repositories/pipelines.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -72,6 +77,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetRunCliTurnForTesting()
+  resetDelegateRunCliTurnForTesting()
 })
 
 afterAll(() => {
@@ -1291,6 +1297,111 @@ describe('cancelThread on an abandoned thread (F21 PRD AC4)', () => {
 
     expect(cancelThread(thread.id)).toBe(false)
     expect(getThread(thread.id)?.state).toBe('committed')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('dispatch — slash commands (F22)', () => {
+  it('rejects an invalid slash before creating a thread or acquiring the lease', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    await expect(
+      dispatchNewThread({
+        projectId: project.id,
+        prompt: '/foo bar',
+        provider: 'claude',
+        accessLevel: 'full-access',
+        executionMode: 'main',
+      })
+    ).rejects.toMatchObject({ code: 'slash_unknown' })
+
+    expect(listThreadsForProject(project.id)).toHaveLength(0)
+    expect(isLeased(project.id)).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejects a follow-up slash with missing args as 400-shaped DispatchValidationError, thread stays untouched', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main' })
+    updateThread(thread.id, { state: 'idle' })
+
+    expect(() => dispatchFollowUp({ threadId: thread.id, prompt: '/spec' })).toThrowError(
+      expect.objectContaining({ code: 'slash_missing_args' })
+    )
+    expect(getThread(thread.id)?.state).toBe('idle')
+    expect(isLeased(project.id)).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('routes a valid /spec to the pipeline runner instead of a normal turn', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const planner = createSubagent({ name: 'planner', description: 'planeja', prompt: 'Você é o planner.', provider: 'inherit' })
+    upsertProjectSubagentLink(project.id, planner.id, { enabled: true })
+
+    setDelegateRunCliTurnForTesting(async () => ({ text: '## spec.md\nx\n\n## plan.md\ny' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: '/spec Adicionar autenticação',
+      provider: 'claude',
+      accessLevel: 'full-access',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(getThread(thread.id)?.state).toBe('idle')
+    const pipelines = listPipelinesForThread(thread.id)
+    expect(pipelines).toHaveLength(1)
+    expect(pipelines[0].command).toBe('spec')
+    expect(pipelines[0].status).toBe('completed')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('cancelThread cancels an in-flight pipeline', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    for (const name of ['planner', 'implementer', 'reviewer', 'tester']) {
+      const s = createSubagent({ name, description: `d ${name}`, prompt: `Você é o ${name}.`, provider: 'inherit' })
+      upsertProjectSubagentLink(project.id, s.id, { enabled: true })
+    }
+
+    setDelegateRunCliTurnForTesting(async (input) => {
+      // Fake fiel ao driver real: o processo real é morto quando o signal aborta (mesmo mecanismo
+      // que já sustenta o cancel de turno normal em dispatch.ts) — sem isso o teste não valida nada.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 300)
+        input.signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            reject(new Error('processo abortado'))
+          },
+          { once: true }
+        )
+      })
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: '/featdevelop Adicionar algo',
+      provider: 'claude',
+      accessLevel: 'full-access',
+      executionMode: 'main',
+    })
+
+    await waitForState(thread.id, ['running'])
+    expect(cancelThread(thread.id)).toBe(true)
+    await waitForState(thread.id, ['cancelled', 'error'])
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+    expect(listPipelinesForThread(thread.id)[0]?.status).toBe('cancelled')
 
     rmSync(dir, { recursive: true, force: true })
   })

@@ -21,6 +21,16 @@ import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, getLease, releaseLease } from './project-execution.js'
 import { emit } from './ws-hub.js'
 import {
+  consumeThreadCancelled,
+  getActiveController,
+  markThreadCancelled,
+  registerActiveController,
+  unregisterActiveController,
+} from './turn-control.js'
+import { parseSlashCommand } from './slash-commands.js'
+import { runPipelineCommand } from './pipeline-runner.js'
+import { getActivePipelineForThread, updatePipeline } from '../db/repositories/pipelines.js'
+import {
   createSkillSnapshot,
   writeSkillSnapshotFile,
   LOAD_SKILL_TOOL_NAME,
@@ -92,9 +102,6 @@ export function resetRunCliTurnForTesting(): void {
   runCliTurnImpl = defaultRunCliTurn
 }
 
-const activeControllers = new Map<string, AbortController>()
-const cancelledThreads = new Set<string>()
-
 /** Estados de onde um cancelamento manual ainda faz sentido; o resto já assentou. */
 const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>(['running', 'stopping', 'waiting_user'])
 
@@ -107,9 +114,9 @@ const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>(['runn
  * execução" que não fazia nada. Retorna false só quando não há nada a cancelar.
  */
 export function cancelThread(threadId: string): boolean {
-  const controller = activeControllers.get(threadId)
+  const controller = getActiveController(threadId)
   if (controller) {
-    cancelledThreads.add(threadId)
+    markThreadCancelled(threadId)
     updateThread(threadId, { state: 'stopping' })
     emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
     controller.abort()
@@ -120,8 +127,14 @@ export function cancelThread(threadId: string): boolean {
   if (thread === null || !CANCELLABLE_STATES.has(thread.state)) return false
 
   // A pergunta pendente (se houver) precisa ser rejeitada antes do estado assentar, senão o
-  // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo.
+  // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
+  // órfão de pipeline F22, que reusa o mesmo mecanismo).
   rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+
+  // Pipeline órfão (processo caiu sem passar pelo finally de pipeline-runner) — assenta aqui, já
+  // que ninguém mais vai fechar aquele registro.
+  const activePipeline = getActivePipelineForThread(threadId)
+  if (activePipeline) updatePipeline(activePipeline.id, { status: 'cancelled', finishedAt: Date.now() })
 
   // Lease é por projeto: só libera se for esta thread que a detém, nunca a de outra execução.
   if (getLease(thread.projectId)?.ownerThreadId === threadId) releaseLease(thread.projectId)
@@ -197,6 +210,11 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
   const project = getProject(input.projectId)
   if (project === null) throw new DispatchValidationError('project_not_found', 'Projeto não encontrado.')
 
+  // Slash inválido/desconhecido/sem args nunca chega a criar thread nem acquirir lease (spec F22
+  // §5.2 "nenhum estágio inicia") — falha rápido, igual às demais validações de dispatch.
+  const slash = parseSlashCommand(input.prompt)
+  if (slash.kind === 'error') throw new DispatchValidationError(slash.code, slash.message)
+
   acquireLease(project.id, 'agent', 'dispatch', null)
 
   let thread: Thread
@@ -229,7 +247,11 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
     }
   }
 
-  void runTurn(project, thread, input.prompt, input.images)
+  if (slash.kind === 'command') {
+    void runPipelineCommand({ project, thread, command: slash.command, prompt: input.prompt, argsText: slash.args })
+  } else {
+    void runTurn(project, thread, input.prompt, input.images)
+  }
 
   return thread
 }
@@ -240,6 +262,9 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 
   const project = getProject(thread.projectId)
   if (project === null) throw new DispatchValidationError('project_not_found', 'Projeto não encontrado.')
+
+  const slash = parseSlashCommand(input.prompt)
+  if (slash.kind === 'error') throw new DispatchValidationError(slash.code, slash.message)
 
   acquireLease(project.id, 'agent', 'follow-up', thread.id)
 
@@ -262,7 +287,11 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
   }
 
   emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
-  void runTurn(project, updated, input.prompt, input.images)
+  if (slash.kind === 'command') {
+    void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
+  } else {
+    void runTurn(project, updated, input.prompt, input.images)
+  }
 
   return updated
 }
@@ -368,7 +397,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     let assistantText = ''
     const toolCallIdByProviderId = new Map<string, string>()
     const controller = new AbortController()
-    activeControllers.set(thread.id, controller)
+    registerActiveController(thread.id, controller)
 
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
@@ -482,7 +511,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     updateThread(thread.id, { state: 'idle' })
     emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'idle' })
   } catch (err) {
-    const wasCancelled = cancelledThreads.delete(thread.id)
+    const wasCancelled = consumeThreadCancelled(thread.id)
     // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
     // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
     const state: ThreadState = wasCancelled ? 'cancelled' : 'error'
@@ -507,7 +536,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
-    activeControllers.delete(thread.id)
+    unregisterActiveController(thread.id)
     releaseLease(project.id)
   }
 }

@@ -183,6 +183,14 @@ export interface DelegationRequest {
 export interface DelegationResult {
   text: string
   isError?: boolean
+  /**
+   * Status real do run persistido (F22 pipeline-runner precisa saber se falhou/deu timeout de
+   * verdade) — `undefined` quando nenhum run chegou a ser criado (gate bloqueou / subagent não
+   * encontrado, ambos já sinalizados via `isError: true`). `isError` sozinho não basta: por design
+   * F15, uma falha/timeout do filho ainda devolve `isError: false` (o tool call em si "funcionou",
+   * só o trabalho do filho que não terminou) — só o texto embutia esse sinal até aqui.
+   */
+  status?: SubagentRunStatus
 }
 
 function resolveChildProvider(subagent: Subagent, parentProvider: ThreadProvider): ThreadProvider {
@@ -194,6 +202,8 @@ export interface DelegationRunOptions {
   childThreadId?: string
   cwdOverride?: string
   parallelBatchId?: string | null
+  /** Cancelamento externo (F22 pipeline-runner) — abortado, aborta o `AbortController` interno do filho junto. */
+  externalSignal?: AbortSignal
 }
 
 /**
@@ -248,6 +258,10 @@ export async function runDelegatedSubagentTurn(
   })
 
   const controller = new AbortController()
+  if (options.externalSignal) {
+    if (options.externalSignal.aborted) controller.abort()
+    else options.externalSignal.addEventListener('abort', () => controller.abort(), { once: true })
+  }
   const watchdog = setInterval(() => {
     if (checkIdleTimeout(run) && !controller.signal.aborted) {
       controller.abort()
@@ -317,7 +331,7 @@ export async function runDelegatedSubagentTurn(
       parallelBatchId: options.parallelBatchId ?? null,
     })
 
-    return { text: finalText }
+    return { text: finalText, status: run.currentStatus() }
   } catch (err) {
     clearInterval(watchdog)
     const message = err instanceof Error ? err.message : 'Erro desconhecido no subagent.'
@@ -336,7 +350,7 @@ export async function runDelegatedSubagentTurn(
     })
 
     const prefix = run.currentStatus() === 'timeout' ? 'interrompido por timeout' : 'falhou'
-    return { text: `[subagent '${subagent.name}' ${prefix}: ${message}]`, isError: false }
+    return { text: `[subagent '${subagent.name}' ${prefix}: ${message}]`, isError: false, status: run.currentStatus() }
   }
 }
 
