@@ -8,7 +8,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
 const { createThread } = await import('./threads.js')
-const { createDiff, countAllPending, getDiff } = await import('./diffs.js')
+const { createDiff, countAllPending, getDiff, promoteDiffFromConflict } = await import('./diffs.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f04_diffs_fixture_'))
 
@@ -72,8 +72,8 @@ describe('conflict candidates (F18)', () => {
       provider: 'claude',
       status: 'conflict',
       conflictCandidates: [
-        { childThreadId: 'child-a', subagentName: 'implementer-a', hunks: [], additions: 1, deletions: 0 },
-        { childThreadId: 'child-b', subagentName: 'implementer-b', hunks: [], additions: 2, deletions: 1 },
+        { childThreadId: 'child-a', subagentName: 'implementer-a', hunks: [], additions: 1, deletions: 0, worktreePath: '/tmp/child-a' },
+        { childThreadId: 'child-b', subagentName: 'implementer-b', hunks: [], additions: 2, deletions: 1, worktreePath: '/tmp/child-b' },
       ],
     })
 
@@ -87,5 +87,34 @@ describe('conflict candidates (F18)', () => {
     const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
     const created = createDiff({ threadId: thread.id, file: 'a.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude' })
     expect(created.conflictCandidates).toBeNull()
+  })
+
+  it('test_resolve_conflict_promotes_winner', () => {
+    const project = createProject({ path: makeProjectDir('project-promote') })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    const created = createDiff({
+      threadId: thread.id,
+      file: 'a.ts',
+      additions: 1,
+      deletions: 0,
+      hunks: [],
+      provider: 'claude',
+      status: 'conflict',
+      conflictCandidates: [
+        { childThreadId: 'child-a', subagentName: 'a', hunks: [{ header: '@@ a @@', lines: ['+a'] }], additions: 1, deletions: 0, worktreePath: '/tmp/a' },
+      ],
+    })
+
+    const promoted = promoteDiffFromConflict(created.id, {
+      hunks: [{ header: '@@ a @@', lines: ['+a'] }],
+      additions: 1,
+      deletions: 0,
+      worktreePath: '/tmp/parent',
+    })
+
+    expect(promoted?.status).toBe('pending')
+    expect(promoted?.conflictCandidates).toBeNull()
+    expect(promoted?.worktreePath).toBe('/tmp/parent')
+    expect(promoted?.hunks).toEqual([{ header: '@@ a @@', lines: ['+a'] }])
   })
 })

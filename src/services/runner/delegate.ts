@@ -16,7 +16,9 @@ import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './pr
 import { emit } from './ws-hub.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { runCliTurn as defaultRunCliTurn, ProviderError, type ProviderTurnInput } from './providers/cli-driver.js'
-import { createWorktree, WorktreeError } from '../git/worktree.js'
+import { createWorktree, removeWorktreeIfSafe, WorktreeError } from '../git/worktree.js'
+import { diffWorkingTree } from '../git/git-client.js'
+import { mergeParallelChildDiffs, type ChildDiffSet } from './parallel-merge.js'
 
 export const DEFAULT_IDLE_TIMEOUT_MINUTES = 20
 export const HARD_CAP_MS = 2 * 60 * 60 * 1000
@@ -359,6 +361,7 @@ export interface ParallelTaskResult {
 export interface ParallelBatchResult {
   parallelBatchId: string
   results: ParallelTaskResult[]
+  hadConflict: boolean
 }
 
 function isValidDelegationRequest(value: unknown): value is DelegationRequest {
@@ -436,13 +439,55 @@ export async function runParallelDelegatedBatch(
     })
   )
 
-  return { parallelBatchId, results }
+  // Merge por union de path (spec §3.2/§6): cada filho com worktree é diffado contra seu próprio
+  // HEAD, agregado no thread do pai. Roda mesmo para filhos 'error'/'timeout' — um filho que falhou
+  // no meio ainda pode ter escrito algo real que vale mostrar (PRD Tratamento de Erros).
+  const childDiffSets: ChildDiffSet[] = []
+  for (const p of prepared) {
+    if (!p.worktreePath) continue
+    const files = await diffWorkingTree(p.worktreePath)
+    if (files.length > 0) {
+      childDiffSets.push({
+        childThreadId: p.childThreadId,
+        subagentName: p.task.name,
+        worktreePath: p.worktreePath,
+        files,
+      })
+    }
+  }
+
+  let hadConflict = false
+  if (childDiffSets.length > 0) {
+    const createdDiffs = mergeParallelChildDiffs({
+      parentThreadId: ctx.parentThread.id,
+      parentCwd: baseCwd,
+      provider: ctx.parentThread.provider,
+      children: childDiffSets,
+    })
+    for (const d of createdDiffs) {
+      emit(ctx.parentThread.id, { type: 'diff.ready', threadId: ctx.parentThread.id, diffId: d.id, file: d.file })
+      if (d.status === 'conflict') hadConflict = true
+    }
+  }
+
+  // Cleanup (spec §3.2 step 9) — mesma política segura de F13: worktree com alterações locais
+  // (o caso comum aqui, já que acabou de materializar/servir de candidato de conflito) é retido
+  // com aviso, nunca removido às cegas.
+  for (const p of prepared) {
+    if (!p.worktreePath) continue
+    await removeWorktreeIfSafe(baseCwd, p.worktreePath, p.childThreadId)
+  }
+
+  return { parallelBatchId, results, hadConflict }
 }
 
 function formatBatchReport(batch: ParallelBatchResult): string {
   const lines = [`Batch paralelo ${batch.parallelBatchId} — ${batch.results.length} tarefa(s):`]
   for (const r of batch.results) {
     lines.push(`- ${r.subagentName} (${r.childThreadId}): ${r.status} — ${r.text}`)
+  }
+  if (batch.hadConflict) {
+    lines.push('Atenção: há arquivo(s) em conflito (tocados por mais de um filho) aguardando resolução no pai.')
   }
   return lines.join('\n')
 }

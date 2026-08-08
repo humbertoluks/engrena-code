@@ -63,6 +63,13 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
 
   const action: DiffAction = input.action ?? 'accept'
   const requested = resolveSubset(thread.id, input)
+
+  // Diff em conflito (spec F18 §5.4) precisa de resolve-conflict antes de accept/reject — nunca
+  // silenciosamente ignorado como "não encontrado" (subset filtra por pending logo abaixo).
+  if (requested.some((d) => d.status === 'conflict')) {
+    throw new ApplyDiffValidationError('diff_conflict', 'Resolva o conflito antes de aceitar/rejeitar este diff.')
+  }
+
   const subset = requested.filter((d) => d.status === 'pending')
 
   if (subset.length === 0) {

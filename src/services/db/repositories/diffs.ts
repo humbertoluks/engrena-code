@@ -15,6 +15,12 @@ export interface DiffConflictCandidate {
   hunks: DiffHunk[]
   additions: number
   deletions: number
+  /**
+   * Worktree do filho onde o arquivo vencedor será lido no momento de `resolve-conflict` — o
+   * cleanup pós-batch (F13 `removeWorktreeIfSafe`) retém worktrees com alterações locais, então
+   * este path continua válido até o usuário resolver o conflito.
+   */
+  worktreePath: string
 }
 
 export interface Diff {
@@ -131,6 +137,24 @@ export function listDiffsByPaths(threadId: string, paths: string[]): Diff[] {
 
 export function setDiffStatus(id: string, status: DiffStatus): Diff | null {
   const result = getDb().prepare('UPDATE diffs SET status = ? WHERE id = ?').run(status, id)
+  if (Number(result.changes) === 0) return null
+  return getDiff(id)
+}
+
+export interface PromoteDiffInput {
+  hunks: DiffHunk[]
+  additions: number
+  deletions: number
+  worktreePath?: string | null
+}
+
+/** Promove um diff `conflict` para `pending` com o conteúdo do candidato vencedor (spec F18 §5.2). */
+export function promoteDiffFromConflict(id: string, input: PromoteDiffInput): Diff | null {
+  const result = getDb()
+    .prepare(
+      `UPDATE diffs SET status = 'pending', hunks_json = ?, additions = ?, deletions = ?, worktree_path = ?, conflict_candidates_json = NULL WHERE id = ?`
+    )
+    .run(JSON.stringify(input.hunks), input.additions, input.deletions, input.worktreePath ?? null, id)
   if (Number(result.changes) === 0) return null
   return getDiff(id)
 }

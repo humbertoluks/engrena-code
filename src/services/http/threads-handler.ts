@@ -18,6 +18,8 @@ import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/a
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
+import { DiffConflictResolutionError, resolveParallelConflict } from '../runner/parallel-merge.js'
+import { resolveThreadCwd } from '../runner/thread-cwd.js'
 import {
   getComposerCatalog,
   isMultimodal,
@@ -63,7 +65,7 @@ function handleAcceptError(res: ServerResponse, err: unknown): void {
     const status =
       err.code === 'thread_not_found' || err.code === 'project_not_found' || err.code === 'diff_not_found'
         ? 404
-        : err.code === 'diff_apply_failed'
+        : err.code === 'diff_apply_failed' || err.code === 'diff_conflict'
           ? 409
           : 400
     sendError(res, status, err.code, err.message)
@@ -350,6 +352,54 @@ async function handleAccept(req: IncomingMessage, res: ServerResponse, threadId:
   }
 }
 
+interface ResolveConflictBody {
+  winningChildThreadId?: string
+}
+
+/** POST /api/threads/:id/diffs/:diffId/resolve-conflict (spec F18 §5.2): escolhe o vencedor do merge paralelo. */
+async function handleResolveConflict(
+  req: IncomingMessage,
+  res: ServerResponse,
+  threadId: string,
+  diffId: string
+): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  const project = getProject(thread.projectId)
+  if (project === null) return sendError(res, 404, 'project_not_found', 'Projeto não encontrado.')
+
+  const data = parseBody<ResolveConflictBody>(await readBody(req))
+  if (data === null || typeof data.winningChildThreadId !== 'string' || data.winningChildThreadId.trim() === '') {
+    return sendError(res, 400, 'validation_error', 'winningChildThreadId é obrigatório.')
+  }
+
+  try {
+    acquireLease(project.id, 'agent', 'resolve-conflict', threadId)
+  } catch (err) {
+    if (err instanceof LeaseBusyError) {
+      sendError(res, 409, 'thread_busy', err.message, threadBusyDetails(err))
+      return
+    }
+    throw err
+  }
+
+  try {
+    const parentCwd = resolveThreadCwd(thread, project)
+    const diff = resolveParallelConflict(threadId, diffId, data.winningChildThreadId, parentCwd)
+    emit(threadId, { type: 'diff.ready', threadId, diffId: diff.id, file: diff.file })
+    sendJson(res, 200, { diff })
+  } catch (err) {
+    if (err instanceof DiffConflictResolutionError) {
+      const status = err.code === 'diff_not_found' ? 404 : err.code === 'diff_not_conflict' ? 409 : 400
+      sendError(res, status, err.code, err.message)
+      return
+    }
+    throw err
+  } finally {
+    releaseLease(project.id)
+  }
+}
+
 /** DELETE /api/threads/:id (spec F13 §5): apaga a thread e limpa a worktree quando seguro. */
 async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const thread = getThread(threadId)
@@ -393,6 +443,7 @@ const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
 const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
+const RESOLVE_CONFLICT_RE = /^\/api\/threads\/([^/]+)\/diffs\/([^/]+)\/resolve-conflict$/
 const COMPOSER_CATALOG_RE = /^\/api\/composer\/catalog$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -409,6 +460,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     PERMISSION_RE.test(url) ||
     ACCEPT_RE.test(url) ||
     ANSWER_RE.test(url) ||
+    RESOLVE_CONFLICT_RE.test(url) ||
     COMPOSER_CATALOG_RE.test(url)
 
   if (!matchesThreadsRoute) return false
@@ -476,6 +528,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const answerMatch = ANSWER_RE.exec(url)
     if (answerMatch && method === 'POST') {
       await handleAnswerQuestion(req, res, answerMatch[1])
+      return true
+    }
+
+    const resolveConflictMatch = RESOLVE_CONFLICT_RE.exec(url)
+    if (resolveConflictMatch && method === 'POST') {
+      await handleResolveConflict(req, res, resolveConflictMatch[1], resolveConflictMatch[2])
       return true
     }
   } catch (err) {

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
@@ -19,6 +19,7 @@ const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../
 const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
 const { createSubagent, createSubagentRun } = await import('../db/repositories/subagents.js')
+const { createDiff, getDiff } = await import('../db/repositories/diffs.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -1044,6 +1045,98 @@ describe('handleThreadsRequest', () => {
       expect((imgResult.body as { error: { code: string } }).error.code).toBe('image_not_supported')
 
       rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
+  describe('resolve-conflict (F18)', () => {
+    it('POST /api/threads/:id/diffs/:diffId/resolve-conflict promotes the winner and materializes it', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+
+      const childA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f18_conflict_child_'))
+      writeFileSync(join(childA, 'shared.ts'), 'versao vencedora\n')
+
+      const diff = createDiff({
+        threadId: thread.id,
+        file: 'shared.ts',
+        additions: 1,
+        deletions: 0,
+        hunks: [],
+        provider: 'claude',
+        status: 'conflict',
+        conflictCandidates: [
+          { childThreadId: 'child-a', subagentName: 'implementer-a', hunks: [], additions: 1, deletions: 0, worktreePath: childA },
+        ],
+      })
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${thread.id}/diffs/${diff.id}/resolve-conflict`,
+        { winningChildThreadId: 'child-a' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+
+      expect(status).toBe(200)
+      expect((body as { diff: { status: string } }).diff.status).toBe('pending')
+      expect(getDiff(diff.id)?.status).toBe('pending')
+      expect(readFileSync(join(dir, 'shared.ts'), 'utf-8')).toBe('versao vencedora\n')
+
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(childA, { recursive: true, force: true })
+    })
+
+    it('rejects a non-conflict diffId with 409 diff_not_conflict', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+      const diff = createDiff({ threadId: thread.id, file: 'a.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude' })
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${thread.id}/diffs/${diff.id}/resolve-conflict`,
+        { winningChildThreadId: 'child-a' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('diff_not_conflict')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('accept on a conflict diff returns 409 diff_conflict instead of silently dropping it', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+      const childA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f18_conflict_accept_'))
+      const diff = createDiff({
+        threadId: thread.id,
+        file: 'shared.ts',
+        additions: 1,
+        deletions: 0,
+        hunks: [],
+        provider: 'claude',
+        status: 'conflict',
+        conflictCandidates: [
+          { childThreadId: 'child-a', subagentName: 'implementer-a', hunks: [], additions: 1, deletions: 0, worktreePath: childA },
+        ],
+      })
+
+      const req = fakeReq('POST', `/api/threads/${thread.id}/accept`, { ids: [diff.id] }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('diff_conflict')
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(childA, { recursive: true, force: true })
     })
   })
 })
