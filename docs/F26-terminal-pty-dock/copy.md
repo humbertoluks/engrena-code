@@ -33,6 +33,7 @@ Exemplos: `terminal.dock.title`, `terminal.pane.exitedTitle`.
 | `terminal.pane.connecting` | Abrindo sessão... | Estado `connecting` |
 | `terminal.pane.errorTitle` | Não foi possível abrir o terminal | Estado `error` |
 | `terminal.pane.errorDetail` | {errorMessage} | Mensagem vinda do erro IPC (`shell_not_found`, `project_not_found`, etc. — texto já traduzido no handler, não é o código) |
+| `terminal.pane.bridgeMissing` | Terminal disponível apenas no app desktop. | `errorMessage` quando `window.electronAPI` não existe (renderer aberto fora do Electron) |
 | `terminal.pane.exitedTitle` | Sessão encerrada | Estado `exited` |
 | `terminal.pane.exitedDetail` | Processo encerrado (código {exitCode}). | |
 | `terminal.pane.reopenCta` | Reabrir | `ButtonSecondary` no estado `exited` |

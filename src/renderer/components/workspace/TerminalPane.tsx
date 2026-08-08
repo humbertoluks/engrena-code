@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { xtermThemeFromCssVars } from '../../theme/xterm-theme'
-import type { TerminalTab } from '../../hooks/useTerminalDock'
+import { terminalBridge, type TerminalTab } from '../../hooks/useTerminalDock'
 import { ButtonSecondary } from '../ButtonSecondary'
 
 const COPY = {
@@ -29,7 +29,8 @@ export function TerminalPane({ tab, onReopen }: Readonly<TerminalPaneProps>): Re
   sessionIdRef.current = tab.sessionId
 
   useEffect(() => {
-    if (tab.status !== 'running' || tab.sessionId === null || containerRef.current === null) return
+    const bridge = terminalBridge()
+    if (tab.status !== 'running' || tab.sessionId === null || containerRef.current === null || bridge === null) return
 
     const term = new Terminal({
       cursorBlink: true,
@@ -63,21 +64,21 @@ export function TerminalPane({ tab, onReopen }: Readonly<TerminalPaneProps>): Re
     termRef.current = term
     fitAddonRef.current = fitAddon
 
-    window.electronAPI.terminal.resize(tab.sessionId, term.cols, term.rows)
+    bridge.resize(tab.sessionId, term.cols, term.rows)
 
     const dataSub = term.onData((data) => {
       const sessionId = sessionIdRef.current
-      if (sessionId) window.electronAPI.terminal.write(sessionId, data)
+      if (sessionId) bridge.write(sessionId, data)
     })
 
-    const unsubscribeData = window.electronAPI.terminal.onData((event) => {
+    const unsubscribeData = bridge.onData((event) => {
       if (event.sessionId === sessionIdRef.current) term.write(event.chunk)
     })
 
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit()
       const sessionId = sessionIdRef.current
-      if (sessionId) window.electronAPI.terminal.resize(sessionId, term.cols, term.rows)
+      if (sessionId) bridge.resize(sessionId, term.cols, term.rows)
     })
     resizeObserver.observe(containerRef.current)
 

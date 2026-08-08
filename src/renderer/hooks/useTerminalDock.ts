@@ -3,6 +3,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 
+const BRIDGE_MISSING = 'Terminal disponível apenas no app desktop.'
+
+/**
+ * Ponte de terminal do preload. `globals.d.ts` tipa `window.electronAPI` como sempre
+ * presente, mas ela só existe sob o Electron real — no renderer aberto direto num
+ * browser (dev/smoke) é `undefined`, e acessá-la sem guarda derrubava o `#principal`
+ * inteiro, não só o dock.
+ */
+export function terminalBridge(): EngrenaTerminalApi | null {
+  return window.electronAPI?.terminal ?? null
+}
+
 export interface TerminalTab {
   /** Identidade estável do lado do cliente — sobrevive à troca de `sessionId` num "reabrir" (F26 spec §5). */
   tabId: string
@@ -52,7 +64,13 @@ export function useTerminalDock(projectId: string | null, threadId: string | nul
 
   const spawnSession = useCallback(
     (pid: string, tid: string | null, tabId: string): void => {
-      window.electronAPI.terminal
+      const bridge = terminalBridge()
+      if (bridge === null) {
+        patchTab(pid, tabId, { status: 'error', errorMessage: BRIDGE_MISSING })
+        return
+      }
+
+      bridge
         .create({ projectId: pid, threadId: tid, cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
         .then((result) => {
           if ('error' in result) {
@@ -94,7 +112,7 @@ export function useTerminalDock(projectId: string | null, threadId: string | nul
       if (!projectId) return
       const pid = projectId
       const tab = (tabsByProject[pid] ?? []).find((t) => t.tabId === tabId)
-      if (tab?.sessionId) void window.electronAPI.terminal.kill(tab.sessionId)
+      if (tab?.sessionId) void terminalBridge()?.kill(tab.sessionId)
 
       setTabsByProject((prev) => ({ ...prev, [pid]: (prev[pid] ?? []).filter((t) => t.tabId !== tabId) }))
       setActiveTabByProject((prev) => {
@@ -143,7 +161,10 @@ export function useTerminalDock(projectId: string | null, threadId: string | nul
   // Evento exit (F26 spec §5) atualiza o status da aba dona da sessão — em qualquer projeto,
   // já que só o `sessionId` do evento identifica a sessão (o main não sabe de "projeto ativo").
   useEffect(() => {
-    const unsubscribe = window.electronAPI.terminal.onExit((event) => {
+    const bridge = terminalBridge()
+    if (bridge === null) return
+
+    const unsubscribe = bridge.onExit((event) => {
       setTabsByProject((prev) => {
         let changed = false
         const next: Record<string, TerminalTab[]> = { ...prev }
