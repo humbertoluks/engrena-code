@@ -1367,10 +1367,10 @@ graph TD
 - [x] Threads antigas com key removida ficam somente leitura
 
 ### F24. Multi-VCS (GitLab/Bitbucket/Azure)
-- [ ] Conectar GitLab/Bitbucket/Azure via OAuth PKCE salva o token só no vault
-- [ ] Com VCS conectado, `GitActions` abre Merge Request/Pull Request contra a API correta do provider
-- [ ] OAuth cancelado/falho não deixa token parcial salvo
-- [ ] Token expirado faz push/PR falhar com mensagem apontando para reconectar em Configuração
+- [x] Conectar GitLab/Bitbucket/Azure via OAuth PKCE salva o token só no vault
+- [x] Com VCS conectado, `GitActions` abre Merge Request/Pull Request contra a API correta do provider
+- [x] OAuth cancelado/falho não deixa token parcial salvo
+- [x] Token expirado faz push/PR falhar com mensagem apontando para reconectar em Configuração
 
 ### F25. Limites de Consumo (UsageLimits)
 - [x] Limite configurado em USD (projeto ou global) mostra barra de progresso do gasto do período em `#consumo`
@@ -1417,7 +1417,7 @@ graph TD
 - [x] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy
 - [x] Pipeline (F22) delega para subagents de F07/F15, usa paralelismo de F18, contexto de CodeGraph (F19) e memória (F20), e checkpoints via AskUserQuestion (F21)
 - [x] GLM/Grok (F23) aparecem como `ThreadProvider` disponível no Workspace (F03) quando a key de F02/F10 é válida
-- [ ] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
+- [x] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
 - [x] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [ ] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
