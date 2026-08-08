@@ -1330,10 +1330,10 @@ graph TD
 - [x] Seeds não vinculam projetos automaticamente
 
 ### F18. Subagents em Paralelo (Write-Parallel)
-- [ ] Chamada paralela de `call_subagent` roda até 4 filhos simultâneos, cada um em worktree isolado
-- [ ] Filhos que tocam arquivos diferentes mergeiam automaticamente numa única revisão de diff
-- [ ] Conflito no mesmo arquivo marca o diff como `conflict`; accept/reject bloqueado até resolução manual
-- [ ] Falha/timeout de um filho não aborta os demais; relatório final lista status por filho
+- [x] Chamada paralela de `call_subagent` roda até 4 filhos simultâneos, cada um em worktree isolado
+- [x] Filhos que tocam arquivos diferentes mergeiam automaticamente numa única revisão de diff
+- [x] Conflito no mesmo arquivo marca o diff como `conflict`; accept/reject bloqueado até resolução manual
+- [x] Falha/timeout de um filho não aborta os demais; relatório final lista status por filho
 
 ### F19. CodeGraph e Navegação Estrutural
 - [x] Com projeto TypeScript/JavaScript indexado, `repo_graph_find_definition` devolve a definição real de um símbolo existente
