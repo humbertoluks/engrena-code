@@ -124,6 +124,7 @@ export function PrincipalScreen(): ReactElement {
                 diffs={ws.diffs}
                 onAccept={(ids) => ws.acceptDiffs({ action: 'accept', ids })}
                 onReject={(ids) => ws.acceptDiffs({ action: 'reject', ids })}
+                onResolveConflict={ws.resolveDiffConflict}
                 onOpenPr={ws.openPr}
                 canOpenPr={ws.selectedThread?.state === 'committed'}
               />

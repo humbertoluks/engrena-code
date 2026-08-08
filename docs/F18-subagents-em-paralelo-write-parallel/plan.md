@@ -4,7 +4,7 @@
 - Herdar stack/tooling de `docs/_shared/codebase-patterns.md` e specs F13/F15 (Electron/TS ESM, SQLite, Vitest, MCP `engrenacode`, `delegate.ts`, `worktree.ts`)
 - Nenhuma dependência npm nova
 - Sem variáveis de ambiente novas
-- `ui.md`/`copy.md` de F18 ainda não existem — fase visual do DiffViewer/card/kind no formulário fica bloqueada até o processo de design
+- `ui.md`/`copy.md` de F18 presentes (`docs/F18-subagents-em-paralelo-write-parallel/{ui,copy}.md`, 2026-08-08) — fase visual do DiffViewer/card/kind desbloqueada para implementação
 
 ### Fase 1: Schema e contratos de dados
 
@@ -38,4 +38,4 @@
 
 ### Fase 5: Validação e fechamento
 
-**12. Validação e fechamento** - Executar a estratégia de testes da spec (unitário + integração + smoke). Confirmar os 4 ACs de F18 e o critério cross-feature de paralelismo com gate/idle/usage/worktree. Registrar que light/dark e copy finais ficam bloqueados até `ui.md`/`copy.md` de F18. Gate: suite e build verdes.
+**12. Validação e fechamento** - Executar a estratégia de testes da spec (unitário + integração + smoke). Confirmar os 4 ACs de F18 e o critério cross-feature de paralelismo com gate/idle/usage/worktree. Fase visual: aplicar `ui.md`/`copy.md` (campo Tipo, agregado no card, seção Conflitos + Usar este). Gate: suite e build verdes + aceite visual do ui.md.

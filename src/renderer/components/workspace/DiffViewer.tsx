@@ -24,6 +24,11 @@ const COPY = {
   openPr: 'Abrir PR',
   openPrLoading: 'Abrindo PR…',
   errorApply: 'Não foi possível aplicar as mudanças. O diff segue pendente.',
+  conflictsTitle: 'Conflitos',
+  conflictsHint: 'Accept/Reject bloqueados até escolher o vencedor.',
+  useThis: 'Usar este',
+  useThisLoading: 'Aplicando…',
+  errorResolve: 'Não foi possível resolver o conflito. Tente novamente.',
 } as const
 
 const STATUS_LABEL: Record<DiffStatus, string> = {
@@ -44,19 +49,30 @@ export interface DiffViewerProps {
   diffs: Diff[]
   onAccept: (ids?: string[]) => Promise<{ ok: boolean; error?: string }>
   onReject: (ids?: string[]) => Promise<{ ok: boolean; error?: string }>
+  onResolveConflict: (diffId: string, winningChildThreadId: string) => Promise<{ ok: boolean; error?: string }>
   onOpenPr: () => Promise<{ ok: boolean; url?: string; error?: string }>
   canOpenPr: boolean
 }
 
-export function DiffViewer({ diffs, onAccept, onReject, onOpenPr, canOpenPr }: Readonly<DiffViewerProps>): ReactElement {
+export function DiffViewer({
+  diffs,
+  onAccept,
+  onReject,
+  onResolveConflict,
+  onOpenPr,
+  canOpenPr,
+}: Readonly<DiffViewerProps>): ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState<'accept' | 'reject' | null>(null)
   const [prBusy, setPrBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [prResult, setPrResult] = useState<string | null>(null)
+  const [resolvingId, setResolvingId] = useState<string | null>(null)
 
   const pending = useMemo(() => diffs.filter((d) => d.status === 'pending'), [diffs])
+  const conflicts = useMemo(() => diffs.filter((d) => d.status === 'conflict'), [diffs])
+  const rest = useMemo(() => diffs.filter((d) => d.status !== 'conflict'), [diffs])
   const selectedIds = useMemo(() => Array.from(selected).filter((id) => pending.some((d) => d.id === id)), [selected, pending])
 
   if (diffs.length === 0) {
@@ -94,6 +110,14 @@ export function DiffViewer({ diffs, onAccept, onReject, onOpenPr, canOpenPr }: R
     setBulkBusy(null)
   }
 
+  async function handleResolveConflict(diffId: string, winningChildThreadId: string): Promise<void> {
+    setResolvingId(diffId)
+    setError(null)
+    const result = await onResolveConflict(diffId, winningChildThreadId)
+    if (!result.ok) setError(result.error ?? COPY.errorResolve)
+    setResolvingId(null)
+  }
+
   async function handleOpenPr(): Promise<void> {
     setPrBusy(true)
     setError(null)
@@ -127,8 +151,51 @@ export function DiffViewer({ diffs, onAccept, onReject, onOpenPr, canOpenPr }: R
         </div>
       ) : null}
 
+      {conflicts.length > 0 ? (
+        <div
+          role="region"
+          aria-label={COPY.conflictsTitle}
+          className="rounded-sm border border-amber/40 bg-amber/[0.12] p-sm"
+        >
+          <h3 className="mb-xs text-[13px] font-semibold text-amber">{COPY.conflictsTitle}</h3>
+          <div className="flex flex-col gap-sm">
+            {conflicts.map((diff) => (
+              <div key={diff.id}>
+                <p className="mb-[6px] truncate font-mono text-[12px] text-fg">{diff.file}</p>
+                <p className="mb-xs text-[11.5px] text-muted">{COPY.conflictsHint}</p>
+                <div className="flex flex-col gap-xs">
+                  {(diff.conflictCandidates ?? []).map((candidate) => (
+                    <div
+                      key={candidate.childThreadId}
+                      className="flex items-center justify-between gap-sm rounded-sm border border-border bg-surface p-sm text-[12px]"
+                    >
+                      <div className="truncate">
+                        <div className="truncate font-mono font-semibold text-fg">{candidate.subagentName}</div>
+                        <div className="text-[11px] text-muted">
+                          <span className="text-green">+{candidate.additions}</span>{' '}
+                          <span className="text-red">-{candidate.deletions}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={resolvingId === diff.id}
+                        onClick={() => void handleResolveConflict(diff.id, candidate.childThreadId)}
+                        aria-label={`${COPY.useThis}: ${candidate.subagentName}`}
+                        className="shrink-0 rounded-sm border border-border px-sm py-[2px] text-[11px] font-semibold hover:bg-surface-2 disabled:opacity-50"
+                      >
+                        {resolvingId === diff.id ? COPY.useThisLoading : COPY.useThis}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-xs">
-        {diffs.map((diff) => (
+        {rest.map((diff) => (
           <div
             key={diff.id}
             className={`rounded-lg border border-border bg-surface-2 p-sm ${diff.status === 'rejected' ? 'opacity-60' : ''}`}

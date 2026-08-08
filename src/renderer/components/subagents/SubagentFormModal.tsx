@@ -3,7 +3,7 @@ import type { FormEvent, ReactElement, ReactNode } from 'react'
 import { ButtonPrimary } from '../ButtonPrimary'
 import { ButtonSecondary } from '../ButtonSecondary'
 import { InlineFeedback } from '../InlineFeedback'
-import type { Subagent, SubagentInput, SubagentProvider } from '../../services/subagents-service.js'
+import type { Subagent, SubagentInput, SubagentKind, SubagentProvider } from '../../services/subagents-service.js'
 import {
   READONLY_TOOLS,
   buildSubagentPayload,
@@ -20,6 +20,11 @@ const PROVIDERS: { value: SubagentProvider; labelId: SubagentsCopyId }[] = [
   { value: 'claude', labelId: 'subagentsForm.provider.claude' },
   { value: 'codex', labelId: 'subagentsForm.provider.codex' },
   { value: 'kimi', labelId: 'subagentsForm.provider.kimi' },
+]
+
+const KINDS: { value: SubagentKind; labelId: SubagentsCopyId }[] = [
+  { value: 'dev', labelId: 'subagentsForm.option.kind.dev' },
+  { value: 'pipeline', labelId: 'subagentsForm.option.kind.pipeline' },
 ]
 
 const REASONING_LEVELS: { value: string; labelId: SubagentsCopyId }[] = [
@@ -43,6 +48,7 @@ function valuesFromSubagent(s: Subagent | undefined): SubagentFormValues {
     toolsAllowlist: s.tools ?? [],
     prompt: s.prompt,
     idleTimeoutMinutes: s.idleTimeoutMinutes != null ? String(s.idleTimeoutMinutes) : '',
+    kind: s.kind,
     enabled: s.enabled,
   }
 }
@@ -253,6 +259,21 @@ export function SubagentFormModal({
               onChange={(e) => setValues((v) => ({ ...v, category: e.target.value }))}
               placeholder={t('subagentsForm.placeholder.category')}
             />
+          </Field>
+
+          <Field label={t('subagentsForm.label.kind')} hint={t('subagentsForm.hint.kind')} htmlFor="subagent-kind">
+            <select
+              id="subagent-kind"
+              className={INPUT_CLASS}
+              value={values.kind}
+              onChange={(e) => setValues((v) => ({ ...v, kind: e.target.value as SubagentKind }))}
+            >
+              {KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {t(k.labelId)}
+                </option>
+              ))}
+            </select>
           </Field>
 
           <Field

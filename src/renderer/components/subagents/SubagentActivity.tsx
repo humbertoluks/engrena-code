@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { SubagentRun } from '../../services/subagents-service'
 import { t } from './copy.js'
-import { formatRunDuration, isActiveRunStatus } from './subagentRun.format.js'
+import { formatRunDuration, isActiveRunStatus, resolveLatestParallelBatch } from './subagentRun.format.js'
 
 export interface SubagentActivityProps {
   runs: SubagentRun[]
@@ -48,6 +48,14 @@ function RunRow({ run, now, onOpen }: Readonly<RunRowProps>): ReactElement {
           <span className="h-[6px] w-[6px] shrink-0 animate-pulse rounded-full bg-accent" aria-hidden="true" />
         ) : null}
         <span className="truncate text-fg">{run.subagentName}</span>
+        {run.parallelBatchId !== null ? (
+          <span
+            className="shrink-0 rounded-sm border border-border bg-surface-2 px-[6px] text-[10px] uppercase text-muted"
+            title={t('subagentsRun.isolation.worktree.title')}
+          >
+            {t('subagentsRun.isolation.worktree')}
+          </span>
+        ) : null}
         <span className="shrink-0 font-mono text-muted">{run.model ?? run.provider}</span>
       </span>
       <span className="flex shrink-0 items-center gap-xs font-mono text-muted">
@@ -61,6 +69,7 @@ function RunRow({ run, now, onOpen }: Readonly<RunRowProps>): ReactElement {
 export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityProps>): ReactElement {
   const active = runs.filter((r) => isActiveRunStatus(r.status))
   const done = runs.filter((r) => !isActiveRunStatus(r.status))
+  const latestBatch = resolveLatestParallelBatch(runs)
 
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -77,6 +86,17 @@ export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityP
         ) : null}
         {t('subagentsRun.activity.title')}
       </div>
+
+      {latestBatch !== null ? (
+        <p role="status" className="mb-sm rounded-sm border border-border bg-surface px-sm py-xs text-[11.5px] text-muted">
+          {t('wp.activity.aggregate', {
+            done: latestBatch.done,
+            total: latestBatch.total,
+            running: latestBatch.running,
+            failed: latestBatch.failed,
+          })}
+        </p>
+      ) : null}
 
       {runs.length === 0 ? (
         <p className="text-[12px] text-muted">{t('subagentsRun.activity.empty.none')}</p>

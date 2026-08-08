@@ -22,7 +22,7 @@
 - Estratégias de merge configuráveis (preferir filho X)
 - Comparação lado a lado dos diffs dos filhos antes do merge
 
-**UI/copy:** `docs/F18-subagents-em-paralelo-write-parallel/ui.md` e `copy.md` **não existem** — processo de design separado. Spec define só contrato de dados/estado. Baseline de ids de run: `docs/F07-subagents/copy.md` (`subagentsRun.*`) e superfícies F15.
+**UI/copy:** [`ui.md`](./ui.md) · [`copy.md`](./copy.md) (2026-08-08, `/screen-ui-spec`). Spec cobre contrato de dados/estado; anatomia/copy de batch, conflitos e `kind` citam esses docs. Baseline de ids de run: `docs/F07-subagents/copy.md` (`subagentsRun.*`) e superfícies F15.
 
 **Excluído:** merge-tree / merge de hunks; profundidade > 1; Completo v2.0; mudança do path serial F15 (cwd compartilhado permanece).
 

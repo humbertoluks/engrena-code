@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F18 Write-Parallel — SubagentActivity batch + Diff conflitos</title>
+<style>
+  :root {
+    --bg:#f7f7f8; --surface:#ffffff; --surface-2:#f1f1f3; --border:#e2e2e6;
+    --fg:#1a1a1d; --muted:#6b6b73; --accent:#ff6b00; --amber:#b07d1f; --green:#2e9e43; --red:#cf3b3b;
+    --sm:8px; --md:16px; --lg:24px; --radius-sm:5px; --radius-md:8px; --radius-lg:12px;
+    font-family:"DM Sans","Segoe UI",system-ui,sans-serif;
+  }
+  .dark {
+    --bg:#0a0a0b; --surface:#121214; --surface-2:#17171a; --border:#232327;
+    --fg:#ededee; --muted:#a1a1aa; --amber:#d2a23a; --green:#3fb950; --red:#e05555;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg); }
+  .layout { display:grid; grid-template-columns: 300px 1fr; gap:16px; max-width:1100px; margin:0 auto; padding:32px 24px; }
+  h1 { grid-column:1/-1; margin:0; font-size:18px; }
+  .note { grid-column:1/-1; margin:0 0 8px; font-size:12.5px; color:var(--muted); }
+  .card {
+    border:1px solid var(--border); border-radius:var(--radius-lg);
+    background: color-mix(in srgb, var(--fg) 5%, var(--surface-2));
+    overflow:hidden;
+  }
+  .summary {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 8px; font-size:11px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--muted);
+  }
+  .summary .live { display:flex; align-items:center; gap:6px; color:var(--fg); }
+  .dot { width:5px; height:5px; border-radius:999px; background:var(--accent); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .agg {
+    margin:0 8px 8px; padding:6px 8px; border-radius:var(--radius-sm);
+    border:1px solid var(--border); background:var(--surface);
+    font-size:11.5px; color:var(--muted);
+  }
+  .agg strong { color:var(--fg); font-family:ui-monospace,monospace; font-weight:600; }
+  .sec { margin:0; padding:2px 8px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .row {
+    display:flex; flex-direction:column; gap:2px; width:100%; text-align:left;
+    padding:4px 8px; border:0; background:transparent; color:var(--fg); cursor:default;
+    border-radius:8px;
+  }
+  .row:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+  .top { display:flex; align-items:center; gap:6px; font-size:12px; }
+  .name { font-family:ui-monospace,monospace; font-weight:600; }
+  .badge {
+    border:1px solid var(--border); background:var(--surface-2);
+    border-radius:5px; padding:1px 6px; font-size:10px; font-weight:600;
+    letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
+  }
+  .meta { font-size:11px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; }
+  .amber { color:var(--amber); font-weight:600; }
+  .green { color:var(--green); font-weight:600; }
+  .red { color:var(--red); font-weight:600; }
+  .panel {
+    border:1px solid var(--border); border-radius:var(--radius-md);
+    background:var(--surface); padding:16px; display:flex; flex-direction:column; gap:12px;
+  }
+  .panel h2 { margin:0; font-size:14px; }
+  .conflict {
+    border:1px solid color-mix(in srgb, var(--amber) 40%, var(--border));
+    background: color-mix(in srgb, var(--amber) 12%, transparent);
+    border-radius:var(--radius-sm); padding:12px;
+  }
+  .conflict h3 { margin:0 0 6px; font-size:13px; color:var(--amber); }
+  .path { font-family:ui-monospace,monospace; font-size:12px; margin:0 0 10px; }
+  .cands { display:flex; flex-direction:column; gap:8px; }
+  .cand {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    border:1px solid var(--border); background:var(--surface); border-radius:var(--radius-sm);
+    padding:8px 10px; font-size:12px;
+  }
+  .btn {
+    border:1px solid var(--border); background:var(--surface-2); color:var(--fg);
+    border-radius:var(--radius-sm); padding:4px 10px; font-size:12px; font-weight:600;
+  }
+  .btn.primary { background:var(--accent); border-color:transparent; color:#fff; }
+  .pending { border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; font-size:12px; }
+  .status { color:var(--amber); font-size:11px; font-weight:600; }
+  .form-card {
+    grid-column:1/-1; border:1px solid var(--border); border-radius:var(--radius-md);
+    background:var(--surface); padding:16px; max-width:420px;
+  }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  select {
+    width:100%; height:34px; border:1px solid var(--border); border-radius:var(--radius-sm);
+    background:var(--surface-2); color:var(--fg); padding:0 8px; margin-bottom:6px;
+  }
+  .hint { margin:0; font-size:11.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <h1>F18 — Write-Parallel (Central)</h1>
+  <p class="note">Fixture de anatomia Engrena: batch paralelo no card Subagents + seção Conflitos no DiffViewer + campo Tipo no form. Isolation badges <code>live-write</code>/<code>shared-read</code> e workflow stages da fonte ficam fora do Central Engrena (ver ui.md).</p>
+
+  <aside class="card" aria-label="Subagents">
+    <div class="summary">
+      <span class="live"><span class="dot"></span> Subagents</span>
+      <span>▾</span>
+    </div>
+    <p class="agg" role="status">Paralelo · <strong>2/4</strong> concluídos · 1 rodando · 1 erro</p>
+    <p class="sec">Ativos</p>
+    <button type="button" class="row">
+      <div class="top">
+        <span class="name">front-react</span>
+        <span class="badge">worktree</span>
+        <span class="dot"></span>
+      </div>
+      <div class="meta"><span>Editando src/App.tsx</span><span class="mono">01:24</span></div>
+    </button>
+    <p class="sec">Concluídos · 3</p>
+    <button type="button" class="row">
+      <div class="top">
+        <span class="name">api-node</span>
+        <span class="badge">worktree</span>
+        <span class="green">concluído</span>
+      </div>
+      <div class="meta"><span>claude · Sonnet</span><span>00:58</span></div>
+    </button>
+    <button type="button" class="row">
+      <div class="top">
+        <span class="name">docs-writer</span>
+        <span class="badge">worktree</span>
+        <span class="green">concluído</span>
+      </div>
+      <div class="meta"><span>sem mudanças</span></div>
+    </button>
+    <button type="button" class="row">
+      <div class="top">
+        <span class="name">test-runner</span>
+        <span class="badge">worktree</span>
+        <span class="red">erro</span>
+      </div>
+      <div class="meta"><span>timeout</span></div>
+    </button>
+  </aside>
+
+  <section class="panel" aria-label="Diff">
+    <h2>Mudanças</h2>
+    <div class="conflict" role="region" aria-label="Conflitos">
+      <h3>Conflitos</h3>
+      <p class="path">src/shared/types.ts</p>
+      <p class="hint" style="margin-bottom:10px">Accept/Reject bloqueados até escolher o vencedor. Candidatos = filhos que tocaram o mesmo path.</p>
+      <div class="cands">
+        <div class="cand">
+          <div>
+            <div class="name">front-react</div>
+            <div class="meta">+18 / −4 · worktree filho</div>
+          </div>
+          <button type="button" class="btn primary">Usar este</button>
+        </div>
+        <div class="cand">
+          <div>
+            <div class="name">api-node</div>
+            <div class="meta">+7 / −2 · worktree filho</div>
+          </div>
+          <button type="button" class="btn">Usar este</button>
+        </div>
+      </div>
+    </div>
+    <div class="pending">
+      <div class="top" style="justify-content:space-between">
+        <span class="path" style="margin:0">src/renderer/App.tsx</span>
+        <span class="status">pendente</span>
+      </div>
+      <div class="meta" style="margin-top:6px">Path exclusivo do filho front-react — accept/reject normais</div>
+    </div>
+  </section>
+
+  <section class="form-card" aria-label="Tipo no formulário">
+    <label for="kind">Tipo</label>
+    <select id="kind">
+      <option value="dev" selected>Dev</option>
+      <option value="pipeline">Pipeline</option>
+    </select>
+    <p class="hint">Editável. Pipeline é usado pelos fluxos internos; Dev entra no catálogo dos projetos.</p>
+  </section>
+</div>
+</body>
+</html>

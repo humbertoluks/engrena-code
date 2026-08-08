@@ -1,4 +1,4 @@
-import type { SubagentInput, SubagentProvider } from '../../services/subagents-service'
+import type { SubagentInput, SubagentKind, SubagentProvider } from '../../services/subagents-service'
 
 export const SUBAGENT_PROMPT_MAX_BYTES = 1_048_576
 
@@ -37,6 +37,7 @@ export interface SubagentFormValues {
   toolsAllowlist: string[]
   prompt: string
   idleTimeoutMinutes: string
+  kind: SubagentKind
   enabled: boolean
 }
 
@@ -52,6 +53,7 @@ export function emptyFormValues(): SubagentFormValues {
     toolsAllowlist: [],
     prompt: '',
     idleTimeoutMinutes: '',
+    kind: 'dev',
     enabled: true,
   }
 }
@@ -83,6 +85,7 @@ export function buildSubagentPayload(values: SubagentFormValues): SubagentInput 
     tools: toolsValueFromMode(values.toolsMode, values.toolsAllowlist),
     category: values.category.trim() === '' ? null : values.category.trim(),
     idleTimeoutMinutes: values.idleTimeoutMinutes.trim() === '' ? null : Number(values.idleTimeoutMinutes),
+    kind: values.kind,
     enabled: values.enabled,
   }
 }

@@ -33,6 +33,18 @@ describe('subagentForm.logic', () => {
     })
   })
 
+  it('kind defaults to dev and round-trips through the payload (F18)', () => {
+    expect(emptyFormValues().kind).toBe('dev')
+    const payload = buildSubagentPayload({
+      ...emptyFormValues(),
+      name: 'a',
+      description: 'd',
+      prompt: 'p',
+      kind: 'pipeline',
+    })
+    expect(payload.kind).toBe('pipeline')
+  })
+
   it('inherit hides model/reasoning fields', () => {
     expect(hidesModelFields('inherit')).toBe(true)
     expect(hidesModelFields('claude')).toBe(false)
