@@ -142,6 +142,55 @@ function withPeriod(params: URLSearchParams, period: Period): void {
   if (range.to) params.set('to', range.to)
 }
 
+// ── Limites de consumo (F25) ────────────────────────────────────────────────
+
+export type UsageLimitScope = 'global' | 'project'
+export type UsageLimitMode = 'warn' | 'block'
+export type UsageLimitLevel = 'none' | 'ok' | 'warn80' | 'at100'
+export type UsageLimitItemLevel = 'ok' | 'warn80' | 'at100'
+
+export interface UsageLimitDto {
+  id: string
+  scope: UsageLimitScope
+  projectId: string | null
+  limitUsd: number
+  mode: UsageLimitMode
+  updatedAt: number
+}
+
+export interface UsageLimitsListResponse {
+  limits: UsageLimitDto[]
+}
+
+export interface UpsertUsageLimitInput {
+  scope: UsageLimitScope
+  projectId?: string | null
+  limitUsd: number | null
+  mode?: UsageLimitMode
+}
+
+export interface UsageLimitMutationResponse {
+  limit: UsageLimitDto | null
+}
+
+export interface UsageLimitStatusItem {
+  scope: UsageLimitScope
+  projectId: string | null
+  mode: UsageLimitMode
+  limitUsd: number
+  spentUsd: number
+  pct: number
+  level: UsageLimitItemLevel
+}
+
+export interface UsageLimitStatusResponse {
+  period: { fromMs: number; toMs: number }
+  level: UsageLimitLevel
+  blocked: boolean
+  failOpen: boolean
+  items: UsageLimitStatusItem[]
+}
+
 export const THREAD_EVENTS_PAGE_SIZE = 100
 
 export const consumoService = {
@@ -178,4 +227,16 @@ export const consumoService = {
 
   updatePricing: (id: string, input: UpdatePricingInput): Promise<PricingMutationResponse | ApiError> =>
     apiRequest('PUT', `/api/pricing/${encodeURIComponent(id)}`, input),
+
+  listUsageLimits: (): Promise<UsageLimitsListResponse | ApiError> => apiRequest('GET', '/api/usage-limits'),
+
+  upsertUsageLimit: (input: UpsertUsageLimitInput): Promise<UsageLimitMutationResponse | ApiError> =>
+    apiRequest('PUT', '/api/usage-limits', input),
+
+  getUsageLimitsStatus: (projectId?: string): Promise<UsageLimitStatusResponse | ApiError> => {
+    const params = new URLSearchParams()
+    if (projectId) params.set('projectId', projectId)
+    const qs = params.toString()
+    return apiRequest('GET', `/api/usage-limits/status${qs ? `?${qs}` : ''}`)
+  },
 }

@@ -143,6 +143,7 @@ export function PrincipalScreen(): ReactElement {
               sendError={ws.sendError}
               configStatus={ws.configStatus}
               vcsStatus={ws.vcsStatus}
+              usageLimitStatus={ws.usageLimitStatus}
               onSend={() => void ws.send()}
               onCancel={() => void ws.cancel()}
               onGitInit={() => (ws.selectedProjectId ? ws.gitInitProject(ws.selectedProjectId) : Promise.resolve())}

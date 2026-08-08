@@ -16,6 +16,7 @@ import {
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
+import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
 
@@ -93,6 +94,7 @@ export function usePrincipalWorkspace() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [vcsStatus, setVcsStatus] = useState<VcsStatus | null>(null)
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
+  const [usageLimitStatus, setUsageLimitStatus] = useState<UsageLimitStatusResponse | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
@@ -238,6 +240,16 @@ export function usePrincipalWorkspace() {
     }
   }, [])
 
+  const loadUsageLimitStatus = useCallback(async (projectId: string) => {
+    try {
+      const res = await consumoService.getUsageLimitsStatus(projectId)
+      if (!mountedRef.current) return
+      if (!('error' in res)) setUsageLimitStatus(res)
+    } catch {
+      // banner de limite é best-effort no composer (spec F25 §3.2 fail-open)
+    }
+  }, [])
+
   const loadHistory = useCallback(async (threadId: string) => {
     setHistoryLoading(true)
     setHistoryError(null)
@@ -301,11 +313,13 @@ export function usePrincipalWorkspace() {
     if (selectedProjectId) {
       void loadVcsStatus(selectedProjectId)
       void loadMemoryStatus(selectedProjectId)
+      void loadUsageLimitStatus(selectedProjectId)
     } else {
       setVcsStatus(null)
       setMemoryStatus(null)
+      setUsageLimitStatus(null)
     }
-  }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus])
+  }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus, loadUsageLimitStatus])
 
   // Rehidrata model/reasoning atuais da thread selecionada nos controles do composer (spec F16 plan §10).
   useEffect(() => {
@@ -369,6 +383,8 @@ export function usePrincipalWorkspace() {
         void loadHistory(event.threadId)
         void loadDiffs(event.threadId)
         void processQueueIfIdle()
+        // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
+        if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
       }
       return
     }
@@ -661,6 +677,7 @@ export function usePrincipalWorkspace() {
     vcsStatus,
     memoryStatus,
     refreshMemoryStatus,
+    usageLimitStatus,
     messages,
     toolCalls,
     subagentRuns,

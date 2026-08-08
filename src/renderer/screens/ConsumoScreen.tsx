@@ -12,8 +12,23 @@ import {
   type SummaryResponse,
   type ThreadUsageRow,
   type UsageEventRow,
+  type UsageLimitDto,
+  type UsageLimitMode,
+  type UsageLimitScope,
+  type UsageLimitStatusResponse,
 } from '../services/consumo-service'
-import { formatCompact, formatCostText, formatPercent, formatTimestamp, shareLabel } from './consumoScreen.logic'
+import { projectsService, type Project } from '../services/projects-service'
+import {
+  formatCompact,
+  formatCostText,
+  formatLimitProgress,
+  formatPercent,
+  formatTimestamp,
+  parseUsdLimitInput,
+  shareLabel,
+  usageLimitBarTone,
+} from './consumoScreen.logic'
+import { SegmentedControl } from '../components/SegmentedControl'
 
 // ── Copy literal (docs/F11-consumo/copy.md `consumo.*`) — não redescrever aqui, só citar ids ──
 const COPY = {
@@ -98,6 +113,27 @@ const COPY = {
     generic: 'Não foi possível carregar os dados.',
     pricingRequiredIO: 'Preencha os preços de entrada e saída.',
     pricingNonNegative: 'Os preços devem ser números maiores ou iguais a zero.',
+  },
+  // ── docs/F25-limites-de-consumo/copy.md `limits.dest.*` — banner*/blockedTurn/hint são
+  // provisórios (spec §3.3) até o copy.md fechar essas strings.
+  limits: {
+    title: 'Limites de consumo',
+    hint: 'Limite em USD no período mensal (reset dia 1, fuso do SO). Vazio = sem limite. Baseado nos mesmos usage_events de Consumo.',
+    labelScope: 'Escopo',
+    scopeGlobal: 'Global',
+    scopeProject: 'Este projeto',
+    projectPlaceholder: 'Selecione um projeto',
+    labelUsd: 'Limite (USD)',
+    modeWarn: 'Avisar',
+    modeBlock: 'Bloquear',
+    modeLabel: 'Quando atingir o limite',
+    progressLabel: 'Gasto do período',
+    linkAdjust: 'Ajustar limite',
+    banner80: 'Você atingiu 80% do limite de consumo deste período.',
+    banner100: 'Você atingiu o limite de consumo deste período.',
+    save: 'Salvar limite',
+    saving: 'Salvando…',
+    empty: 'Sem limite configurado neste escopo.',
   },
 } as const
 
@@ -574,6 +610,215 @@ function PricingSection({ pricing, unpricedModels, loading, error, onRetry, onSa
   )
 }
 
+// ── Limites de consumo (F25) ────────────────────────────────────────────────
+
+interface LimitsFormState {
+  scope: UsageLimitScope
+  projectId: string | null
+  limitInput: string
+  mode: UsageLimitMode
+}
+
+const MODE_OPTIONS = [
+  { value: 'warn', label: COPY.limits.modeWarn },
+  { value: 'block', label: COPY.limits.modeBlock },
+]
+
+function LimitsCard(): ReactElement {
+  const [projects, setProjects] = useState<Project[] | null>(null)
+  const [limits, setLimits] = useState<UsageLimitDto[] | null>(null)
+  const [status, setStatus] = useState<UsageLimitStatusResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [form, setForm] = useState<LimitsFormState>({ scope: 'global', projectId: null, limitInput: '', mode: 'warn' })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    const [projectsRes, limitsRes] = await Promise.all([projectsService.list(), consumoService.listUsageLimits()])
+    if (projectsRes.error || isApiError(limitsRes)) {
+      setLoadError(true)
+      setLoading(false)
+      return
+    }
+    setProjects(projectsRes.projects)
+    setLimits(limitsRes.limits)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  // Repopula USD/modo do escopo selecionado e reavalia o status/barra desse mesmo escopo.
+  useEffect(() => {
+    if (limits === null) return
+    if (form.scope === 'project' && !form.projectId) {
+      setForm((prev) => ({ ...prev, limitInput: '', mode: 'warn' }))
+      setStatus(null)
+      return
+    }
+    const existing =
+      form.scope === 'global'
+        ? (limits.find((l) => l.scope === 'global') ?? null)
+        : (limits.find((l) => l.scope === 'project' && l.projectId === form.projectId) ?? null)
+    setForm((prev) => ({ ...prev, limitInput: existing ? String(existing.limitUsd) : '', mode: existing?.mode ?? 'warn' }))
+    void consumoService.getUsageLimitsStatus(form.scope === 'project' ? (form.projectId ?? undefined) : undefined).then((res) => {
+      if (!isApiError(res)) setStatus(res)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limits, form.scope, form.projectId])
+
+  const submit = useCallback(async () => {
+    const parsed = parseUsdLimitInput(form.limitInput)
+    if (!parsed.ok) {
+      setSaveError(parsed.error ?? COPY.error.generic)
+      return
+    }
+    if (form.scope === 'project' && !form.projectId) {
+      setSaveError('Selecione um projeto.')
+      return
+    }
+
+    setSaving(true)
+    setSaveError(null)
+    const res = await consumoService.upsertUsageLimit({
+      scope: form.scope,
+      projectId: form.scope === 'project' ? form.projectId : null,
+      limitUsd: parsed.value,
+      mode: parsed.value !== null ? form.mode : undefined,
+    })
+    setSaving(false)
+    if (isApiError(res)) {
+      setSaveError(res.error.message)
+      return
+    }
+    await load()
+  }, [form, load])
+
+  const currentItem = status?.items.find(
+    (item) => item.scope === form.scope && (form.scope === 'global' || item.projectId === form.projectId)
+  )
+  const bannerLevel = currentItem && (currentItem.level === 'warn80' || currentItem.level === 'at100') ? currentItem.level : null
+  const isBlockedForCurrentItem = currentItem?.level === 'at100' && currentItem.mode === 'block'
+
+  return (
+    <div className="mt-lg rounded-md border border-border bg-surface p-lg">
+      <h2 className="text-[15px] font-semibold text-fg">{COPY.limits.title}</h2>
+      <p className="mt-xs text-[12.5px] text-muted">{COPY.limits.hint}</p>
+
+      {loadError ? (
+        <div className="mt-md rounded-md border border-red/30 bg-red/5 p-md" role="alert">
+          <InlineFeedback variant="error" message={COPY.error.generic} />
+          <div className="mt-sm">
+            <ButtonSecondary onClick={() => void load()}>{COPY.cta.retry}</ButtonSecondary>
+          </div>
+        </div>
+      ) : loading ? (
+        <p className="mt-md py-md text-center text-[13px] text-muted">{COPY.loading.summary}</p>
+      ) : (
+        <div className="mt-md flex flex-col gap-sm">
+          <div className="grid grid-cols-2 gap-md md:grid-cols-4">
+            <label className="flex flex-col gap-[3px] text-[12px] text-muted">
+              {COPY.limits.labelScope}
+              <select
+                className="h-[34px] rounded-sm border border-border bg-surface-2 px-sm font-mono text-[13px] text-fg focus:border-accent focus:outline-none"
+                value={form.scope}
+                onChange={(e) => setForm({ ...form, scope: e.target.value as UsageLimitScope, projectId: null })}
+              >
+                <option value="global">{COPY.limits.scopeGlobal}</option>
+                <option value="project">{COPY.limits.scopeProject}</option>
+              </select>
+            </label>
+
+            {form.scope === 'project' ? (
+              <label className="flex flex-col gap-[3px] text-[12px] text-muted">
+                {COPY.limits.scopeProject}
+                <select
+                  className="h-[34px] rounded-sm border border-border bg-surface-2 px-sm text-[13px] text-fg focus:border-accent focus:outline-none"
+                  value={form.projectId ?? ''}
+                  onChange={(e) => setForm({ ...form, projectId: e.target.value === '' ? null : e.target.value })}
+                >
+                  <option value="">{COPY.limits.projectPlaceholder}</option>
+                  {(projects ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <label className="flex flex-col gap-[3px] text-[12px] text-muted">
+              {COPY.limits.labelUsd}
+              <input
+                className="h-[34px] rounded-sm border border-border bg-surface-2 px-sm font-mono text-[13px] text-fg focus:border-accent focus:outline-none"
+                value={form.limitInput}
+                onChange={(e) => setForm({ ...form, limitInput: e.target.value })}
+                inputMode="decimal"
+                placeholder="—"
+              />
+            </label>
+
+            <label className="flex flex-col gap-[3px] text-[12px] text-muted">
+              {COPY.limits.modeLabel}
+              <SegmentedControl name={COPY.limits.modeLabel} options={MODE_OPTIONS} value={form.mode} onChange={(v) => setForm({ ...form, mode: v as UsageLimitMode })} />
+            </label>
+          </div>
+
+          {currentItem ? (
+            <div className="mt-xs">
+              <div className="flex items-center justify-between text-[12px] text-muted">
+                <span>{COPY.limits.progressLabel}</span>
+                <span className="font-mono text-accent">{formatLimitProgress(currentItem.spentUsd, currentItem.limitUsd, currentItem.pct)}</span>
+              </div>
+              <div
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(currentItem.pct, 100)}
+                aria-label={`${COPY.limits.progressLabel}: ${currentItem.pct}%`}
+                className="mt-[4px] h-[4px] w-full overflow-hidden rounded-full bg-surface-2"
+              >
+                <span
+                  className={`block h-full rounded-full ${
+                    usageLimitBarTone(currentItem.pct) === 'red'
+                      ? 'bg-red'
+                      : usageLimitBarTone(currentItem.pct) === 'amber'
+                        ? 'bg-amber'
+                        : 'bg-accent'
+                  }`}
+                  style={{ width: `${Math.min(currentItem.pct, 100)}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-[12px] text-muted">{COPY.limits.empty}</p>
+          )}
+
+          {bannerLevel ? (
+            <div className={`mt-xs rounded-md border p-sm ${isBlockedForCurrentItem ? 'border-red/40 bg-red/[0.08]' : 'border-amber/40 bg-amber/[0.08]'}`}>
+              <p role={isBlockedForCurrentItem ? 'alert' : 'status'} className={`text-[12.5px] font-medium ${isBlockedForCurrentItem ? 'text-red' : 'text-amber'}`}>
+                {bannerLevel === 'at100' ? COPY.limits.banner100 : COPY.limits.banner80}
+              </p>
+            </div>
+          ) : null}
+
+          {saveError !== null ? <InlineFeedback variant="error" message={saveError} /> : null}
+
+          <div>
+            <ButtonPrimary loading={saving} loadingLabel={COPY.limits.saving} onClick={() => void submit()}>
+              {COPY.limits.save}
+            </ButtonPrimary>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Tela ─────────────────────────────────────────────────────────────────────
 
 export function ConsumoScreen(): ReactElement {
@@ -729,6 +974,8 @@ export function ConsumoScreen(): ReactElement {
         ) : (
           <>
             <SummaryCards summary={summary} />
+
+            <LimitsCard />
 
             <div className="mt-lg">
               <h2 className="text-[16px] font-semibold text-fg">{COPY.section.projects}</h2>

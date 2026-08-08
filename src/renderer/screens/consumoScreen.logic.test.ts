@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { formatCompact, formatCostText, formatPercent, formatTimestamp, shareLabel } from './consumoScreen.logic'
+import {
+  formatCompact,
+  formatCostText,
+  formatLimitProgress,
+  formatPercent,
+  formatTimestamp,
+  formatUsd,
+  parseUsdLimitInput,
+  shareLabel,
+  usageLimitBarTone,
+} from './consumoScreen.logic'
 
 describe('formatTimestamp', () => {
   it('formats an epoch-ms timestamp as a pt-BR locale string', () => {
@@ -73,5 +83,48 @@ describe('shareLabel (spec F11 §3.2 — split incompleto nunca inventa percentu
 
   it('includes compact token counts in the title tooltip', () => {
     expect(shareLabel(base).title).toBe('Agente: 100 tokens; subagents: 50 tokens.')
+  })
+})
+
+describe('formatUsd', () => {
+  it('formats with 2 decimals', () => {
+    expect(formatUsd(41)).toBe('$41.00')
+    expect(formatUsd(0.5)).toBe('$0.50')
+  })
+})
+
+describe('formatLimitProgress', () => {
+  it('matches the fixture format: $spent / $limit · pct%', () => {
+    expect(formatLimitProgress(41, 50, 82)).toBe('$41.00 / $50.00 · 82%')
+  })
+})
+
+describe('usageLimitBarTone', () => {
+  it('is accent under 80%, amber from 80-99%, red at 100%+', () => {
+    expect(usageLimitBarTone(0)).toBe('accent')
+    expect(usageLimitBarTone(79)).toBe('accent')
+    expect(usageLimitBarTone(80)).toBe('amber')
+    expect(usageLimitBarTone(99)).toBe('amber')
+    expect(usageLimitBarTone(100)).toBe('red')
+    expect(usageLimitBarTone(150)).toBe('red')
+  })
+})
+
+describe('parseUsdLimitInput', () => {
+  it('treats an empty/blank string as null (remove limit)', () => {
+    expect(parseUsdLimitInput('')).toEqual({ ok: true, value: null })
+    expect(parseUsdLimitInput('   ')).toEqual({ ok: true, value: null })
+  })
+
+  it('parses a valid positive number', () => {
+    expect(parseUsdLimitInput('50')).toEqual({ ok: true, value: 50 })
+    expect(parseUsdLimitInput('50.5')).toEqual({ ok: true, value: 50.5 })
+  })
+
+  it('rejects zero, negative, non-numeric and above-cap values', () => {
+    expect(parseUsdLimitInput('0').ok).toBe(false)
+    expect(parseUsdLimitInput('-5').ok).toBe(false)
+    expect(parseUsdLimitInput('abc').ok).toBe(false)
+    expect(parseUsdLimitInput('2000000000').ok).toBe(false)
   })
 })

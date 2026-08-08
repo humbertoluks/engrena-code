@@ -4,6 +4,7 @@ import type { ComposerDraft, QueueItem } from '../../hooks/usePrincipalWorkspace
 import type { ComposerCatalog, Thread, ThreadAccessLevel, ThreadExecutionMode } from '../../services/threads-service'
 import type { ConfigStatus } from '../../services/configuracao-service'
 import type { VcsStatus } from '../../services/projects-service'
+import type { UsageLimitStatusResponse } from '../../services/consumo-service'
 import { ComposerModelControls } from './ComposerModelControls'
 import { FileMentionMenu } from './FileMentionMenu'
 import { CommandMenu } from './CommandMenu'
@@ -33,6 +34,10 @@ const COPY = {
   send: 'Enviar',
   sendStop: 'Parar execução',
   errorSend: 'Falha ao enviar a mensagem.',
+  limitBanner80: 'Você atingiu 80% do limite de consumo deste período.',
+  limitBanner100: 'Você atingiu o limite de consumo deste período.',
+  limitBlockedTurn: 'Limite de consumo atingido. Ajuste o limite em Consumo para continuar.',
+  limitAdjustLink: 'Ajustar limite',
   queueQueued: 'na fila',
   queueEdit: 'Editar',
   queueCancel: 'Cancelar',
@@ -63,6 +68,7 @@ export interface TaskComposerProps {
   sendError: string | null
   configStatus: ConfigStatus | null
   vcsStatus: VcsStatus | null
+  usageLimitStatus: UsageLimitStatusResponse | null
   onSend: () => void
   onCancel: () => void
   onGitInit: () => Promise<unknown>
@@ -80,6 +86,7 @@ export function TaskComposer({
   sendError,
   configStatus,
   vcsStatus,
+  usageLimitStatus,
   onSend,
   onCancel,
   onGitInit,
@@ -105,6 +112,8 @@ export function TaskComposer({
   const providerUnavailable = providerHealth !== undefined && !providerHealth.available
   const providerUnavailableReason = providerHealth?.reason ?? COPY.providerUnavailableFallback
   const gitGateActive = hasProject && vcsStatus !== null && !vcsStatus.hasHead
+  const usageLimitBlocked = usageLimitStatus?.blocked ?? false
+  const usageLimitWarnLevel = usageLimitStatus && !usageLimitBlocked ? usageLimitStatus.level : 'none'
 
   const multimodal = composerCatalog?.providers[composer.provider]?.multimodal ?? false
 
@@ -186,7 +195,7 @@ export function TaskComposer({
     }
   }
 
-  const disabled = !hasProject || (providerUnavailable && !providerLocked) || gitGateActive
+  const disabled = !hasProject || (providerUnavailable && !providerLocked) || gitGateActive || usageLimitBlocked
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -226,6 +235,26 @@ export function TaskComposer({
           >
             {gitInitLoading ? COPY.gitGateCtaLoading : COPY.gitGateCta}
           </button>
+        </div>
+      ) : null}
+
+      {usageLimitBlocked ? (
+        <div className="mb-xs rounded-xl border border-red/40 bg-red/[0.08] p-sm">
+          <p role="alert" className="text-[13px] font-medium text-red">
+            {COPY.limitBlockedTurn}
+          </p>
+          <a href="#consumo" className="mt-[2px] inline-block text-[12px] text-accent">
+            {COPY.limitAdjustLink}
+          </a>
+        </div>
+      ) : usageLimitWarnLevel === 'warn80' || usageLimitWarnLevel === 'at100' ? (
+        <div className="mb-xs rounded-xl border border-amber/40 bg-amber/[0.08] p-sm">
+          <p role="status" className="text-[13px] font-medium text-amber">
+            {usageLimitWarnLevel === 'at100' ? COPY.limitBanner100 : COPY.limitBanner80}
+          </p>
+          <a href="#consumo" className="mt-[2px] inline-block text-[12px] text-accent">
+            {COPY.limitAdjustLink}
+          </a>
         </div>
       ) : null}
 
