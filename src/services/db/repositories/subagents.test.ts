@@ -59,6 +59,23 @@ describe('subagentsRepository', () => {
     expect(getSubagentById(created.id)).toEqual(created)
   })
 
+  it('test_kind_default_dev', () => {
+    const created = createSubagent(makeInput())
+    expect(created.kind).toBe('dev')
+  })
+
+  it('kind_pipeline_persists', () => {
+    const created = createSubagent(makeInput({ kind: 'pipeline' }))
+    expect(created.kind).toBe('pipeline')
+    const updated = updateSubagent(created.id, {})
+    expect(updated.kind).toBe('pipeline')
+  })
+
+  it('rejects_unknown_kind', () => {
+    // @ts-expect-error testing invalid kind on purpose
+    expect(() => createSubagent(makeInput({ kind: 'orchestrator' }))).toThrow(SubagentValidationError)
+  })
+
   it('rejects_duplicate_name', () => {
     createSubagent(makeInput())
     expect(() => createSubagent(makeInput())).toThrow(SubagentNameConflictError)
@@ -238,6 +255,29 @@ describe('subagentsRepository', () => {
       })
       const updated = updateSubagentRun('run-2', { status: 'timeout' })
       expect(updated?.status).toBe('timeout')
+    })
+
+    it('test_serial_call_unchanged', () => {
+      const run = createSubagentRun({
+        childThreadId: 'run-serial',
+        parentThreadId: 'thread-1',
+        subagentName: 'revisor-seguranca',
+        provider: 'claude',
+        status: 'running',
+      })
+      expect(run.parallelBatchId).toBeNull()
+    })
+
+    it('persists parallelBatchId for batch runs', () => {
+      const run = createSubagentRun({
+        childThreadId: 'run-batch-1',
+        parentThreadId: 'thread-1',
+        subagentName: 'revisor-seguranca',
+        provider: 'claude',
+        status: 'running',
+        parallelBatchId: 'batch-abc',
+      })
+      expect(run.parallelBatchId).toBe('batch-abc')
     })
 
     it('listRunsForParentThread returns runs in order', () => {

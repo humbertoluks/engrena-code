@@ -8,7 +8,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
 const { createThread } = await import('./threads.js')
-const { createDiff, countAllPending } = await import('./diffs.js')
+const { createDiff, countAllPending, getDiff } = await import('./diffs.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f04_diffs_fixture_'))
 
@@ -55,5 +55,37 @@ describe('countAllPending', () => {
 
   it('returns 0 with no diffs', () => {
     expect(countAllPending()).toBe(0)
+  })
+})
+
+describe('conflict candidates (F18)', () => {
+  it('round-trips status=conflict with candidates', () => {
+    const project = createProject({ path: makeProjectDir('project-conflict') })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+
+    const created = createDiff({
+      threadId: thread.id,
+      file: 'a.ts',
+      additions: 1,
+      deletions: 0,
+      hunks: [],
+      provider: 'claude',
+      status: 'conflict',
+      conflictCandidates: [
+        { childThreadId: 'child-a', subagentName: 'implementer-a', hunks: [], additions: 1, deletions: 0 },
+        { childThreadId: 'child-b', subagentName: 'implementer-b', hunks: [], additions: 2, deletions: 1 },
+      ],
+    })
+
+    expect(created.status).toBe('conflict')
+    expect(created.conflictCandidates).toHaveLength(2)
+    expect(getDiff(created.id)?.conflictCandidates?.[1].childThreadId).toBe('child-b')
+  })
+
+  it('conflictCandidates is null when not provided', () => {
+    const project = createProject({ path: makeProjectDir('project-no-conflict') })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    const created = createDiff({ threadId: thread.id, file: 'a.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude' })
+    expect(created.conflictCandidates).toBeNull()
   })
 })

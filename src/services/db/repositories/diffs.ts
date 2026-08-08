@@ -1,11 +1,20 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../client.js'
 
-export type DiffStatus = 'pending' | 'accepted' | 'rejected'
+export type DiffStatus = 'pending' | 'accepted' | 'rejected' | 'conflict'
 
 export interface DiffHunk {
   header: string
   lines: string[]
+}
+
+/** Candidato de conflito de merge paralelo (spec F18 §6) — um por filho que tocou o mesmo path. */
+export interface DiffConflictCandidate {
+  childThreadId: string
+  subagentName: string
+  hunks: DiffHunk[]
+  additions: number
+  deletions: number
 }
 
 export interface Diff {
@@ -18,6 +27,8 @@ export interface Diff {
   provider: string
   status: DiffStatus
   worktreePath: string | null
+  /** Preenchido só quando `status === 'conflict'` (spec F18 §6). */
+  conflictCandidates: DiffConflictCandidate[] | null
   createdAt: number
 }
 
@@ -31,6 +42,7 @@ interface DiffRow {
   provider: string
   status: string
   worktree_path: string | null
+  conflict_candidates_json: string | null
   created_at: number
 }
 
@@ -45,6 +57,10 @@ function toDiff(row: DiffRow): Diff {
     provider: row.provider,
     status: row.status as DiffStatus,
     worktreePath: row.worktree_path,
+    conflictCandidates:
+      row.conflict_candidates_json !== null
+        ? (JSON.parse(row.conflict_candidates_json) as DiffConflictCandidate[])
+        : null,
     createdAt: row.created_at,
   }
 }
@@ -58,6 +74,7 @@ export interface CreateDiffInput {
   provider: string
   worktreePath?: string | null
   status?: DiffStatus
+  conflictCandidates?: DiffConflictCandidate[] | null
 }
 
 export function createDiff(input: CreateDiffInput): Diff {
@@ -66,8 +83,8 @@ export function createDiff(input: CreateDiffInput): Diff {
 
   getDb()
     .prepare(
-      `INSERT INTO diffs (id, thread_id, file, additions, deletions, hunks_json, provider, status, worktree_path, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO diffs (id, thread_id, file, additions, deletions, hunks_json, provider, status, worktree_path, conflict_candidates_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -79,6 +96,7 @@ export function createDiff(input: CreateDiffInput): Diff {
       input.provider,
       input.status ?? 'pending',
       input.worktreePath ?? null,
+      input.conflictCandidates ? JSON.stringify(input.conflictCandidates) : null,
       now
     )
 

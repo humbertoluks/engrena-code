@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { getDb } from '../client.js'
 
 export type SubagentProvider = 'claude' | 'codex' | 'kimi' | 'inherit'
+export type SubagentKind = 'dev' | 'pipeline'
 
 export interface Subagent {
   id: string
@@ -14,6 +15,7 @@ export interface Subagent {
   tools: string[] | null
   category: string | null
   idleTimeoutMinutes: number | null
+  kind: SubagentKind
   enabled: boolean
   createdAt: number
   updatedAt: number
@@ -39,6 +41,8 @@ export interface SubagentRun {
   durationMs: number | null
   reasoningLevel: string | null
   actionCount: number
+  /** UUID do batch `tasks[]` (spec F18 §3.2); null no path serial F15. */
+  parallelBatchId: string | null
   createdAt: number
 }
 
@@ -52,6 +56,7 @@ export interface SubagentInput {
   tools?: string[] | null
   category?: string | null
   idleTimeoutMinutes?: number | null
+  kind?: SubagentKind
   enabled?: boolean
 }
 
@@ -78,6 +83,7 @@ export interface CreateRunInput {
   status: SubagentRunStatus
   text?: string | null
   reasoningLevel?: string | null
+  parallelBatchId?: string | null
 }
 
 export interface RunPatch {
@@ -96,10 +102,15 @@ export class SubagentNotFoundError extends Error {}
 export class CatalogOrderError extends Error {}
 
 const PROVIDERS: readonly SubagentProvider[] = ['claude', 'codex', 'kimi', 'inherit']
+const KINDS: readonly SubagentKind[] = ['dev', 'pipeline']
 export const SUBAGENT_PROMPT_MAX_BYTES = 1_048_576
 
 export function isValidProvider(value: unknown): value is SubagentProvider {
   return typeof value === 'string' && (PROVIDERS as readonly string[]).includes(value)
+}
+
+export function isValidKind(value: unknown): value is SubagentKind {
+  return typeof value === 'string' && (KINDS as readonly string[]).includes(value)
 }
 
 export function promptExceedsLimit(prompt: string): boolean {
@@ -131,6 +142,7 @@ interface SubagentRow {
   tools_json: string | null
   idle_timeout_minutes: number | null
   category: string | null
+  kind: string
   enabled: number
   created_at: number
   updated_at: number
@@ -148,6 +160,7 @@ function rowToSubagent(row: SubagentRow): Subagent {
     tools: deserializeTools(row.tools_json),
     category: row.category,
     idleTimeoutMinutes: row.idle_timeout_minutes,
+    kind: row.kind as SubagentKind,
     enabled: Boolean(row.enabled),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -166,6 +179,7 @@ interface RunRow {
   duration_ms: number | null
   reasoning_level: string | null
   action_count: number
+  parallel_batch_id: string | null
   created_at: number
 }
 
@@ -182,6 +196,7 @@ function rowToRun(row: RunRow): SubagentRun {
     durationMs: row.duration_ms,
     reasoningLevel: row.reasoning_level,
     actionCount: row.action_count,
+    parallelBatchId: row.parallel_batch_id,
     createdAt: row.created_at,
   }
 }
@@ -215,6 +230,9 @@ function validateInput(input: SubagentPatch, opts: { partial: boolean }): void {
       throw new SubagentValidationError('idleTimeoutMinutes deve ser 1..480 ou null.')
     }
   }
+  if (input.kind !== undefined && !isValidKind(input.kind)) {
+    throw new SubagentValidationError('kind deve ser "dev" ou "pipeline".')
+  }
 }
 
 export function getSubagentById(id: string): Subagent | undefined {
@@ -243,8 +261,8 @@ export function createSubagent(input: SubagentInput): Subagent {
   try {
     db.prepare(
       `INSERT INTO subagents
-          (id, name, description, prompt, provider, model, reasoning_level, tools_json, idle_timeout_minutes, category, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, name, description, prompt, provider, model, reasoning_level, tools_json, idle_timeout_minutes, category, kind, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       input.name,
@@ -256,6 +274,7 @@ export function createSubagent(input: SubagentInput): Subagent {
       serializeTools(input.tools),
       input.idleTimeoutMinutes ?? null,
       input.category ?? null,
+      input.kind ?? 'dev',
       (input.enabled ?? true) ? 1 : 0,
       now,
       now
@@ -287,6 +306,7 @@ export function updateSubagent(id: string, patch: SubagentPatch): Subagent {
     tools: patch.tools !== undefined ? patch.tools : existing.tools,
     category: patch.category !== undefined ? patch.category : existing.category,
     idleTimeoutMinutes: patch.idleTimeoutMinutes !== undefined ? patch.idleTimeoutMinutes : existing.idleTimeoutMinutes,
+    kind: patch.kind ?? existing.kind,
     enabled: patch.enabled !== undefined ? patch.enabled : existing.enabled,
   }
 
@@ -294,7 +314,7 @@ export function updateSubagent(id: string, patch: SubagentPatch): Subagent {
     db.prepare(
       `UPDATE subagents SET
           name = ?, description = ?, prompt = ?, provider = ?, model = ?, reasoning_level = ?,
-          tools_json = ?, idle_timeout_minutes = ?, category = ?, enabled = ?, updated_at = ?
+          tools_json = ?, idle_timeout_minutes = ?, category = ?, kind = ?, enabled = ?, updated_at = ?
          WHERE id = ?`
     ).run(
       merged.name,
@@ -306,6 +326,7 @@ export function updateSubagent(id: string, patch: SubagentPatch): Subagent {
       serializeTools(merged.tools),
       merged.idleTimeoutMinutes ?? null,
       merged.category ?? null,
+      merged.kind ?? 'dev',
       (merged.enabled ?? true) ? 1 : 0,
       Date.now(),
       id
@@ -499,8 +520,8 @@ export function createSubagentRun(input: CreateRunInput): SubagentRun {
   const db = getDb()
   db.prepare(
     `INSERT INTO subagent_runs
-        (child_thread_id, parent_thread_id, parent_tool_call_id, subagent_name, provider, model, status, text, reasoning_level, action_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+        (child_thread_id, parent_thread_id, parent_tool_call_id, subagent_name, provider, model, status, text, reasoning_level, action_count, parallel_batch_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
   ).run(
     input.childThreadId,
     input.parentThreadId,
@@ -511,6 +532,7 @@ export function createSubagentRun(input: CreateRunInput): SubagentRun {
     input.status,
     input.text ?? null,
     input.reasoningLevel ?? null,
+    input.parallelBatchId ?? null,
     Date.now()
   )
   return getSubagentRun(input.childThreadId) as SubagentRun
