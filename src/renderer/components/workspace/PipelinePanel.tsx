@@ -22,6 +22,8 @@ const COPY = {
   hintCheckpoint: 'Revise os diffs acumulados no painel Diff antes de continuar o pipeline.',
   ctaCheckpointLoading: 'Continuando…',
   ctaCancel: 'Cancelar pipeline',
+  stagePending: 'pendente',
+  stageSkipped: 'ignorado',
 } as const
 
 const STATUS_LABEL: Record<PipelineStatus, string> = {
@@ -56,6 +58,16 @@ const STAGE_STATUS_CLASS: Record<PipelineStageStatus, string> = {
   failed: 'text-red',
   timeout: 'text-amber',
   skipped: 'text-muted',
+}
+
+// Reusa o vocabulário de `pipeline.status.*` (copy.md não define labels próprias por estágio).
+const STAGE_STATUS_LABEL: Record<PipelineStageStatus, string> = {
+  pending: COPY.stagePending,
+  running: COPY.statusRunning,
+  completed: COPY.statusDone,
+  failed: COPY.statusError,
+  timeout: COPY.statusTimeout,
+  skipped: COPY.stageSkipped,
 }
 
 export interface PipelinePanelProps {
@@ -106,7 +118,7 @@ export function PipelinePanel({
             {stages.map((stage) => (
               <div key={stage.id} className="flex items-center justify-between gap-xs text-[12px]">
                 <span className="truncate text-fg">{STAGE_LABEL[stage.stageId] ?? stage.stageId}</span>
-                <span className={`shrink-0 text-[10.5px] ${STAGE_STATUS_CLASS[stage.status]}`}>{stage.status}</span>
+                <span className={`shrink-0 text-[10.5px] ${STAGE_STATUS_CLASS[stage.status]}`}>{STAGE_STATUS_LABEL[stage.status]}</span>
               </div>
             ))}
           </div>
