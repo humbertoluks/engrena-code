@@ -18,6 +18,12 @@ import { memoryService, type MemoryStatus } from '../services/memory-service'
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion } from '../components/workspace/askUserQuestion.logic'
 
+/** Copy de erro do envio de resposta (F21 `copy.md` — `askQuestion.error.*`). */
+const ANSWER_COPY = {
+  generic: 'Não foi possível enviar a resposta. Tente novamente.',
+  notWaiting: 'Esta pergunta não está mais pendente.',
+} as const
+
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
 export type ThreadTab = 'history' | 'diff'
@@ -137,17 +143,34 @@ export function usePrincipalWorkspace() {
   // F21: pergunta pendente do turno atual — só relevante com a thread pausada em waiting_user;
   // deriva do tool_call ask_user_question mais recente ainda `running` (mesmo padrão de
   // correlateSubagentRuns em chatHistory.logic.ts, sem estado próprio).
+  const [answerBusy, setAnswerBusy] = useState(false)
+  const [answerError, setAnswerError] = useState<string | null>(null)
+
   const pendingQuestion = useMemo(() => {
     if (selectedThread?.state !== 'waiting_user') return null
     return findPendingAskUserQuestion(toolCalls)
   }, [selectedThread, toolCalls])
 
+  // Envio da resposta precisa de estado próprio: sem `answerBusy` o duplo clique manda
+  // duas respostas, e sem `answerError` a falha do POST (ex.: 409 `thread_not_waiting`
+  // quando o turno já foi cancelado) ficava invisível para o usuário (F21 ui.md §Estados).
   const answerQuestion = useCallback(
     async (input: { selectedOptions: string[]; freeText: string | null }) => {
-      if (!selectedThreadId) return
-      await threadsService.answerQuestion(selectedThreadId, input)
+      if (!selectedThreadId || answerBusy) return
+      setAnswerBusy(true)
+      setAnswerError(null)
+      try {
+        const res = await threadsService.answerQuestion(selectedThreadId, input)
+        if (res.error) {
+          setAnswerError(res.error.code === 'thread_not_waiting' ? ANSWER_COPY.notWaiting : ANSWER_COPY.generic)
+        }
+      } catch {
+        setAnswerError(ANSWER_COPY.generic)
+      } finally {
+        if (mountedRef.current) setAnswerBusy(false)
+      }
     },
-    [selectedThreadId]
+    [selectedThreadId, answerBusy]
   )
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
@@ -647,6 +670,8 @@ export function usePrincipalWorkspace() {
     cancel,
     pendingQuestion,
     answerQuestion,
+    answerBusy,
+    answerError,
     addProjectModalOpen,
     setAddProjectModalOpen,
     addProject,
