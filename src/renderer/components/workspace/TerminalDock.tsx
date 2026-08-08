@@ -9,6 +9,7 @@ const COPY = {
   emptyState: 'Nenhuma aba aberta.',
   noProject: 'Selecione um projeto para abrir um terminal.',
   toggleAria: 'Alternar terminal',
+  toggleTitle: 'Terminal roda com os privilégios do seu sistema — sem sandbox adicional do EngrenaCode. Atalho: Ctrl+`',
 } as const
 
 interface TerminalDockProps {
@@ -20,7 +21,7 @@ function tabLabel(index: number): string {
   return `Terminal ${index + 1}`
 }
 
-/** Dock inferior expansível com abas de terminal por projeto (F26 spec §4) — anatomia final pendente de `ui.md`/`copy.md`. */
+/** Dock inferior expansível com abas de terminal por projeto (F26 spec §4, ui.md). */
 export function TerminalDock({ projectId, threadId }: Readonly<TerminalDockProps>): ReactElement {
   const dock = useTerminalDock(projectId, threadId)
   const activeTab = dock.tabs.find((t) => t.tabId === dock.activeTabId) ?? null
@@ -33,7 +34,8 @@ export function TerminalDock({ projectId, threadId }: Readonly<TerminalDockProps
           onClick={dock.toggleOpen}
           aria-label={COPY.toggleAria}
           aria-expanded={dock.open}
-          className="text-[12px] font-medium text-fg"
+          title={COPY.toggleTitle}
+          className="rounded-sm text-[12px] font-medium text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {COPY.title}
         </button>
@@ -47,14 +49,18 @@ export function TerminalDock({ projectId, threadId }: Readonly<TerminalDockProps
                   tab.tabId === dock.activeTabId ? 'bg-surface-2 text-fg' : 'text-muted'
                 }`}
               >
-                <button type="button" onClick={() => dock.setActiveTabId(tab.tabId)}>
+                <button
+                  type="button"
+                  onClick={() => dock.setActiveTabId(tab.tabId)}
+                  className="rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
                   {tabLabel(i)}
                 </button>
                 <button
                   type="button"
                   aria-label={COPY.closeTabAria}
                   onClick={() => dock.closeTab(tab.tabId)}
-                  className="text-muted hover:text-fg"
+                  className="rounded-sm text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 >
                   ×
                 </button>
@@ -64,7 +70,7 @@ export function TerminalDock({ projectId, threadId }: Readonly<TerminalDockProps
               type="button"
               onClick={dock.openNewTab}
               disabled={!projectId}
-              className="rounded-md px-sm py-[3px] text-[12px] text-accent disabled:opacity-50"
+              className="rounded-md px-sm py-[3px] text-[12px] text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
               {COPY.newTabCta}
             </button>

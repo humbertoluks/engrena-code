@@ -39,6 +39,24 @@ export function TerminalPane({ tab, onReopen }: Readonly<TerminalPaneProps>): Re
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
+    // Ctrl+C sempre vira SIGINT (comportamento padrão de terminal); copiar seleção
+    // usa Ctrl+Shift+C, sem disputar a tecla que mata o processo.
+    term.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === 'keydown' &&
+        event.ctrlKey &&
+        event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        (event.key === 'c' || event.key === 'C') &&
+        term.hasSelection()
+      ) {
+        void navigator.clipboard.writeText(term.getSelection())
+        term.clearSelection()
+        return false
+      }
+      return true
+    })
     term.open(containerRef.current)
     fitAddon.fit()
 
