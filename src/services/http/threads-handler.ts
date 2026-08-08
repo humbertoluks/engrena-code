@@ -20,6 +20,7 @@ import {
   type DispatchNewThreadInput,
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
+import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
@@ -51,6 +52,10 @@ function threadBusyDetails(err: LeaseBusyError): object {
 function handleDispatchError(res: ServerResponse, err: unknown): void {
   if (err instanceof LeaseBusyError) {
     sendError(res, 409, 'thread_busy', err.message, threadBusyDetails(err))
+    return
+  }
+  if (err instanceof UsageLimitExceededError) {
+    sendError(res, 409, err.code, err.message, err.details)
     return
   }
   if (err instanceof DispatchValidationError) {

@@ -29,7 +29,8 @@ const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
-const { getThreadEvents } = await import('../db/repositories/usage-events.js')
+const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
+const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
 const { readJournal, appendEntry } = await import('../vault/memory-service.js')
 const {
@@ -60,6 +61,7 @@ beforeEach(() => {
   getDb().exec('DELETE FROM messages')
   getDb().exec('DELETE FROM usage_events')
   getDb().exec('DELETE FROM model_pricing')
+  getDb().exec('DELETE FROM usage_limits')
   getDb().exec('DELETE FROM threads')
   getDb().exec('DELETE FROM projects')
   getDb().exec('DELETE FROM project_rules')
@@ -1402,6 +1404,98 @@ describe('dispatch — slash commands (F22)', () => {
     await waitForState(thread.id, ['cancelled', 'error'])
     expect(getThread(thread.id)?.state).toBe('cancelled')
     expect(listPipelinesForThread(thread.id)[0]?.status).toBe('cancelled')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('usage limit gate (F25)', () => {
+  it('dispatch_block_returns_409 — rejects a new thread when the project limit is blocked', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    createUsageEvent({
+      turnId: 't1',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 10,
+      costSource: 'sdk',
+    })
+    upsertUsageLimit({ scope: 'project', projectId: project.id, limitUsd: 10, mode: 'block' })
+
+    await expect(
+      dispatchNewThread({ projectId: project.id, prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    ).rejects.toThrow('Limite de consumo atingido')
+    expect(isLeased(project.id)).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('dispatch_warn_allows_turn — same spend with mode warn does not block', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const seedThread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    createUsageEvent({
+      turnId: 't1',
+      projectId: project.id,
+      threadId: seedThread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 10,
+      costSource: 'sdk',
+    })
+    upsertUsageLimit({ scope: 'project', projectId: project.id, limitUsd: 10, mode: 'warn' })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    expect(thread.state).toBe('running')
+    await waitForState(thread.id, ['idle', 'error'])
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('also blocks a follow-up dispatch on an already-over-limit project', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    createUsageEvent({
+      turnId: 't2',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 10,
+      costSource: 'sdk',
+    })
+    upsertUsageLimit({ scope: 'project', projectId: project.id, limitUsd: 10, mode: 'block' })
+
+    expect(() => dispatchFollowUp({ threadId: thread.id, prompt: 'de novo' })).toThrow('Limite de consumo atingido')
 
     rmSync(dir, { recursive: true, force: true })
   })

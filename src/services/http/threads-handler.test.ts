@@ -24,6 +24,8 @@ const { clearAllLeases } = await import('../runner/project-execution.js')
 const { handleThreadsRequest } = await import('./threads-handler.js')
 const { createSubagent, createSubagentRun, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const { createDiff, getDiff } = await import('../db/repositories/diffs.js')
+const { createUsageEvent } = await import('../db/repositories/usage-events.js')
+const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -94,6 +96,8 @@ beforeEach(() => {
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
   getDb().exec('DELETE FROM messages')
+  getDb().exec('DELETE FROM usage_events')
+  getDb().exec('DELETE FROM usage_limits')
   getDb().exec('DELETE FROM threads')
   getDb().exec('DELETE FROM projects')
   clearAllLeases()
@@ -244,6 +248,41 @@ describe('handleThreadsRequest', () => {
     expect((body as { error: { code: string } }).error.code).toBe('thread_busy')
 
     clearAllLeases()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('returns 409 usage_limit_exceeded when the project is over a blocking limit (F25)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const seedThread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+    createUsageEvent({
+      turnId: 't1',
+      projectId: project.id,
+      threadId: seedThread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 10,
+      costSource: 'sdk',
+    })
+    upsertUsageLimit({ scope: 'project', projectId: project.id, limitUsd: 10, mode: 'block' })
+
+    const req = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(409)
+    const parsed = body as { error: { code: string; details: { adjustHash: string } } }
+    expect(parsed.error.code).toBe('usage_limit_exceeded')
+    expect(parsed.error.details.adjustHash).toBe('#consumo')
+
     rmSync(dir, { recursive: true, force: true })
   })
 

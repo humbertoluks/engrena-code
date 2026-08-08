@@ -74,7 +74,7 @@ export function upsertUsageLimit(input: UpsertUsageLimitInput): UsageLimit {
     )
     .run({ id, scope: input.scope, projectId: input.projectId, limitUsd: input.limitUsd, mode: input.mode, updatedAt: now })
 
-  return toUsageLimit(getDb().prepare(`SELECT * FROM usage_limits WHERE id = ?`).get(id) as UsageLimitRow)
+  return toUsageLimit(getDb().prepare(`SELECT * FROM usage_limits WHERE id = ?`).get(id) as unknown as UsageLimitRow)
 }
 
 /** Remove o limite do escopo (spec §5.2: `limitUsd: null` = remover). No-op se não existir. */

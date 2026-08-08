@@ -29,6 +29,7 @@ import {
 } from './turn-control.js'
 import { parseSlashCommand } from './slash-commands.js'
 import { runPipelineCommand } from './pipeline-runner.js'
+import { assertUsageLimitNotExceeded } from './usage-limit-eval.js'
 import { getActivePipelineForThread, updatePipeline } from '../db/repositories/pipelines.js'
 import {
   createSkillSnapshot,
@@ -215,6 +216,9 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
   const slash = parseSlashCommand(input.prompt)
   if (slash.kind === 'error') throw new DispatchValidationError(slash.code, slash.message)
 
+  // Gate de teto de consumo (spec F25 §3.2/§5.4) — antes do lease, igual à validação de slash acima.
+  assertUsageLimitNotExceeded(project.id)
+
   acquireLease(project.id, 'agent', 'dispatch', null)
 
   let thread: Thread
@@ -265,6 +269,8 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
 
   const slash = parseSlashCommand(input.prompt)
   if (slash.kind === 'error') throw new DispatchValidationError(slash.code, slash.message)
+
+  assertUsageLimitNotExceeded(project.id)
 
   acquireLease(project.id, 'agent', 'follow-up', thread.id)
 

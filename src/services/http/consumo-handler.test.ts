@@ -75,6 +75,7 @@ beforeEach(() => {
   if (existsSync(vaultPath)) rmSync(vaultPath)
   getDb().exec('DELETE FROM usage_events')
   getDb().exec('DELETE FROM model_pricing')
+  getDb().exec('DELETE FROM usage_limits')
   getDb().exec('DELETE FROM threads')
   getDb().exec('DELETE FROM projects')
 })
@@ -349,5 +350,114 @@ describe('pricing endpoints', () => {
     handleConsumoRequest(missing, missingRes)
     const { status: missingStatus } = await missingRes.result()
     expect(missingStatus).toBe(404)
+  })
+})
+
+describe('usage-limits (F25)', () => {
+  it('http_put_validation — rejects invalid scope, USD and mode', async () => {
+    const session = unlockVault()
+
+    const badScope = fakeReq('PUT', '/api/usage-limits', session, { scope: 'org', limitUsd: 10, mode: 'warn' })
+    const badScopeRes = fakeRes()
+    handleConsumoRequest(badScope, badScopeRes)
+    expect((await badScopeRes.result()).status).toBe(400)
+
+    const badUsd = fakeReq('PUT', '/api/usage-limits', session, { scope: 'global', limitUsd: -5, mode: 'warn' })
+    const badUsdRes = fakeRes()
+    handleConsumoRequest(badUsd, badUsdRes)
+    expect((await badUsdRes.result()).status).toBe(400)
+
+    const badMode = fakeReq('PUT', '/api/usage-limits', session, { scope: 'global', limitUsd: 10, mode: 'destroy' })
+    const badModeRes = fakeRes()
+    handleConsumoRequest(badMode, badModeRes)
+    expect((await badModeRes.result()).status).toBe(400)
+  })
+
+  it('rejects scope=project without a valid projectId with not_found', async () => {
+    const session = unlockVault()
+    const req = fakeReq('PUT', '/api/usage-limits', session, { scope: 'project', projectId: 'does-not-exist', limitUsd: 10, mode: 'warn' })
+    const res = fakeRes()
+    handleConsumoRequest(req, res)
+    expect((await res.result()).status).toBe(404)
+  })
+
+  it('upserts a global limit and lists it', async () => {
+    const session = unlockVault()
+    const put = fakeReq('PUT', '/api/usage-limits', session, { scope: 'global', limitUsd: 100, mode: 'warn' })
+    const putRes = fakeRes()
+    handleConsumoRequest(put, putRes)
+    const { status, body } = await putRes.result()
+    expect(status).toBe(200)
+    expect((body as { limit: { scope: string; limitUsd: number } }).limit).toMatchObject({ scope: 'global', limitUsd: 100 })
+
+    const list = fakeReq('GET', '/api/usage-limits', session)
+    const listRes = fakeRes()
+    handleConsumoRequest(list, listRes)
+    const { body: listBody } = await listRes.result()
+    expect((listBody as { limits: unknown[] }).limits).toHaveLength(1)
+  })
+
+  it('clear_limit_removes_row — limitUsd null removes the limit', async () => {
+    const session = unlockVault()
+    const put = fakeReq('PUT', '/api/usage-limits', session, { scope: 'global', limitUsd: 100, mode: 'warn' })
+    handleConsumoRequest(put, fakeRes())
+
+    const clear = fakeReq('PUT', '/api/usage-limits', session, { scope: 'global', limitUsd: null })
+    const clearRes = fakeRes()
+    handleConsumoRequest(clear, clearRes)
+    const { status, body } = await clearRes.result()
+    expect(status).toBe(200)
+    expect((body as { limit: null }).limit).toBeNull()
+
+    const list = fakeReq('GET', '/api/usage-limits', session)
+    const listRes = fakeRes()
+    handleConsumoRequest(list, listRes)
+    expect(((await listRes.result()).body as { limits: unknown[] }).limits).toHaveLength(0)
+  })
+
+  it('GET status returns level=none with no limits configured', async () => {
+    const session = unlockVault()
+    const req = fakeReq('GET', '/api/usage-limits/status', session)
+    const res = fakeRes()
+    handleConsumoRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ level: 'none', blocked: false })
+  })
+
+  it('GET status evaluates against the given project and reports spend', async () => {
+    const session = unlockVault()
+    const { project, thread } = makeThread()
+    createUsageEvent({
+      turnId: 't1',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 90,
+      costSource: 'sdk',
+    })
+    const putReq = fakeReq('PUT', '/api/usage-limits', session, { scope: 'project', projectId: project.id, limitUsd: 100, mode: 'block' })
+    const putRes = fakeRes()
+    handleConsumoRequest(putReq, putRes)
+    await putRes.result()
+
+    const req = fakeReq('GET', `/api/usage-limits/status?projectId=${project.id}`, session)
+    const res = fakeRes()
+    handleConsumoRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ level: 'warn80', blocked: false })
+  })
+
+  it('GET status rejects an unknown projectId with not_found', async () => {
+    const session = unlockVault()
+    const req = fakeReq('GET', '/api/usage-limits/status?projectId=does-not-exist', session)
+    const res = fakeRes()
+    handleConsumoRequest(req, res)
+    expect((await res.result()).status).toBe(404)
   })
 })

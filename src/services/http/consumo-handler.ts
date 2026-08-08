@@ -18,6 +18,15 @@ import {
 } from '../db/repositories/pricing.js'
 import { getProject } from '../db/repositories/projects.js'
 import { getThread } from '../db/repositories/threads.js'
+import {
+  clearUsageLimit,
+  listUsageLimits,
+  upsertUsageLimit,
+  type UsageLimit,
+  type UsageLimitMode,
+  type UsageLimitScope,
+} from '../db/repositories/usage-limits.js'
+import { evaluateUsageLimits } from '../runner/usage-limit-eval.js'
 
 const DEFAULT_LIMIT = 100
 const ISO_8601_TZ_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
@@ -218,6 +227,67 @@ function handlePricingError(res: ServerResponse, err: unknown): void {
   sendError(res, 500, 'internal_error', 'Erro interno.')
 }
 
+// ── Limites de consumo (F25 spec §5) ────────────────────────────────────────
+
+const MAX_LIMIT_USD = 1_000_000_000
+
+function handleListUsageLimits(_req: IncomingMessage, res: ServerResponse): void {
+  sendJson(res, 200, { limits: listUsageLimits() })
+}
+
+interface UsageLimitRequestBody {
+  scope?: unknown
+  projectId?: unknown
+  limitUsd?: unknown
+  mode?: unknown
+}
+
+async function handleUpsertUsageLimit(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = parseBody<UsageLimitRequestBody>(await readBody(req))
+  if (body === null) return sendError(res, 400, 'validation_error', 'Corpo inválido.')
+
+  if (body.scope !== 'global' && body.scope !== 'project') {
+    return sendError(res, 400, 'validation_error', 'scope deve ser global ou project.')
+  }
+  const scope: UsageLimitScope = body.scope
+
+  let projectId: string | null = null
+  if (scope === 'project') {
+    if (typeof body.projectId !== 'string' || body.projectId.trim() === '') {
+      return sendError(res, 400, 'validation_error', 'projectId é obrigatório para scope=project.')
+    }
+    if (getProject(body.projectId) === null) return sendError(res, 404, 'not_found', 'Projeto não encontrado.')
+    projectId = body.projectId
+  }
+
+  if (body.limitUsd === null) {
+    clearUsageLimit(scope, projectId)
+    sendJson(res, 200, { limit: null })
+    return
+  }
+
+  if (typeof body.limitUsd !== 'number' || !Number.isFinite(body.limitUsd) || body.limitUsd <= 0 || body.limitUsd > MAX_LIMIT_USD) {
+    return sendError(res, 400, 'validation_error', 'limitUsd deve ser um número maior que zero, ou null para remover.')
+  }
+  if (body.mode !== 'warn' && body.mode !== 'block') {
+    return sendError(res, 400, 'validation_error', 'mode deve ser warn ou block.')
+  }
+
+  const limit: UsageLimit = upsertUsageLimit({ scope, projectId, limitUsd: body.limitUsd, mode: body.mode as UsageLimitMode })
+  sendJson(res, 200, { limit })
+}
+
+function handleUsageLimitsStatus(req: IncomingMessage, res: ServerResponse): void {
+  const url = new URL(req.url ?? '', 'http://localhost')
+  const projectId = url.searchParams.get('projectId')
+
+  if (projectId !== null) {
+    if (getProject(projectId) === null) return sendError(res, 404, 'not_found', 'Projeto não encontrado.')
+  }
+
+  sendJson(res, 200, evaluateUsageLimits(projectId))
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 const PROJECT_DETAIL_RE = /^\/api\/metrics\/projects\/([^/]+)$/
@@ -225,7 +295,13 @@ const THREAD_EVENTS_RE = /^\/api\/metrics\/threads\/([^/]+)$/
 const PRICING_ID_RE = /^\/api\/pricing\/([^/]+)$/
 
 function isConsumoUrl(url: string): boolean {
-  return url.startsWith('/api/metrics/') || url === '/api/pricing' || PRICING_ID_RE.test(url)
+  return (
+    url.startsWith('/api/metrics/') ||
+    url === '/api/pricing' ||
+    PRICING_ID_RE.test(url) ||
+    url === '/api/usage-limits' ||
+    url === '/api/usage-limits/status'
+  )
 }
 
 export async function handleConsumoRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -269,6 +345,19 @@ export async function handleConsumoRequest(req: IncomingMessage, res: ServerResp
     const pricingIdMatch = PRICING_ID_RE.exec(url)
     if (pricingIdMatch && method === 'PUT') {
       await handleUpdatePricing(req, res, pricingIdMatch[1])
+      return true
+    }
+
+    if (method === 'GET' && url === '/api/usage-limits') {
+      handleListUsageLimits(req, res)
+      return true
+    }
+    if (method === 'PUT' && url === '/api/usage-limits') {
+      await handleUpsertUsageLimit(req, res)
+      return true
+    }
+    if (method === 'GET' && url === '/api/usage-limits/status') {
+      handleUsageLimitsStatus(req, res)
       return true
     }
   } catch (err) {
