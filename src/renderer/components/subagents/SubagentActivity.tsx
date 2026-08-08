@@ -43,11 +43,11 @@ function RunRow({ run, now, onOpen }: Readonly<RunRowProps>): ReactElement {
       title={t('subagentsRun.activity.run.open', { provider: run.provider, model: run.model ?? '' })}
       className="flex w-full items-center justify-between gap-sm rounded-md px-sm py-xs text-left text-[12px] hover:bg-surface-2"
     >
-      <span className="flex items-center gap-xs truncate">
+      <span className="flex min-w-0 flex-1 items-center gap-xs">
         {isActiveRunStatus(run.status) ? (
           <span className="h-[6px] w-[6px] shrink-0 animate-pulse rounded-full bg-accent" aria-hidden="true" />
         ) : null}
-        <span className="truncate text-fg">{run.subagentName}</span>
+        <span className="min-w-0 flex-1 truncate text-fg">{run.subagentName}</span>
         {run.parallelBatchId !== null ? (
           <span
             className="shrink-0 rounded-sm border border-border bg-surface-2 px-[6px] text-[10px] uppercase text-muted"
@@ -55,12 +55,20 @@ function RunRow({ run, now, onOpen }: Readonly<RunRowProps>): ReactElement {
           >
             {t('subagentsRun.isolation.worktree')}
           </span>
-        ) : null}
-        <span className="shrink-0 font-mono text-muted">{run.model ?? run.provider}</span>
+        ) : (
+          // Anatomia F18 (ui.md §A.5) só lista nome · badge worktree · ação/relógio · status pra
+          // filho de batch paralelo — modelo cabe no path serial F15, onde a row não disputa espaço
+          // com o badge.
+          <span className="shrink-0 font-mono text-muted">{run.model ?? run.provider}</span>
+        )}
       </span>
       <span className="flex shrink-0 items-center gap-xs font-mono text-muted">
         <span>{formatRunDuration(run.createdAt, run.durationMs, now)}</span>
-        <span className={statusClassName(run)}>{statusLabel(run)}</span>
+        {/* Row de filho paralelo some com o texto de status enquanto roda (ui.md §A.5: "omitido na
+            row enquanto running, só pulso") — abre espaço pro badge worktree sem cortar o nome. */}
+        {run.parallelBatchId !== null && isActiveRunStatus(run.status) ? null : (
+          <span className={statusClassName(run)}>{statusLabel(run)}</span>
+        )}
       </span>
     </button>
   )
