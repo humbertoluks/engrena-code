@@ -68,8 +68,9 @@ describe('mergeParallelChildDiffs', () => {
       ],
     })
 
-    expect(created).toHaveLength(2)
-    expect(created.every((d) => d.status === 'pending')).toBe(true)
+    // Sem diff criado aqui pro path exclusivo — só materializado; dispatch.ts é quem cria o diff
+    // no fim do turno pai via diffWorkingTree(cwd), evitando duplicar a entrada.
+    expect(created).toHaveLength(0)
     expect(readFileSync(join(parentCwd, 'a.ts'), 'utf-8')).toBe('conteudo a\n')
     expect(readFileSync(join(parentCwd, 'b.ts'), 'utf-8')).toBe('conteudo b\n')
   })

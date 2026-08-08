@@ -45,11 +45,13 @@ function materializeFileIntoParent(childWorktreePath: string, parentCwd: string,
 }
 
 /**
- * Union por path (spec F18 §3.2/§6). Path exclusivo de 1 filho: materializa o arquivo real no cwd
- * do pai (copy/remove) e cria diff `pending` — a partir daqui o accept/reject F03 de sempre já
- * enxerga a mudança, igual ao path serial F15 que sempre escreveu direto no cwd compartilhado.
- * Path tocado por ≥2 filhos: NÃO materializa (ambíguo qual versão vence) — cria diff `conflict`
- * com um candidato por filho, resolvido depois via `resolveParallelConflict`.
+ * Union por path (spec F18 §3.2/§6). Path exclusivo de 1 filho: só materializa o arquivo real no
+ * cwd do pai (copy/remove) — não cria diff aqui, porque `dispatch.ts` roda `diffWorkingTree(cwd)`
+ * no fim do turno pai (mesmo mecanismo do path serial F15) e já vai enxergar esse arquivo sozinho;
+ * criar o diff aqui também duplicaria a entrada. Path tocado por ≥2 filhos: NÃO materializa
+ * (ambíguo qual versão vence) — cria diff `conflict` com um candidato por filho, resolvido depois
+ * via `resolveParallelConflict` (aí sim precisa criar aqui, já que o path nunca chega a ser escrito
+ * no cwd do pai por `dispatch.ts` enxergar sozinho).
  */
 export function mergeParallelChildDiffs(input: MergeParallelChildDiffsInput): Diff[] {
   const byPath = new Map<
@@ -72,20 +74,10 @@ export function mergeParallelChildDiffs(input: MergeParallelChildDiffsInput): Di
   const created: Diff[] = []
   for (const [path, entries] of byPath) {
     if (entries.length === 1) {
-      const only = entries[0]
-      materializeFileIntoParent(only.worktreePath, input.parentCwd, path)
-      created.push(
-        createDiff({
-          threadId: input.parentThreadId,
-          file: path,
-          additions: only.file.additions,
-          deletions: only.file.deletions,
-          hunks: only.file.hunks,
-          provider: input.provider,
-          worktreePath: input.parentCwd,
-          status: 'pending',
-        })
-      )
+      // Só materializa — não cria diff aqui. O turno pai ainda vai rodar `diffWorkingTree(cwd)`
+      // no fim (dispatch.ts, mesmo mecanismo do path serial F15) e vai enxergar este arquivo já
+      // materializado sozinho; criar um diff aqui também duplicaria a entrada.
+      materializeFileIntoParent(entries[0].worktreePath, input.parentCwd, path)
     } else {
       const candidates: DiffConflictCandidate[] = entries.map((e) => ({
         childThreadId: e.childThreadId,

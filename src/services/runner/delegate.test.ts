@@ -18,7 +18,7 @@ const { vaultService } = await import('../vault/vault-service.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const { diffWorkingTree } = await import('../git/git-client.js')
-const { listDiffsForThread } = await import('../db/repositories/diffs.js')
+const { createDiff, listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { resolveThreadCwd } = await import('./thread-cwd.js')
 const {
   createDelegationServer,
@@ -444,13 +444,24 @@ describe('runParallelDelegatedBatch (F18)', () => {
 
     expect(getThreadEvents(parentThread.id, undefined, 10, 0).events).toHaveLength(2)
 
-    // AC F18 §2: filhos em paths distintos mergeiam automaticamente numa única revisão no pai.
-    const diffs = listDiffsForThread(parentThread.id)
-    expect(diffs.map((d) => d.file).sort()).toEqual(['task-a.txt', 'task-b.txt'])
-    expect(diffs.every((d) => d.status === 'pending')).toBe(true)
+    // AC F18 §2: filhos em paths distintos mergeiam — mas o batch em si não cria diff (regressão
+    // real achada via smoke ao vivo: criava aqui E de novo no fim do turno pai via
+    // dispatch.ts:diffWorkingTree(cwd), duplicando a entrada). Só materializa; quem cria o diff é
+    // o mesmo `diffWorkingTree` de sempre, exercitado abaixo como dispatch.ts faria.
+    expect(listDiffsForThread(parentThread.id)).toHaveLength(0)
     const parentCwd = resolveThreadCwd(parentThread, project)
     expect(readFileSync(join(parentCwd, 'task-a.txt'), 'utf-8')).toBe('ok\n')
     expect(readFileSync(join(parentCwd, 'task-b.txt'), 'utf-8')).toBe('ok\n')
+
+    // Simula o post-turn de dispatch.ts (mesmo diffWorkingTree(cwd) + createDiff por arquivo) para
+    // provar que, ponta a ponta, cada arquivo materializado pelo batch vira exatamente 1 diff.
+    const postTurnFiles = await diffWorkingTree(parentCwd)
+    for (const f of postTurnFiles) {
+      createDiff({ threadId: parentThread.id, file: f.file, additions: f.additions, deletions: f.deletions, hunks: f.hunks, provider: 'claude', worktreePath: parentCwd })
+    }
+    const diffs = listDiffsForThread(parentThread.id)
+    expect(diffs.map((d) => d.file).sort()).toEqual(['task-a.txt', 'task-b.txt'])
+    expect(diffs.every((d) => d.status === 'pending')).toBe(true)
   })
 
   it('test_merge_same_path_conflict — two children writing the same file end up as a conflict diff, not applied to the parent', async () => {
