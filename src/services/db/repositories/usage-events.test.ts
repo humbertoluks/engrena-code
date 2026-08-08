@@ -17,6 +17,7 @@ const {
   recalculateNullCosts,
   distinctUnpricedModels,
   calculateTableCost,
+  sumCostUsdInPeriod,
 } = await import('./usage-events.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f11_usage_events_fixture_'))
@@ -418,5 +419,73 @@ describe('getThreadEvents', () => {
     const page = getThreadEvents(thread.id, undefined, 10, 0)
     expect(page.events[0]).not.toHaveProperty('projectId')
     expect(page.events[0]).not.toHaveProperty('threadId')
+  })
+})
+
+describe('sumCostUsdInPeriod (F25)', () => {
+  it('sum_ignores_null_cost_usd — sums only priced events in range', () => {
+    const { project, thread } = makeThread()
+    createUsageEvent({
+      turnId: 't1',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 10,
+      costSource: 'sdk',
+    })
+    createUsageEvent({
+      turnId: 't2',
+      projectId: project.id,
+      threadId: thread.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: null,
+      costSource: 'table',
+    })
+
+    expect(sumCostUsdInPeriod({ fromMs: 0, toMs: Date.now() + 1000, projectId: project.id })).toBe(10)
+  })
+
+  it('filters by projectId when provided, sums across projects otherwise', () => {
+    const { project: projectA, thread: threadA } = makeThread()
+    const { project: projectB, thread: threadB } = makeThread()
+    createUsageEvent({
+      turnId: 'ta',
+      projectId: projectA.id,
+      threadId: threadA.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 5,
+      costSource: 'sdk',
+    })
+    createUsageEvent({
+      turnId: 'tb',
+      projectId: projectB.id,
+      threadId: threadB.id,
+      source: 'agent',
+      provider: 'claude',
+      billingMode: 'subscription',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 7,
+      costSource: 'sdk',
+    })
+
+    expect(sumCostUsdInPeriod({ fromMs: 0, toMs: Date.now() + 1000, projectId: projectA.id })).toBe(5)
+    expect(sumCostUsdInPeriod({ fromMs: 0, toMs: Date.now() + 1000 })).toBe(12)
+  })
+
+  it('returns 0 when nothing is in range', () => {
+    expect(sumCostUsdInPeriod({ fromMs: 0, toMs: 1 })).toBe(0)
   })
 })

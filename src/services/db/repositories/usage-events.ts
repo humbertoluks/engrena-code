@@ -330,6 +330,28 @@ export function getSummary(filter?: PeriodFilter): UsageSummary {
   }
 }
 
+export interface CostSumFilter {
+  fromMs: number
+  toMs: number
+  projectId?: string
+}
+
+/** Soma `cost_usd` no período (spec F25 §3.2) — reusa a regra F11 de ignorar `cost_usd IS NULL` (`SUM` já os pula). */
+export function sumCostUsdInPeriod(filter: CostSumFilter): number {
+  const params: { fromMs: number; toMs: number; projectId?: string } = { fromMs: filter.fromMs, toMs: filter.toMs }
+  if (filter.projectId !== undefined) params.projectId = filter.projectId
+
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS cost_sum FROM usage_events
+       WHERE created_at BETWEEN @fromMs AND @toMs
+       ${filter.projectId !== undefined ? 'AND project_id = @projectId' : ''}`
+    )
+    .get(params) as { cost_sum: number }
+
+  return row.cost_sum
+}
+
 export interface ProjectUsageSummary {
   projectId: string
   projectName: string
