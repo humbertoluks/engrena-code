@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
-import { getVcsStatus, gitInit, GitError } from '../git/git-client.js'
+import { getRemoteOriginUrl, getVcsStatus, gitInit, GitError } from '../git/git-client.js'
+import { parseVcsRemote } from '../vcs/remote.js'
 import {
   createProject,
   deleteProject,
@@ -67,7 +68,12 @@ async function handleVcsStatus(_req: IncomingMessage, res: ServerResponse, id: s
 
   try {
     const status = await getVcsStatus(project.path)
-    sendJson(res, 200, status)
+    // Extensão F24 (spec §5.3): kind detectado pelo origin; sem remote = null, host não suportado = 'unknown'.
+    const remoteUrl = await getRemoteOriginUrl(project.path)
+    const parsed = remoteUrl ? parseVcsRemote(remoteUrl) : null
+    const kind = remoteUrl === null ? null : (parsed?.kind ?? 'unknown')
+    const changeRequestShort = kind === 'gitlab' ? 'MR' : 'PR'
+    sendJson(res, 200, { ...status, kind, changeRequestShort })
   } catch (err) {
     console.error('[projects-handler] vcs-status error:', err)
     sendError(res, 500, 'internal_error', 'Não foi possível ler o status do repositório.')

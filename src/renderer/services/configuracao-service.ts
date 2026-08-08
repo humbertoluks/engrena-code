@@ -71,6 +71,35 @@ export interface ApiError {
   error?: { code: string; message: string }
 }
 
+// ── VCS (F24) ────────────────────────────────────────────────────────────────
+
+export type VcsOauthKind = 'gitlab' | 'bitbucket' | 'azure'
+export type VcsProviderKind = 'github' | VcsOauthKind
+export type VcsOauthStatus = 'disconnected' | 'pending' | 'connected' | 'needs-reauth' | 'needs-client-id'
+
+export interface VcsProviderStatus {
+  kind: VcsProviderKind
+  auth: 'pat' | 'oauth'
+  status: string
+  tokenPresent: boolean
+}
+
+export interface VcsStatusResult {
+  providers?: VcsProviderStatus[]
+  error?: { code: string; message: string }
+}
+
+export interface VcsOauthStartResult {
+  authorizeUrl?: string
+  status?: 'needs-client-id'
+  error?: { code: string; message: string }
+}
+
+export interface VcsOauthMutationResult {
+  status?: VcsOauthStatus
+  error?: { code: string; message: string }
+}
+
 // ── API ──────────────────────────────────────────────────────────────────────
 
 export const configuracaoService = {
@@ -97,4 +126,15 @@ export const configuracaoService = {
   testGlm: (): Promise<ProviderTestResult> => apiRequest('POST', '/api/config/glm/test'),
 
   testGrok: (): Promise<ProviderTestResult> => apiRequest('POST', '/api/config/grok/test'),
+
+  vcsStatus: (): Promise<VcsStatusResult> => apiRequest('GET', '/api/config/vcs/status'),
+
+  vcsOauthStart: (kind: VcsOauthKind): Promise<VcsOauthStartResult> =>
+    apiRequest('POST', `/api/config/vcs/${kind}/oauth/start`),
+
+  vcsOauthDisconnect: (kind: VcsOauthKind): Promise<VcsOauthMutationResult> =>
+    apiRequest('POST', `/api/config/vcs/${kind}/oauth/disconnect`),
+
+  vcsOauthSaveClientId: (kind: VcsOauthKind, clientId: string): Promise<VcsOauthMutationResult> =>
+    apiRequest('PUT', `/api/config/vcs/${kind}/oauth/client`, { clientId }),
 }

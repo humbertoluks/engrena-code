@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { VcsStatus } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
+import { changeRequestLabels } from './changeRequestLabels'
 
 const COPY = {
   section: 'Repositório',
@@ -10,18 +11,12 @@ const COPY = {
   hintClean: 'Tudo em dia — nada a commitar ou pushar.',
   quickCommit: 'Commit',
   quickCommitPush: 'Commit & push',
-  quickCommitPushPr: 'Commit, push & PR',
   stageCommitting: 'Commitando…',
   stagePushing: 'Pushando…',
-  stageOpeningPr: 'Abrindo PR…',
   stageTextgen: 'Gerando com IA…',
   placeholderSubject: 'Mensagem do commit',
   placeholderBody: 'Descrição (opcional)',
-  placeholderPrTitle: 'Título do PR',
-  placeholderPrBody: 'Descrição do PR (markdown, opcional)',
   generateAi: 'Gerar com IA',
-  prFieldsToggle: 'Detalhes do PR',
-  viewPr: 'Ver PR',
   textgenFailed: 'Não foi possível gerar o texto. Escreva manualmente.',
 } as const
 
@@ -47,6 +42,8 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
   const [activeAction, setActiveAction] = useState<ActiveAction>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastPrUrl, setLastPrUrl] = useState<string | null>(null)
+
+  const crLabels = useMemo(() => changeRequestLabels(vcsStatus?.kind ?? null), [vcsStatus?.kind])
 
   const threadBusy =
     selectedThread?.state === 'running' ||
@@ -171,7 +168,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
     if (stage === 'textgen') return COPY.stageTextgen
     if (stage === 'commit') return COPY.stageCommitting
     if (stage === 'push') return COPY.stagePushing
-    if (stage === 'pr') return COPY.stageOpeningPr
+    if (stage === 'pr') return crLabels.stageOpeningPr
     return ''
   }
 
@@ -197,7 +194,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
           {lastPrUrl !== null ? (
             <p role="status" className="text-[11px] text-green">
               <button type="button" onClick={handleViewPr} className="font-mono underline">
-                {COPY.viewPr}
+                {crLabels.viewPr}
               </button>
             </p>
           ) : null}
@@ -237,7 +234,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
             onClick={() => setPrFieldsOpen((v) => !v)}
             className="w-fit text-[11px] text-muted underline hover:text-fg"
           >
-            {COPY.prFieldsToggle}
+            {crLabels.prFieldsToggle}
           </button>
 
           {prFieldsOpen ? (
@@ -247,7 +244,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
                   type="text"
                   value={prTitle}
                   onChange={(e) => setPrTitle(e.target.value)}
-                  placeholder={COPY.placeholderPrTitle}
+                  placeholder={crLabels.placeholderPrTitle}
                   disabled={busy}
                   className="flex-1 rounded-md border border-border bg-surface-2 px-xs py-[3px] text-[12px] text-fg placeholder:text-muted disabled:opacity-50"
                 />
@@ -264,7 +261,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
               <textarea
                 value={prBody}
                 onChange={(e) => setPrBody(e.target.value)}
-                placeholder={COPY.placeholderPrBody}
+                placeholder={crLabels.placeholderPrBody}
                 disabled={busy}
                 rows={3}
                 className="rounded-md border border-border bg-surface-2 px-xs py-[3px] text-[12px] text-fg placeholder:text-muted disabled:opacity-50"
@@ -295,7 +292,7 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
               onClick={() => void handleCommitPushPr()}
               className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[11px] font-medium hover:bg-surface disabled:opacity-50"
             >
-              {activeAction === 'commitPushPr' ? stageLabel() : COPY.quickCommitPushPr}
+              {activeAction === 'commitPushPr' ? stageLabel() : crLabels.quickCommitPushPr}
             </button>
           </div>
         </div>

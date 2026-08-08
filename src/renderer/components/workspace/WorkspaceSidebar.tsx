@@ -39,6 +39,14 @@ const COPY = {
   memoryCorrupted: 'journal ilegível',
 } as const
 
+// docs/F24-multi-vcs/copy.md `vcs.badge.*`
+const VCS_BADGE_LABEL: Record<'github' | 'gitlab' | 'bitbucket' | 'azure', string> = {
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  bitbucket: 'Bitbucket',
+  azure: 'Azure DevOps',
+}
+
 /** Meta da linha Memória (F20 ui.md §A) — corrompido vence desligada, que vence a contagem. */
 function memoryMeta(status: MemoryStatus | null): string {
   if (status === null) return ''
@@ -173,6 +181,11 @@ export function WorkspaceSidebar({
           ) : null}
 
           <section>
+            {vcsStatus?.kind && vcsStatus.kind !== 'unknown' ? (
+              <span className="mb-xs inline-block rounded-sm border border-border px-xs py-[1px] font-mono text-[10.5px] text-muted">
+                {VCS_BADGE_LABEL[vcsStatus.kind]}
+              </span>
+            ) : null}
             <GitActions
               vcsStatus={vcsStatus}
               selectedThread={selectedThread}

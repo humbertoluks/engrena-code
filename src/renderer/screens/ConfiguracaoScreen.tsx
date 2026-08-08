@@ -15,6 +15,8 @@ import {
   type CLIStatusData,
   type ConfigStatus,
   type ProviderKeyName,
+  type VcsOauthStatus,
+  type VcsProviderStatus,
 } from '../services/configuracao-service'
 import {
   KEY_VALIDATION_MESSAGES,
@@ -25,6 +27,7 @@ import {
   validateGrokKeyLocal,
   validateGithubTokenLocal,
 } from './configuracaoScreen.logic'
+import { VcsOauthCard } from '../components/config/VcsOauthCard'
 
 // ── Copy ─────────────────────────────────────────────────────────────────────
 
@@ -83,6 +86,9 @@ const COPY = {
   githubSaveConfirm: 'Salvar este token do GitHub no cofre local?',
   githubReveal: 'Revelar token',
   githubHide: 'Ocultar token',
+  vcsGitlabTitle: 'GitLab',
+  vcsBitbucketTitle: 'Bitbucket',
+  vcsAzureTitle: 'Azure DevOps',
   githubBadgePresent: 'Customizado',
   githubBadgeEmpty: 'Não configurado',
 
@@ -722,6 +728,7 @@ function makeAction(): ActionState {
 export function ConfiguracaoScreen(): ReactElement {
   const [status, setStatus] = useState<ConfigStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [vcsStatus, setVcsStatus] = useState<VcsProviderStatus[] | null>(null)
 
   const [claudeAction, setClaudeAction] = useState<ActionState>(makeAction)
   const [clisAction, setClisAction] = useState<ActionState>(makeAction)
@@ -753,6 +760,17 @@ export function ConfiguracaoScreen(): ReactElement {
   }, [])
 
   useEffect(() => { void loadStatus() }, [loadStatus])
+
+  useEffect(() => {
+    configuracaoService
+      .vcsStatus()
+      .then((res) => {
+        if (mountedRef.current && !res.error && res.providers) setVcsStatus(res.providers)
+      })
+      .catch(() => {
+        // Cards VCS ficam sem estado inicial (fallback dentro do componente) — best-effort, igual memória/vcs no Workspace.
+      })
+  }, [])
 
   const handleClaudeMode = useCallback(async (mode: 'subscription' | 'api-key'): Promise<void> => {
     setClaudeAction({ loading: true, feedback: null })
@@ -1012,6 +1030,26 @@ export function ConfiguracaoScreen(): ReactElement {
           saveLoading={githubAction.loading}
           feedback={githubAction.feedback}
         />
+
+        {vcsStatus !== null ? (
+          <>
+            <VcsOauthCard
+              kind="gitlab"
+              title={COPY.vcsGitlabTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'gitlab')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+            <VcsOauthCard
+              kind="bitbucket"
+              title={COPY.vcsBitbucketTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'bitbucket')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+            <VcsOauthCard
+              kind="azure"
+              title={COPY.vcsAzureTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'azure')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+          </>
+        ) : null}
       </div>
     </section>
   )

@@ -12,6 +12,8 @@ export interface Project {
   updatedAt: number
 }
 
+export type VcsProviderKind = 'github' | 'gitlab' | 'bitbucket' | 'azure' | 'unknown' | null
+
 export interface VcsStatus {
   hasGit: boolean
   hasHead: boolean
@@ -20,6 +22,8 @@ export interface VcsStatus {
   ahead: number
   behind: number
   dirty: boolean
+  kind?: VcsProviderKind
+  changeRequestShort?: 'PR' | 'MR'
 }
 
 // ── API ──────────────────────────────────────────────────────────────────────

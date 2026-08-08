@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { execFileSync } from 'child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -142,5 +143,63 @@ describe('handleProjectsRequest', () => {
     const delRes = fakeRes()
     await handleProjectsRequest(delReq, delRes)
     expect((await delRes.result()).status).toBe(204)
+  })
+})
+
+describe('vcs-status kind detection (F24)', () => {
+  function makeGitDir(name: string): string {
+    const dir = join(fixtureRoot, name)
+    mkdirSync(dir, { recursive: true })
+    execFileSync('git', ['init'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@local', 'commit', '--allow-empty', '-m', 'init'], { cwd: dir })
+    return dir
+  }
+
+  async function createProjectAt(session: string, dir: string): Promise<string> {
+    const createRes = fakeRes()
+    await handleProjectsRequest(fakeReq('POST', '/api/projects', { path: dir }, session), createRes)
+    const body = (await createRes.result()).body as { project: { id: string } }
+    return body.project.id
+  }
+
+  it('reports kind=null with no origin configured', async () => {
+    const session = unlockVault()
+    const dir = makeGitDir('vcs-none')
+    const id = await createProjectAt(session, dir)
+
+    const req = fakeReq('GET', `/api/projects/${id}/vcs-status`, undefined, session)
+    const res = fakeRes()
+    await handleProjectsRequest(req, res)
+    const body = (await res.result()).body as { kind: string | null; changeRequestShort: string }
+    expect(body.kind).toBeNull()
+    expect(body.changeRequestShort).toBe('PR')
+  })
+
+  it('detects kind=gitlab and changeRequestShort=MR from origin', async () => {
+    const session = unlockVault()
+    const dir = makeGitDir('vcs-gitlab')
+    execFileSync('git', ['remote', 'add', 'origin', 'https://gitlab.com/acme/app.git'], { cwd: dir })
+    const id = await createProjectAt(session, dir)
+
+    const req = fakeReq('GET', `/api/projects/${id}/vcs-status`, undefined, session)
+    const res = fakeRes()
+    await handleProjectsRequest(req, res)
+    const body = (await res.result()).body as { kind: string; changeRequestShort: string }
+    expect(body.kind).toBe('gitlab')
+    expect(body.changeRequestShort).toBe('MR')
+  })
+
+  it('detects kind=unknown for an unsupported host', async () => {
+    const session = unlockVault()
+    const dir = makeGitDir('vcs-unknown')
+    execFileSync('git', ['remote', 'add', 'origin', 'https://git.internal.example.com/acme/app.git'], { cwd: dir })
+    const id = await createProjectAt(session, dir)
+
+    const req = fakeReq('GET', `/api/projects/${id}/vcs-status`, undefined, session)
+    const res = fakeRes()
+    await handleProjectsRequest(req, res)
+    const body = (await res.result()).body as { kind: string; changeRequestShort: string }
+    expect(body.kind).toBe('unknown')
+    expect(body.changeRequestShort).toBe('PR')
   })
 })
