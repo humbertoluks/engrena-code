@@ -1,0 +1,104 @@
+- generic [ref=e26]:
+  - banner [ref=e27]:
+    - generic [ref=e28]: EngrenaCode
+    - navigation "Navegação principal" [ref=e29]:
+      - link "Dashboard" [ref=e30] [cursor=pointer]:
+        - /url: "#dashboard"
+      - link "Workspace" [ref=e31] [cursor=pointer]:
+        - /url: "#principal"
+      - link "Configuração" [ref=e32] [cursor=pointer]:
+        - /url: "#configuracao"
+      - link "SubAgents" [ref=e33] [cursor=pointer]:
+        - /url: "#subagents"
+      - link "Skills" [ref=e34] [cursor=pointer]:
+        - /url: "#skills"
+      - link "Rules" [ref=e35] [cursor=pointer]:
+        - /url: "#rules"
+      - link "MCPs" [ref=e36] [cursor=pointer]:
+        - /url: "#mcps"
+      - link "Registros" [ref=e37] [cursor=pointer]:
+        - /url: "#registros"
+      - link "Consumo" [ref=e38] [cursor=pointer]:
+        - /url: "#consumo"
+    - generic [ref=e39]:
+      - generic [ref=e40]: Tema
+      - combobox "Tema" [ref=e41]:
+        - option "Claro"
+        - option "Escuro"
+        - option "Sistema" [selected]
+  - main [ref=e42]:
+    - generic [ref=e101]:
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - heading "Projetos" [level=2] [ref=e104]
+          - button "Adicionar projeto" [ref=e105]: +
+        - list [ref=e162]:
+          - listitem [ref=e163]:
+            - button "engrena-code" [ref=e165]
+            - generic [ref=e166]:
+              - button "+ Nova thread" [ref=e167]
+              - paragraph [ref=e168]: Nenhuma thread ainda.
+        - button "Adicionar projeto" [ref=e108]
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - button "Histórico" [ref=e111]
+          - button "Diff" [ref=e112]
+        - paragraph [ref=e114]: Envie uma mensagem abaixo para iniciar uma thread, ou selecione uma na barra lateral.
+        - generic [ref=e117]:
+          - textbox "Descreva a task para o agente… (Enter envia)" [ref=e119]:
+            - /placeholder: Descreva a task para o agente…  (Enter envia)
+          - generic [ref=e120]:
+            - generic [ref=e121]:
+              - generic [ref=e122]:
+                - 'button "Provider e modelo: Claude · claude-sonnet-4-6" [ref=e124]': Claude · claude-sonnet-4-6
+                - 'button "Reasoning: default" [ref=e126]': Reasoning
+              - generic [ref=e128]:
+                - generic [ref=e129]: Access
+                - button "Supervised" [ref=e130]
+                - button "Auto-accept edits" [ref=e131]
+                - button "Full access" [ref=e132]
+              - generic [ref=e133]:
+                - generic [ref=e134]: Execution
+                - button "Main" [ref=e135]
+                - button "Worktree" [ref=e136]
+              - button "Anexar imagens" [ref=e138]: 📎
+            - button "Enviar" [disabled] [ref=e139]
+      - generic [ref=e140]:
+        - button "+ Nova Thread" [ref=e169]
+        - generic [ref=e170]:
+          - heading "Ambiente" [level=3] [ref=e171]
+          - paragraph [ref=e172]: C:\Users\Me\Code\repos\github\engrena-code
+          - paragraph [ref=e173]: "branch: main"
+        - generic [ref=e175]:
+          - heading "Repositório" [level=3] [ref=e176]
+          - paragraph [ref=e177]: Abra uma thread para executar ações de git
+        - group [ref=e178]:
+          - 'generic "CodeGraph CodeGraph: indexado (0h atrás)" [active] [ref=e199] [cursor=pointer]':
+            - generic [ref=e180]: CodeGraph
+            - generic "CodeGraph pronto — o agente consulta o grafo de símbolos" [ref=e200]: "CodeGraph: indexado (0h atrás)"
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - generic [ref=e203]: Arquivos
+              - generic [ref=e204]: "559"
+            - generic [ref=e205]:
+              - generic [ref=e206]: Símbolos
+              - generic [ref=e207]: "2239"
+            - generic [ref=e208]:
+              - generic [ref=e209]: Indexado
+              - generic [ref=e210]: 07/08/2026, 17:01:34
+            - button "Reindexar" [ref=e211]
+        - generic [ref=e184]:
+          - heading "Repo Harness" [level=3] [ref=e185]
+          - generic [ref=e186]:
+            - button "Rules 0 ativas" [ref=e187]:
+              - generic [ref=e188]: Rules
+              - generic [ref=e189]: 0 ativas
+            - button "Skills 0 vinculados" [ref=e190]:
+              - generic [ref=e191]: Skills
+              - generic [ref=e192]: 0 vinculados
+            - button "SubAgents 0 vinculados" [ref=e193]:
+              - generic [ref=e194]: SubAgents
+              - generic [ref=e195]: 0 vinculados
+            - button "MCPs 0 vinculados" [ref=e196]:
+              - generic [ref=e197]: MCPs
+              - generic [ref=e198]: 0 vinculados

@@ -80,6 +80,6 @@ Exemplos: `codegraph.section.title`, `codegraph.badge.ready`, `codegraph.cta.gen
 
 | Id necessário | Motivo | Status |
 |---------------|--------|--------|
-| `codegraph.badge.indexed` vs `badge.ready` | PRD Engrena ≠ label fonte `pronto` — escolher no design | TODO design |
+| `codegraph.badge.indexed` vs `badge.ready` | PRD Engrena ≠ label fonte `pronto` — escolher no design | **Resolvido** — shipou `codegraph.badge.indexed`; `badge.ready` (`pronto`) fica só como referência da fonte, e o texto de `pronto` sobrevive no tooltip `badge.title.ready` (ver `ui.md` → Evidência do destino) |
 | Copy sem CLI para consent Engrena | Se consent for mantido sem download CLI | TODO design |
 | Empty `unsupported` body | PRD não define texto de painel além do badge | TODO |

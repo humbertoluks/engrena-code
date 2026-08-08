@@ -19,6 +19,16 @@
 
 > Capturado 2026-08-07 via `playwright-cli attach --cdp` no Electron LionCodeLabs (`--remote-debugging-port=9222`), projeto scratch `f19-codegraph-ref` com 1 arquivo `.ts`. Badge `sem graph` + painel expandido; dialog de consent no canto inferior direito.
 
+### Evidência do destino (EngrenaCode, já implementado)
+
+| Artefato | Caminho |
+|----------|---------|
+| Estado `missing` (badge `sem graph` + CTA `Gerar graph`) | `docs/F19-codegraph-e-navegacao-estrutural/ui/codegraph-section-missing-destino.png` |
+| Estado `indexed` (badge + stats + `Reindexar`) | `docs/F19-codegraph-e-navegacao-estrutural/ui/codegraph-section-indexed-destino.png` |
+| Snapshot a11y do estado `indexed` | `docs/F19-codegraph-e-navegacao-estrutural/ui/codegraph-section-indexed-destino.yml` |
+
+> Capturado 2026-08-07 17:01 no Electron EngrenaCode real, projeto `engrena-code` (559 arquivos / 2239 símbolos indexados). Diferente dos assets `*-referencia.png` acima, que são da **fonte** — estes mostram o que o destino de fato shipou.
+
 ## Escopo
 
 **Inclui (Engrena F19):**
@@ -89,8 +99,8 @@ Ordem obrigatória:
 
 | Item | Valor na fonte | Mapeamento destino |
 |------|----------------|--------------------|
-| Posição CodeGraph | Seção própria **acima** de Repo Harness | Engrena PRD diz “no Repo Harness” — ver Perguntas |
-| Badge ready label | `pronto` | PRD Engrena: `CodeGraph: indexado ({n}h atrás)` — preferir PRD no destino |
+| Posição CodeGraph | Seção própria **acima** de Repo Harness | **Shipou igual à fonte** (seção própria), apesar do PRD dizer “no Repo Harness” |
+| Badge ready label | `pronto` | **Shipou o do PRD**: `CodeGraph: indexado ({n}h atrás)`; só o tooltip ficou o da fonte |
 | Badge building | `gerando…` / `Indexando…` no painel | Alinhar a `indexando…` (PRD) |
 | unsupported | Não há chip dedicado; CLI missing vira hint amber | Engrena: badge/status `não suportado` |
 
@@ -195,12 +205,15 @@ Aplicar mapa de rename: `LionCode → EngrenaCode` (nenhuma string desta seção
 - [ ] Tema via tokens (sem hex solto no destino)
 - [ ] Slots CLI/consent-download **não** shipados no MVP Engrena F19
 
+## Resolvidas pela implementação (ver Evidência do destino)
+
+- **Posição da seção:** venceu a anatomia da fonte — `CodeGraph` é seção própria **acima** do Repo Harness, não uma linha dentro dele (`codegraph-section-indexed-destino.yml`: `group` com summary `CodeGraph` precedendo o heading `Repo Harness`).
+- **Badge ready:** venceu o PRD — shipou `CodeGraph: indexado ({n}h atrás)`, não o `pronto` da fonte. O tooltip, esse sim, ficou o da fonte (`CodeGraph pronto — o agente consulta o grafo de símbolos`).
+
 ## Perguntas em aberto
 
-- PRD Engrena coloca o indicador **dentro** do Repo Harness; a fonte usa seção **separada** acima dele. Preferir anatomia da fonte (seção própria) ou literal do PRD?
 - Engrena indexa no 1º turno sem consent: manter dialog só como opcional de design, ou omitir por completo?
-- Badge ready: manter `pronto` (fonte) ou `CodeGraph: indexado ({n}h atrás)` (PRD)?
-- CTA **Cancelar** durante index: Engrena F19 index sync no turn — cancelar faz sentido?
+- CTA **Cancelar** durante index: Engrena F19 index sync no turn — cancelar faz sentido? (a evidência do destino só cobre `missing` e `indexed`, nunca `indexing`, então não responde isto)
 
 ## Relacionados
 
