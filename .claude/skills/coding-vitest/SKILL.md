@@ -34,13 +34,12 @@ Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.
 
 ## Erros já registrados aqui — não repita
 
-Abertos (feche antes de considerar o módulo/feature pronto):
-
-- `R-missing-sibling-coverage` — ainda sem `*.test.ts` irmão: `vcs/oauth-config.ts`, `mcps/catalog.ts`, `config/defaults.ts`. Ao tocar qualquer um, adicione teste mínimo. Exceção aceita: arquivo só de `type`/`interface` (`runner/providers/provider-types.ts`).
+Abertos: nenhum nesta Stack.
 
 Já corrigidos — não regrida:
 
 - Irmãos da passagem anterior (`messages`, `_transport`, `vault-service`/`store`, extensão `git-client`), 17/17 `*.logic.ts` do renderer com `*.logic.test.ts`, todos os repositórios de `db/repositories/`, `codegraph/ensure`+`query` e os registries do runner (`mcp-registry`, `rule-registry`, `thread-cwd`, `turn-control`).
+- `RC-missing-sibling-coverage` — **D02 fechado por completo** (2026-08-09): `vcs/oauth-config.test.ts`, `mcps/catalog.test.ts`, `config/defaults.test.ts` últimos irmãos que faltavam na base inteira. Módulo novo em `src/services/**` nasce com o irmão no mesmo diff, não depois.
 - `RC-missing-smoke-evidence` — **D07 fechado por completo** (2026-08-09): todas as 12 features com UI Feito têm `docs/F<ID>-*/smoke-results.md` — F01, F02, F03, F04, F05, F06, F07, F08, F09, F10, F11, F12, F13, F14, F15, F16, F17, F18, F20, F21, F22, F23, F24, F25, F26, F27 (F19 exempto, smoke "opcional" na própria spec). Feature nova: escreva o smoke antes de marcar `[x]` — não deixe a dívida se acumular de novo.
 - `process-error.test.ts` cobre um caso por scheme F24 (`oauth2:`, `x-token-auth:`, azure `https://:<token>@`) e por prefixo (`xai-`, `gsk_`), assertando que o segredo **não** sobrevive. Ao mexer no sanitizer, mantenha um caso por scheme.
 
