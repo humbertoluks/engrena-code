@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { Project, VcsStatus } from '../../services/projects-service'
 import type { PipelineHistory, Thread } from '../../services/threads-service'
@@ -104,6 +104,27 @@ export function WorkspaceSidebar({
   const [mcpsCount, setMcpsCount] = useState<number | null>(null)
   const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | 'memory' | null>(null)
 
+  const refreshHarnessCounts = useCallback(
+    (projectId: string) => {
+      rulesService.counts().then((res) => {
+        if (!res.error) setRulesCount(res.activeByProject[projectId] ?? 0)
+      }).catch(() => {})
+
+      skillsService.listForProject(projectId).then((res) => {
+        if (!res.error) setSkillsCount(res.filter((s) => s.linked).length)
+      }).catch(() => {})
+
+      subagentsService.counts().then((res) => {
+        if (!res.error) setSubagentsCount(res.linkedByProject[projectId] ?? 0)
+      }).catch(() => {})
+
+      mcpsService.listForProject(projectId).then((res) => {
+        if (Array.isArray(res)) setMcpsCount(res.filter((m) => m.linked).length)
+      }).catch(() => {})
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!project) {
       setRulesCount(null)
@@ -112,28 +133,8 @@ export function WorkspaceSidebar({
       setMcpsCount(null)
       return
     }
-    let cancelled = false
-
-    rulesService.counts().then((res) => {
-      if (!cancelled && !res.error) setRulesCount(res.activeByProject[project.id] ?? 0)
-    }).catch(() => {})
-
-    skillsService.listForProject(project.id).then((res) => {
-      if (!cancelled && !res.error) setSkillsCount(res.filter((s) => s.linked).length)
-    }).catch(() => {})
-
-    subagentsService.counts().then((res) => {
-      if (!cancelled && !res.error) setSubagentsCount(res.linkedByProject[project.id] ?? 0)
-    }).catch(() => {})
-
-    mcpsService.listForProject(project.id).then((res) => {
-      if (!cancelled && Array.isArray(res)) setMcpsCount(res.filter((m) => m.linked).length)
-    }).catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [project])
+    refreshHarnessCounts(project.id)
+  }, [project, refreshHarnessCounts])
 
   return (
     <div className="flex h-full flex-col gap-md overflow-y-auto rounded-xl border border-border bg-surface p-sm">
@@ -232,16 +233,40 @@ export function WorkspaceSidebar({
       )}
 
       {project && openModal === 'rules' ? (
-        <ProjectRulesModal projectId={project.id} onClose={() => setOpenModal(null)} />
+        <ProjectRulesModal
+          projectId={project.id}
+          onClose={() => {
+            setOpenModal(null)
+            refreshHarnessCounts(project.id)
+          }}
+        />
       ) : null}
       {project && openModal === 'skills' ? (
-        <ProjectSkillsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+        <ProjectSkillsModal
+          projectId={project.id}
+          onClose={() => {
+            setOpenModal(null)
+            refreshHarnessCounts(project.id)
+          }}
+        />
       ) : null}
       {project && openModal === 'subagents' ? (
-        <ProjectSubagentsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+        <ProjectSubagentsModal
+          projectId={project.id}
+          onClose={() => {
+            setOpenModal(null)
+            refreshHarnessCounts(project.id)
+          }}
+        />
       ) : null}
       {project && openModal === 'mcps' ? (
-        <ProjectMcpsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+        <ProjectMcpsModal
+          projectId={project.id}
+          onClose={() => {
+            setOpenModal(null)
+            refreshHarnessCounts(project.id)
+          }}
+        />
       ) : null}
       {project && openModal === 'memory' ? (
         <ProjectMemoryModal

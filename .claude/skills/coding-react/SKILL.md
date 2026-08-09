@@ -28,6 +28,7 @@ Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.
 - Envolva CSS de elemento em `@layer base` — `@import 'tailwindcss'` põe utilitários em `@layer utilities`, e regra sem layer vence layer, anulando `p-*`/`m-*`. Nunca repita reset de margin/padding/box-sizing (preflight já cobre).
 - Marca: só `EngrenaCode`/`engrenacode` em UI, copy e nomes de componente. Nunca `Lion*`.
 - Antes de implementar uma tela nova ou corrigir uma existente, escreva/consulte o `ui.md` da feature (anatomia + tabela de copy) — tokens sozinhos não garantem fidelidade visual.
+- **Contador derivado de vínculo N:N refetch no fechamento do modal que pode mutá-lo, não só na troca da entidade pai.** Um `useEffect([project])` que busca contagem de Rules/Skills/SubAgents/MCPs não reexecuta quando o modal de vínculo fecha — extraia a busca pra função reutilizável e chame também no `onClose` do modal (padrão `refreshHarnessCounts` em `WorkspaceSidebar.tsx`).
 
 ## Erros já registrados aqui — não repita
 
@@ -39,6 +40,7 @@ Já corrigidos — não regrida:
 - `RC-business-rule-in-tsx` — regras de telas/modais migradas para `*.logic.ts` (17/17 com teste irmão na base). Não devolva validação/filtro/formatação para o `.tsx`.
 - `RC-no-silent-catch` — não reintroduza `.catch(() => {})` mudo em `loadStatus`/chamadas equivalentes.
 - `RC-shared-api-request` — services já usam `api-client.ts`; não volte a duplicar `fetch` com headers próprios.
+- `RC-harness-count-stale-after-modal-close` — `WorkspaceSidebar.tsx` refetch das 4 contagens do Repo Harness (Rules/Skills/SubAgents/MCPs) extraído para `refreshHarnessCounts(projectId)`, chamado tanto na troca de projeto quanto no `onClose` dos 4 modais de vínculo. Achado ao vivo no smoke de F05 (dado certo no servidor, contagem obsoleta na tela até reselecionar o projeto). Não volte a deixar o `useEffect` reagir só à entidade pai.
 
 ## Se encontrar um padrão novo
 

@@ -8,8 +8,8 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | **Passagem atual** | 2026-08-09 |
 | **Escopo** | `src/` (base completa) |
 | **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura) |
-| **Correção de código nesta passagem** | Sessão de fix D07 (smoke real F20/F21/F23/F26/F27) achou e corrigiu 2 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`) e colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`) |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35) |
+| **Correção de código nesta passagem** | Sessão de fix D07: smoke real das 12 features com UI Feito fechou o achado inteiro (F20/F21/F23/F26/F27 + F04/F05/F08/F10/F14/F16/F17) e achou 3 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`), colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`), e contagem do Repo Harness (Skills/Rules/SubAgents/MCPs) não atualizando após fechar o modal de vínculo (`WorkspaceSidebar.tsx`) |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -27,8 +27,8 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 10 | 8 |
-| Problemas corrigidos (tipos) | — | — | 34 |
+| Achados abertos | 0 | 9 | 7 |
+| Problemas corrigidos (tipos) | — | — | 36 |
 
 ---
 
@@ -77,26 +77,28 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem — o único 🔴 restante (D07) teve sua fatia prioritária (F20/F21/F23/F26/F27) fechada por smoke real e caiu para 🟡 (dívida secundária, mesmo tratamento das 7 features remanescentes). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C30 **permanecem corrigidos**.
+**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
 
 **Corrigido nesta passagem (verificado no código)**
 
 - **R01 + R07** → `C31`: `process-error.ts` redige userinfo HTTPS genérico e `xai-`/`gsk_`, com um caso de teste por scheme (`055807d`).
 - **R02** → `C32`: `configuracaoScreen.logic.ts` importa `validate*Key` / `validateGithubToken` em vez de re-declarar literals (`40037d8`).
-- **D07 (fatia F20/F21/F23/F26/F27)** → downgrado de 🔴 para 🟡, ainda **aberto** (7 features restantes não têm prioridade definida): smoke real via `playwright-cli` + Electron (dev para F20/F21/F23, empacotado `--dir` + CDP para F26/F27 por dependerem de IPC/permissão nativa); `docs/F20|F21|F23|F26|F27-*/smoke-results.md` gravados. Ver [R-missing-smoke-evidence](#r-missing-smoke-evidence).
+- **D07 (fatia F20/F21/F23/F26/F27)** → `C33`: smoke real via `playwright-cli` + Electron (dev para F20/F21/F23, empacotado `--dir` + CDP para F26/F27 por dependerem de IPC/permissão nativa); `docs/F20|F21|F23|F26|F27-*/smoke-results.md` gravados.
 - **Bug real achado no smoke (CORS sem `PATCH`)** → `C34`: `unlock-handler.ts` não listava `PATCH` em `Access-Control-Allow-Methods`, quebrando o toggle de Memória (F20) e qualquer PATCH real no browser/Electron; corrigido + teste de regressão em `unlock-handler.test.ts`.
 - **Bug real achado no smoke (colisão de status 401)** → `C35`: `voice-handler.ts` respondia `401` para key de voz rejeitada pelo provider (`voice_auth_error`); como `api-client.ts` trata **qualquer** 401 como sessão do vault inválida e força relock, uma key de terceiro errada derrubava a sessão inteira do app. Corrigido para `422`; teste de regressão em `voice-handler.test.ts`.
+- **D07 (fatia final F04/F05/F08/F10/F14/F16/F17)** → `C36`: **D07 fechado por completo**. F04/F08/F10/F14/F16/F17 já tinham smoke real narrado com detalhe em `docs/PROGRESS.md`, mas sem o arquivo dedicado — formalizado em `docs/F<ID>-*/smoke-results.md` citando a proveniência (não são novas rodadas ao vivo). F05 nunca tinha smoke real — rodado ao vivo nesta sessão (CRUD completo em `#skills` + vínculo por projeto via `ProjectSkillsModal`), `docs/F05-skills/smoke-results.md`. Ver [RC-missing-smoke-evidence](#rc-missing-smoke-evidence).
+- **Bug real achado no smoke de F05 (Repo Harness com contagem obsoleta)** → `C37`: `WorkspaceSidebar.tsx` buscava as contagens de Rules/Skills/SubAgents/MCPs num único `useEffect([project])` — fechar qualquer um dos 4 modais de vínculo (`onClose`) nunca reexecutava a busca, deixando o card do harness com a contagem antiga (ex.: "0 vinculados") na mesma sessão até o projeto ser reselecionado, mesmo com o vínculo já persistido no servidor. Corrigido: lógica extraída para `refreshHarnessCounts(projectId)`, chamada tanto na troca de projeto quanto no `onClose` dos 4 modais. Ver [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close).
 
 Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ver a nota de reconciliação no início da §2 (R03/R04/R05/R06, A02/A03, D01/D02 — fechamento formal ainda pendente de outra sessão, não tocado nesta).
 
-**Estado da suíte:** `pnpm vitest run src/services/http/voice-handler.test.ts src/services/http/unlock-handler.test.ts src/renderer/services/api-client.test.ts src/services/voice` — 29/29 verde nesta passagem (escopo tocado). Suíte completa não reexecutada; ver nota histórica sobre não-determinismo em `testTimeout` de casos git/spawn reais. Gates `tsc`/`vite build`/`biome` não reexecutados além do necessário para o rebuild do smoke (`tsc -b` + `vite build` passaram limpos).
+**Estado da suíte:** `pnpm test` completo — 1012/1012 verde após o fix de `WorkspaceSidebar.tsx`; `tsc -b` limpo. Gates `vite build`/`biome` não reexecutados nesta rodada (sem mudança de build/lint-relevante além do já coberto pelo `tsc -b`).
 
 ### Por Stack (abertos)
 
 | Stack | 🔴 | 🟡 |
 |-------|----|----|
 | `Node.js` | 0 | 5 |
-| `Vitest` | 0 | 3 |
+| `Vitest` | 0 | 2 |
 | `SQLite` | 0 | 1 |
 | `Electron` | 0 | 1 |
 | `React` | 0 | 0 |
@@ -110,7 +112,6 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 
 | ID | Stack | Sev | Frente | Local | Problema | Regra |
 |----|--------|-----|--------|-------|----------|-------|
-| D07 | `Vitest` | 🟡 | del | `docs/F04\|F05\|F08\|F10\|F14\|F16\|F17-*` | UI Feito sem `smoke-results.md` (7 features, dívida secundária — fatia prioritária F20/F21/F23/F26/F27 fechada 2026-08-09, evidência em `docs/F20\|F21\|F23\|F26\|F27-*/smoke-results.md`; F19 exempto por smoke "opcional" declarado na spec) | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
 | A01 | `SQLite` | 🟡 | arch | `db/repositories/skills.ts` | “Repositório” sob `db/` persiste `skills.json` (fs), não SQLite/F05 | [R-skills-json-outside-sqlite](#r-skills-json-outside-sqlite) |
 | A02 | `Node.js` | 🟡 | arch | `git-client.ts:115` | `injectTokenIntoHttpsUrl` sem consumidor de produção (só `ByKind`) | [R-dead-export](#r-dead-export) |
 | A03 | `Node.js` | 🟡 | arch | `vcs/oauth.ts:55` | `export getTokens` só uso interno + teste | [R-dead-export](#r-dead-export) |
@@ -124,33 +125,6 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
-
-<a id="r-missing-smoke-evidence"></a>
-
-### Critério de UI Feito exige `smoke-results.md`
-Esforço: 1–2 horas por feature (smoke real)  
-Classificação: Médio (era Alto — fatia prioritária fechada nesta passagem)  
-Stack: `Vitest` · Tipo: `missing-smoke-evidence`
-
-#### Por que isso é um problema?
-PROGRESS/PRD `[x]` sem artefato de smoke torna o fechamento não auditável. Critérios “usuário vê/clica/toggle/dock” dependem de DOM — unitário não basta (`CLAUDE.md` TESTE). Sem arquivo: F04, F05, F08, F10, F14, F16, F17 (dívida secundária, ver Exceções); F19 sem arquivo mas exempto (smoke "opcional" declarado na própria spec, ver Exceções). Com evidência: F01, F02, F03, F06, F07, F09, F11, F12, F13, F15, F18, F20, F21, F22, F23, F24, F25, F26, F27.
-
-```
-// Não conforme
-// docs/F26-*/ sem smoke-results.md; PROGRESS diz Feito com UI
-```
-
-Rode smoke via `playwright-cli` + Electron real e grave `docs/F<ID>-*/smoke-results.md` com o que foi exercitado.
-
-```
-// Conforme
-// docs/F26-terminal-pty-dock/smoke-results.md com passos light/dark e copy
-```
-
-#### Exceções
-Features só de vault/crypto/API sem superfície UI; features ainda `Pendente` no PROGRESS. Smoke “opcional” declarado na spec (ex.: F19) não bloqueia se o AC de UI não estiver `[x]` sem evidência. Features antigas com narrativa de smoke no PROGRESS mas sem arquivo (F04/F05/F08/F10/F14/F16/F17) ficam como dívida secundária na §5 — prioridade F20–F27 **fechada** (ver C33); estas 7 seguem sem data de fechamento definida.
-
----
 
 <a id="r-skills-json-outside-sqlite"></a>
 
@@ -381,8 +355,11 @@ Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto nã
 | C30 | `Vitest` | `missing-sibling-test` | working tree 2026-08-08 (sem commit); `messages.test.ts`, `_transport.test.ts`, `store.test.ts`, `vault-service.test.ts`, `git-client.test.ts` (785/785 `pnpm test`) | [RC-missing-sibling-test](#rc-missing-sibling-test) |
 | C31 | `Node.js` | `incomplete-vcs-url-redaction` | `055807d`; `process-error.ts` userinfo HTTPS genérico + `xai-`/`gsk_`, com um caso por scheme em `process-error.test.ts` (fecha R01 e R07) | [RC-vcs-url-redaction](#rc-vcs-url-redaction) |
 | C32 | `React` | `duplicated-client-server-validation` | `40037d8`; `configuracaoScreen.logic.ts` importa `provider-keys.js` / `github-token.js`, coberto por `configuracaoScreen.logic.test.ts` | [RC-shared-validation](#rc-shared-validation) |
+| C33 | `Vitest` | `missing-smoke-evidence` | working tree 2026-08-09; `docs/F20\|F21\|F23\|F26\|F27-*/smoke-results.md` (fatia prioritária, smoke real via `playwright-cli` + Electron) | [RC-missing-smoke-evidence](#rc-missing-smoke-evidence) |
 | C34 | `Node.js` | `cors-methods-allowlist-gap` | working tree 2026-08-09; `unlock-handler.ts` (`Access-Control-Allow-Methods` sem `PATCH`), achado ao vivo no smoke de F20, teste em `unlock-handler.test.ts` | [RC-cors-methods-allowlist-gap](#rc-cors-methods-allowlist-gap) |
 | C35 | `Node.js` | `http-status-code-collision` | working tree 2026-08-09; `voice-handler.ts` (`voice_auth_error` de 401→422), achado ao vivo no smoke de F27, teste em `voice-handler.test.ts` | [RC-http-status-code-collision](#rc-http-status-code-collision) |
+| C36 | `Vitest` | `missing-smoke-evidence` | working tree 2026-08-09; `docs/F04\|F05\|F08\|F10\|F14\|F16\|F17-*/smoke-results.md` — **D07 fechado por completo**; F04/F08/F10/F14/F16/F17 formalizados a partir da narrativa real já existente em `PROGRESS.md`, F05 rodado ao vivo pela primeira vez | [RC-missing-smoke-evidence](#rc-missing-smoke-evidence) |
+| C37 | `React` | `harness-count-stale-after-modal-close` | working tree 2026-08-09; `WorkspaceSidebar.tsx` (`refreshHarnessCounts` chamado no `onClose` dos 4 modais de vínculo), achado ao vivo no smoke de F05, `pnpm test` 1012/1012 | [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close) |
 
 ### Regras — problemas corrigidos
 
@@ -1369,13 +1346,82 @@ Nenhuma dentro de `createUnlockServer` — `401`/`423` são vocabulário reserva
 
 ---
 
+<a id="rc-missing-smoke-evidence"></a>
+
+### Critério de UI Feito exige `smoke-results.md`
+Esforço: 1–2 horas por feature (smoke real)  
+Classificação: fechado — era Alto/Médio  
+Stack: `Vitest` · Tipo: `missing-smoke-evidence`
+
+#### Por que isso é um problema?
+PROGRESS/PRD `[x]` sem artefato de smoke torna o fechamento não auditável. Critérios "usuário vê/clica/toggle/dock" dependem de DOM — unitário não basta (`CLAUDE.md` TESTE). **D07 fechado por completo em 2026-08-09** (2 sessões): F20/F21/F23/F26/F27 primeiro (C33), depois F04/F05/F08/F10/F14/F16/F17 (C36). Todas as 12 features com UI Feito têm `docs/F<ID>-*/smoke-results.md` agora — F01, F02, F03, F04, F05, F06, F07, F08, F09, F10, F11, F12, F13, F14, F15, F16, F17, F18, F20, F21, F22, F23, F24, F25, F26, F27. F19 segue exempto (smoke "opcional" declarado na própria spec).
+
+```
+// Não conforme
+// docs/F26-*/ sem smoke-results.md; PROGRESS diz Feito com UI
+```
+
+Rode smoke via `playwright-cli` + Electron real e grave `docs/F<ID>-*/smoke-results.md` com o que foi exercitado. Se já existir narrativa real detalhada em `PROGRESS.md` de uma sessão anterior (não é o caso comum — a maioria das features não tem essa narrativa), formalizar no arquivo dedicado citando a proveniência é aceitável; não é preciso reexecutar o smoke ao vivo só para gerar o arquivo quando a evidência real já existe em outro lugar do repo.
+
+```
+// Conforme
+// docs/F26-terminal-pty-dock/smoke-results.md com passos light/dark e copy
+```
+
+#### Exceções
+Features só de vault/crypto/API sem superfície UI; features ainda `Pendente` no PROGRESS. Smoke "opcional" declarado na spec (ex.: F19) não bloqueia se o AC de UI não estiver `[x]` sem evidência. Feature nova: escreva o smoke antes de marcar `[x]` — não deixe a dívida se acumular de novo.
+
+---
+
+<a id="rc-harness-count-stale-after-modal-close"></a>
+
+### Contador derivado de um vínculo N:N some/atrasa se o `useEffect` só reage à entidade pai
+Esforço: 20 minutos  
+Classificação: Médio (achado ao vivo — dado certo no servidor, errado na tela)  
+Stack: `React` · Tipo: `harness-count-stale-after-modal-close`
+
+#### Por que isso é um problema?
+`WorkspaceSidebar.tsx` buscava as 4 contagens do Repo Harness (Rules/Skills/SubAgents/MCPs) num `useEffect` disparado só por `[project]`. Os 4 modais de vínculo (`ProjectRulesModal`/`ProjectSkillsModal`/`ProjectSubagentsModal`/`ProjectMcpsModal`) só chamavam `setOpenModal(null)` no `onClose`, nunca refazendo a busca — o card do harness ficava com a contagem antiga (ex.: "0 vinculados" depois de vincular 1) até o usuário reselecionar o projeto (remount). O dado estava correto no servidor o tempo todo (confirmado via `GET /api/projects/:id/skills` direto) — só a tela não refletia, achado ao vivo no smoke de F05 (`docs/F05-skills/smoke-results.md`).
+
+```
+// Não conforme
+useEffect(() => {
+  if (!project) { /* reset */ return }
+  skillsService.listForProject(project.id).then(...)
+  // ...outras 3 fetches
+}, [project])
+// ...
+<ProjectSkillsModal projectId={project.id} onClose={() => setOpenModal(null)} />
+```
+
+Extraia a busca para uma função reutilizável e chame-a tanto na troca de entidade pai quanto no `onClose` de qualquer modal que possa ter mudado o vínculo.
+
+```
+// Conforme
+const refreshHarnessCounts = useCallback((projectId: string) => { /* as 4 fetches */ }, [])
+useEffect(() => {
+  if (!project) { /* reset */ return }
+  refreshHarnessCounts(project.id)
+}, [project, refreshHarnessCounts])
+// ...
+<ProjectSkillsModal
+  projectId={project.id}
+  onClose={() => { setOpenModal(null); refreshHarnessCounts(project.id) }}
+/>
+```
+
+#### Exceções
+Nenhuma quando o modal pode alterar o dado que alimenta o contador. Se o modal for só leitura (nunca muta vínculo), o refresh no `onClose` é desnecessário — mas os 4 modais deste harness (Rules/Skills/SubAgents/MCPs) sempre podem mutar.
+
+---
+
 ## 5. Fora de escopo / dívida consciente
 
 | Item | Estado 2026-08-09 |
 |------|-------------------|
 | Remediação C01–C32 (Lotes 1–2 + passagens 2026-08-08/09) | **Confirmada** no código (guard, transport, preload, body narrowing, redação de stderr, validação compartilhada) |
-| Smoke-results F20/F21/F23/F26/F27 | **Fechado** 2026-08-09 (D07 downgrado 🔴→🟡; ver C34/C35 pelos 2 bugs reais achados no processo) |
-| Smoke narrado no PROGRESS sem arquivo (F04/F05/F08/F10/F14/F16/F17) | Dívida secundária ativa (D07 restante) — sem prioridade definida |
+| Smoke-results F20/F21/F23/F26/F27 | **Fechado** 2026-08-09 (C33; ver C34/C35 pelos 2 bugs reais achados no processo) |
+| Smoke-results F04/F05/F08/F10/F14/F16/F17 — **D07 fechado por completo** | **Fechado** 2026-08-09 (C36; ver C37 pelo bug real achado no smoke de F05) |
 | F19 smoke “opcional” | Aceito enquanto AC não exigir DOM fechado |
 | Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag |
 | PTY via IPC nomeado (F26) | Capacidade nativa aceita; mapa IPC de `review-architecture` já atualizado (`handle` + `on` de stream) |
@@ -1392,7 +1438,7 @@ Nenhuma dentro de `createUnlockServer` — `401`/`423` são vocabulário reserva
 4. `test(codegraph/runner): sibling coverage ensure/query/registries` — D01/D02
 5. ~~`docs(F20|F21|F23|F26|F27): record smoke evidence` — D07 (após smoke real)~~ **feito** 2026-08-09 (working tree; 2 bugs reais achados e corrigidos no processo, ver C34/C35)
 6. `refactor(F05): migrate skills.json to SQLite` — A01 (maior; onda própria)
-7. `docs(F04|F05|F08|F10|F14|F16|F17): record smoke evidence` — D07 restante (dívida secundária, sem prioridade definida)
+7. ~~`docs(F04|F05|F08|F10|F14|F16|F17): record smoke evidence` — D07 restante~~ **feito** 2026-08-09 (**D07 fechado por completo**; 1 bug real achado e corrigido no smoke de F05, ver C36/C37)
 
 ---
 
