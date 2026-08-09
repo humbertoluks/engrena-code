@@ -43,6 +43,8 @@ export interface UseVoiceInputArgs {
 export interface UseVoiceInputResult {
   state: VoiceMicState
   keyReady: boolean
+  /** SO negou permissão de microfone (PRD §6) — via Permissions API quando disponível. */
+  permissionDenied: boolean
   errorMessage: string | null
   noticeMessage: string | null
   elapsedMs: number
@@ -55,6 +57,7 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [permissionDenied, setPermissionDenied] = useState(false)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -135,7 +138,7 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
   }, [clearTimer, stopStream])
 
   const startRecording = useCallback(async (): Promise<void> => {
-    if (!resolvedKeyReady || state !== 'idle') return
+    if (!resolvedKeyReady || permissionDenied || state !== 'idle') return
 
     setErrorMessage(null)
     setNoticeMessage(null)
@@ -146,6 +149,7 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'NotAllowedError') setPermissionDenied(true)
       setErrorMessage(permissionErrorMessage(err))
       setState('error')
       return
@@ -212,7 +216,7 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
       setElapsedMs(elapsed)
       if (elapsed >= MAX_RECORDING_MS) stopRecording()
     }, 250)
-  }, [clearTimer, finishRecording, resolvedKeyReady, state, stopRecording, stopStream])
+  }, [clearTimer, finishRecording, permissionDenied, resolvedKeyReady, state, stopRecording, stopStream])
 
   const retry = useCallback((): void => {
     setErrorMessage(null)
@@ -224,6 +228,26 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
     else if (state === 'recording') stopRecording()
     else if (state === 'error') retry()
   }, [retry, startRecording, state, stopRecording])
+
+  useEffect(() => {
+    let cancelled = false
+    async function preflightPermission(): Promise<void> {
+      try {
+        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+        if (!cancelled) setPermissionDenied(status.state === 'denied')
+        status.onchange = () => {
+          if (!cancelled) setPermissionDenied(status.state === 'denied')
+        }
+      } catch {
+        // Permissions API sem descriptor 'microphone' neste ambiente — sem pré-checagem; o clique
+        // ainda cai no catch de getUserMedia acima, que também marca permissionDenied.
+      }
+    }
+    void preflightPermission()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
@@ -241,5 +265,13 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
     }
   }, [clearTimer, stopStream])
 
-  return { state: effectiveState, keyReady: resolvedKeyReady, errorMessage, noticeMessage, elapsedMs, toggle }
+  return {
+    state: effectiveState,
+    keyReady: resolvedKeyReady,
+    permissionDenied,
+    errorMessage,
+    noticeMessage,
+    elapsedMs,
+    toggle,
+  }
 }

@@ -2,37 +2,60 @@ import { describe, expect, it } from 'vitest'
 import {
   formatRecordingTimer,
   insertAtCursor,
+  isMicDisabledIdle,
   mapTranscribeErrorCode,
   resolveMicTitle,
   VOICE_COPY,
 } from './voiceInput.logic'
 
 describe('resolve_mic_title_matches_ui_states', () => {
-  it('idle with a key ready shows the idle title', () => {
-    expect(resolveMicTitle('idle', true, null)).toBe(VOICE_COPY.titleIdle)
+  it('idle with a key ready and permission granted shows the idle title', () => {
+    expect(resolveMicTitle('idle', true, false, null)).toBe(VOICE_COPY.titleIdle)
   })
 
   it('idle without a key ready shows the noKey title (ui.md !keyReady row)', () => {
-    expect(resolveMicTitle('idle', false, null)).toBe(VOICE_COPY.titleNoKey)
+    expect(resolveMicTitle('idle', false, false, null)).toBe(VOICE_COPY.titleNoKey)
+  })
+
+  it('idle with a key ready but OS permission denied shows the permission title (PRD §6)', () => {
+    expect(resolveMicTitle('idle', true, true, null)).toBe(VOICE_COPY.errorPermissionDenied)
+  })
+
+  it('missing key takes priority over denied permission', () => {
+    expect(resolveMicTitle('idle', false, true, null)).toBe(VOICE_COPY.titleNoKey)
   })
 
   it('configLoading shows the loading title regardless of keyReady', () => {
-    expect(resolveMicTitle('configLoading', true, null)).toBe(VOICE_COPY.titleConfigLoading)
-    expect(resolveMicTitle('configLoading', false, null)).toBe(VOICE_COPY.titleConfigLoading)
+    expect(resolveMicTitle('configLoading', true, false, null)).toBe(VOICE_COPY.titleConfigLoading)
+    expect(resolveMicTitle('configLoading', false, false, null)).toBe(VOICE_COPY.titleConfigLoading)
   })
 
   it('recording shows the stop-and-transcribe title', () => {
-    expect(resolveMicTitle('recording', true, null)).toBe(VOICE_COPY.titleRecording)
+    expect(resolveMicTitle('recording', true, false, null)).toBe(VOICE_COPY.titleRecording)
   })
 
   it('requesting-permission and transcribing share the same transcribing title', () => {
-    expect(resolveMicTitle('requesting-permission', true, null)).toBe(VOICE_COPY.titleTranscribing)
-    expect(resolveMicTitle('transcribing', true, null)).toBe(VOICE_COPY.titleTranscribing)
+    expect(resolveMicTitle('requesting-permission', true, false, null)).toBe(VOICE_COPY.titleTranscribing)
+    expect(resolveMicTitle('transcribing', true, false, null)).toBe(VOICE_COPY.titleTranscribing)
   })
 
   it('an errorMessage overrides the title for any state (ui.md "prioridade: errorMessage se houver")', () => {
-    expect(resolveMicTitle('recording', true, 'mensagem custom')).toBe('mensagem custom')
-    expect(resolveMicTitle('idle', false, 'mensagem custom')).toBe('mensagem custom')
+    expect(resolveMicTitle('recording', true, false, 'mensagem custom')).toBe('mensagem custom')
+    expect(resolveMicTitle('idle', false, false, 'mensagem custom')).toBe('mensagem custom')
+  })
+})
+
+describe('isMicDisabledIdle', () => {
+  it('disables when there is no key ready', () => {
+    expect(isMicDisabledIdle(false, false)).toBe(true)
+  })
+
+  it('disables when OS microphone permission was denied', () => {
+    expect(isMicDisabledIdle(true, true)).toBe(true)
+  })
+
+  it('enables only when key is ready and permission is not denied', () => {
+    expect(isMicDisabledIdle(true, false)).toBe(false)
   })
 })
 

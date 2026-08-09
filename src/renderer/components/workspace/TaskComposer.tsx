@@ -373,6 +373,7 @@ export function TaskComposer({
             <VoiceMicButton
               state={voice.state}
               keyReady={voice.keyReady}
+              permissionDenied={voice.permissionDenied}
               errorMessage={voice.errorMessage}
               elapsedMs={voice.elapsedMs}
               disabled={disabled || runtimeLocked}

@@ -26,8 +26,18 @@ export const VOICE_COPY = {
 
 export type VoiceMicState = 'idle' | 'configLoading' | 'requesting-permission' | 'recording' | 'transcribing' | 'error'
 
-/** Título do mic por estado (`ui.md` §A) — `errorMessage` tem prioridade sobre qualquer estado quando presente. */
-export function resolveMicTitle(state: VoiceMicState, keyReady: boolean, errorMessage: string | null): string {
+/**
+ * Título do mic por estado (`ui.md` §A) — `errorMessage` tem prioridade sobre qualquer estado
+ * quando presente. `permissionDenied` (PRD §6 "Sem permissão de microfone → CTA desabilitado com
+ * título explicando") só se aplica em `idle`, depois da checagem de key — sem key, a explicação é
+ * sobre a key, não sobre permissão.
+ */
+export function resolveMicTitle(
+  state: VoiceMicState,
+  keyReady: boolean,
+  permissionDenied: boolean,
+  errorMessage: string | null
+): string {
   if (errorMessage !== null) return errorMessage
 
   switch (state) {
@@ -42,8 +52,15 @@ export function resolveMicTitle(state: VoiceMicState, keyReady: boolean, errorMe
       return VOICE_COPY.errorTranscribe
     case 'idle':
     default:
-      return keyReady ? VOICE_COPY.titleIdle : VOICE_COPY.titleNoKey
+      if (!keyReady) return VOICE_COPY.titleNoKey
+      if (permissionDenied) return VOICE_COPY.errorPermissionDenied
+      return VOICE_COPY.titleIdle
   }
+}
+
+/** `true` quando o CTA deve ficar desabilitado em `idle` (PRD §6) — sem key OU permissão de SO negada. */
+export function isMicDisabledIdle(keyReady: boolean, permissionDenied: boolean): boolean {
+  return !keyReady || permissionDenied
 }
 
 /** Mapeia erro/exceção da chamada de transcrição pra mensagem exibida (spec F27 §5 + Assumptions §3.3). */

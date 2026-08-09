@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { formatRecordingTimer, resolveMicTitle, VOICE_COPY, type VoiceMicState } from './voiceInput.logic'
+import { formatRecordingTimer, isMicDisabledIdle, resolveMicTitle, VOICE_COPY, type VoiceMicState } from './voiceInput.logic'
 
 export interface VoiceMicButtonProps {
   state: VoiceMicState
   keyReady: boolean
+  permissionDenied: boolean
   errorMessage: string | null
   elapsedMs: number
   disabled: boolean
@@ -14,16 +15,17 @@ export interface VoiceMicButtonProps {
 export function VoiceMicButton({
   state,
   keyReady,
+  permissionDenied,
   errorMessage,
   elapsedMs,
   disabled,
   onClick,
 }: Readonly<VoiceMicButtonProps>): ReactElement {
-  const title = resolveMicTitle(state, keyReady, errorMessage)
+  const title = resolveMicTitle(state, keyReady, permissionDenied, errorMessage)
   const isRecording = state === 'recording'
   const isBusy = state === 'requesting-permission' || state === 'transcribing'
   const isError = state === 'error'
-  const isDisabled = disabled || state === 'configLoading' || (!keyReady && state === 'idle')
+  const isDisabled = disabled || state === 'configLoading' || (state === 'idle' && isMicDisabledIdle(keyReady, permissionDenied))
 
   return (
     <button
