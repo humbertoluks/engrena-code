@@ -23,6 +23,12 @@ function createWindow() {
     }
   })
 
+  // Microfone (F27 — ditado por voz): Electron nega getUserMedia por padrão em app empacotado
+  // sem handler explícito. Libera 'media' só pra própria janela principal, nunca globalmente.
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'media' && webContents === mainWindow?.webContents)
+  })
+
   if (isDev) {
     const fromVite = import.meta.env.VITE_DEV_SERVER_URL
     const fromProcess = process.env.VITE_DEV_SERVER_URL
