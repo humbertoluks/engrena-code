@@ -190,15 +190,15 @@ Aplicar mapa de rename: N/A (fonte = EngrenaCode). Células = texto final no des
 
 ## Aceite visual
 
-- [ ] Bate com `glm-grok-cards-referencia.png` (dark)
-- [ ] Dois cards após KeysCard, ordem GLM → Grok; sem row GLM dentro de KeysCard
-- [ ] Anatomia: título, subtítulo, field+badge, Salvar chave, Testar conexão
-- [ ] Placeholders `<id>.<secret>` e `xai-…`; badges “não configurada” no default
-- [ ] Erro de formato Grok: borda vermelha + “Formato inválido. Esperado: xai-…”
-- [ ] “Testar conexão” distingue missing / auth / network nos `detail` documentados
-- [ ] Picker lista GLM/Grok; sem key → indisponível + reason canônica
-- [ ] Tema `light` \| `dark` \| `system` via tokens (ver light opcional)
-- [ ] Sem marca legado (Lion*) na superfície
+- [x] Bate com `glm-grok-cards-referencia.png` (dark) — confirmado também ao vivo via `playwright-cli` CDP attach no app empacotado durante o smoke de F27 (mesma página `#configuracao`, cards GLM/Grok renderizando antes do `VoiceKeysCard` novo)
+- [x] Dois cards após KeysCard, ordem GLM → Grok; sem row GLM dentro de KeysCard
+- [x] Anatomia: título, subtítulo, field+badge, Salvar chave, Testar conexão
+- [x] Placeholders `<id>.<secret>` e `xai-…`; badges “não configurada” no default
+- [x] Erro de formato Grok: borda vermelha + “Formato inválido. Esperado: xai-…” (`grok-card-error-formato.png`)
+- [x] “Testar conexão” distingue missing / auth / network nos `detail` documentados (`glm-driver.test.ts`/`grok-driver.test.ts`)
+- [x] Picker lista GLM/Grok; sem key → indisponível + reason canônica (`ComposerModelControls`/`config-handler.test.ts`)
+- [x] Tema `light` \| `dark` \| `system` via tokens (`glm-grok-cards-light.png` + canônico dark)
+- [x] Sem marca legado (Lion*) na superfície
 
 ## Perguntas em aberto
 
