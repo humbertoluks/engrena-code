@@ -9,7 +9,7 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | **Escopo** | `src/` (base completa) |
 | **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura) |
 | **Correção de código nesta passagem** | Sessão de fix D07: smoke real das 12 features com UI Feito fechou o achado inteiro (F20/F21/F23/F26/F27 + F04/F05/F08/F10/F14/F16/F17) e achou 3 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`), colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`), e contagem do Repo Harness (Skills/Rules/SubAgents/MCPs) não atualizando após fechar o modal de vínculo (`WorkspaceSidebar.tsx`). Na sequência, A01: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite (`012_skills`), com migração automática do JSON legado uma única vez e API pública convertida de classe/singleton para funções de módulo (`RC-module-repo`) |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37); 2026-08-09 (sessão seguinte) — A01 fechado: skills migrado pra SQLite (C38) |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37); 2026-08-09 (sessão seguinte) — A01 fechado: skills migrado pra SQLite (C38); 2026-08-09 (sessão seguinte) — reconciliação de A02/A03/R03–R06/D01 + parte de D02 formalizada em §4 (C39–C44) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -27,8 +27,8 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 8 | 6 |
-| Problemas corrigidos (tipos) | — | — | 37 |
+| Achados abertos | 0 | 1 | 1 |
+| Problemas corrigidos (tipos) | — | — | 43 |
 
 ---
 
@@ -77,7 +77,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real) e **A01 fechado** (skills migrado de `skills.json`/`fs` para SQLite). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
+**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real), **A01 fechado** (skills migrado de `skills.json`/`fs` para SQLite), e a reconciliação de A02/A03/R03–R06/D01(+parte de D02) formalizada em §4. Resta só **1 achado aberto** (D02, escopo reduzido a 3 arquivos sem teste irmão). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
 
 **Corrigido nesta passagem (verificado no código)**
 
@@ -89,8 +89,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 - **D07 (fatia final F04/F05/F08/F10/F14/F16/F17)** → `C36`: **D07 fechado por completo**. F04/F08/F10/F14/F16/F17 já tinham smoke real narrado com detalhe em `docs/PROGRESS.md`, mas sem o arquivo dedicado — formalizado em `docs/F<ID>-*/smoke-results.md` citando a proveniência (não são novas rodadas ao vivo). F05 nunca tinha smoke real — rodado ao vivo nesta sessão (CRUD completo em `#skills` + vínculo por projeto via `ProjectSkillsModal`), `docs/F05-skills/smoke-results.md`. Ver [RC-missing-smoke-evidence](#rc-missing-smoke-evidence).
 - **Bug real achado no smoke de F05 (Repo Harness com contagem obsoleta)** → `C37`: `WorkspaceSidebar.tsx` buscava as contagens de Rules/Skills/SubAgents/MCPs num único `useEffect([project])` — fechar qualquer um dos 4 modais de vínculo (`onClose`) nunca reexecutava a busca, deixando o card do harness com a contagem antiga (ex.: "0 vinculados") na mesma sessão até o projeto ser reselecionado, mesmo com o vínculo já persistido no servidor. Corrigido: lógica extraída para `refreshHarnessCounts(projectId)`, chamada tanto na troca de projeto quanto no `onClose` dos 4 modais. Ver [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close).
 - **A01** → `C38`: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite. Migration `012_skills` (tabelas `skills`/`project_skills`, `ON DELETE CASCADE`); migração automática do `skills.json` legado pra tabela na primeira query de cada processo (guardada por contagem de linhas, arquivo renomeado pra `.migrated` depois de importado); API pública convertida de `class SkillsRepository`/singleton para funções de módulo (`listSkills`/`createSkill`/`linkSkill`/…, `RC-module-repo`), com todos os 6 consumidores (`skills-handler.ts`, `apply-catalog.ts`, `skill-registry.ts`, `dashboard-handler.ts` + 6 arquivos de teste) atualizados no mesmo diff. Confirmado ao vivo: app real com `skills.json` legado semeado antes do 1º boot → skill migrada aparece em `#skills` (categoria "legado"), edição persiste, arquivo renomeado pra `skills.json.migrated` no disco.
-
-Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ver a nota de reconciliação no início da §2 (R03/R04/R05/R06, A02/A03, D01/D02 — fechamento formal ainda pendente de outra sessão, não tocado nesta).
+- **Reconciliação A02/A03/R03/R04/R05/R06/D01 + parte de D02** → `C39`–`C44`: verificados no código (não exigiram fix novo, já tinham sido corrigidos em commits anteriores — `52cf9cc`/`6490437`/`e0c5672`/`9ac433e`/`4daaafe`/`730c552`) e formalmente movidos de §2 pra §4. D02 segue aberto, escopo reduzido a `vcs/oauth-config.ts`/`mcps/catalog.ts`/`config/defaults.ts` sem `*.test.ts` irmão.
 
 **Estado da suíte:** `pnpm test` completo — 1013/1013 verde (1 flaky isolado em `ask-user-question.test.ts`, confirmado não-regressão rodando 2x); `tsc -b` e `vite build` (renderer+main+preload) limpos.
 
@@ -98,10 +97,10 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 
 | Stack | 🔴 | 🟡 |
 |-------|----|----|
-| `Node.js` | 0 | 5 |
-| `Vitest` | 0 | 2 |
+| `Node.js` | 0 | 0 |
+| `Vitest` | 0 | 1 |
 | `SQLite` | 0 | 0 |
-| `Electron` | 0 | 1 |
+| `Electron` | 0 | 0 |
 | `React` | 0 | 0 |
 | `TypeScript` | 0 | 0 |
 
@@ -109,178 +108,36 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 
 ## 2. Achados abertos
 
-> **Reconciliação pendente (2026-08-09).** Uma sessão de remediação fechou por commit, depois desta tabela ser escrita: **R03** `6490437` (cors_denied PT-BR), **R04** `e0c5672` (WS sem `?token=`), **R05** `9ac433e` (narrowing do body de subagents), **R06** `4daaafe` (allowlist de env no PTY), **A02/A03** `52cf9cc` (dead exports), e a parte de `codegraph` + registries do runner em **D01/D02**. Verificado no código; as linhas abaixo ainda não foram movidas para §4 porque a sessão de fix segue em andamento e é dela o fechamento formal. **Releia o código antes de agir sobre qualquer `ID` desta tabela.** As Coding Experts (`.claude/skills/coding-*`) já foram sincronizadas com este estado.
+> **Reconciliação concluída (2026-08-09).** A2/A03/R03/R04/R05/R06/D01 e a parte de D02 referente a `codegraph`+registries do runner foram confirmados corrigidos no código (commits `52cf9cc`/`6490437`/`e0c5672`/`9ac433e`/`4daaafe`/`730c552`) e movidos para §4 (C39–C44). D02 segue aberto com escopo reduzido — só os 3 arquivos que nenhum desses commits tocou.
 
 | ID | Stack | Sev | Frente | Local | Problema | Regra |
 |----|--------|-----|--------|-------|----------|-------|
-| A02 | `Node.js` | 🟡 | arch | `git-client.ts:115` | `injectTokenIntoHttpsUrl` sem consumidor de produção (só `ByKind`) | [R-dead-export](#r-dead-export) |
-| A03 | `Node.js` | 🟡 | arch | `vcs/oauth.ts:55` | `export getTokens` só uso interno + teste | [R-dead-export](#r-dead-export) |
-| R03 | `Node.js` | 🟡 | rob | `unlock-handler.ts:63` | `cors_denied` message em inglês | [R-error-message-locale-residual](#r-error-message-locale-residual) |
-| R04 | `Node.js` | 🟡 | rob | `ws-upgrade.ts:18-19` | Ainda aceita `?token=` além do subprotocol | [R-ws-query-token-legacy](#r-ws-query-token-legacy) |
-| R05 | `Node.js` | 🟡 | rob | `subagents-handler.ts:61` | `as SubagentInput` sem narrowing no handler | [R-http-body-narrowing-gap](#r-http-body-narrowing-gap) |
-| R06 | `Electron` | 🟡 | rob | `pty-session-registry.ts:103` | PTY passa `env: process.env` no spawn | [R-pty-env-inheritance](#r-pty-env-inheritance) |
-| D01 | `Vitest` | 🟡 | del | `codegraph/ensure.ts`, `query.ts` | Sem `*.test.ts` irmão | [R-missing-sibling-coverage](#r-missing-sibling-coverage) |
-| D02 | `Vitest` | 🟡 | del | `runner/mcp-registry.ts`, `rule-registry.ts`, `thread-cwd.ts`, `turn-control.ts`, `vcs/oauth-config.ts`, `mcps/catalog.ts`, `config/defaults.ts` | Sem irmão (só cobertura indireta) | [R-missing-sibling-coverage](#r-missing-sibling-coverage) |
+| D02 | `Vitest` | 🟡 | del | `vcs/oauth-config.ts`, `mcps/catalog.ts`, `config/defaults.ts` | Sem `*.test.ts` irmão (só cobertura indireta) | [R-missing-sibling-coverage](#r-missing-sibling-coverage) |
 
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
 
-<a id="r-dead-export"></a>
-
-### Não exporte símbolo sem consumidor de produção
-Esforço: 10–20 minutos  
-Classificação: Baixo  
-Stack: `Node.js` · Tipo: `dead-export`
-
-#### Por que isso é um problema?
-Mesmo tipo de C28: API interna inflada. `injectTokenIntoHttpsUrl` ficou órfã após F24 (`ByKind`); `getTokens` só é chamado no próprio `vcs/oauth.ts`.
-
-```
-// Não conforme
-export function injectTokenIntoHttpsUrl(...) { ... } // só teste
-```
-
-Torne local, ou faça `ByKind('github')` delegar nela e drope o export morto; remova `export` de `getTokens`.
-
-```
-// Conforme
-function getTokens(...) { ... } // módulo-local
-```
-
-#### Exceções
-Export usado só por teste irmão via API pública documentada — preferível testar via função que a encapsula.
-
----
-
-<a id="r-error-message-locale-residual"></a>
-
-### Messages de erro HTTP voltadas ao usuário em PT-BR
-Esforço: 5 minutos  
-Classificação: Baixo  
-Stack: `Node.js` · Tipo: `error-message-locale-residual`
-
-#### Por que isso é um problema?
-C26 fechou o 404 do unlock; residual: `cors_denied` ainda é `Origin not allowed.`. Contrato do produto: message acionável em PT-BR.
-
-```
-// Não conforme
-message: 'Origin not allowed.'
-```
-
-```
-// Conforme
-message: 'Origem não permitida.'
-```
-
-#### Exceções
-Logs internos / `console.error` podem permanecer em inglês.
-
----
-
-<a id="r-ws-query-token-legacy"></a>
-
-### Autenticação WS sem token na query string
-Esforço: 30–60 minutos  
-Classificação: Médio  
-Stack: `Node.js` · Tipo: `ws-query-token-legacy`
-
-#### Por que isso é um problema?
-Cliente usa subprotocol; `?token=` ainda é aceito e pode vazar em logs de proxy/histórico de URL.
-
-```
-// Não conforme
-const token = url.searchParams.get('token') ?? subprotocol
-```
-
-Remova o fallback de query (ou rejeite com 400) após confirmar que nenhum cliente legado depende dele.
-
-```
-// Conforme
-// só Sec-WebSocket-Protocol / subprotocol nomeado
-```
-
-#### Exceções
-Janela curta de compat documentada + data de remoção — não permanente.
-
----
-
-<a id="r-http-body-narrowing-gap"></a>
-
-### Narrowing de body no handler antes do repositório
-Esforço: 30–60 minutos  
-Classificação: Médio  
-Stack: `Node.js` · Tipo: `http-body-narrowing-gap`
-
-#### Por que isso é um problema?
-C18 endureceu skills/rules/config; `subagents-handler` ainda faz `createSubagent(data as SubagentInput)`. Cast mascara campos errados até o repositório.
-
-```
-// Não conforme
-createSubagent(data as SubagentInput)
-```
-
-Valide typeof/enum no handler (padrão rules/skills) e passe objeto já estreitado.
-
-```
-// Conforme
-const input = narrowSubagentInput(data)
-if (!input.ok) return sendError(400, ...)
-createSubagent(input.value)
-```
-
-#### Exceções
-Nenhuma em rota que aceita JSON do renderer.
-
----
-
-<a id="r-pty-env-inheritance"></a>
-
-### PTY com allowlist mínima de env
-Esforço: 1–2 horas  
-Classificação: Médio  
-Stack: `Electron` · Tipo: `pty-env-inheritance`
-
-#### Por que isso é um problema?
-Herdar `process.env` inteiro pode expor keys de provider / tokens do host ao shell do terminal dock (F26).
-
-```
-// Não conforme
-spawn(shell, [], { env: process.env })
-```
-
-Passe allowlist (`PATH`, `HOME`, `USERPROFILE`, `TERM`, locale, `COMSPEC` no Windows).
-
-```
-// Conforme
-env: pickEnv(process.env, ALLOWED_PTY_ENV_KEYS)
-```
-
-#### Exceções
-Var explicitamente necessária ao shell do usuário e sem segredo — documentar na allowlist.
-
----
-
 <a id="r-missing-sibling-coverage"></a>
 
 ### Módulos de lógica com teste irmão (ou justificativa)
 Esforço: 1–3 horas por módulo  
-Classificação: Médio  
+Classificação: Médio (era Alto — `codegraph/ensure|query` e registries do runner fechados 2026-08-09, ver C44)  
 Stack: `Vitest` · Tipo: `missing-sibling-coverage`
 
 #### Por que isso é um problema?
-C30 fechou gaps críticos; residual em `codegraph/ensure|query` e registries/`thread-cwd`/`turn-control` — cobertura só indireta via dispatch deixa regressões locais passar.
+C30 fechou gaps críticos; residual em `vcs/oauth-config.ts`, `mcps/catalog.ts`, `config/defaults.ts` — cobertura só indireta via dispatch/handler deixa regressões locais passar.
 
 ```
 // Não conforme
-// query.ts exporta resolução de defs/refs; query.test.ts ausente
+// config/defaults.ts exporta valor default consumido por dispatch.ts; defaults.test.ts ausente
 ```
 
 Irmão mínimo: happy path + degrade/erro relevante.
 
 ```
 // Conforme
-// query.ts + query.test.ts
+// config/defaults.ts + config/defaults.test.ts
 ```
 
 #### Exceções
@@ -334,6 +191,12 @@ Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto nã
 | C36 | `Vitest` | `missing-smoke-evidence` | working tree 2026-08-09; `docs/F04\|F05\|F08\|F10\|F14\|F16\|F17-*/smoke-results.md` — **D07 fechado por completo**; F04/F08/F10/F14/F16/F17 formalizados a partir da narrativa real já existente em `PROGRESS.md`, F05 rodado ao vivo pela primeira vez | [RC-missing-smoke-evidence](#rc-missing-smoke-evidence) |
 | C37 | `React` | `harness-count-stale-after-modal-close` | working tree 2026-08-09; `WorkspaceSidebar.tsx` (`refreshHarnessCounts` chamado no `onClose` dos 4 modais de vínculo), achado ao vivo no smoke de F05, `pnpm test` 1012/1012 | [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close) |
 | C38 | `SQLite` | `skills-json-outside-sqlite` | working tree 2026-08-09; migration `012_skills`, `repositories/skills.ts` reescrito como funções de módulo sobre `getDb()`, migração automática do `skills.json` legado + 6 consumidores/6 arquivos de teste atualizados, confirmado ao vivo com app real + `skills.json` legado semeado, `pnpm test` 1013/1013 | [RC-skills-json-outside-sqlite](#rc-skills-json-outside-sqlite) |
+| C39 | `Node.js` | `dead-export` | `52cf9cc`; `git-client.ts` `injectTokenIntoHttpsUrl` e `vcs/oauth.ts` `getTokens` sem `export` (fecha A02+A03) | [RC-dead-export](#rc-dead-export) |
+| C40 | `Node.js` | `error-message-locale-residual` | `6490437`; `unlock-handler.ts` `cors_denied` em PT-BR (fecha R03) | [RC-error-message-locale-residual](#rc-error-message-locale-residual) |
+| C41 | `Node.js` | `ws-query-token-legacy` | `e0c5672`; `ws-upgrade.ts` autentica só por subprotocol, sem fallback `?token=` (fecha R04) | [RC-ws-query-token-legacy](#rc-ws-query-token-legacy) |
+| C42 | `Node.js` | `http-body-narrowing-gap` | `9ac433e`; `subagents-handler.ts` narrowing de `model`/`reasoningLevel`/`category`/`tools`/`enabled` antes do cast (fecha R05) | [RC-http-body-narrowing-gap](#rc-http-body-narrowing-gap) |
+| C43 | `Electron` | `pty-env-inheritance` | `4daaafe`; `pty-session-registry.ts` `buildPtyEnv` allowlist no spawn do terminal dock (fecha R06) | [RC-pty-env-inheritance](#rc-pty-env-inheritance) |
+| C44 | `Vitest` | `missing-sibling-coverage` | `730c552`; `codegraph/ensure.test.ts` + `query.test.ts` (fecha D01 por completo) e `runner/mcp-registry.test.ts`/`rule-registry.test.ts`/`thread-cwd.test.ts`/`turn-control.test.ts` (fecha parte de D02) — `vcs/oauth-config.ts`/`mcps/catalog.ts`/`config/defaults.ts` seguem sem irmão, ver [R-missing-sibling-coverage](#r-missing-sibling-coverage) | [R-missing-sibling-coverage](#r-missing-sibling-coverage) |
 
 ### Regras — problemas corrigidos
 
@@ -1417,6 +1280,134 @@ Nenhuma. Ao tocar `skills.ts` de novo, use as funções de módulo (`listSkills`
 
 ---
 
+<a id="rc-dead-export"></a>
+
+### Não exporte símbolo sem consumidor de produção
+Esforço: 10–20 minutos  
+Classificação: fechado — era Baixo  
+Stack: `Node.js` · Tipo: `dead-export`
+
+#### Por que isso é um problema?
+API interna inflada. `injectTokenIntoHttpsUrl` ficou órfã após F24 (`ByKind`); `getTokens` só era chamado no próprio `vcs/oauth.ts`.
+
+```
+// Não conforme
+export function injectTokenIntoHttpsUrl(...) { ... } // só teste
+```
+
+```
+// Conforme
+function injectTokenIntoHttpsUrl(...) { ... } // módulo-local, ByKind delega
+function getTokens(...) { ... } // módulo-local
+```
+
+#### Exceções
+Export usado só por teste irmão via API pública documentada — preferível testar via função que a encapsula.
+
+---
+
+<a id="rc-error-message-locale-residual"></a>
+
+### Messages de erro HTTP voltadas ao usuário em PT-BR
+Esforço: 5 minutos  
+Classificação: fechado — era Baixo  
+Stack: `Node.js` · Tipo: `error-message-locale-residual`
+
+#### Por que isso é um problema?
+C26 fechou o 404 do unlock; residual: `cors_denied` respondia `Origin not allowed.`. Contrato do produto: message acionável em PT-BR.
+
+```
+// Não conforme
+message: 'Origin not allowed.'
+```
+
+```
+// Conforme
+message: 'Origem não permitida.'
+```
+
+#### Exceções
+Logs internos / `console.error` podem permanecer em inglês.
+
+---
+
+<a id="rc-ws-query-token-legacy"></a>
+
+### Autenticação WS sem token na query string
+Esforço: 30–60 minutos  
+Classificação: fechado — era Médio  
+Stack: `Node.js` · Tipo: `ws-query-token-legacy`
+
+#### Por que isso é um problema?
+Cliente usa subprotocol; `?token=` na query pode vazar em logs de proxy/histórico de URL.
+
+```
+// Não conforme
+const token = url.searchParams.get('token') ?? subprotocol
+```
+
+```
+// Conforme
+// só Sec-WebSocket-Protocol / subprotocol nomeado
+```
+
+#### Exceções
+Nenhuma — não reintroduza o fallback de query.
+
+---
+
+<a id="rc-http-body-narrowing-gap"></a>
+
+### Narrowing de body no handler antes do repositório
+Esforço: 30–60 minutos  
+Classificação: fechado — era Médio  
+Stack: `Node.js` · Tipo: `http-body-narrowing-gap`
+
+#### Por que isso é um problema?
+C18 endureceu skills/rules/config; `subagents-handler` fazia `createSubagent(data as SubagentInput)` sem checar `model`/`reasoningLevel`/`category`/`tools`/`enabled` antes do cast — tipo errado não virava 400 e podia derrubar o bind do SQLite.
+
+```
+// Não conforme
+const subagent = createSubagent(data as SubagentInput) // sem narrowing de model/reasoningLevel/category/tools/enabled
+```
+
+```
+// Conforme
+const invalidField = invalidSubagentInputField(data) // typeof/enum antes do cast
+if (invalidField !== null) return sendError(res, 400, 'invalid_request', ...)
+const subagent = createSubagent(data as SubagentInput)
+```
+
+#### Exceções
+Nenhuma em rota que aceita JSON do renderer.
+
+---
+
+<a id="rc-pty-env-inheritance"></a>
+
+### PTY com allowlist mínima de env
+Esforço: 1–2 horas  
+Classificação: fechado — era Médio  
+Stack: `Electron` · Tipo: `pty-env-inheritance`
+
+#### Por que isso é um problema?
+Herdar `process.env` inteiro podia expor keys de provider / tokens do host ao shell do terminal dock (F26).
+
+```
+// Não conforme
+spawn(shell, [], { env: process.env })
+```
+
+```
+// Conforme
+env: buildPtyEnv(process.env) // allowlist (PATH, HOME, USERPROFILE, TERM, locale, COMSPEC no Windows)
+```
+
+#### Exceções
+Var explicitamente necessária ao shell do usuário e sem segredo — documentar na allowlist.
+
+---
+
 ## 5. Fora de escopo / dívida consciente
 
 | Item | Estado 2026-08-09 |
@@ -1425,23 +1416,25 @@ Nenhuma. Ao tocar `skills.ts` de novo, use as funções de módulo (`listSkills`
 | Smoke-results F20/F21/F23/F26/F27 | **Fechado** 2026-08-09 (C33; ver C34/C35 pelos 2 bugs reais achados no processo) |
 | Smoke-results F04/F05/F08/F10/F14/F16/F17 — **D07 fechado por completo** | **Fechado** 2026-08-09 (C36; ver C37 pelo bug real achado no smoke de F05) |
 | `skills.json` fora do SQLite (A01) | **Fechado** 2026-08-09 (C38; migration `012_skills` + funções de módulo + migração automática do JSON legado) |
+| R03/R04/R05/R06, A02/A03, D01 + parte de D02 | **Fechado** 2026-08-09 (C39–C44; já corrigidos em commits anteriores, reconciliação §2→§4 formalizada nesta sessão) |
 | F19 smoke “opcional” | Aceito enquanto AC não exigir DOM fechado |
 | Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag |
 | PTY via IPC nomeado (F26) | Capacidade nativa aceita; mapa IPC de `review-architecture` já atualizado (`handle` + `on` de stream) |
 | Servidores `listen(0)` por turno (MCP/OAuth/ask-user/memory) | Por design |
 | `AUDIT-PRD-S9-MIGRATION.md` | Encerrada; não reabrir como matriz de código |
-| Gates `tsc`/`build`/`biome` nesta passagem | Não reexecutados (pedido da skill) |
-| Suíte não determinística no fechamento | Sessão de fix concorrente em `subagents-handler` + `testTimeout` default de 5 s em casos de git/spawn reais; rode duas vezes antes de chamar regressão |
+| Gates `tsc`/`build` | Reexecutados nesta sessão (D07/A01/reconciliação) — limpos; `biome` não reexecutado |
+| Suíte não determinística sob carga | `testTimeout` default de 5 s em casos de git/spawn reais + timing de `ask-user-question.test.ts` (setTimeout curto) — ambos observados nesta sessão como flaky isolado, não regressão; rode duas vezes antes de chamar regressão |
 
 ### Fatiamento sugerido (remediação dos abertos)
 
-1. `fix(http): PT-BR cors_denied; narrow subagent body; drop WS ?token=` — R03/R04/R05
-2. `fix(F26): allowlist PTY env` — R06
-3. `refactor(git/vcs): drop dead exports` — A02/A03
-4. `test(codegraph/runner): sibling coverage ensure/query/registries` — D01/D02
+1. ~~`fix(http): PT-BR cors_denied; narrow subagent body; drop WS ?token=` — R03/R04/R05~~ **feito** (commits `6490437`/`9ac433e`/`e0c5672`, reconciliado 2026-08-09, ver C40/C42/C41)
+2. ~~`fix(F26): allowlist PTY env` — R06~~ **feito** (`4daaafe`, reconciliado 2026-08-09, ver C43)
+3. ~~`refactor(git/vcs): drop dead exports` — A02/A03~~ **feito** (`52cf9cc`, reconciliado 2026-08-09, ver C39)
+4. ~~`test(codegraph/runner): sibling coverage ensure/query/registries` — D01/D02~~ **feito parcialmente** (`730c552`, reconciliado 2026-08-09, ver C44) — D02 segue aberto pra `vcs/oauth-config.ts`/`mcps/catalog.ts`/`config/defaults.ts`
 5. ~~`docs(F20|F21|F23|F26|F27): record smoke evidence` — D07 (após smoke real)~~ **feito** 2026-08-09 (working tree; 2 bugs reais achados e corrigidos no processo, ver C34/C35)
 6. ~~`refactor(F05): migrate skills.json to SQLite` — A01 (maior; onda própria)~~ **feito** 2026-08-09 (working tree; migration `012_skills`, funções de módulo, migração automática do JSON legado, confirmado ao vivo, ver C38)
 7. ~~`docs(F04|F05|F08|F10|F14|F16|F17): record smoke evidence` — D07 restante~~ **feito** 2026-08-09 (**D07 fechado por completo**; 1 bug real achado e corrigido no smoke de F05, ver C36/C37)
+8. `test(vcs|mcps|config): sibling coverage oauth-config/catalog/defaults` — D02 restante (único aberto)
 
 ---
 
