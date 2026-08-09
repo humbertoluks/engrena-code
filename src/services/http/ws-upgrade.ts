@@ -8,17 +8,17 @@ const SESSION_SUBPROTOCOL_PREFIX = 'engrenacode-session.'
 
 const wss = new WebSocketServer({ noServer: true })
 
-function extractToken(req: IncomingMessage, url: URL): string | null {
+function extractToken(req: IncomingMessage): string | null {
   const protoHeader = req.headers['sec-websocket-protocol']
   if (typeof protoHeader === 'string') {
     const parts = protoHeader.split(',').map((p) => p.trim())
     const withPrefix = parts.find((p) => p.startsWith(SESSION_SUBPROTOCOL_PREFIX))
     if (withPrefix) return withPrefix.slice(SESSION_SUBPROTOCOL_PREFIX.length)
   }
-  return url.searchParams.get('token')
+  return null
 }
 
-/** Upgrade WS no mesmo loopback 5174. Inscrição via `?threadId=`; auth via subprotocol `engrenacode-session.<token>` ou `?token=`. */
+/** Upgrade WS no mesmo loopback 5174. Inscrição via `?threadId=`; auth só via subprotocol `engrenacode-session.<token>` — nunca `?token=` na query string, que vazaria em logs de proxy/histórico de URL. */
 export function handleWorkspaceUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
   const url = new URL(req.url ?? '', 'http://127.0.0.1')
   const threadId = url.searchParams.get('threadId')
@@ -30,7 +30,7 @@ export function handleWorkspaceUpgrade(req: IncomingMessage, socket: Duplex, hea
     return true
   }
 
-  const token = extractToken(req, url)
+  const token = extractToken(req)
   const valid = vaultService.getSessionToken()
 
   if (typeof token !== 'string' || !token || token !== valid) {

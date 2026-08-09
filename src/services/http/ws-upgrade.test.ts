@@ -68,4 +68,21 @@ describe('workspace WebSocket upgrade', () => {
     await expect(openSocket('thr_test_2', 'token-invalido')).rejects.toBeTruthy()
     server.close()
   })
+
+  it('rejects the upgrade when the token is only present as a ?token= query param, no subprotocol (R04)', async () => {
+    vaultService.unlock('workspace-teste', 'senha-forte-123')
+    const token = vaultService.getSessionToken() as string
+
+    server = createUnlockServer(0)
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    const address = server.address()
+    port = typeof address === 'object' && address !== null ? address.port : 0
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/?threadId=thr_test_3&token=${token}`)
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => reject(new Error('expected the handshake to be rejected')))
+      ws.once('error', () => resolve())
+    })
+    server.close()
+  })
 })
