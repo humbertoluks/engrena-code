@@ -12,6 +12,9 @@ import { ComposerImageAttachments, ImageAttachmentThumbs } from './ComposerImage
 import { extractMentionQuery, insertMentionPath, validateComposerSlash, type MentionQuery } from './composer.logic'
 import { extractSlashTrigger, insertSlashCommand, type SlashTrigger } from './commandTrigger'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
+import { VoiceMicButton } from './VoiceMicButton'
+import { insertAtCursor } from './voiceInput.logic'
+import { useVoiceInput } from '../../hooks/useVoiceInput'
 
 const COPY = {
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
@@ -98,6 +101,22 @@ export function TaskComposer({
   const [slashError, setSlashError] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function handleVoiceTranscript(text: string): void {
+    const start = textareaRef.current?.selectionStart ?? composer.text.length
+    const end = textareaRef.current?.selectionEnd ?? start
+    const result = insertAtCursor(composer.text, start, end, text)
+    updateComposer({ text: result.text })
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+    })
+  }
+
+  const voice = useVoiceInput({
+    keyReady: configStatus ? configStatus.voice.openai || configStatus.voice.groq : null,
+    onTranscript: handleVoiceTranscript,
+  })
 
   const isRunning = selectedThread?.state === 'running'
   const isStopping = selectedThread?.state === 'stopping'
@@ -307,6 +326,16 @@ export function TaskComposer({
           </p>
         ) : null}
 
+        {voice.errorMessage !== null && voice.state === 'error' ? (
+          <p role="alert" className="mt-sm text-xs text-red">
+            {voice.errorMessage}
+          </p>
+        ) : voice.noticeMessage !== null ? (
+          <p role="status" className="mt-sm text-xs text-amber">
+            {voice.noticeMessage}
+          </p>
+        ) : null}
+
         <div className="mt-xs flex flex-wrap items-center justify-between gap-xs">
           <div className="flex flex-wrap items-center gap-xs">
             <ComposerModelControls
@@ -341,6 +370,14 @@ export function TaskComposer({
               onChange={(v) => updateComposer({ executionMode: v })}
             />
             <div className="h-4 w-[1.5px] bg-border" />
+            <VoiceMicButton
+              state={voice.state}
+              keyReady={voice.keyReady}
+              errorMessage={voice.errorMessage}
+              elapsedMs={voice.elapsedMs}
+              disabled={disabled || runtimeLocked}
+              onClick={voice.toggle}
+            />
             <ComposerImageAttachments
               currentCount={composer.images.length}
               multimodal={multimodal}
