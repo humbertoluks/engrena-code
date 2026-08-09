@@ -1385,9 +1385,9 @@ graph TD
 - [x] Processo morto inesperadamente mostra "Sessão encerrada" com opção de reabrir
 
 ### F27. Ditado por Voz (STT)
-- [ ] Botão de microfone grava e transcreve para o composer como rascunho editável
+- [x] Botão de microfone grava e transcreve para o composer como rascunho editável
 - [ ] Usuário revisa/edita a transcrição antes de Enviar; nada é enviado automaticamente
-- [ ] Sem permissão de microfone, CTA fica desabilitado com explicação
+- [x] Sem permissão de microfone, CTA fica desabilitado com explicação
 - [ ] Falha de transcrição preserva o áudio gravado para nova tentativa
 
 ### Integração Cross-Feature
@@ -1420,4 +1420,4 @@ graph TD
 - [x] VCS conectado (F24) é consumido por `GitActions` (F14) para decidir contra qual API abrir PR/MR
 - [x] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
-- [ ] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
+- [x] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
