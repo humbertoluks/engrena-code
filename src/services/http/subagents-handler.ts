@@ -20,6 +20,31 @@ import {
   type SubagentPatch,
 } from '../db/repositories/subagents.js'
 
+/**
+ * Narrowing na fronteira HTTP antes do cast pro repositório (R-http-body-narrowing-gap).
+ * `name`/`description`/`prompt`/`provider`/`kind`/`idleTimeoutMinutes` já são `typeof`/enum-checados
+ * dentro de `validateInput` no repositório (`SubagentValidationError` → 400 `validation_error`) — não
+ * duplicar aqui, ou o mesmo campo passaria a devolver dois `error.code` diferentes dependendo de qual
+ * checagem roda primeiro. O gap real é `model`/`reasoningLevel`/`category`/`tools`/`enabled`: nenhum
+ * deles é validado em lugar nenhum hoje, então um tipo errado nunca vira 400 — no melhor caso é
+ * gravado errado no SQLite (`enabled` truthy mesmo com `"false"` string), no pior derruba o bind do
+ * better-sqlite3 (`TypeError` não tratado → 500).
+ */
+function invalidSubagentInputField(data: Partial<SubagentInput>): string | null {
+  if (data.model !== undefined && data.model !== null && typeof data.model !== 'string') return 'model'
+  if (data.reasoningLevel !== undefined && data.reasoningLevel !== null && typeof data.reasoningLevel !== 'string') return 'reasoningLevel'
+  if (data.category !== undefined && data.category !== null && typeof data.category !== 'string') return 'category'
+  if (
+    data.tools !== undefined &&
+    data.tools !== null &&
+    (!Array.isArray(data.tools) || data.tools.some((t) => typeof t !== 'string'))
+  ) {
+    return 'tools'
+  }
+  if (data.enabled !== undefined && typeof data.enabled !== 'boolean') return 'enabled'
+  return null
+}
+
 function handleKnownError(res: ServerResponse, err: unknown): boolean {
   if (err instanceof SubagentNotFoundError) {
     sendError(res, 404, 'subagent_not_found', err.message)
@@ -57,6 +82,10 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
+  const invalidField = invalidSubagentInputField(data)
+  if (invalidField !== null) {
+    return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
+  }
   try {
     const subagent = createSubagent(data as SubagentInput)
     sendJson(res, 201, { subagent })
@@ -70,6 +99,10 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
   const data = parseBody<SubagentPatch>(await readBody(req))
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+  const invalidField = invalidSubagentInputField(data)
+  if (invalidField !== null) {
+    return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
   }
   try {
     const subagent = updateSubagent(id, data)

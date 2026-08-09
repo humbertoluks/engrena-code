@@ -135,6 +135,41 @@ describe('subagents-handler', () => {
     expect(res.data.error.code).toBe('validation_error')
   })
 
+  it('rejects a non-string model with 400 invalid_request (R05)', async () => {
+    const res = await client.post('/api/subagents', baseInput({ model: 123 }), { headers: authHeaders() })
+    expect(res.status).toBe(400)
+    expect(res.data.error.code).toBe('invalid_request')
+    expect(res.data.error.message).toContain('model')
+  })
+
+  it('rejects a non-boolean enabled with 400 invalid_request (R05)', async () => {
+    const res = await client.post('/api/subagents', baseInput({ enabled: 'false' }), { headers: authHeaders() })
+    expect(res.status).toBe(400)
+    expect(res.data.error.code).toBe('invalid_request')
+    expect(res.data.error.message).toContain('enabled')
+  })
+
+  it('rejects tools that is not an array of strings with 400 invalid_request (R05)', async () => {
+    const res = await client.post('/api/subagents', baseInput({ tools: 'repo_graph_find_definition' }), {
+      headers: authHeaders(),
+    })
+    expect(res.status).toBe(400)
+    expect(res.data.error.code).toBe('invalid_request')
+    expect(res.data.error.message).toContain('tools')
+  })
+
+  it('rejects an update with a non-string category with 400 invalid_request (R05)', async () => {
+    const create = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
+    const res = await client.put(
+      `/api/subagents/${create.data.subagent.id}`,
+      { category: 42 },
+      { headers: authHeaders() }
+    )
+    expect(res.status).toBe(400)
+    expect(res.data.error.code).toBe('invalid_request')
+    expect(res.data.error.message).toContain('category')
+  })
+
   it('updates and deletes a subagent', async () => {
     const create = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
     const id = create.data.subagent.id
