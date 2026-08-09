@@ -16,7 +16,6 @@ const {
   gitWorktreeAdd,
   gitWorktreeRemove,
   hasGitHead,
-  injectTokenIntoHttpsUrl,
   injectTokenIntoHttpsUrlByKind,
   isGitRepo,
   parseGithubRemote,
@@ -181,25 +180,13 @@ describe('getRemoteOriginUrl', () => {
   })
 })
 
-describe('injectTokenIntoHttpsUrl', () => {
-  it('returns null for non-https URLs (e.g. ssh remotes)', () => {
-    expect(injectTokenIntoHttpsUrl('git@github.com:acme/repo.git', 'tok')).toBeNull()
-  })
-
-  it('injects an x-access-token credential into a bare https URL', () => {
-    expect(injectTokenIntoHttpsUrl('https://github.com/acme/repo.git', 'tok123')).toBe(
-      'https://x-access-token:tok123@github.com/acme/repo.git'
-    )
-  })
-
-  it('strips any existing userinfo before injecting the token', () => {
-    expect(injectTokenIntoHttpsUrl('https://olduser@github.com/acme/repo.git', 'tok123')).toBe(
-      'https://x-access-token:tok123@github.com/acme/repo.git'
-    )
-  })
-})
-
 describe('injectTokenIntoHttpsUrlByKind (F24)', () => {
+  it('strips any existing userinfo before injecting the token for github', () => {
+    expect(injectTokenIntoHttpsUrlByKind('https://olduser@github.com/acme/repo.git', 'github', 'tok123')).toBe(
+      'https://x-access-token:tok123@github.com/acme/repo.git'
+    )
+  })
+
   it('push_inject_gitlab_oauth2 — URL contains oauth2:', () => {
     expect(injectTokenIntoHttpsUrlByKind('https://gitlab.com/acme/repo.git', 'gitlab', 'tok123')).toBe(
       'https://oauth2:tok123@gitlab.com/acme/repo.git'

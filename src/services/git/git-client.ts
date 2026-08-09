@@ -112,7 +112,7 @@ export async function gitCommit(cwd: string, subject: string, body?: string): Pr
   return { sha: stdout.trim() }
 }
 
-export function injectTokenIntoHttpsUrl(remoteUrl: string, token: string): string | null {
+function injectTokenIntoHttpsUrl(remoteUrl: string, token: string): string | null {
   if (!remoteUrl.startsWith('https://')) return null
   const withoutScheme = remoteUrl.slice('https://'.length)
   const hostAndPath = withoutScheme.includes('@') ? withoutScheme.split('@').slice(1).join('@') : withoutScheme
@@ -127,7 +127,7 @@ export function injectTokenIntoHttpsUrlByKind(remoteUrl: string, kind: VcsKind, 
 
   switch (kind) {
     case 'github':
-      return `https://x-access-token:${token}@${hostAndPath}`
+      return injectTokenIntoHttpsUrl(remoteUrl, token)
     case 'gitlab':
       return `https://oauth2:${token}@${hostAndPath}`
     case 'bitbucket':

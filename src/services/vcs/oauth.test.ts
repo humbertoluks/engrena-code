@@ -9,7 +9,7 @@ const privateUserData = mkdtempSync(join(tmpdir(), 'engrenacode-vcs-oauth-test-'
 process.env.ENGRENACODE_USER_DATA = privateUserData
 
 const { vaultService } = await import('../vault/vault-service.js')
-const { startOauth, getOauthStatus, disconnectOauth, saveClientId, getTokens, getValidAccessToken, VcsOauthError } = await import(
+const { startOauth, getOauthStatus, disconnectOauth, saveClientId, getValidAccessToken, VcsOauthError } = await import(
   './oauth.js'
 )
 
@@ -72,14 +72,14 @@ describe('disconnectOauth', () => {
 
     disconnectOauth('gitlab')
 
-    expect(getTokens('gitlab')).toBeUndefined()
+    expect(await getValidAccessToken('gitlab')).toBeUndefined()
     expect(getOauthStatus('gitlab')).toBe('disconnected')
   })
 
-  it('is idempotent and clears any saved token', () => {
+  it('is idempotent and clears any saved token', async () => {
     disconnectOauth('bitbucket')
     disconnectOauth('bitbucket')
-    expect(getTokens('bitbucket')).toBeUndefined()
+    expect(await getValidAccessToken('bitbucket')).toBeUndefined()
   })
 })
 

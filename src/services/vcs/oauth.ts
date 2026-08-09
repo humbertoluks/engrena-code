@@ -52,7 +52,7 @@ function saveTokens(kind: VcsOauthKind, tokens: OauthTokens): void {
   vaultService.setSecret(tokenVaultKey(kind), JSON.stringify(tokens))
 }
 
-export function getTokens(kind: VcsOauthKind): OauthTokens | undefined {
+function getTokens(kind: VcsOauthKind): OauthTokens | undefined {
   const raw = vaultService.getSecret(tokenVaultKey(kind))
   if (!raw) return undefined
   try {
