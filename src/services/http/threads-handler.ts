@@ -22,6 +22,7 @@ import {
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
+import { resolvePermissionRequest } from '../runner/permission-broker.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -276,6 +277,11 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   const data = parseBody<PermissionBody>(await readBody(req))
   if (data === null || typeof data.requestId !== 'string' || typeof data.allow !== 'boolean') {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+
+  const resolved = resolvePermissionRequest(data.requestId, data.allow)
+  if (!resolved) {
+    return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
   }
 
   emit(threadId, {

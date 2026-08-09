@@ -29,6 +29,7 @@ const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
+const { resolvePermissionRequest, hasPendingPermission } = await import('./permission-broker.js')
 const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
 const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
@@ -99,6 +100,21 @@ function waitForState(threadId: string, states: string[], timeoutMs = 3000): Pro
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(interval)
         reject(new Error(`timeout esperando estado em [${states.join(',')}]; atual=${t?.state}`))
+      }
+    }, 10)
+  })
+}
+
+function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now()
+    const interval = setInterval(() => {
+      if (predicate()) {
+        clearInterval(interval)
+        resolve()
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(interval)
+        reject(new Error('timeout esperando condição'))
       }
     }, 10)
   })
@@ -1498,6 +1514,166 @@ describe('usage limit gate (F25)', () => {
 
     expect(() => dispatchFollowUp({ threadId: thread.id, prompt: 'de novo' })).toThrow('Limite de consumo atingido')
 
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised"', () => {
+  it('emits permission.request over WS, blocks the hook (--settings) até POST /permission resolver com allow', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedAllow: boolean | undefined
+    let capturedPort: number | undefined
+    let capturedToken: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedPort = input.permissionPort
+      capturedToken = input.permissionToken
+      const res = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.txt' } }),
+      })
+      const body = (await res.json()) as { allow: boolean }
+      capturedAllow = body.allow
+      return { text: 'ok' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    const req = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
+    expect(req.toolName).toBe('Write')
+
+    expect(resolvePermissionRequest(req.requestId, true)).toBe(true)
+
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPort).toBeDefined()
+    expect(capturedToken).toBeTruthy()
+    expect(capturedAllow).toBe(true)
+    // `permission.resolved` só é emitido pelo handler HTTP (threads-handler.ts), não por
+    // `resolvePermissionRequest` em si — coberto em threads-handler.test.ts (fluxo end-to-end).
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('deny explícito (POST /permission allow=false) devolve allow:false pro hook', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedAllow: boolean | undefined
+    setRunCliTurnForTesting(async (input) => {
+      const res = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Bash', toolInput: { command: 'rm -rf /' } }),
+      })
+      const body = (await res.json()) as { allow: boolean }
+      capturedAllow = body.allow
+      return { text: 'ok' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    const req = received.find((e) => e.type === 'permission.request') as { requestId: string }
+    expect(resolvePermissionRequest(req.requestId, false)).toBe(true)
+
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedAllow).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('cancelar a thread durante permissão pendente limpa o broker e assenta em cancelled', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async (input) => {
+      const res = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Write', toolInput: {} }),
+        signal: input.signal,
+      })
+      const body = (await res.json()) as { allow: boolean }
+      return { text: body.allow ? 'ok' : 'negado' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    expect(hasPendingPermission(thread.id)).toBe(true)
+
+    // Turno ainda ativo (controller registrado) — cancelThread aborta o processo do provider, que
+    // aborta o fetch preso no `POST /permission`; o `finally` de dispatch.ts limpa o pendente.
+    expect(cancelThread(thread.id)).toBe(true)
+
+    await dispatchPromise
+    await waitForState(thread.id, ['cancelled', 'idle', 'error'])
+
+    expect(hasPendingPermission(thread.id)).toBe(false)
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('não cria PermissionBroker fora de supervised (auto-accept-edits não gera --settings/porta)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedPort: number | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedPort = input.permissionPort
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPort).toBeUndefined()
     rmSync(dir, { recursive: true, force: true })
   })
 })

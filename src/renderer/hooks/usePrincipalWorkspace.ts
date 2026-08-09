@@ -115,7 +115,11 @@ export function usePrincipalWorkspace() {
     provider: 'claude',
     model: null,
     reasoningLevel: null,
-    accessLevel: 'supervised',
+    // 'supervised' manda --permission-mode default pro CLI, que exige aprovação interativa via
+    // stdin — inexistente no spawn headless (-p). Toda tool falha em loop até o PermissionBroker
+    // real ser construído (ver docs/AUDIT-CODE-REVIEW.md). 'auto-accept-edits' é o único nível
+    // funcional por default hoje.
+    accessLevel: 'auto-accept-edits',
     executionMode: 'main',
     text: '',
     images: [],
@@ -378,6 +382,12 @@ export function usePrincipalWorkspace() {
         nextList[idx] = { ...nextList[idx], state: event.state as Thread['state'] }
         return { ...prev, [projectId]: nextList }
       })
+      // Turno assentou (idle/committed/error/cancelled) — o backend já negou qualquer permissão
+      // pendente no `finally` do dispatch; limpa o banner de Allow/Deny órfão que sobraria se o
+      // usuário cancelou o turno em vez de responder.
+      if (event.state === 'idle' || event.state === 'committed' || event.state === 'error' || event.state === 'cancelled') {
+        setPermissionQueue((prev) => prev.filter((p) => p.threadId !== event.threadId))
+      }
       if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
         setStreamingText('')
         void loadHistory(event.threadId)

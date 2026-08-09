@@ -94,7 +94,30 @@ describe('runCliTurn — cli providers', () => {
     setSpawnForTesting(fakeSpawn)
 
     await runCliTurn(baseInput())
-    expect(capturedEnv).toBe(process.env)
+    expect(capturedEnv).not.toBe(process.env)
+    expect(capturedEnv?.PATH).toBe(process.env.PATH)
+    expect(capturedEnv?.ANTHROPIC_API_KEY).toBeUndefined()
+  })
+
+  it('strips an ambient ANTHROPIC_API_KEY from the spawned env when Claude runs in subscription mode', async () => {
+    const previous = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-leaked-from-parent-shell'
+    try {
+      let capturedEnv: Record<string, string | undefined> | undefined
+      const fakeSpawn: SpawnFn = ((_bin: string, _args: string[], opts: unknown) => {
+        capturedEnv = (opts as { env?: Record<string, string | undefined> }).env
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+      expect(capturedEnv?.ANTHROPIC_API_KEY).toBeUndefined()
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
   })
 
   it('rejects with a ProviderError when spawn fails to start', async () => {
@@ -162,6 +185,114 @@ describe('runCliTurn — cli providers', () => {
     expect((err as ProviderError).code).toBe('provider_spawn_failed')
     expectUnderTurnArtifacts(configPath)
     expect(existsSync(configPath)).toBe(false)
+  })
+
+  describe('PermissionBroker (supervised) — --settings do hook PreToolUse', () => {
+    it('writes a --settings file with a PreToolUse hook pointing at the permission-hook script, and sets ELECTRON_RUN_AS_NODE', async () => {
+      let capturedArgs: string[] = []
+      let capturedEnv: Record<string, string | undefined> | undefined
+      let writtenAtSpawnTime: string | undefined
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[], opts: unknown) => {
+        capturedArgs = args
+        capturedEnv = (opts as { env?: Record<string, string | undefined> }).env
+        const flagIndex = args.indexOf('--settings')
+        if (flagIndex > -1) writtenAtSpawnTime = readFileSync(args[flagIndex + 1], 'utf-8')
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput({ permissionPort: 4321, permissionToken: 'perm-token-abc' }))
+
+      const flagIndex = capturedArgs.indexOf('--settings')
+      expect(flagIndex).toBeGreaterThan(-1)
+      const settingsPath = capturedArgs[flagIndex + 1]
+      expectUnderTurnArtifacts(settingsPath)
+      expect(existsSync(settingsPath)).toBe(false)
+
+      const written = JSON.parse(writtenAtSpawnTime as string)
+      const hookEntry = written.hooks.PreToolUse[0].hooks[0]
+      expect(hookEntry.type).toBe('command')
+      expect(hookEntry.command).toContain('--port 4321')
+      expect(hookEntry.command).toContain('--token perm-token-abc')
+      expect(capturedEnv?.ELECTRON_RUN_AS_NODE).toBe('1')
+
+      // 'auto' é a única combinação onde o hook tem autoridade real (confirmado ao vivo contra
+      // claude-code 2.1.226) — 'manual'/'dontAsk'/'default' negam por decision_reason_type=mode
+      // antes do hook ser consultado, mesmo com permissionDecision:"allow" no stdout.
+      const modeIdx = capturedArgs.indexOf('--permission-mode')
+      expect(capturedArgs[modeIdx + 1]).toBe('auto')
+    })
+
+    it('falls back to --permission-mode manual (fail-closed, no --settings) when supervised has no hook to attach', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+
+      const modeIdx = capturedArgs.indexOf('--permission-mode')
+      expect(capturedArgs[modeIdx + 1]).toBe('manual')
+      expect(capturedArgs.indexOf('--settings')).toBe(-1)
+    })
+
+    it('omits --settings when accessLevel is not supervised, even with permissionPort/Token set', async () => {
+      let capturedArgs: string[] = []
+      let capturedEnv: Record<string, string | undefined> | undefined
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[], opts: unknown) => {
+        capturedArgs = args
+        capturedEnv = (opts as { env?: Record<string, string | undefined> }).env
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(
+        baseInput({ accessLevel: 'auto-accept-edits', permissionPort: 4321, permissionToken: 'perm-token-abc' })
+      )
+
+      expect(capturedArgs.indexOf('--settings')).toBe(-1)
+      expect(capturedEnv?.ELECTRON_RUN_AS_NODE).toBeUndefined()
+    })
+
+    it('omits --settings for a non-Claude provider even in supervised mode', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(
+        baseInput({ provider: 'codex', accessLevel: 'supervised', permissionPort: 4321, permissionToken: 'perm-token-abc' })
+      )
+
+      expect(capturedArgs.indexOf('--settings')).toBe(-1)
+    })
+
+    it('omits --settings when permissionPort/Token are absent, even in supervised mode', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+
+      expect(capturedArgs.indexOf('--settings')).toBe(-1)
+    })
   })
 
   describe('F16 composer avançado — reasoning + images', () => {

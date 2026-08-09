@@ -224,15 +224,26 @@ Copiar para `.env.local` (não versionado).
     "appId": "com.lukse.engrenacode",
     "productName": "EngrenaCode",
     "directories": {
-      "output": "dist",
+      "output": "release",
       "buildResources": "assets"
     },
     "files": [
       "dist-electron",
       "dist/**/*"
     ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**/*"
+    ],
+    "npmRebuild": false,
     "win": {
       "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }
@@ -243,6 +254,8 @@ Copiar para `.env.local` (não versionado).
 - `"main": "dist-electron/index.js"` — Electron Builder espera isso
 - `"description"` e `"author"` — Obrigatório para Electron Builder
 - Scripts: `dev` sem orquestração extra (Vite + Electron rodam juntos via plugin)
+- `directories.output: "release"` — nunca usar `"dist"` aqui: é a mesma pasta onde o Vite escreve o renderer (`dist/index.html`, `dist/assets/**`), que `files: ["dist/**/*"]` empacota no asar; se coincidir, o `.exe`/`.blockmap` do instalador cai dentro de `dist/` e o próximo build reempacota o instalador anterior dentro do próprio app
+- `assets/icon.svg` — ícone da marca (mark roxo/azul, viewBox quadrado `48x48`); electron-builder converte SVG único em `.ico` automaticamente via `buildResources: "assets"`, sem dependência extra
 
 ---
 
@@ -440,8 +453,8 @@ pnpm run build
 ```
 
 Compila TypeScript, Vite e gera instaladores:
-- `dist/EngrenaCode Setup 0.0.0.exe` — Instalador NSIS
-- `dist/EngrenaCode 0.0.0.exe` — Portable executável
+- `release/EngrenaCode Setup 0.0.0.exe` — Instalador NSIS (wizard, não silent; deixa escolher pasta; cria atalho)
+- `release/EngrenaCode 0.0.0.exe` — Portable executável
 
 ---
 
@@ -455,7 +468,10 @@ pnpm run build
 
 **Outputs:**
 - `dist-electron/` — Main + preload compilados
-- `dist/` — React app + instaladores Windows
+- `dist/` — React app (renderer, output do Vite)
+- `release/` — Instaladores Windows (NSIS + portable), separado de `dist/` para não colidir com o output do Vite
+
+Instalador sem assinatura de código (sem certificado configurado): Windows SmartScreen avisa "editor desconhecido" no primeiro uso. Não bloqueia a instalação.
 
 **Customizar Build:**
 - Editar `package.json` → `"build"` para outras plataformas

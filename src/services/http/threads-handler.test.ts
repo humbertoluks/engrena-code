@@ -16,6 +16,7 @@ const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_
   '../runner/ask-user-question.js'
 )
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
+const { subscribe } = await import('../runner/ws-hub.js')
 const {
   setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
@@ -452,10 +453,21 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('permission endpoint accepts an allow decision (200)', async () => {
+  it('permission endpoint accepts an allow decision (200) and unblocks the pending PreToolUse hook', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    let capturedAllow: boolean | undefined
+    setRunCliTurnForTesting(async (input) => {
+      const permRes = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.txt' } }),
+      })
+      const permBody = (await permRes.json()) as { allow: boolean }
+      capturedAllow = permBody.allow
+      return { text: 'ok' }
+    })
 
     const createReq = fakeReq(
       'POST',
@@ -467,10 +479,18 @@ describe('handleThreadsRequest', () => {
     await handleThreadsRequest(createReq, createRes)
     const created = (await createRes.result()).body as { thread: { id: string } }
 
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(created.thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    const permReq = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
+    expect(permReq.toolName).toBe('Write')
+
     const req = fakeReq(
       'POST',
       `/api/threads/${created.thread.id}/permission`,
-      { requestId: 'perm_1', allow: true },
+      { requestId: permReq.requestId, allow: true },
       session
     )
     const res = fakeRes()
@@ -478,6 +498,41 @@ describe('handleThreadsRequest', () => {
     const { status, body } = await res.result()
     expect(status).toBe(200)
     expect((body as { resolved: boolean }).resolved).toBe(true)
+
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+    expect(capturedAllow).toBe(true)
+    expect(received.some((e) => e.type === 'permission.resolved' && e.requestId === permReq.requestId && e.allow === true)).toBe(
+      true
+    )
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('permission endpoint returns 409 for an unknown/already-resolved requestId', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'auto-accept-edits', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+
+    const req = fakeReq(
+      'POST',
+      `/api/threads/${created.thread.id}/permission`,
+      { requestId: 'does-not-exist', allow: true },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(409)
+    expect((body as { error: { code: string } }).error.code).toBe('no_pending_permission')
 
     await waitFor(() => getThread(created.thread.id)?.state === 'idle')
     rmSync(dir, { recursive: true, force: true })

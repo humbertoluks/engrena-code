@@ -48,6 +48,7 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
+import { createPermissionServer, denyPendingPermissionsForThread, type PermissionServerHandle } from './permission-broker.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
@@ -131,6 +132,7 @@ export function cancelThread(threadId: string): boolean {
   // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
   rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+  denyPendingPermissionsForThread(threadId)
 
   // Pipeline órfão (processo caiu sem passar pelo finally de pipeline-runner) — assenta aqui, já
   // que ninguém mais vai fechar aquele registro.
@@ -307,6 +309,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
   let delegationServer: DelegationServerHandle | null = null
   let askUserQuestionServer: AskUserQuestionServerHandle | null = null
   let memoryWriteServer: MemoryWriteServerHandle | null = null
+  let permissionServer: PermissionServerHandle | null = null
   const turnId = randomUUID()
   try {
     const imageBlocks =
@@ -405,6 +408,15 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     const controller = new AbortController()
     registerActiveController(thread.id, controller)
 
+    // PermissionBroker (spec supervised) — só Claude: `--permission-mode default` sozinho exige
+    // stdin interativo, inexistente no spawn headless. O hook `PreToolUse` (cli-driver.ts) segura
+    // cada tool call aqui até a UI responder via `POST /api/threads/:id/permission`.
+    if (thread.provider === 'claude' && thread.accessLevel === 'supervised') {
+      permissionServer = await createPermissionServer(thread.id, ({ requestId, toolName, params }) => {
+        emit(thread.id, { type: 'permission.request', threadId: thread.id, requestId, toolName, params })
+      })
+    }
+
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
       cwd,
@@ -415,6 +427,8 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
       accessLevel: thread.accessLevel,
       apiKey: resolveProviderApiKey(thread.provider),
       mcpServers: mcpsPrepared.resolved,
+      permissionPort: permissionServer?.port,
+      permissionToken: permissionServer?.token,
       images,
       signal: controller.signal,
       onEvent: (event) => {
@@ -542,6 +556,10 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
+    // Mesmo cuidado do `POST /ask`: nega permissão pendente antes de fechar o server, senão o
+    // hook `PreToolUse` do CLI filho fica preso mesmo sem thread pra respondê-lo.
+    denyPendingPermissionsForThread(thread.id)
+    permissionServer?.close()
     unregisterActiveController(thread.id)
     releaseLease(project.id)
   }

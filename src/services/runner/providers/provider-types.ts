@@ -38,6 +38,9 @@ export interface ProviderTurnInput {
   images?: ComposerImageInput[]
   onEvent: (event: ProviderStreamEvent) => void
   resolvePermission?: (request: { id: string; toolName: string; params: unknown }) => Promise<PermissionDecision>
+  /** Broker do hook `PreToolUse` (spec `PermissionBroker`) — só usado por Claude em modo `supervised`. */
+  permissionPort?: number
+  permissionToken?: string
   signal?: AbortSignal
 }
 

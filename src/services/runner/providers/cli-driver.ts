@@ -12,6 +12,7 @@ import { runHttpTurn as runGlmHttpTurn } from './glm-driver.js'
 import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
+import { ensurePermissionHookScript } from '../permission-hook.js'
 
 /** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
 function resolveUserData(): string {
@@ -129,10 +130,20 @@ function appendImageReferences(prompt: string, paths: string[]): string {
   return `${prompt}\n\nImagens anexadas (leia os arquivos abaixo):\n${lines}`
 }
 
-function permissionModeFlag(accessLevel: ThreadAccessLevel): string {
+/**
+ * `supervised` sem hook confirmado ao vivo (claude-code 2.1.226): `'manual'`/`'dontAsk'` negam
+ * toda tool com `decision_reason_type: "mode"` **antes** de qualquer `PreToolUse` hook rodar — o
+ * hook chega a disparar, mas o veredito de modo já decidiu, `permissionDecision: "allow"` do hook
+ * é ignorado. `'auto'` é a única combinação onde o hook (`--settings`, ver
+ * `buildPermissionSettingsFile`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
+ * decoração. `'default'` (valor antigo) nem é choice válido nesta versão do CLI.
+ */
+function permissionModeFlag(accessLevel: ThreadAccessLevel, hasPermissionHook: boolean): string {
   if (accessLevel === 'full-access') return 'bypassPermissions'
   if (accessLevel === 'auto-accept-edits') return 'acceptEdits'
-  return 'default'
+  // supervised sem hook disponível (provider sem suporte, broker não montado): sem gate real
+  // possível, mas falha fechado — nunca vira 'auto' (permissivo) por omissão.
+  return hasPermissionHook ? 'auto' : 'manual'
 }
 
 /** JSON `mcpServers` (spec §5.6) — schema oficial da Claude Code CLI (`--mcp-config`), assumido também para Codex/Kimi. */
@@ -153,7 +164,34 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
   return path
 }
 
-function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined): string[] {
+/**
+ * `--settings` com hook `PreToolUse` (spec `PermissionBroker`) — só pra Claude em modo
+ * `supervised`: `--permission-mode default` sozinho exige aprovação interativa via stdin, que
+ * não existe no spawn headless (`-p`). O hook (`permission-hook.ts`) segura cada tool call até a
+ * UI decidir, via `POST /permission` no `permission-broker.ts` do dispatch.
+ */
+function buildPermissionSettingsFile(port: number, token: string): string {
+  const hookScriptPath = ensurePermissionHookScript()
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScriptPath)} --port ${port} --token ${token}`
+  // `--settings` (formato de settings.json) exige o hooks aninhado sob "hooks" — confirmado ao
+  // vivo contra claude-code 2.1.226; sem esse wrapper o PreToolUse nunca dispara (a doc pública
+  // mostra a forma "direta" sem wrapper, mas essa versão instalada não aceita).
+  const settings = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: '*',
+          hooks: [{ type: 'command', command, timeout: 600 }],
+        },
+      ],
+    },
+  }
+  const path = join(resolveTurnArtifactsDir(), `engrenacode-permission-settings-${randomUUID()}.json`)
+  writeFileSync(path, JSON.stringify(settings), { mode: 0o600 })
+  return path
+}
+
+function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, permissionSettingsPath: string | undefined): string[] {
   const args = ['-p', input.prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose']
   if (input.model) args.push('--model', input.model)
   if (input.reasoningLevel) {
@@ -161,8 +199,9 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined):
     args.push('--effort', effort)
   }
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
-  args.push('--permission-mode', permissionModeFlag(input.accessLevel))
+  args.push('--permission-mode', permissionModeFlag(input.accessLevel, permissionSettingsPath !== undefined))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
+  if (permissionSettingsPath) args.push('--settings', permissionSettingsPath)
   return args
 }
 
@@ -281,18 +320,33 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
+  const permissionSettingsPath =
+    input.provider === 'claude' && input.accessLevel === 'supervised' && input.permissionPort !== undefined && input.permissionToken
+      ? buildPermissionSettingsFile(input.permissionPort, input.permissionToken)
+      : undefined
   const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
   const effectiveInput: ProviderTurnInput = tempImages
     ? { ...input, prompt: appendImageReferences(input.prompt, tempImages.paths) }
     : input
-  const args = buildArgs(effectiveInput, mcpConfigPath)
+  const args = buildArgs(effectiveInput, mcpConfigPath, permissionSettingsPath)
 
   const envVar = API_KEY_ENV_VAR[input.provider]
-  const env = envVar !== undefined && input.apiKey ? { ...process.env, [envVar]: input.apiKey } : process.env
+  const env = { ...process.env }
+  if (envVar !== undefined) {
+    if (input.apiKey) env[envVar] = input.apiKey
+    else delete env[envVar]
+  }
+  // Hook script roda via binário do próprio EngrenaCode como interpretador Node puro (mesmo
+  // truque de `subagent-mcp-server.ts`) — não exige Node instalado no sistema do usuário.
+  if (permissionSettingsPath) env.ELECTRON_RUN_AS_NODE = '1'
 
   const cleanupMcpConfig = (): void => {
     if (!mcpConfigPath) return
     try { unlinkSync(mcpConfigPath) } catch { /* já removido ou nunca criado */ }
+  }
+  const cleanupPermissionSettings = (): void => {
+    if (!permissionSettingsPath) return
+    try { unlinkSync(permissionSettingsPath) } catch { /* já removido ou nunca criado */ }
   }
   const cleanupTempImages = (): void => tempImages?.cleanup()
 
@@ -341,12 +395,14 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
 
       child.on('error', (err) => {
         cleanupMcpConfig()
+        cleanupPermissionSettings()
         cleanupTempImages()
         reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
       })
 
       child.on('close', (code) => {
         cleanupMcpConfig()
+        cleanupPermissionSettings()
         cleanupTempImages()
         if (sawResult) {
           resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
