@@ -20,7 +20,6 @@ import {
   type VoiceKeyName,
 } from '../services/configuracao-service'
 import {
-  KEY_VALIDATION_MESSAGES,
   validateClaudeKeyLocal,
   validateCodexKeyLocal,
   validateMinimaxKeyLocal,
@@ -105,14 +104,10 @@ const COPY = {
   keysBadgeMissing: 'não configurada',
   keysLabelClaude: 'Claude',
   keysPlaceholderClaude: 'sk-ant-…',
-  keysErrorClaudeFormat: KEY_VALIDATION_MESSAGES.claudeFormat,
   keysLabelCodex: 'Codex',
   keysPlaceholderCodex: 'sk-codex-…',
-  keysErrorCodexFormat: KEY_VALIDATION_MESSAGES.codexFormat,
   keysLabelMinimax: 'Minimax',
   keysPlaceholderMinimax: 'mm-…',
-  keysErrorSpaces: KEY_VALIDATION_MESSAGES.spaces,
-  keysErrorShort: KEY_VALIDATION_MESSAGES.short,
   keysErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
   keysErrorGeneric: 'Não foi possível salvar. Tente novamente.',
   keysReveal: (label: string) => `Revelar ${label}`,

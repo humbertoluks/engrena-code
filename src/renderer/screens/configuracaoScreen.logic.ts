@@ -1,78 +1,48 @@
-export const KEY_VALIDATION_MESSAGES = {
-  spaces: 'A chave não pode conter espaços.',
-  short: 'Chave muito curta para ser válida.',
-  claudeFormat: 'Formato inválido. Esperado: sk-ant-…',
-  codexFormat: 'Formato inválido. Esperado: sk-… ou sk-codex-…',
-  grokFormat: 'Formato inválido. Esperado: xai-…',
-  openaiFormat: 'Formato inválido. Esperado: sk-…',
-  groqFormat: 'Formato inválido. Esperado: gsk_…',
-} as const
+import {
+  validateClaudeKey,
+  validateCodexKey,
+  validateMinimaxKey,
+  validateGlmKey,
+  validateGrokKey,
+  validateOpenaiKey,
+  validateGroqKey,
+  type ProviderKeyValidation,
+} from '../../services/vault/provider-keys.js'
+import { validateGithubToken, type GithubTokenValidation } from '../../services/http/github-token.js'
+
+/** Adapta o retorno tipado do validador servidor (`{ ok, message? }`) pra UX local (`string | null`). */
+function toLocal(v: ProviderKeyValidation | GithubTokenValidation): string | null {
+  return v.ok ? null : v.message
+}
 
 export function validateClaudeKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!v.startsWith('sk-ant-')) return KEY_VALIDATION_MESSAGES.claudeFormat
-  return null
+  return toLocal(validateClaudeKey(v))
 }
 
 export function validateCodexKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!v.startsWith('sk-')) return KEY_VALIDATION_MESSAGES.codexFormat
-  return null
+  return toLocal(validateCodexKey(v))
 }
 
 export function validateMinimaxKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  return null
+  return toLocal(validateMinimaxKey(v))
 }
 
-/** GLM (Zhipu/BigModel) has no documented stable prefix — same loose validator as Minimax. */
 export function validateGlmKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  return null
+  return toLocal(validateGlmKey(v))
 }
 
 export function validateGrokKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!v.startsWith('xai-')) return KEY_VALIDATION_MESSAGES.grokFormat
-  return null
+  return toLocal(validateGrokKey(v))
 }
 
-/** OpenAI (STT via F27) — mesmo prefixo do placeholder do card (`copy.md` `voice.config.placeholder.openai`). */
 export function validateOpenaiKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!v.startsWith('sk-')) return KEY_VALIDATION_MESSAGES.openaiFormat
-  return null
+  return toLocal(validateOpenaiKey(v))
 }
 
-/** Groq (STT via F27) — mesmo prefixo do placeholder do card (`copy.md` `voice.config.placeholder.groq`). */
 export function validateGroqKeyLocal(v: string): string | null {
-  if (v === '') return null
-  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
-  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!v.startsWith('gsk_')) return KEY_VALIDATION_MESSAGES.groqFormat
-  return null
+  return toLocal(validateGroqKey(v))
 }
-
-const GITHUB_TOKEN_PREFIXES = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
 
 export function validateGithubTokenLocal(token: string): string | null {
-  if (token === '') return null
-  if (/\s/.test(token)) return KEY_VALIDATION_MESSAGES.spaces
-  if (token.length < 8) return KEY_VALIDATION_MESSAGES.short
-  if (!GITHUB_TOKEN_PREFIXES.some((p) => token.startsWith(p))) {
-    return 'Formato inválido. Esperado: ghp_… ou github_pat_…'
-  }
-  return null
+  return toLocal(validateGithubToken(token))
 }
