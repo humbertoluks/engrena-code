@@ -134,6 +134,32 @@ describe('create — validation (no process spawned)', () => {
     expect(capturedCwd).not.toBe(projectPath)
     rmSync(worktreeDir, { recursive: true, force: true })
   })
+
+  it('test_create_session_restricts_spawn_env — provider secrets on process.env never reach the shell (R06)', () => {
+    const { projectId } = makeProjectFixture()
+    const originalKey = process.env.ANTHROPIC_API_KEY_TEST_FIXTURE
+    process.env.ANTHROPIC_API_KEY_TEST_FIXTURE = 'sk-ant-secretvalue'
+
+    let capturedEnv: NodeJS.ProcessEnv | undefined
+    setPtySpawnForTesting(((_file: string, _args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+      capturedEnv = opts.env
+      return {
+        onData: () => ({ dispose: () => {} }),
+        onExit: () => ({ dispose: () => {} }),
+        write: () => {},
+        resize: () => {},
+        kill: () => {},
+      }
+    }) as never)
+
+    const result = ptySessionRegistry.create({ projectId, threadId: null, cols: 80, rows: 24 })
+    expect('sessionId' in result).toBe(true)
+    expect(capturedEnv).not.toBe(process.env)
+    expect(capturedEnv?.ANTHROPIC_API_KEY_TEST_FIXTURE).toBeUndefined()
+
+    if (originalKey === undefined) delete process.env.ANTHROPIC_API_KEY_TEST_FIXTURE
+    else process.env.ANTHROPIC_API_KEY_TEST_FIXTURE = originalKey
+  })
 })
 
 describe('real pty lifecycle (short-lived process)', () => {

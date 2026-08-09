@@ -5,6 +5,7 @@ import { getProject } from '../db/repositories/projects.js'
 import { getThread } from '../db/repositories/threads.js'
 import { resolveThreadCwd } from '../runner/thread-cwd.js'
 import { resolveShell, ShellNotFoundError } from './shell-resolver.js'
+import { buildPtyEnv } from './pty-env.js'
 
 export interface CreateSessionInput {
   projectId: string
@@ -100,7 +101,7 @@ class PtySessionRegistry extends EventEmitter {
       cols: input.cols,
       rows: input.rows,
       cwd,
-      env: process.env,
+      env: buildPtyEnv(process.env),
     })
 
     const session: PtySession = {
