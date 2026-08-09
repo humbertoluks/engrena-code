@@ -1,6 +1,7 @@
 import http from 'http'
 import { vaultService } from '../vault/vault-service.js'
 import { handleConfigRequest } from './config-handler.js'
+import { handleVoiceRequest } from './voice-handler.js'
 import { handleSubagentsRequest } from './subagents-handler.js'
 import { handleSkillsRequest } from './skills-handler.js'
 import { handleRulesRequest } from './rules-handler.js'
@@ -200,6 +201,13 @@ export function createUnlockServer(port: number = 5174): http.Server {
       // Config routes (async — must not mix with data event listeners)
       if (req.url?.startsWith('/api/config/')) {
         const handled = await handleConfigRequest(req, res)
+        if (handled) return
+      }
+
+      // Voice / STT transcription routes (F27) — atenção: prefixo próprio, precisa de linha aqui
+      // ou o roteador de nível superior nunca chega no guard (mesmo bug real de rota do F25).
+      if (req.url?.startsWith('/api/voice/')) {
+        const handled = await handleVoiceRequest(req, res)
         if (handled) return
       }
 
