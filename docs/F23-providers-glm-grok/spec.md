@@ -15,7 +15,7 @@
 - Endpoints: extensão de `POST /api/config/keys/save` e `GET /api/config/status` para os dois novos campos; dois endpoints novos de teste de conexão (`POST /api/config/glm/test`, `POST /api/config/grok/test`)
 - `usage_events`/custo seguem o pipeline genérico de F11 (`cost_source='table'` até haver preço cadastrado em `model_pricing` para `(glm, <modelo>)` / `(grok, <modelo>)` — nenhum código novo, é dado, não schema)
 
-**UI/copy — lacuna registrada:** `docs/F23-providers-glm-grok/ui.md` e `copy.md` **ainda não existem** (confirmado no brief `docs/_shared/codebase-patterns.md` §5). Esta spec descreve o contrato de dados/estado que a UI vai consumir (dois cards novos, campo de key + "Testar conexão", mesmo grupo visual do card "API keys dos providers" de F10) e não define anatomia final nem strings — isso é pré-requisito do processo de design (`CLAUDE.md` → "Design · Processo") antes da implementação visual.
+**UI/copy:** anatomia e strings em `docs/F23-providers-glm-grok/ui.md` e `copy.md` (escritos 2026-08-09 a partir de `ProviderKeyTestCard` + screenshots playwright-cli). Esta spec cobre o contrato de dados/estado (dois cards, campo de key + "Testar conexão", mesmo grupo visual do bloco de keys de F10); UI/copy são a fonte de verdade visual.
 
 **Excluído:** assinatura CLI para GLM/Grok (PRD explícito: só modo API key); tool-calling/loop de `tool_use` para os dois (mesma exclusão de Minimax em F10 — nenhum precedente de execução HTTP com tools no runner); troca de provider mid-thread (fora de escopo do PRD, nota `docs/PRD.md:1044`); cadastro de preço em `model_pricing` para os dois providers (fora do PRD F23 — é operação de dados via a tela de Consumo de F11, não código).
 
@@ -67,7 +67,7 @@ Desvios desta feature:
 | Assumption | Origem | Pode sobrescrever? |
 |------------|--------|--------------------|
 | Escopo = feature completa (sem divisão Central/Completo) | PRD sem blocos de escopo para F23 | sim |
-| `ui.md`/`copy.md` ainda não escritos para F23 — spec cobre só contrato de dados/estado, sem anatomia/copy finais | Passo 1.5b / brief §5 confirma ausência | sim |
+| `ui.md`/`copy.md` existem e espelham `ProviderKeyTestCard` + details dos drivers (retroativo pós-código) | SDD 2026-08-09 | sim |
 | Sem key real de GLM nem de Grok disponível nesta sessão de escrita — toda a Estratégia de Testes (7.1) usa mock HTTP (`setFetchForTesting`, mesmo padrão de `minimax-driver.test.ts`); o smoke E2E contra o endpoint real (7.2, item marcado) fica **pendente de credencial do usuário**, não bloqueante para o restante da implementação | Instrução explícita desta rodada (Política de Auto-Aceitar do lote) | sim — assim que o usuário configurar uma key real |
 | Endpoint GLM: `POST https://open.bigmodel.cn/api/paas/v4/chat/completions`, payload OpenAI-compatible (`messages[]` role/content, `choices[0].message.content`, `usage.prompt_tokens`/`completion_tokens`) | Pesquisa pública (BigModel/Zhipu AI Open Platform) — sem doc oficial verificada em ambiente com acesso à conta; mesmo nível de confiança que `minimax-driver.ts` já assume para a Minimax Chat Completion API | sim — confirmar/ajustar payload exato ao implementar com credencial válida |
 | Endpoint Grok: `POST https://api.x.ai/v1/chat/completions`, payload OpenAI-compatible idêntico em forma ao de GLM/Minimax | Pesquisa pública (xAI Docs) — mesma ressalva de confiança acima | sim |

@@ -29,8 +29,8 @@
 
 **8. Cliente HTTP e tipos do frontend** - Estender `configuracao-service.ts` (`ProviderKeyName`, `ConfigStatus`) e adicionar `testGlm()`/`testGrok()`; estender `PROVIDER_LABEL` em `ComposerModelControls.tsx` (`Record<ThreadProvider,string>` exaustivo).
 
-**9. Cards `GlmCard`/`GrokCard`** - Criar os dois componentes standalone em `ConfiguracaoScreen.tsx` (campo de key com reveal via `Field.tsx`, botão salvar, botão "Testar conexão" com estado de loading/feedback), sem anatomia/copy final — pendente de `ui.md`/`copy.md`.
+**9. Cards `GlmCard`/`GrokCard`** - Criar os dois componentes standalone em `ConfiguracaoScreen.tsx` (campo de key com reveal via `Field.tsx`, botão salvar, botão "Testar conexão" com estado de loading/feedback). Anatomia/copy: ver `ui.md`/`copy.md` (fechados 2026-08-09).
 
 ### Fase 5: Validação e fechamento
 
-**10. Validação e fechamento** - Executar a estratégia de testes da spec (unitário com mock HTTP + integração dos endpoints). Confirmar os 4 critérios de aceitação de F23 (`docs/PRD.md` seção F23) e os critérios cross-feature (provider disponível no Workspace, usage_events agregando em Consumo). Registrar explicitamente: (a) smoke E2E contra endpoint real de GLM/Grok fica **pendente de credencial do usuário**, não bloqueante; (b) fase visual final dos dois cards fica bloqueada até `ui.md`/`copy.md` de F23 existirem. Gate: suite e build verdes.
+**10. Validação e fechamento** - Executar a estratégia de testes da spec (unitário com mock HTTP + integração dos endpoints). Confirmar os 4 critérios de aceitação de F23 (`docs/PRD.md` seção F23) e os critérios cross-feature (provider disponível no Workspace, usage_events agregando em Consumo). Registrar explicitamente: smoke E2E contra endpoint real de GLM/Grok fica **pendente de credencial do usuário**, não bloqueante. `ui.md`/`copy.md` já existem. Gate: suite e build verdes.
