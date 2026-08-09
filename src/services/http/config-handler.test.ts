@@ -210,6 +210,69 @@ describe('GET /api/config/status — glm/grok (F23)', () => {
   })
 })
 
+describe('POST /api/config/voice/keys/save (F27)', () => {
+  it('returns 423 vault_locked when vault is locked', async () => {
+    const req = fakeReq('POST', '/api/config/voice/keys/save', { openai: 'sk-abcdefgh' })
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    expect((await res.result()).status).toBe(423)
+  })
+
+  it('saves valid openai/groq keys and reports presence', async () => {
+    const session = unlockVault()
+    const req = fakeReq(
+      'POST',
+      '/api/config/voice/keys/save',
+      { openai: 'sk-abcdefgh', groq: 'gsk_abcdefgh' },
+      session
+    )
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+    const parsed = body as { saved: boolean; voice: { openai: boolean; groq: boolean }; message: string }
+    expect(parsed.saved).toBe(true)
+    expect(parsed.voice).toEqual({ openai: true, groq: true })
+    expect(parsed.message).toBe('Chaves de transcrição salvas no cofre.')
+  })
+
+  it('rejects a groq key without the gsk_ prefix, nothing saved', async () => {
+    const session = unlockVault()
+    const req = fakeReq('POST', '/api/config/voice/keys/save', { groq: 'not-a-groq-key' }, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    const err = (body as { error: { code: string; details?: Record<string, string> } }).error
+    expect(err.code).toBe('validation_error')
+    expect(err.details?.groq).toBe('Formato inválido. Esperado: gsk_…')
+  })
+
+  it('partial save with empty field preserves the previously saved key', async () => {
+    const session = unlockVault()
+    await handleConfigRequest(
+      fakeReq('POST', '/api/config/voice/keys/save', { openai: 'sk-abcdefgh' }, session),
+      fakeRes()
+    )
+    const req = fakeReq('POST', '/api/config/voice/keys/save', { openai: '', groq: 'gsk_abcdefgh' }, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { body } = await res.result()
+    expect((body as { voice: { openai: boolean; groq: boolean } }).voice).toEqual({ openai: true, groq: true })
+  })
+})
+
+describe('GET /api/config/status — voice (F27)', () => {
+  it('reports voice key presence, defaulting to false', async () => {
+    const session = unlockVault()
+    const req = fakeReq('GET', '/api/config/status', undefined, session)
+    const res = fakeRes()
+    await handleConfigRequest(req, res)
+    const { body } = await res.result()
+    expect((body as { voice: { openai: boolean; groq: boolean } }).voice).toEqual({ openai: false, groq: false })
+  })
+})
+
 describe('POST /api/config/glm/test and /api/config/grok/test (F23)', () => {
   it('returns 423 vault_locked when vault is locked', async () => {
     const req = fakeReq('POST', '/api/config/glm/test')

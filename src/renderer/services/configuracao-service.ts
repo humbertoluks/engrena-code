@@ -21,6 +21,7 @@ export interface ConfigStatus {
   prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
   github: { tokenPresent: boolean }
   keys: Record<ProviderKeyName, boolean>
+  voice: { openai: boolean; groq: boolean }
   providers: {
     claude: ProviderAvailability
     codex: ProviderAvailability
@@ -65,6 +66,15 @@ export interface SaveKeysResult {
   keys?: Record<ProviderKeyName, boolean>
   message?: string
   error?: { code: string; message: string; details?: Partial<Record<ProviderKeyName, string>> }
+}
+
+export type VoiceKeyName = 'openai' | 'groq'
+
+export interface SaveVoiceKeysResult {
+  saved?: boolean
+  voice?: Record<VoiceKeyName, boolean>
+  message?: string
+  error?: { code: string; message: string; details?: Partial<Record<VoiceKeyName, string>> }
 }
 
 export interface ApiError {
@@ -122,6 +132,9 @@ export const configuracaoService = {
 
   saveProviderKeys: (fields: Partial<Record<ProviderKeyName, string>>): Promise<SaveKeysResult> =>
     apiRequest('POST', '/api/config/keys/save', fields),
+
+  saveVoiceKeys: (fields: Partial<Record<VoiceKeyName, string>>): Promise<SaveVoiceKeysResult> =>
+    apiRequest('POST', '/api/config/voice/keys/save', fields),
 
   testGlm: (): Promise<ProviderTestResult> => apiRequest('POST', '/api/config/glm/test'),
 

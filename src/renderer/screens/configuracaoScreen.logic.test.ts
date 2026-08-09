@@ -7,6 +7,8 @@ import {
   validateGlmKeyLocal,
   validateGrokKeyLocal,
   validateGithubTokenLocal,
+  validateOpenaiKeyLocal,
+  validateGroqKeyLocal,
 } from './configuracaoScreen.logic'
 
 describe('validateClaudeKeyLocal', () => {
@@ -53,6 +55,26 @@ describe('validateGrokKeyLocal', () => {
     expect(validateGrokKeyLocal('xai-abc def')).toBe(KEY_VALIDATION_MESSAGES.spaces)
     expect(validateGrokKeyLocal('xai-a12')).toBe(KEY_VALIDATION_MESSAGES.short)
     expect(validateGrokKeyLocal('other-abcdefgh')).toBe(KEY_VALIDATION_MESSAGES.grokFormat)
+  })
+})
+
+describe('validateOpenaiKeyLocal', () => {
+  it('requires sk- prefix without spaces (F27 — STT card)', () => {
+    expect(validateOpenaiKeyLocal('')).toBeNull()
+    expect(validateOpenaiKeyLocal('sk-abcdefgh')).toBeNull()
+    expect(validateOpenaiKeyLocal('sk-abc def')).toBe(KEY_VALIDATION_MESSAGES.spaces)
+    expect(validateOpenaiKeyLocal('sk-a12')).toBe(KEY_VALIDATION_MESSAGES.short)
+    expect(validateOpenaiKeyLocal('other-abcdefgh')).toBe(KEY_VALIDATION_MESSAGES.openaiFormat)
+  })
+})
+
+describe('validateGroqKeyLocal', () => {
+  it('requires gsk_ prefix without spaces (F27 — STT card)', () => {
+    expect(validateGroqKeyLocal('')).toBeNull()
+    expect(validateGroqKeyLocal('gsk_abcdefgh')).toBeNull()
+    expect(validateGroqKeyLocal('gsk_abc def')).toBe(KEY_VALIDATION_MESSAGES.spaces)
+    expect(validateGroqKeyLocal('gsk_a12')).toBe(KEY_VALIDATION_MESSAGES.short)
+    expect(validateGroqKeyLocal('other-abcdefgh')).toBe(KEY_VALIDATION_MESSAGES.groqFormat)
   })
 })
 

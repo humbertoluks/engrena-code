@@ -54,3 +54,23 @@ export function validateGrokKey(key: string): ProviderKeyValidation {
   }
   return { ok: true, action: 'save', key }
 }
+
+/** OpenAI (STT via F27) — mesmo prefixo documentado no placeholder do card (`copy.md` `voice.config.placeholder.openai`). */
+export function validateOpenaiKey(key: string): ProviderKeyValidation {
+  const base = baseChecks(key)
+  if (base) return base
+  if (!key.startsWith('sk-')) {
+    return { ok: false, message: 'Formato inválido. Esperado: sk-…' }
+  }
+  return { ok: true, action: 'save', key }
+}
+
+/** Groq (STT via F27) — mesmo prefixo documentado no placeholder do card (`copy.md` `voice.config.placeholder.groq`). */
+export function validateGroqKey(key: string): ProviderKeyValidation {
+  const base = baseChecks(key)
+  if (base) return base
+  if (!key.startsWith('gsk_')) {
+    return { ok: false, message: 'Formato inválido. Esperado: gsk_…' }
+  }
+  return { ok: true, action: 'save', key }
+}

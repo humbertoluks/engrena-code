@@ -4,6 +4,8 @@ export const KEY_VALIDATION_MESSAGES = {
   claudeFormat: 'Formato inválido. Esperado: sk-ant-…',
   codexFormat: 'Formato inválido. Esperado: sk-… ou sk-codex-…',
   grokFormat: 'Formato inválido. Esperado: xai-…',
+  openaiFormat: 'Formato inválido. Esperado: sk-…',
+  groqFormat: 'Formato inválido. Esperado: gsk_…',
 } as const
 
 export function validateClaudeKeyLocal(v: string): string | null {
@@ -42,6 +44,24 @@ export function validateGrokKeyLocal(v: string): string | null {
   if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
   if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
   if (!v.startsWith('xai-')) return KEY_VALIDATION_MESSAGES.grokFormat
+  return null
+}
+
+/** OpenAI (STT via F27) — mesmo prefixo do placeholder do card (`copy.md` `voice.config.placeholder.openai`). */
+export function validateOpenaiKeyLocal(v: string): string | null {
+  if (v === '') return null
+  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
+  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
+  if (!v.startsWith('sk-')) return KEY_VALIDATION_MESSAGES.openaiFormat
+  return null
+}
+
+/** Groq (STT via F27) — mesmo prefixo do placeholder do card (`copy.md` `voice.config.placeholder.groq`). */
+export function validateGroqKeyLocal(v: string): string | null {
+  if (v === '') return null
+  if (/\s/.test(v)) return KEY_VALIDATION_MESSAGES.spaces
+  if (v.length < 8) return KEY_VALIDATION_MESSAGES.short
+  if (!v.startsWith('gsk_')) return KEY_VALIDATION_MESSAGES.groqFormat
   return null
 }
 

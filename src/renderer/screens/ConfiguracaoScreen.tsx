@@ -17,6 +17,7 @@ import {
   type ProviderKeyName,
   type VcsOauthStatus,
   type VcsProviderStatus,
+  type VoiceKeyName,
 } from '../services/configuracao-service'
 import {
   KEY_VALIDATION_MESSAGES,
@@ -26,6 +27,8 @@ import {
   validateGlmKeyLocal,
   validateGrokKeyLocal,
   validateGithubTokenLocal,
+  validateOpenaiKeyLocal,
+  validateGroqKeyLocal,
 } from './configuracaoScreen.logic'
 import { VcsOauthCard } from '../components/config/VcsOauthCard'
 
@@ -126,6 +129,19 @@ const COPY = {
   providerCardTestLoading: 'Testando...',
   providerCardTestError: 'Não foi possível testar a conexão agora.',
   providerCardSaveError: 'Não foi possível salvar. Tente novamente.',
+
+  voiceTitle: 'Ditado por voz (transcrição)',
+  voiceSubtitle:
+    'Chave da OpenAI ou da Groq para o microfone do composer (Whisper). O áudio nunca sai desta máquina para outro destino.',
+  voiceLabelOpenai: 'OpenAI',
+  voicePlaceholderOpenai: 'sk-…',
+  voiceLabelGroq: 'Groq',
+  voicePlaceholderGroq: 'gsk_…',
+  voiceSaveCta: 'Salvar chaves',
+  voiceSaveLoading: 'Salvando...',
+  voiceSuccess: 'Chaves de transcrição salvas no cofre.',
+  voiceErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
+  voiceErrorGeneric: 'Não foi possível salvar. Tente novamente.',
 } as const
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -529,6 +545,113 @@ function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCa
   )
 }
 
+// ── Voice / STT Keys Card (F27) ─────────────────────────────────────────────
+// Mesmo padrão de save em lote de `KeysCard`, sem "Testar conexão" — nem PRD nem `ui.md`
+// pedem teste de conexão pro STT (card documentado só tem "Salvar chaves").
+
+interface VoiceKeyRowDef {
+  name: VoiceKeyName
+  label: string
+  placeholder: string
+  validate: (v: string) => string | null
+}
+
+const VOICE_KEY_ROWS: VoiceKeyRowDef[] = [
+  { name: 'openai', label: COPY.voiceLabelOpenai, placeholder: COPY.voicePlaceholderOpenai, validate: validateOpenaiKeyLocal },
+  { name: 'groq', label: COPY.voiceLabelGroq, placeholder: COPY.voicePlaceholderGroq, validate: validateGroqKeyLocal },
+]
+
+interface VoiceKeysCardProps {
+  voiceStatus: ConfigStatus['voice'] | null
+  onSave: (fields: Partial<Record<VoiceKeyName, string>>) => Promise<void>
+  saveLoading: boolean
+  feedback: Feedback | null
+}
+
+function VoiceKeysCard({ voiceStatus, onSave, saveLoading, feedback }: Readonly<VoiceKeysCardProps>): ReactElement {
+  const [rows, setRows] = useState<Record<VoiceKeyName, KeyRowState>>({
+    openai: emptyKeyRow(),
+    groq: emptyKeyRow(),
+  })
+
+  const updateDraft = useCallback((name: VoiceKeyName, value: string): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], draft: value, error: null } }))
+  }, [])
+
+  const toggleReveal = useCallback((name: VoiceKeyName): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], revealed: !prev[name].revealed } }))
+  }, [])
+
+  const handleSave = useCallback((): void => {
+    const errors: Partial<Record<VoiceKeyName, string>> = {}
+    const fields: Partial<Record<VoiceKeyName, string>> = {}
+
+    for (const row of VOICE_KEY_ROWS) {
+      const draft = rows[row.name].draft
+      const err = row.validate(draft)
+      if (err !== null) {
+        errors[row.name] = err
+        continue
+      }
+      if (draft !== '') fields[row.name] = draft
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of Object.keys(errors) as VoiceKeyName[]) {
+          next[name] = { ...next[name], error: errors[name] ?? null }
+        }
+        return next
+      })
+      return
+    }
+
+    void onSave(fields)
+  }, [rows, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={COPY.voiceTitle} subtitle={COPY.voiceSubtitle} />
+      <div className="divide-y divide-border">
+        {VOICE_KEY_ROWS.map((row) => {
+          const state = rows[row.name]
+          const configured = voiceStatus?.[row.name] ?? false
+          return (
+            <div
+              key={row.name}
+              className="grid grid-cols-1 items-start gap-sm py-sm min-[720px]:grid-cols-[140px_1fr_auto]"
+            >
+              <span className="text-[13.5px] font-medium text-fg">{row.label}</span>
+              <Field
+                id={`voice-key-${row.name}`}
+                ariaLabel={row.label}
+                value={state.draft}
+                onChange={(v) => updateDraft(row.name, v)}
+                placeholder={configured ? '••••••••••••••••' : row.placeholder}
+                revealed={state.revealed}
+                onToggleReveal={() => toggleReveal(row.name)}
+                revealLabel={COPY.keysReveal(row.label)}
+                hideLabel={COPY.keysHide(row.label)}
+                error={state.error}
+              />
+              <Badge tone={configured ? 'positive' : 'neutral'}>
+                {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+              </Badge>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-md flex items-center gap-md">
+        <ButtonPrimary loading={saveLoading} loadingLabel={COPY.voiceSaveLoading} onClick={handleSave}>
+          {COPY.voiceSaveCta}
+        </ButtonPrimary>
+        {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+      </div>
+    </Card>
+  )
+}
+
 // ── GitHub Card ───────────────────────────────────────────────────────────────
 // Validação (validateGithubTokenLocal) vive em configuracaoScreen.logic.ts (testada em
 // configuracaoScreen.logic.test.ts).
@@ -740,6 +863,7 @@ export function ConfiguracaoScreen(): ReactElement {
   const [glmTestAction, setGlmTestAction] = useState<ActionState>(makeAction)
   const [grokSaveAction, setGrokSaveAction] = useState<ActionState>(makeAction)
   const [grokTestAction, setGrokTestAction] = useState<ActionState>(makeAction)
+  const [voiceAction, setVoiceAction] = useState<ActionState>(makeAction)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -940,6 +1064,22 @@ export function ConfiguracaoScreen(): ReactElement {
     }
   }, [])
 
+  const handleVoiceSave = useCallback(async (fields: Partial<Record<VoiceKeyName, string>>): Promise<void> => {
+    setVoiceAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveVoiceKeys(fields)
+      if (!mountedRef.current) return
+      if (res.error) {
+        setVoiceAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.voiceErrorGeneric } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.voice === undefined ? prev : { ...prev, voice: res.voice }))
+      setVoiceAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.voiceSuccess } })
+    } catch {
+      if (mountedRef.current) setVoiceAction({ loading: false, feedback: { variant: 'error', message: COPY.voiceErrorNetwork } })
+    }
+  }, [])
+
   if (loadError !== null) {
     return (
       <section id="configuracao" className="mx-auto max-w-[760px] px-lg py-xl">
@@ -1029,6 +1169,13 @@ export function ConfiguracaoScreen(): ReactElement {
           onSave={handleGithubSave}
           saveLoading={githubAction.loading}
           feedback={githubAction.feedback}
+        />
+
+        <VoiceKeysCard
+          voiceStatus={status?.voice ?? null}
+          onSave={handleVoiceSave}
+          saveLoading={voiceAction.loading}
+          feedback={voiceAction.feedback}
         />
 
         {vcsStatus !== null ? (

@@ -7,7 +7,15 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendJson, sendTransportError } from './_transport.js'
 import { vaultService } from '../vault/vault-service.js'
 import { validateGithubToken } from './github-token.js'
-import { validateClaudeKey, validateCodexKey, validateMinimaxKey, validateGlmKey, validateGrokKey } from '../vault/provider-keys.js'
+import {
+  validateClaudeKey,
+  validateCodexKey,
+  validateMinimaxKey,
+  validateGlmKey,
+  validateGrokKey,
+  validateOpenaiKey,
+  validateGroqKey,
+} from '../vault/provider-keys.js'
 import type { ProviderKeyValidation } from '../vault/provider-keys.js'
 import { runClaudeProbe } from './claude-probe.js'
 import { testConnection as testGlmConnection } from '../runner/providers/glm-driver.js'
@@ -70,6 +78,8 @@ export interface ConfigStatus {
   prompt: { isDefault: boolean; isEmpty: boolean; currentText: string }
   github: { tokenPresent: boolean }
   keys: { claude: boolean; codex: boolean; minimax: boolean; glm: boolean; grok: boolean }
+  /** Namespace `voice:*` (F27) — dedicado, separado de `keys:*` (que hoje sempre significa provider de turno). */
+  voice: { openai: boolean; groq: boolean }
   providers: {
     claude: { available: boolean; reason?: string }
     codex: { available: boolean; reason?: string }
@@ -98,6 +108,11 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
     minimax: Boolean(vaultService.getSecret('keys:minimax')),
     glm: Boolean(vaultService.getSecret('keys:glm')),
     grok: Boolean(vaultService.getSecret('keys:grok')),
+  }
+
+  const voice = {
+    openai: Boolean(vaultService.getSecret('voice:openai')),
+    groq: Boolean(vaultService.getSecret('voice:groq')),
   }
 
   // Fast PATH-only check for CLIs (login = null until Testar conexões)
@@ -143,6 +158,7 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
     prompt: { isDefault, isEmpty, currentText },
     github: { tokenPresent: Boolean(githubToken) },
     keys,
+    voice,
     providers,
   }
 }
@@ -351,6 +367,65 @@ async function handleKeysSave(req: IncomingMessage, res: ServerResponse): Promis
   })
 }
 
+// ── Voice / STT keys (F27) ──────────────────────────────────────────────────
+// Namespace `voice:*` dedicado (spec F27 §3.2) — separado de `keys:*` porque essas keys
+// autenticam só transcrição (F27), não um `ThreadProvider` de turno.
+
+async function handleVoiceKeysSave(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!guard(req, res)) return
+
+  const data = parseBody<{ openai?: string; groq?: string }>(await readBody(req))
+  if (data === null) {
+    return sendJson(res, 400, { error: { code: 'invalid_request', message: 'Corpo inválido.' } })
+  }
+
+  type VoiceKeyFieldName = 'openai' | 'groq'
+  const fields: Array<{ name: VoiceKeyFieldName; value?: string; validate: (key: string) => ProviderKeyValidation }> = [
+    { name: 'openai', value: data.openai, validate: validateOpenaiKey },
+    { name: 'groq', value: data.groq, validate: validateGroqKey },
+  ]
+
+  const typeErrors = fields.filter((f) => f.value !== undefined && typeof f.value !== 'string')
+  if (typeErrors.length > 0) {
+    return sendJson(res, 400, {
+      error: { code: 'invalid_request', message: `Campo "${typeErrors[0].name}" tem tipo inválido.` },
+    })
+  }
+
+  const details: Record<string, string> = {}
+  const toApply: Array<{ name: VoiceKeyFieldName; validation: Extract<ProviderKeyValidation, { ok: true }> }> = []
+
+  for (const field of fields) {
+    if (field.value === undefined) continue
+    const validation = field.validate(field.value)
+    if (!validation.ok) {
+      details[field.name] = validation.message
+      continue
+    }
+    toApply.push({ name: field.name, validation })
+  }
+
+  if (Object.keys(details).length > 0) {
+    return sendJson(res, 400, {
+      error: { code: 'validation_error', message: 'Algum campo tem formato inválido. Revise e tente novamente.', details },
+    })
+  }
+
+  for (const { name, validation } of toApply) {
+    if (validation.action === 'skip') continue
+    vaultService.setSecret(`voice:${name}`, validation.key)
+  }
+
+  sendJson(res, 200, {
+    saved: true,
+    voice: {
+      openai: Boolean(vaultService.getSecret('voice:openai')),
+      groq: Boolean(vaultService.getSecret('voice:groq')),
+    },
+    message: 'Chaves de transcrição salvas no cofre.',
+  })
+}
+
 async function handleGlmTest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!guard(req, res)) return
 
@@ -514,6 +589,10 @@ export async function handleConfigRequest(req: IncomingMessage, res: ServerRespo
     }
     if (method === 'POST' && url === '/api/config/keys/save') {
       await handleKeysSave(req, res)
+      return true
+    }
+    if (method === 'POST' && url === '/api/config/voice/keys/save') {
+      await handleVoiceKeysSave(req, res)
       return true
     }
     if (method === 'POST' && url === '/api/config/glm/test') {
