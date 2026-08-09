@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import { skillsRepository } from '../db/repositories/skills.js'
+import { resolveSkillsForProject } from '../db/repositories/skills.js'
 
 /** Nome completo da tool no harness Claude / Codex MCP. */
 export const LOAD_SKILL_TOOL_NAME = 'mcp__engrenacode__load_skill'
@@ -27,7 +27,7 @@ export interface SkillSnapshotFile {
  * muda o conteúdo já anunciado ao modelo (spec F05 §5 / F12).
  */
 export function createSkillSnapshot(projectId: string): SkillSnapshot {
-  const resolved = skillsRepository.resolveForProject(projectId)
+  const resolved = resolveSkillsForProject(projectId)
   const contentByName = new Map(resolved.map((skill) => [skill.name, skill.content]))
 
   return {

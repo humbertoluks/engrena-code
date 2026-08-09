@@ -1,7 +1,10 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
+import { getDb } from '../client.js'
+
+export const CONTENT_MAX_BYTES = 1_048_576
 
 export interface Skill {
   id: string
@@ -43,8 +46,6 @@ export interface SkillCounts {
   linkedByProject: Record<string, number>
 }
 
-export const CONTENT_MAX_BYTES = 1_048_576
-
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message)
@@ -73,9 +74,91 @@ export class SkillNotFoundError extends Error {
   }
 }
 
-interface SkillsData {
-  skills: Skill[]
-  projectSkills: ProjectSkillLink[]
+interface SkillRow {
+  id: string
+  name: string
+  description: string
+  content: string
+  category: string | null
+  enabled: number
+  created_at: number
+  updated_at: number
+}
+
+interface SkillLinkRow extends SkillRow {
+  link_enabled: number | null
+  link_sort_order: number | null
+}
+
+interface LegacySkillsJson {
+  skills?: Array<{
+    id: string
+    name: string
+    description: string
+    content: string
+    category: string | null
+    enabled: boolean
+    createdAt: number
+    updatedAt: number
+  }>
+  projectSkills?: Array<{
+    projectId: string
+    skillId: string
+    enabled: boolean
+    sortOrder: number
+    createdAt: number
+  }>
+}
+
+function toSkill(row: SkillRow): Skill {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    content: row.content,
+    category: row.category,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function toSkillLinkState(row: SkillLinkRow): SkillLinkState {
+  const skill = toSkill(row)
+  const { content: _content, ...summary } = skill
+  const hasLink = row.link_enabled !== null
+  return {
+    ...summary,
+    linked: hasLink,
+    enabledInProject: hasLink ? row.link_enabled === 1 : null,
+    sortOrder: hasLink ? row.link_sort_order : null,
+  }
+}
+
+function contentByteLength(content: string): number {
+  return Buffer.byteLength(content, 'utf-8')
+}
+
+function validateCreate(input: SkillCreateInput): void {
+  if (!input.name || input.name.trim() === '') {
+    throw new ValidationError('Nome é obrigatório.')
+  }
+  if (!input.description || input.description.trim() === '') {
+    throw new ValidationError('Descrição é obrigatória.')
+  }
+  if (!input.content || input.content.trim() === '') {
+    throw new ValidationError('Conteúdo é obrigatório.')
+  }
+  if (contentByteLength(input.content) > CONTENT_MAX_BYTES) {
+    throw new ContentTooLongError()
+  }
+}
+
+function mapUniqueViolation(err: unknown): never {
+  if (err instanceof Error && /UNIQUE constraint failed/.test(err.message)) {
+    throw new SkillNameConflictError()
+  }
+  throw err
 }
 
 function resolveUserData(): string {
@@ -87,187 +170,232 @@ function resolveUserData(): string {
   return app.getPath('userData')
 }
 
-function contentByteLength(content: string): number {
-  return Buffer.byteLength(content, 'utf-8')
-}
+// ── Migração única do skills.json legado (A01 — dívida R-skills-json-outside-sqlite) ──
 
-function toSummary(skill: Skill): Omit<Skill, 'content'> {
-  const { content: _content, ...summary } = skill
-  return summary
-}
+let legacyMigrationChecked = false
 
-class SkillsRepository {
-  private data: SkillsData | null = null
+/** Importa skills.json legado pra tabela `skills`/`project_skills` uma única vez por processo. */
+function ensureLegacyJsonMigrated(): void {
+  if (legacyMigrationChecked) return
+  legacyMigrationChecked = true
 
-  private path(): string {
-    return join(resolveUserData(), 'skills.json')
+  const legacyPath = join(resolveUserData(), 'skills.json')
+  if (!existsSync(legacyPath)) return
+
+  const db = getDb()
+  const { c: existingCount } = db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }
+  if (existingCount > 0) {
+    renameSync(legacyPath, `${legacyPath}.migrated`)
+    return
   }
 
-  private load(): SkillsData {
-    if (this.data !== null) return this.data
-    const filePath = this.path()
-    if (existsSync(filePath)) {
-      this.data = JSON.parse(readFileSync(filePath, 'utf-8')) as SkillsData
-    } else {
-      this.data = { skills: [], projectSkills: [] }
-    }
-    return this.data
+  let legacy: LegacySkillsJson
+  try {
+    legacy = JSON.parse(readFileSync(legacyPath, 'utf-8')) as LegacySkillsJson
+  } catch {
+    renameSync(legacyPath, `${legacyPath}.corrupted`)
+    return
   }
 
-  private persist(): void {
-    if (this.data === null) return
-    writeFileSync(this.path(), JSON.stringify(this.data), 'utf-8')
-  }
+  const insertSkill = db.prepare(
+    `INSERT INTO skills (id, name, description, content, category, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+  const insertLink = db.prepare(
+    `INSERT INTO project_skills (project_id, skill_id, enabled, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, skill_id) DO NOTHING`
+  )
 
-  private validateCreate(input: SkillCreateInput): void {
-    if (!input.name || input.name.trim() === '') {
-      throw new ValidationError('Nome é obrigatório.')
-    }
-    if (!input.description || input.description.trim() === '') {
-      throw new ValidationError('Descrição é obrigatória.')
-    }
-    if (!input.content || input.content.trim() === '') {
-      throw new ValidationError('Conteúdo é obrigatório.')
-    }
-    if (contentByteLength(input.content) > CONTENT_MAX_BYTES) {
-      throw new ContentTooLongError()
-    }
-  }
-
-  list(): Skill[] {
-    return [...this.load().skills]
-  }
-
-  getById(id: string): Skill | null {
-    return this.load().skills.find((s) => s.id === id) ?? null
-  }
-
-  create(input: SkillCreateInput): Skill {
-    this.validateCreate(input)
-    const data = this.load()
-    if (data.skills.some((s) => s.name === input.name)) {
-      throw new SkillNameConflictError()
-    }
-    const now = Date.now()
-    const skill: Skill = {
-      id: randomUUID(),
-      name: input.name,
-      description: input.description,
-      content: input.content,
-      category: input.category ?? null,
-      enabled: input.enabled ?? true,
-      createdAt: now,
-      updatedAt: now,
-    }
-    data.skills.push(skill)
-    this.persist()
-    return skill
-  }
-
-  update(id: string, patch: SkillUpdateInput): Skill {
-    const data = this.load()
-    const existing = data.skills.find((s) => s.id === id)
-    if (!existing) throw new SkillNotFoundError()
-
-    if (patch.name !== undefined) {
-      if (patch.name.trim() === '') throw new ValidationError('Nome é obrigatório.')
-      if (data.skills.some((s) => s.id !== id && s.name === patch.name)) {
-        throw new SkillNameConflictError()
-      }
-    }
-    if (patch.description !== undefined && patch.description.trim() === '') {
-      throw new ValidationError('Descrição é obrigatória.')
-    }
-    if (patch.content !== undefined) {
-      if (patch.content.trim() === '') throw new ValidationError('Conteúdo é obrigatório.')
-      if (contentByteLength(patch.content) > CONTENT_MAX_BYTES) throw new ContentTooLongError()
-    }
-
-    Object.assign(existing, patch, { updatedAt: Date.now() })
-    this.persist()
-    return existing
-  }
-
-  remove(id: string): void {
-    const data = this.load()
-    const idx = data.skills.findIndex((s) => s.id === id)
-    if (idx === -1) throw new SkillNotFoundError()
-    data.skills.splice(idx, 1)
-    data.projectSkills = data.projectSkills.filter((l) => l.skillId !== id)
-    this.persist()
-  }
-
-  getCounts(): SkillCounts {
-    const data = this.load()
-    const linkedByProject: Record<string, number> = {}
-    for (const link of data.projectSkills) {
-      linkedByProject[link.projectId] = (linkedByProject[link.projectId] ?? 0) + 1
-    }
-    return { global: data.skills.length, linkedByProject }
-  }
-
-  listForProject(projectId: string): SkillLinkState[] {
-    const data = this.load()
-    return data.skills.map((skill) => {
-      const link = data.projectSkills.find((l) => l.projectId === projectId && l.skillId === skill.id)
-      return {
-        ...toSummary(skill),
-        linked: link !== undefined,
-        enabledInProject: link ? link.enabled : null,
-        sortOrder: link ? link.sortOrder : null,
-      }
-    })
-  }
-
-  linkSkill(projectId: string, skillId: string, patch: { enabled?: boolean; sortOrder?: number }): SkillLinkState {
-    const data = this.load()
-    const skill = data.skills.find((s) => s.id === skillId)
-    if (!skill) throw new SkillNotFoundError()
-
-    let link = data.projectSkills.find((l) => l.projectId === projectId && l.skillId === skillId)
-    if (!link) {
-      link = { projectId, skillId, enabled: true, sortOrder: 0, createdAt: Date.now() }
-      data.projectSkills.push(link)
-    }
-    if (patch.enabled !== undefined) link.enabled = patch.enabled
-    if (patch.sortOrder !== undefined) link.sortOrder = patch.sortOrder
-    this.persist()
-
-    return {
-      ...toSummary(skill),
-      linked: true,
-      enabledInProject: link.enabled,
-      sortOrder: link.sortOrder,
-    }
-  }
-
-  unlinkSkill(projectId: string, skillId: string): void {
-    const data = this.load()
-    data.projectSkills = data.projectSkills.filter(
-      (l) => !(l.projectId === projectId && l.skillId === skillId)
+  for (const skill of legacy.skills ?? []) {
+    insertSkill.run(
+      skill.id,
+      skill.name,
+      skill.description,
+      skill.content,
+      skill.category ?? null,
+      skill.enabled ? 1 : 0,
+      skill.createdAt,
+      skill.updatedAt
     )
-    this.persist()
+  }
+  for (const link of legacy.projectSkills ?? []) {
+    insertLink.run(link.projectId, link.skillId, link.enabled ? 1 : 0, link.sortOrder, link.createdAt)
   }
 
-  reorder(projectId: string, items: Array<{ id: string; enabled?: boolean; sortOrder: number }>): void {
-    for (const item of items) {
-      this.linkSkill(projectId, item.id, { enabled: item.enabled, sortOrder: item.sortOrder })
-    }
+  renameSync(legacyPath, `${legacyPath}.migrated`)
+}
+
+// ── CRUD ─────────────────────────────────────────────────────────────────────
+
+export function listSkills(): Skill[] {
+  ensureLegacyJsonMigrated()
+  const rows = getDb().prepare('SELECT * FROM skills ORDER BY name ASC').all() as unknown as SkillRow[]
+  return rows.map(toSkill)
+}
+
+export function getSkill(id: string): Skill | null {
+  ensureLegacyJsonMigrated()
+  const row = getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as SkillRow | undefined
+  return row === undefined ? null : toSkill(row)
+}
+
+export function createSkill(input: SkillCreateInput): Skill {
+  ensureLegacyJsonMigrated()
+  validateCreate(input)
+
+  const now = Date.now()
+  const id = randomUUID()
+
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO skills (id, name, description, content, category, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.name, input.description, input.content, input.category ?? null, input.enabled === false ? 0 : 1, now, now)
+  } catch (err) {
+    mapUniqueViolation(err)
   }
 
-  resolveForProject(projectId: string): Skill[] {
-    const data = this.load()
-    return data.skills.filter((skill) => {
-      if (!skill.enabled) return false
-      const link = data.projectSkills.find((l) => l.projectId === projectId && l.skillId === skill.id)
-      return link !== undefined && link.enabled
-    })
+  return getSkill(id) as Skill
+}
+
+export function updateSkill(id: string, patch: SkillUpdateInput): Skill {
+  ensureLegacyJsonMigrated()
+  const existing = getSkill(id)
+  if (existing === null) throw new SkillNotFoundError()
+
+  if (patch.name !== undefined && patch.name.trim() === '') {
+    throw new ValidationError('Nome é obrigatório.')
+  }
+  if (patch.description !== undefined && patch.description.trim() === '') {
+    throw new ValidationError('Descrição é obrigatória.')
+  }
+  if (patch.content !== undefined) {
+    if (patch.content.trim() === '') throw new ValidationError('Conteúdo é obrigatório.')
+    if (contentByteLength(patch.content) > CONTENT_MAX_BYTES) throw new ContentTooLongError()
   }
 
-  /** Test-only: force reload from disk on next access. */
-  _resetCache(): void {
-    this.data = null
+  const next = {
+    name: patch.name ?? existing.name,
+    description: patch.description ?? existing.description,
+    content: patch.content ?? existing.content,
+    category: patch.category !== undefined ? patch.category : existing.category,
+    enabled: patch.enabled ?? existing.enabled,
+  }
+
+  try {
+    getDb()
+      .prepare(
+        `UPDATE skills SET name = ?, description = ?, content = ?, category = ?, enabled = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(next.name, next.description, next.content, next.category, next.enabled ? 1 : 0, Date.now(), id)
+  } catch (err) {
+    mapUniqueViolation(err)
+  }
+
+  return getSkill(id) as Skill
+}
+
+export function deleteSkill(id: string): void {
+  ensureLegacyJsonMigrated()
+  const result = getDb().prepare('DELETE FROM skills WHERE id = ?').run(id)
+  if (Number(result.changes) === 0) throw new SkillNotFoundError()
+}
+
+// ── Project link ─────────────────────────────────────────────────────────────
+
+export function getSkillCounts(): SkillCounts {
+  ensureLegacyJsonMigrated()
+  const db = getDb()
+  const { c: global } = db.prepare('SELECT COUNT(*) as c FROM skills').get() as { c: number }
+  const projectIds = (
+    db.prepare('SELECT DISTINCT project_id FROM project_skills').all() as Array<{ project_id: string }>
+  ).map((r) => r.project_id)
+
+  const linkedByProject: Record<string, number> = {}
+  for (const projectId of projectIds) {
+    const { c } = db
+      .prepare('SELECT COUNT(*) as c FROM project_skills WHERE project_id = ?')
+      .get(projectId) as { c: number }
+    linkedByProject[projectId] = c
+  }
+
+  return { global, linkedByProject }
+}
+
+function listProjectSkillsInternal(projectId: string): SkillLinkRow[] {
+  return getDb()
+    .prepare(
+      `SELECT s.*, ps.enabled as link_enabled, ps.sort_order as link_sort_order
+       FROM skills s
+       LEFT JOIN project_skills ps ON ps.skill_id = s.id AND ps.project_id = ?
+       ORDER BY s.name ASC`
+    )
+    .all(projectId) as unknown as SkillLinkRow[]
+}
+
+export function listProjectSkills(projectId: string): SkillLinkState[] {
+  ensureLegacyJsonMigrated()
+  return listProjectSkillsInternal(projectId).map(toSkillLinkState)
+}
+
+export function linkSkill(
+  projectId: string,
+  skillId: string,
+  patch: { enabled?: boolean; sortOrder?: number }
+): SkillLinkState {
+  ensureLegacyJsonMigrated()
+  const skill = getSkill(skillId)
+  if (skill === null) throw new SkillNotFoundError()
+
+  const db = getDb()
+  const existing = db
+    .prepare('SELECT enabled, sort_order FROM project_skills WHERE project_id = ? AND skill_id = ?')
+    .get(projectId, skillId) as { enabled: number; sort_order: number } | undefined
+
+  const enabled = patch.enabled ?? (existing ? existing.enabled === 1 : true)
+  const sortOrder = patch.sortOrder ?? existing?.sort_order ?? 0
+
+  db.prepare(
+    `INSERT INTO project_skills (project_id, skill_id, enabled, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, skill_id) DO UPDATE SET enabled = excluded.enabled, sort_order = excluded.sort_order`
+  ).run(projectId, skillId, enabled ? 1 : 0, sortOrder, Date.now())
+
+  const row = listProjectSkillsInternal(projectId).find((r) => r.id === skillId)
+  return toSkillLinkState(row as SkillLinkRow)
+}
+
+export function unlinkSkill(projectId: string, skillId: string): void {
+  ensureLegacyJsonMigrated()
+  getDb().prepare('DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?').run(projectId, skillId)
+}
+
+export function reorderProjectSkills(
+  projectId: string,
+  items: Array<{ id: string; enabled?: boolean; sortOrder: number }>
+): void {
+  ensureLegacyJsonMigrated()
+  for (const item of items) {
+    linkSkill(projectId, item.id, { enabled: item.enabled, sortOrder: item.sortOrder })
   }
 }
 
-export const skillsRepository = new SkillsRepository()
+// ── Runtime resolution ───────────────────────────────────────────────────────
+
+export function resolveSkillsForProject(projectId: string): Skill[] {
+  ensureLegacyJsonMigrated()
+  const rows = getDb()
+    .prepare(
+      `SELECT s.*
+       FROM skills s
+       JOIN project_skills ps ON ps.skill_id = s.id
+       WHERE ps.project_id = ? AND ps.enabled = 1 AND s.enabled = 1
+       ORDER BY s.name ASC`
+    )
+    .all(projectId) as unknown as SkillRow[]
+  return rows.map(toSkill)
+}

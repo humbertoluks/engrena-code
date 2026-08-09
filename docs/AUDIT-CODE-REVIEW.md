@@ -8,8 +8,8 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | **Passagem atual** | 2026-08-09 |
 | **Escopo** | `src/` (base completa) |
 | **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura) |
-| **Correção de código nesta passagem** | Sessão de fix D07: smoke real das 12 features com UI Feito fechou o achado inteiro (F20/F21/F23/F26/F27 + F04/F05/F08/F10/F14/F16/F17) e achou 3 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`), colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`), e contagem do Repo Harness (Skills/Rules/SubAgents/MCPs) não atualizando após fechar o modal de vínculo (`WorkspaceSidebar.tsx`) |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37) |
+| **Correção de código nesta passagem** | Sessão de fix D07: smoke real das 12 features com UI Feito fechou o achado inteiro (F20/F21/F23/F26/F27 + F04/F05/F08/F10/F14/F16/F17) e achou 3 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`), colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`), e contagem do Repo Harness (Skills/Rules/SubAgents/MCPs) não atualizando após fechar o modal de vínculo (`WorkspaceSidebar.tsx`). Na sequência, A01: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite (`012_skills`), com migração automática do JSON legado uma única vez e API pública convertida de classe/singleton para funções de módulo (`RC-module-repo`) |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37); 2026-08-09 (sessão seguinte) — A01 fechado: skills migrado pra SQLite (C38) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -27,8 +27,8 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 9 | 7 |
-| Problemas corrigidos (tipos) | — | — | 36 |
+| Achados abertos | 0 | 8 | 6 |
+| Problemas corrigidos (tipos) | — | — | 37 |
 
 ---
 
@@ -77,7 +77,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
+**Veredito:** base **não bloqueada**. Nenhum 🔴 aberto nesta passagem. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real) e **A01 fechado** (skills migrado de `skills.json`/`fs` para SQLite). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
 
 **Corrigido nesta passagem (verificado no código)**
 
@@ -88,10 +88,11 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 - **Bug real achado no smoke (colisão de status 401)** → `C35`: `voice-handler.ts` respondia `401` para key de voz rejeitada pelo provider (`voice_auth_error`); como `api-client.ts` trata **qualquer** 401 como sessão do vault inválida e força relock, uma key de terceiro errada derrubava a sessão inteira do app. Corrigido para `422`; teste de regressão em `voice-handler.test.ts`.
 - **D07 (fatia final F04/F05/F08/F10/F14/F16/F17)** → `C36`: **D07 fechado por completo**. F04/F08/F10/F14/F16/F17 já tinham smoke real narrado com detalhe em `docs/PROGRESS.md`, mas sem o arquivo dedicado — formalizado em `docs/F<ID>-*/smoke-results.md` citando a proveniência (não são novas rodadas ao vivo). F05 nunca tinha smoke real — rodado ao vivo nesta sessão (CRUD completo em `#skills` + vínculo por projeto via `ProjectSkillsModal`), `docs/F05-skills/smoke-results.md`. Ver [RC-missing-smoke-evidence](#rc-missing-smoke-evidence).
 - **Bug real achado no smoke de F05 (Repo Harness com contagem obsoleta)** → `C37`: `WorkspaceSidebar.tsx` buscava as contagens de Rules/Skills/SubAgents/MCPs num único `useEffect([project])` — fechar qualquer um dos 4 modais de vínculo (`onClose`) nunca reexecutava a busca, deixando o card do harness com a contagem antiga (ex.: "0 vinculados") na mesma sessão até o projeto ser reselecionado, mesmo com o vínculo já persistido no servidor. Corrigido: lógica extraída para `refreshHarnessCounts(projectId)`, chamada tanto na troca de projeto quanto no `onClose` dos 4 modais. Ver [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close).
+- **A01** → `C38`: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite. Migration `012_skills` (tabelas `skills`/`project_skills`, `ON DELETE CASCADE`); migração automática do `skills.json` legado pra tabela na primeira query de cada processo (guardada por contagem de linhas, arquivo renomeado pra `.migrated` depois de importado); API pública convertida de `class SkillsRepository`/singleton para funções de módulo (`listSkills`/`createSkill`/`linkSkill`/…, `RC-module-repo`), com todos os 6 consumidores (`skills-handler.ts`, `apply-catalog.ts`, `skill-registry.ts`, `dashboard-handler.ts` + 6 arquivos de teste) atualizados no mesmo diff. Confirmado ao vivo: app real com `skills.json` legado semeado antes do 1º boot → skill migrada aparece em `#skills` (categoria "legado"), edição persiste, arquivo renomeado pra `skills.json.migrated` no disco.
 
 Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ver a nota de reconciliação no início da §2 (R03/R04/R05/R06, A02/A03, D01/D02 — fechamento formal ainda pendente de outra sessão, não tocado nesta).
 
-**Estado da suíte:** `pnpm test` completo — 1012/1012 verde após o fix de `WorkspaceSidebar.tsx`; `tsc -b` limpo. Gates `vite build`/`biome` não reexecutados nesta rodada (sem mudança de build/lint-relevante além do já coberto pelo `tsc -b`).
+**Estado da suíte:** `pnpm test` completo — 1013/1013 verde (1 flaky isolado em `ask-user-question.test.ts`, confirmado não-regressão rodando 2x); `tsc -b` e `vite build` (renderer+main+preload) limpos.
 
 ### Por Stack (abertos)
 
@@ -99,7 +100,7 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 |-------|----|----|
 | `Node.js` | 0 | 5 |
 | `Vitest` | 0 | 2 |
-| `SQLite` | 0 | 1 |
+| `SQLite` | 0 | 0 |
 | `Electron` | 0 | 1 |
 | `React` | 0 | 0 |
 | `TypeScript` | 0 | 0 |
@@ -112,7 +113,6 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 
 | ID | Stack | Sev | Frente | Local | Problema | Regra |
 |----|--------|-----|--------|-------|----------|-------|
-| A01 | `SQLite` | 🟡 | arch | `db/repositories/skills.ts` | “Repositório” sob `db/` persiste `skills.json` (fs), não SQLite/F05 | [R-skills-json-outside-sqlite](#r-skills-json-outside-sqlite) |
 | A02 | `Node.js` | 🟡 | arch | `git-client.ts:115` | `injectTokenIntoHttpsUrl` sem consumidor de produção (só `ByKind`) | [R-dead-export](#r-dead-export) |
 | A03 | `Node.js` | 🟡 | arch | `vcs/oauth.ts:55` | `export getTokens` só uso interno + teste | [R-dead-export](#r-dead-export) |
 | R03 | `Node.js` | 🟡 | rob | `unlock-handler.ts:63` | `cors_denied` message em inglês | [R-error-message-locale-residual](#r-error-message-locale-residual) |
@@ -125,33 +125,6 @@ Outros 🟡 caíram por commit enquanto uma passagem anterior era escrita — ve
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
-
-<a id="r-skills-json-outside-sqlite"></a>
-
-### Persistência de catálogo alinhada ao store do domínio
-Esforço: 4–8 horas  
-Classificação: Médio  
-Stack: `SQLite` · Tipo: `skills-json-outside-sqlite`
-
-#### Por que isso é um problema?
-`repositories/skills.ts` vive sob `db/` mas grava `skills.json` via `fs` + `app` do Electron, sem migration/tabela. Spec F05 pede `skills` + `project_skills` em `engrenacode.db`. Peers (rules/subagents/mcps) já são SQLite — skills viram exceção operacional (backup, lock, query).
-
-```
-// Não conforme
-// path join(userData, 'skills.json') + writeFileSync
-```
-
-Migration `012_skills` + repositório via `getDb()`; migrar JSON existente uma vez.
-
-```
-// Conforme
-// CREATE TABLE skills (...); getDb().prepare(...).run(...)
-```
-
-#### Exceções
-Nenhuma se F05/PROGRESS marcarem skills como Feito no SQLite. Se o produto decidir JSON de propósito, documentar na spec e mover o módulo para fora de `db/repositories/`.
-
----
 
 <a id="r-dead-export"></a>
 
@@ -360,6 +333,7 @@ Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto nã
 | C35 | `Node.js` | `http-status-code-collision` | working tree 2026-08-09; `voice-handler.ts` (`voice_auth_error` de 401→422), achado ao vivo no smoke de F27, teste em `voice-handler.test.ts` | [RC-http-status-code-collision](#rc-http-status-code-collision) |
 | C36 | `Vitest` | `missing-smoke-evidence` | working tree 2026-08-09; `docs/F04\|F05\|F08\|F10\|F14\|F16\|F17-*/smoke-results.md` — **D07 fechado por completo**; F04/F08/F10/F14/F16/F17 formalizados a partir da narrativa real já existente em `PROGRESS.md`, F05 rodado ao vivo pela primeira vez | [RC-missing-smoke-evidence](#rc-missing-smoke-evidence) |
 | C37 | `React` | `harness-count-stale-after-modal-close` | working tree 2026-08-09; `WorkspaceSidebar.tsx` (`refreshHarnessCounts` chamado no `onClose` dos 4 modais de vínculo), achado ao vivo no smoke de F05, `pnpm test` 1012/1012 | [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close) |
+| C38 | `SQLite` | `skills-json-outside-sqlite` | working tree 2026-08-09; migration `012_skills`, `repositories/skills.ts` reescrito como funções de módulo sobre `getDb()`, migração automática do `skills.json` legado + 6 consumidores/6 arquivos de teste atualizados, confirmado ao vivo com app real + `skills.json` legado semeado, `pnpm test` 1013/1013 | [RC-skills-json-outside-sqlite](#rc-skills-json-outside-sqlite) |
 
 ### Regras — problemas corrigidos
 
@@ -1415,6 +1389,34 @@ Nenhuma quando o modal pode alterar o dado que alimenta o contador. Se o modal f
 
 ---
 
+<a id="rc-skills-json-outside-sqlite"></a>
+
+### Persistência de catálogo alinhada ao store do domínio
+Esforço: 4–8 horas  
+Classificação: fechado — era Médio  
+Stack: `SQLite` · Tipo: `skills-json-outside-sqlite`
+
+#### Por que isso é um problema?
+`repositories/skills.ts` vivia sob `db/` mas gravava `skills.json` via `fs` + `app` do Electron, sem migration/tabela — skills era a única exceção operacional (backup, lock, query) entre os peers (rules/subagents/mcps), todos já SQLite.
+
+```
+// Não conforme
+// path join(userData, 'skills.json') + writeFileSync
+```
+
+Migration `012_skills` (`skills` + `project_skills`, `ON DELETE CASCADE`) + repositório reescrito como funções de módulo sobre `getDb()` (não uma classe/singleton — `RC-module-repo` já pedia isso pra todo repositório sob `db/repositories/`). Migração do JSON legado é automática e transparente: na primeira query de cada processo, se `skills.json` existir e a tabela `skills` estiver vazia, os dados são importados e o arquivo renomeado para `skills.json.migrated` (idempotente — reimport não acontece de novo, mesmo que o usuário volte a deletar todos os skills depois).
+
+```
+// Conforme
+// migrations/012_skills.ts: CREATE TABLE skills (...); CREATE TABLE project_skills (...)
+// repositories/skills.ts: export function listSkills() { return getDb().prepare(...).all() }
+```
+
+#### Exceções
+Nenhuma. Ao tocar `skills.ts` de novo, use as funções de módulo (`listSkills`/`createSkill`/`updateSkill`/`deleteSkill`/`getSkillCounts`/`listProjectSkills`/`linkSkill`/`unlinkSkill`/`reorderProjectSkills`/`resolveSkillsForProject`) — não reintroduza uma classe/objeto agregador. Teste que precisa espiar uma função exportada (`vi.spyOn`) importa o módulo como namespace (`import * as skillsRepo from '...'`), não destructura — precedente em `apply-catalog.test.ts`/`unlock-handler.test.ts`.
+
+---
+
 ## 5. Fora de escopo / dívida consciente
 
 | Item | Estado 2026-08-09 |
@@ -1422,6 +1424,7 @@ Nenhuma quando o modal pode alterar o dado que alimenta o contador. Se o modal f
 | Remediação C01–C32 (Lotes 1–2 + passagens 2026-08-08/09) | **Confirmada** no código (guard, transport, preload, body narrowing, redação de stderr, validação compartilhada) |
 | Smoke-results F20/F21/F23/F26/F27 | **Fechado** 2026-08-09 (C33; ver C34/C35 pelos 2 bugs reais achados no processo) |
 | Smoke-results F04/F05/F08/F10/F14/F16/F17 — **D07 fechado por completo** | **Fechado** 2026-08-09 (C36; ver C37 pelo bug real achado no smoke de F05) |
+| `skills.json` fora do SQLite (A01) | **Fechado** 2026-08-09 (C38; migration `012_skills` + funções de módulo + migração automática do JSON legado) |
 | F19 smoke “opcional” | Aceito enquanto AC não exigir DOM fechado |
 | Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag |
 | PTY via IPC nomeado (F26) | Capacidade nativa aceita; mapa IPC de `review-architecture` já atualizado (`handle` + `on` de stream) |
@@ -1437,7 +1440,7 @@ Nenhuma quando o modal pode alterar o dado que alimenta o contador. Se o modal f
 3. `refactor(git/vcs): drop dead exports` — A02/A03
 4. `test(codegraph/runner): sibling coverage ensure/query/registries` — D01/D02
 5. ~~`docs(F20|F21|F23|F26|F27): record smoke evidence` — D07 (após smoke real)~~ **feito** 2026-08-09 (working tree; 2 bugs reais achados e corrigidos no processo, ver C34/C35)
-6. `refactor(F05): migrate skills.json to SQLite` — A01 (maior; onda própria)
+6. ~~`refactor(F05): migrate skills.json to SQLite` — A01 (maior; onda própria)~~ **feito** 2026-08-09 (working tree; migration `012_skills`, funções de módulo, migração automática do JSON legado, confirmado ao vivo, ver C38)
 7. ~~`docs(F04|F05|F08|F10|F14|F16|F17): record smoke evidence` — D07 restante~~ **feito** 2026-08-09 (**D07 fechado por completo**; 1 bug real achado e corrigido no smoke de F05, ver C36/C37)
 
 ---

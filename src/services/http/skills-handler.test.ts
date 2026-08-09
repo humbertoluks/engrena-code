@@ -1,9 +1,11 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
 import { EventEmitter } from 'events'
+
+process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_skills_handler_'))
 
 const SESSION_TOKEN = 'test-session-token'
 const vaultState = { locked: false }
@@ -15,24 +17,19 @@ vi.mock('../vault/vault-service.js', () => ({
   },
 }))
 
-const { skillsRepository } = await import('../db/repositories/skills')
+const { getDb, closeDb } = await import('../db/client.js')
+const { createSkill, linkSkill } = await import('../db/repositories/skills.js')
 const { handleSkillsRequest } = await import('./skills-handler')
-
-let tmpDir: string
-let prevUserData: string | undefined
 
 beforeEach(() => {
   vaultState.locked = false
-  tmpDir = mkdtempSync(join(tmpdir(), 'engrenacode-skills-handler-'))
-  prevUserData = process.env.ENGRENACODE_USER_DATA
-  process.env.ENGRENACODE_USER_DATA = tmpDir
-  skillsRepository._resetCache()
+  getDb().exec('DELETE FROM project_skills')
+  getDb().exec('DELETE FROM skills')
 })
 
-afterEach(() => {
-  if (prevUserData === undefined) delete process.env.ENGRENACODE_USER_DATA
-  else process.env.ENGRENACODE_USER_DATA = prevUserData
-  rmSync(tmpDir, { recursive: true, force: true })
+afterAll(() => {
+  closeDb()
+  rmSync(process.env.ENGRENACODE_USER_DATA as string, { recursive: true, force: true })
 })
 
 function fakeRequest(method: string, url: string, body?: unknown, authorized = true): IncomingMessage {
@@ -99,7 +96,7 @@ describe('handleSkillsRequest', () => {
   })
 
   it('rejects_duplicate_name with 409', async () => {
-    skillsRepository.create({ name: 'skill-dup', description: 'd', content: '# a' })
+    createSkill({ name: 'skill-dup', description: 'd', content: '# a' })
     const req = fakeRequest('POST', '/api/skills', { name: 'skill-dup', description: 'd', content: '# b' })
     const res = fakeResponse()
     await handleSkillsRequest(req, res)
@@ -120,8 +117,8 @@ describe('handleSkillsRequest', () => {
   })
 
   it('lists skills for a project', async () => {
-    const skill = skillsRepository.create({ name: 'skill-link', description: 'd', content: '# a' })
-    skillsRepository.linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
+    const skill = createSkill({ name: 'skill-link', description: 'd', content: '# a' })
+    linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
 
     const req = fakeRequest('GET', '/api/projects/proj-1/skills')
     const res = fakeResponse()

@@ -20,7 +20,7 @@ Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.
 - **Prefira funções de módulo a factory sem polimorfismo.** `createXRepository()` que só devolve `{ list, create, ... }` sem uma segunda implementação real é abstração sem uso concreto (KISS). Exporte funções direto: `listRules()`, `createRule(...)`.
   Factory só se justifica com fake injetável em teste **e** uma segunda implementação real — nenhuma das duas hoje.
 - Repositório novo tem o nome plural da entidade (`repositories/rules.ts`, `repositories/messages.ts`), kebab-case, um arquivo por entidade.
-- **Arquivo sob `src/services/db/repositories/` persiste via `getDb()` + SQLite.** Tabela nova → migration `NNN_<assunto>.ts` na ordem seguinte. **Não** coloque sob `db/repositories/` um store em `*.json`/`fs`/`electron.app` — ou migre para SQLite, ou mova o módulo para outro path e documente na spec. Dívida conhecida: `skills.ts` → `skills.json` (F05 pediu `skills`/`project_skills` no DB).
+- **Arquivo sob `src/services/db/repositories/` persiste via `getDb()` + SQLite.** Tabela nova → migration `NNN_<assunto>.ts` na ordem seguinte. **Não** coloque sob `db/repositories/` um store em `*.json`/`fs`/`electron.app` — ou migre para SQLite, ou mova o módulo para outro path e documente na spec.
 - Acesso a SQLite passa pelo repositório da entidade. Hoje **não existe** nenhum `getDb()` de produção fora de `src/services/db/**` (só em `*.test.ts`); o primeiro que aparecer é desvio, não precedente.
 - Migration nova entra em `src/services/db/migrations/NNN_<assunto>.ts` no próximo número livre. **Nunca edite uma migration já aplicada** — schema novo é sempre migration nova. Atenção: o prefixo `001_` já está duplicado por herança (`001_rules.ts` e `001_subagents.ts`); não repita colisão de número em migration nova.
 - Todo repositório novo (ou tocado com mudança de comportamento) tem `*.test.ts` irmão cobrindo: happy path, cada constraint/conflito, cada `code` de erro, ordenação e paginação quando existir. Cobertura só "de fora" (via handler) deixa gap em constraint e ordenação.
@@ -28,14 +28,13 @@ Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.
 
 ## Erros já registrados aqui — não repita
 
-Abertos (corrija ao tocar o módulo):
-
-- `R-skills-json-outside-sqlite` — `repositories/skills.ts` grava `skills.json` via `fs` + `app`. Ao evoluir skills/F05, migration + `getDb()`; migre dados do JSON uma vez.
+Abertos: nenhum nesta Stack.
 
 Já corrigidos — não regrida:
 
 - `RC-module-repo` — funções de módulo (`listSubagents`, …); não reintroduza factory sem segundo consumidor real.
 - `RC-missing-sibling-test` — **todos** os repositórios de `db/repositories/` têm `*.test.ts` irmão hoje. Entidade nova entra com o irmão no mesmo diff; não abra exceção.
+- `RC-skills-json-outside-sqlite` — `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite (`012_skills`, tabelas `skills`/`project_skills`). API pública é funções de módulo (`listSkills`/`createSkill`/`linkSkill`/…), não uma classe/singleton. Migração do JSON legado é automática (1ª query de cada processo, guardada por contagem de linhas, arquivo renomeado pra `.migrated`). Teste que precisa `vi.spyOn` numa função exportada importa o módulo como namespace (`import * as skillsRepo from '...'`), não destructura.
 
 ## Se encontrar um padrão novo
 

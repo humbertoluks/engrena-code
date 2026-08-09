@@ -14,7 +14,7 @@ const { listToolCallsForThread, listMessagesForThread } = await import('../db/re
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
-const { skillsRepository } = await import('../db/repositories/skills.js')
+const { createSkill, linkSkill } = await import('../db/repositories/skills.js')
 const { createSubagent, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const {
   dispatchNewThread,
@@ -70,7 +70,8 @@ beforeEach(() => {
   getDb().exec('DELETE FROM subagents')
   getDb().exec('DELETE FROM project_mcps')
   getDb().exec('DELETE FROM mcps')
-  skillsRepository._resetCache()
+  getDb().exec('DELETE FROM project_skills')
+  getDb().exec('DELETE FROM skills')
   clearAllLeases()
   clearAllSubscriptions()
   vaultService.lock()
@@ -201,12 +202,12 @@ describe('dispatchNewThread', () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
-    const skill = skillsRepository.create({
+    const skill = createSkill({
       name: 'skill-turno',
       description: 'ajuda no turno',
       content: '# conteudo',
     })
-    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+    linkSkill(project.id, skill.id, { enabled: true })
 
     const subagent = createSubagent({
       name: 'subagent-turno',
@@ -240,12 +241,12 @@ describe('dispatchNewThread', () => {
   it('registers the engrenacode MCP with load_skill when a skill is linked', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const skill = skillsRepository.create({
+    const skill = createSkill({
       name: 'skill-mcp',
       description: 'd',
       content: '# body',
     })
-    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+    linkSkill(project.id, skill.id, { enabled: true })
 
     let capturedMcpServers: Array<{ name: string; args?: string[] }> | undefined
     setRunCliTurnForTesting(async (input) => {
@@ -271,12 +272,12 @@ describe('dispatchNewThread', () => {
   it('emits mcp.notice for load_skill when provider is minimax', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const skill = skillsRepository.create({
+    const skill = createSkill({
       name: 'skill-mini',
       description: 'd',
       content: '# body',
     })
-    skillsRepository.linkSkill(project.id, skill.id, { enabled: true })
+    linkSkill(project.id, skill.id, { enabled: true })
     // MCP vinculado força `await prepareMcpsForDispatch` antes do notice de skills,
     // dando tempo do subscribe registrar (mesmo padrão do teste missing_secret).
     const mcp = createMcp({

@@ -1,7 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
 import {
-  skillsRepository,
+  listSkills,
+  getSkillCounts,
+  createSkill,
+  updateSkill,
+  deleteSkill,
+  listProjectSkills,
+  linkSkill,
+  unlinkSkill,
+  reorderProjectSkills,
   ContentTooLongError,
   SkillNameConflictError,
   SkillNotFoundError,
@@ -43,11 +51,11 @@ function invalidSkillFieldName(data: Partial<SkillCreateInput>): string | null {
 // ── Handlers ────────────────────────────────────────────────────────────────
 
 function handleList(_req: IncomingMessage, res: ServerResponse): void {
-  sendJson(res, 200, { skills: skillsRepository.list() })
+  sendJson(res, 200, { skills: listSkills() })
 }
 
 function handleCounts(_req: IncomingMessage, res: ServerResponse): void {
-  sendJson(res, 200, skillsRepository.getCounts())
+  sendJson(res, 200, getSkillCounts())
 }
 
 async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -60,7 +68,7 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
     return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
   }
   try {
-    const skill = skillsRepository.create(data)
+    const skill = createSkill(data)
     sendJson(res, 201, { skill })
   } catch (err) {
     if (!mapRepositoryError(res, err)) throw err
@@ -77,7 +85,7 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
     return sendError(res, 400, 'invalid_request', `Campo "${invalidField}" tem tipo inválido.`)
   }
   try {
-    const skill = skillsRepository.update(id, data)
+    const skill = updateSkill(id, data)
     sendJson(res, 200, { skill })
   } catch (err) {
     if (!mapRepositoryError(res, err)) throw err
@@ -86,7 +94,7 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, id: strin
 
 function handleDelete(res: ServerResponse, id: string): void {
   try {
-    skillsRepository.remove(id)
+    deleteSkill(id)
     sendJson(res, 200, { deleted: true })
   } catch (err) {
     if (!mapRepositoryError(res, err)) throw err
@@ -94,7 +102,7 @@ function handleDelete(res: ServerResponse, id: string): void {
 }
 
 function handleListForProject(res: ServerResponse, projectId: string): void {
-  sendJson(res, 200, skillsRepository.listForProject(projectId))
+  sendJson(res, 200, listProjectSkills(projectId))
 }
 
 async function handleLinkSkill(
@@ -114,7 +122,7 @@ async function handleLinkSkill(
     return sendError(res, 400, 'invalid_request', 'Campos "enabled"/"sortOrder" têm tipo inválido.')
   }
   try {
-    const link = skillsRepository.linkSkill(projectId, skillId, data)
+    const link = linkSkill(projectId, skillId, data)
     sendJson(res, 200, link)
   } catch (err) {
     if (!mapRepositoryError(res, err)) throw err
@@ -122,7 +130,7 @@ async function handleLinkSkill(
 }
 
 function handleUnlinkSkill(res: ServerResponse, projectId: string, skillId: string): void {
-  skillsRepository.unlinkSkill(projectId, skillId)
+  unlinkSkill(projectId, skillId)
   sendJson(res, 200, { unlinked: true })
 }
 
@@ -133,7 +141,7 @@ async function handleCatalogOrder(req: IncomingMessage, res: ServerResponse, pro
   if (data === null || data.kind !== 'skills' || !Array.isArray(data.items)) {
     return sendError(res, 400, 'validation_error', 'Corpo inválido para catalog-order.')
   }
-  skillsRepository.reorder(projectId, data.items)
+  reorderProjectSkills(projectId, data.items)
   sendJson(res, 200, { reordered: true })
 }
 

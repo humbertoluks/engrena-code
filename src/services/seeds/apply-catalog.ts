@@ -1,4 +1,4 @@
-import { skillsRepository, SkillNameConflictError } from '../db/repositories/skills.js'
+import { createSkill, SkillNameConflictError } from '../db/repositories/skills.js'
 import { createSubagent, SubagentNameConflictError } from '../db/repositories/subagents.js'
 import { vaultService } from '../vault/vault-service.js'
 import { SEED_CATALOG_VERSION, SEED_SKILLS, SEED_SUBAGENTS } from './catalog.js'
@@ -37,7 +37,7 @@ export function applySeedCatalog(): ApplySeedCatalogResult {
 
   for (const skill of SEED_SKILLS) {
     try {
-      skillsRepository.create(skill)
+      createSkill(skill)
       result.skillsInserted++
     } catch (err) {
       if (err instanceof SkillNameConflictError) {

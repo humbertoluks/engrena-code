@@ -3,7 +3,7 @@ import { guard, sendError, sendJson } from './_transport.js'
 import { computeConfigStatus } from './config-handler.js'
 import { listProjects } from '../db/repositories/projects.js'
 import { getDashboardMetrics, listDashboardInbox, listRecentActivity } from '../db/repositories/dashboard.js'
-import { skillsRepository } from '../db/repositories/skills.js'
+import { getSkillCounts } from '../db/repositories/skills.js'
 import { getCounts as getRulesCounts } from '../db/repositories/rules.js'
 import { getSubagentCounts } from '../db/repositories/subagents.js'
 import type { DashboardInboxItem } from '../db/repositories/dashboard.js'
@@ -82,7 +82,7 @@ async function handleGetDashboard(_req: IncomingMessage, res: ServerResponse): P
     inbox: inbox.slice(0, INBOX_LIMIT),
     projects,
     catalog: {
-      skills: skillsRepository.getCounts().global,
+      skills: getSkillCounts().global,
       rules: rulesCounts.global,
       subagents: subagentsCounts.global,
     },

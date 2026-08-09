@@ -10,7 +10,8 @@ const { getDb, closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread } = await import('../db/repositories/threads.js')
 const { listLogEntries } = await import('../db/repositories/log-entries.js')
-const { skillsRepository } = await import('../db/repositories/skills.js')
+const skillsRepo = await import('../db/repositories/skills.js')
+const { listSkills } = skillsRepo
 const { listSubagents } = await import('../db/repositories/subagents.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { SEED_SKILLS, SEED_SUBAGENTS } = await import('../seeds/catalog.js')
@@ -91,7 +92,8 @@ describe('createUnlockServer seed catalog application', () => {
     }
     vaultService.lock()
 
-    for (const skill of skillsRepository.list()) skillsRepository.remove(skill.id)
+    getDb().exec('DELETE FROM project_skills')
+    getDb().exec('DELETE FROM skills')
     getDb().exec('DELETE FROM project_subagents')
     getDb().exec('DELETE FROM subagents')
   })
@@ -111,7 +113,7 @@ describe('createUnlockServer seed catalog application', () => {
 
     expect(res.data.unlocked).toBe(true)
     expect(res.data.sessionToken).toBeTruthy()
-    expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
+    expect(listSkills()).toHaveLength(SEED_SKILLS.length)
     expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
   })
 
@@ -123,7 +125,7 @@ describe('createUnlockServer seed catalog application', () => {
       workspace: WORKSPACE,
       password: PASSWORD,
     })
-    const firstSkillCount = skillsRepository.list().length
+    const firstSkillCount = listSkills().length
     const firstSubagentCount = listSubagents().length
 
     vaultService.lock()
@@ -132,12 +134,12 @@ describe('createUnlockServer seed catalog application', () => {
       password: PASSWORD,
     })
 
-    expect(skillsRepository.list()).toHaveLength(firstSkillCount)
+    expect(listSkills()).toHaveLength(firstSkillCount)
     expect(listSubagents()).toHaveLength(firstSubagentCount)
   })
 
   it('test_unlock_succeeds_when_seed_apply_partially_fails', async () => {
-    const spy = vi.spyOn(skillsRepository, 'create').mockImplementationOnce(() => {
+    const spy = vi.spyOn(skillsRepo, 'createSkill').mockImplementationOnce(() => {
       throw new Error('disk full')
     })
 

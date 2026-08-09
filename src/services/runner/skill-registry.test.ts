@@ -1,35 +1,33 @@
-import { beforeEach, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { skillsRepository } from '../db/repositories/skills'
-import { createSkillSnapshot, writeSkillSnapshotFile, LOAD_SKILL_TOOL_NAME } from './skill-registry'
 
-let tmpDir: string
-let prevUserData: string | undefined
+process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_skill_registry_'))
+
+const { getDb, closeDb } = await import('../db/client.js')
+const { createSkill, linkSkill } = await import('../db/repositories/skills.js')
+const { createSkillSnapshot, writeSkillSnapshotFile, LOAD_SKILL_TOOL_NAME } = await import('./skill-registry.js')
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'engrenacode-registry-'))
-  prevUserData = process.env.ENGRENACODE_USER_DATA
-  process.env.ENGRENACODE_USER_DATA = tmpDir
-  skillsRepository._resetCache()
+  getDb().exec('DELETE FROM project_skills')
+  getDb().exec('DELETE FROM skills')
 })
 
-afterEach(() => {
-  if (prevUserData === undefined) delete process.env.ENGRENACODE_USER_DATA
-  else process.env.ENGRENACODE_USER_DATA = prevUserData
-  rmSync(tmpDir, { recursive: true, force: true })
+afterAll(() => {
+  closeDb()
+  rmSync(process.env.ENGRENACODE_USER_DATA as string, { recursive: true, force: true })
 })
 
 describe('createSkillSnapshot', () => {
   it('lists only linked+enabled skills in the catalog and resolves content on demand', () => {
-    const skill = skillsRepository.create({
+    const skill = createSkill({
       name: 'convencoes-de-commit',
       description: 'Use ao escrever commits.',
       content: '# Convenções\n\nUse Conventional Commits.',
     })
-    skillsRepository.create({ name: 'nao-vinculada', description: 'd', content: '# fora' })
-    skillsRepository.linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
+    createSkill({ name: 'nao-vinculada', description: 'd', content: '# fora' })
+    linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
 
     const snapshot = createSkillSnapshot('proj-1')
 
@@ -43,12 +41,12 @@ describe('createSkillSnapshot', () => {
 
 describe('writeSkillSnapshotFile', () => {
   it('writes JSON skills map for the MCP load_skill tool', () => {
-    const skill = skillsRepository.create({
+    const skill = createSkill({
       name: 'convencoes-de-commit',
       description: 'Use ao escrever commits.',
       content: '# Convenções\n\nUse Conventional Commits.',
     })
-    skillsRepository.linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
+    linkSkill('proj-1', skill.id, { enabled: true, sortOrder: 0 })
 
     const path = writeSkillSnapshotFile(createSkillSnapshot('proj-1'))
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as { skills: Record<string, string> }

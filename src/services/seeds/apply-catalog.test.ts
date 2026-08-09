@@ -6,7 +6,8 @@ import { join } from 'path'
 process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f17_apply_'))
 
 const { getDb, closeDb } = await import('../db/client.js')
-const { skillsRepository } = await import('../db/repositories/skills.js')
+const skillsRepo = await import('../db/repositories/skills.js')
+const { listSkills, createSkill, getSkillCounts } = skillsRepo
 const { createSubagent, getSubagentCounts, listSubagents } = await import('../db/repositories/subagents.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { SEED_SKILLS, SEED_SUBAGENTS } = await import('./catalog.js')
@@ -25,7 +26,8 @@ beforeEach(() => {
   }
   vaultService.lock()
 
-  for (const skill of skillsRepository.list()) skillsRepository.remove(skill.id)
+  getDb().exec('DELETE FROM project_skills')
+  getDb().exec('DELETE FROM skills')
   getDb().exec('DELETE FROM project_subagents')
   getDb().exec('DELETE FROM subagents')
 
@@ -51,7 +53,7 @@ describe('applySeedCatalog', () => {
     expect(result.subagentsInserted).toBe(SEED_SUBAGENTS.length)
     expect(result.subagentsSkipped).toBe(0)
     expect(result.subagentsFailed).toBe(0)
-    expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
+    expect(listSkills()).toHaveLength(SEED_SKILLS.length)
     expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
     expect(vaultService.getSecret(FLAG_KEY)).toBe('1')
   })
@@ -62,13 +64,13 @@ describe('applySeedCatalog', () => {
     expect(second.applied).toBe(false)
     expect(second.skillsInserted).toBe(0)
     expect(second.subagentsInserted).toBe(0)
-    expect(skillsRepository.list()).toHaveLength(SEED_SKILLS.length)
+    expect(listSkills()).toHaveLength(SEED_SKILLS.length)
     expect(listSubagents()).toHaveLength(SEED_SUBAGENTS.length)
   })
 
   it('test_apply_skips_existing_skill_name', () => {
     const first = SEED_SKILLS[0]!
-    skillsRepository.create({
+    createSkill({
       name: first.name,
       description: 'pre-existente',
       content: '# conteúdo pré-existente',
@@ -78,7 +80,7 @@ describe('applySeedCatalog', () => {
 
     expect(result.skillsSkipped).toBe(1)
     expect(result.skillsInserted).toBe(SEED_SKILLS.length - 1)
-    const preserved = skillsRepository.list().find((s) => s.name === first.name)
+    const preserved = listSkills().find((s) => s.name === first.name)
     expect(preserved?.description).toBe('pre-existente')
   })
 
@@ -100,7 +102,7 @@ describe('applySeedCatalog', () => {
   })
 
   it('test_apply_partial_failure_continues', () => {
-    const spy = vi.spyOn(skillsRepository, 'create').mockImplementationOnce(() => {
+    const spy = vi.spyOn(skillsRepo, 'createSkill').mockImplementationOnce(() => {
       throw new Error('disk full')
     })
 
@@ -118,7 +120,7 @@ describe('applySeedCatalog', () => {
 
   it('test_apply_does_not_create_project_links', () => {
     applySeedCatalog()
-    expect(skillsRepository.getCounts().linkedByProject).toEqual({})
+    expect(getSkillCounts().linkedByProject).toEqual({})
     expect(getSubagentCounts().linkedByProject).toEqual({})
   })
 
