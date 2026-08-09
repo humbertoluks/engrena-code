@@ -139,6 +139,19 @@ describe('voice_handler transcribe end-to-end error mapping', () => {
     expect((body as { error: { code: string } }).error.code).toBe('voice_upstream_error')
   })
 
+  it('returns 422 voice_auth_error (not 401) when the provider rejects the key, so the renderer does not relock the vault', async () => {
+    const session = unlockVault()
+    vaultService.setSecret('voice:openai', 'sk-abcdefgh')
+    setFetchForTesting(async () => new Response('unauthorized', { status: 401 }))
+
+    const req = fakeReq('POST', '/api/voice/transcribe', { mimeType: 'audio/webm', audioBase64: 'YQ==' }, session)
+    const res = fakeRes()
+    await handleVoiceRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(422)
+    expect((body as { error: { code: string } }).error.code).toBe('voice_auth_error')
+  })
+
   it('returns 200 with the transcribed text on success', async () => {
     const session = unlockVault()
     vaultService.setSecret('voice:openai', 'sk-abcdefgh')

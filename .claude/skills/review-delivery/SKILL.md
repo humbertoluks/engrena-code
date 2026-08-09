@@ -1,6 +1,6 @@
 ---
 name: review-delivery
-description: Revisa entrega do EngrenaCode — cobertura Vitest por camada, regra de negócio testável sem abrir a UI, necessidade de smoke E2E via playwright-cli, gates de build (tsc/vite/biome) e adequação do diff a commits pequenos em Conventional Commits. Use ao revisar um diff, branch, PR ou feature quanto a testes, evidência de smoke, granularidade de commit ou fechamento de progresso.
+description: Revisa entrega do EngrenaCode — cobertura Vitest por camada, *.logic.ts testável, smoke E2E (smoke-results.md), gates tsc/vite/biome e commits Conventional Commits. Use ao revisar diff, branch, PR, feature, ou com /review-delivery quanto a testes, smoke, fatiamento de commit ou fechamento no PROGRESS.
 ---
 
 # Review — Entrega
@@ -37,6 +37,7 @@ Diff vazio: pare e diga qual escopo foi tentado.
 - Handler é testado sem servidor: fakes de `IncomingMessage`/`ServerResponse` (`fakeReq`/`fakeRes`), asserindo `status` + body JSON.
 - E2E: **Playwright não é dependência do repo**. Smoke roda pela skill `playwright-cli` em headless contra Vite dev + Electron real, artefatos em `.playwright-cli/` (gitignored) e evidência escrita em `docs/F<ID>-*/smoke-results.md`.
 - Gates: `pnpm test`, `tsc -b`, `vite build`, `electron-builder` (via `pnpm build`) e `biome lint`.
+- Suíte pesada de verdade: `git-client`, `git-handler`, `delegate` e `pipeline-runner` exercitam git/spawn reais e levam de 8 a 16 s por arquivo, sob `testTimeout` default de 5 s por caso. Em máquina carregada isso produz timeout intermitente — o mesmo comando muda de resultado entre execuções.
 
 ## Checklist
 
@@ -86,6 +87,7 @@ Obrigatório quando algum critério de aceitação do diff depende de DOM, naveg
 - Confirme no diff/PR que `pnpm test` (suíte completa, não só os arquivos tocados), `tsc -b`, `vite build` e `biome lint` rodaram verdes. Gate não reportado é 🟡; gate reportado vermelho é 🔴.
 - Mudança em `src/main`, `src/preload`, `package.json` (`main`, `files`, `build`) ou config do Vite exige também `electron-builder` verde. Faltando é 🔴 — é o gate que pega colisão de `dist-electron/index.js` e path de produção.
 - Migration nova exige a suíte completa verde, não só o teste do repositório dela.
+- Antes de chamar vermelho de regressão, **rode de novo**. Conjunto de falhas que muda entre execuções, ou `Test timed out in 5000ms` em arquivo de git/spawn real, é **flaky** — reporte como 🟡 com a correção "`testTimeout` explícito no caso pesado", nunca como bloqueio do diff. Falha determinística no mesmo caso em duas execuções é 🔴.
 
 ### 5. Diff fatiável em commits pequenos
 
@@ -143,6 +145,8 @@ Não verificado:
 ```
 
 Veredito: **bloqueado** com qualquer 🔴; **ressalvas** com só 🟡/🟢; **aprovado** sem achados.
+
+Exemplo de relatório completo: [references/examples.md](references/examples.md).
 
 ## Sempre
 

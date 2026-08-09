@@ -262,6 +262,7 @@ describe('createUnlockServer CORS allowlist', () => {
     })
     expect(allowed.status).toBe(204)
     expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:5175')
+    expect(allowed.headers['access-control-allow-methods']).toContain('PATCH')
 
     const denied = await axios.post(
       `http://127.0.0.1:${port}/api/vault/unlock`,

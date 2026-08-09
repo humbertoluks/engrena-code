@@ -1,6 +1,6 @@
 ---
 name: review-architecture
-description: Revisa arquitetura do EngrenaCode — isolamento do renderer Electron, fluxo explícito React → Preload → IPC → Main, fronteira HTTP loopback → handler → repositório, direção das camadas, nomes de domínio e abstrações sem uso concreto. Use ao revisar um diff, branch, PR ou feature quanto a estrutura, camadas, acoplamento, nomes ou over-engineering.
+description: Revisa arquitetura do EngrenaCode — isolamento do renderer Electron, fluxo React → Preload → IPC → Main, HTTP loopback → handler → repositório, camadas, nomes de domínio e abstrações sem uso concreto. Use ao revisar diff, branch, PR, feature, ou com /review-architecture quanto a estrutura, acoplamento ou over-engineering.
 ---
 
 # Review — Arquitetura
@@ -41,20 +41,25 @@ src/renderer/screens/*.tsx | components/**    (React, sem Node)
   → src/renderer/hooks/* ou services/<domínio>-service.ts
   → fetch http://127.0.0.1:5174 + header x-engrenacode-session
   → src/services/http/<domínio>-handler.ts    (registrado no roteador de unlock-handler.ts)
-  → src/services/db/repositories/* | runner/* | git/* | vault/*
+  → src/services/db/repositories/* | runner/* | git/* | vcs/* | vault/* | codegraph/* | voice/*
 ```
 
 Eventos ao vivo: `src/renderer/services/ws-client.ts` ↔ `src/services/http/ws-upgrade.ts` + `src/services/runner/ws-hub.ts`.
+
+Callback OAuth de MCP/VCS em portas efêmeras `5180–5199` (padrão F09) **não** é segundo servidor de API — domínio continua no loopback `:5174`.
 
 **2. Capacidade nativa — IPC (superfície mínima):**
 
 ```
 React → window.electronAPI.<grupo>.<ação>    (src/preload/index.ts, CommonJS)
-  → ipcMain.handle('engrenacode:<domínio>:<ação>')    (src/main/index.ts)
-  → capacidade do SO / vaultService
+  → ipcMain.handle('engrenacode:<domínio>:<ação>')    (src/main/index.ts)   request/response
+  → ipcMain.on('engrenacode:<domínio>:<ação>')                              fire-and-forget (stream)
+  → capacidade do SO / vaultService / PTY host
 ```
 
-Hoje o IPC cobre só: sessão do vault (`get-session`, `is-locked`, `lock`, evento `locked`), `dialog:open-folder` e `shell:open-external`. Nada de leitura/escrita de domínio.
+Grupos do `api` no preload: `vault`, `dialog`, `shell`, `terminal` — só isso. Canais nomeados: `vault:get-session|is-locked|lock` (+ evento `vault:locked`), `dialog:open-folder`, `shell:open-external`, `terminal:create|kill` via `handle`; `terminal:write|resize` via `on` e `terminal:data|exit` via `webContents.send` (PTY F26, registry em `src/services/terminal/`).
+
+PTY pode resolver `cwd` via projects/threads — isso **não** autoriza CRUD de domínio via IPC. Nada de leitura/escrita de catálogo, vault keys, git de produto ou dispatch por IPC.
 
 ## Checklist
 
@@ -69,8 +74,8 @@ Marque cada item ✓ / ✗ / — e cite `arquivo:linha`.
 
 ### 2. Preload como única ponte nativa
 
-- Capacidade nativa nova aparece como **método nomeado** no objeto `api` do preload, com tipo de retorno explícito — não pelo passthrough genérico `invoke`/`send`/`on`. Usar o passthrough para um canal novo é 🟡 (o passthrough é dívida existente, não porta de entrada).
-- Todo método novo do preload tem um `ipcMain.handle` correspondente em `src/main/index.ts`, no formato `engrenacode:<domínio>:<ação>`. Método órfão (sem handler) ou handler órfão (sem método) é 🔴.
+- Capacidade nativa nova aparece como **método nomeado** dentro de um grupo do objeto `api`, com tipo de retorno explícito. Hoje **não existe** passthrough genérico (`invoke`/`send`/`on` cru) exposto ao renderer — expor um é 🔴, porque anula a allowlist de canais.
+- Todo método novo do preload tem contraparte em `src/main/index.ts` no formato `engrenacode:<domínio>:<ação>`: `ipcMain.handle` quando há resposta, `ipcMain.on` quando é fire-and-forget de stream (precedente: `terminal:write` / `terminal:resize`). Método órfão (sem contraparte) ou canal do main sem método no preload é 🔴; usar `on` onde o chamador precisa do retorno é 🟡.
 - Preload permanece CommonJS (`require('electron')`). Converter para `import` é 🔴 — `contextBridge` não é exportado em ESM (`CLAUDE.md`).
 - Preload não contém regra de negócio, cache nem transformação de dados: só repassa. 🔴 se contiver.
 - Retorno atravessa serializado (objeto plano). Devolver `BrowserWindow`, handle de stream, `Buffer` grande ou classe é 🔴.
@@ -81,20 +86,21 @@ Marque cada item ✓ / ✗ / — e cite `arquivo:linha`.
 - `fetch(` dentro de `screens/` ou `components/` é 🔴. Única exceção existente: o unlock em `LoginScreen.tsx` (rota pública, pré-sessão). Todo o resto passa por `src/renderer/services/<domínio>-service.ts`.
 - Service novo do renderer usa `BASE_URL = 'http://127.0.0.1:5174'` e o header `x-engrenacode-session`. BASE_URL divergente, porta hard-coded diferente ou header renomeado é 🔴.
 - Handler novo está registrado no roteador de `src/services/http/unlock-handler.ts` e devolve `false` para rota que não é dele (contrato de encadeamento). Handler não registrado é 🔴; handler que devolve `true` para rota alheia é 🔴 (engole a rota dos seguintes).
-- Rota nova sob `/api/...`, nunca um segundo servidor HTTP nem outra porta. `5174` é reservada ao loopback; Vite nunca a usa (`CLAUDE.md`).
-- Push ao vivo passa pelo WS hub existente. Polling novo em paralelo a um evento que o hub já emite é 🟡 com justificativa exigida.
+- Rota nova sob `/api/...`, nunca um segundo servidor HTTP de API nem outra porta de domínio. `5174` é reservada ao loopback; Vite nunca a usa (`CLAUDE.md`). Callback OAuth `listen(0)` / faixa `5180–5199` e servidores por turno (`ask-user`, memory-write, MCP secrets) são exceções de design já estabelecidas — não use isso como precedente para API paralela.
+- Push ao vivo passa pelo WS hub existente. Polling novo em paralelo a um evento que o hub já emite é 🟡 com justificativa exigida. Precedentes aceitos: Dashboard agregado (sem evento WS) e card OAuth pending (`VcsOauthCard`).
 
 ### 4. Direção das camadas
 
 - `rg -n "renderer/" src/services src/main` → vazio. `src/services/**` e `src/main/**` nunca importam do renderer. 🔴.
 - `src/main/index.ts` é fino: janela, menu, IPC nativo, boot do unlock server. Regra de negócio nova ali é 🔴 → vai para `src/services/**`.
-- Acesso a SQLite deveria passar por `src/services/db/repositories/*`. Exceções já existentes: `subagents-handler.ts`, `dashboard-handler.ts`, `runner/dispatch.ts`, `seeds/apply-catalog.ts` chamam `getDb()` direto. Novo `getDb()` fora de `src/services/db/**` é 🟡 e precisa de motivo explícito no diff; se for CRUD comum, é 🔴 (existe repositório para isso).
+- Acesso a SQLite passa por `src/services/db/repositories/*`. Novo `getDb()` fora de `src/services/db/**` é 🟡 com motivo explícito; CRUD comum sem repositório é 🔴.
+- Arquivo sob `src/services/db/repositories/` **deve** persistir via `getDb()`/SQLite (e migration quando houver tabela nova). Persistência alternativa (`*.json` + `fs`, Electron `app.getPath`) nesse path é 🟡 — ou migre para SQLite, ou mova o módulo para fora de `db/repositories/` e documente na spec. Dívida conhecida: `skills.ts` → `skills.json` (F05 pediu tabelas).
 - Migration nova entra em `src/services/db/migrations/NNN_<assunto>.ts` na ordem numérica, nunca alterando migration já aplicada. Editar migration existente é 🔴.
 - Import ciclado entre módulos de `src/services/**` é 🔴.
 
 ### 5. Nomes de domínio
 
-Vocabulário do projeto: Vault, Session, Project, Thread, Message, Diff, Skill, Rule, SubAgent, Mcp, UsageEvent, LogEntry, Worktree, Provider, Dispatch, Delegate.
+Vocabulário do projeto: Vault, Session, Project, Thread, Message, Diff, Skill, Rule, SubAgent, Mcp, UsageEvent, LogEntry, Worktree, Provider, Dispatch, Delegate, Vcs, Memory, Codegraph, Pipeline, Voice, Terminal.
 
 - Símbolo ou arquivo novo usa esse vocabulário. `manager`, `helper`, `utils`, `service2`, `data`, `wrapper`, `handleStuff` são 🟡 e devem ser renomeados para o conceito de domínio.
 - Convenções de nome de arquivo: `src/services/**` em kebab-case (`rules-handler.ts`, `provider-keys.ts`); componentes React em PascalCase; regra extraída de componente em `<nome>.logic.ts`; repositório com o nome plural da entidade (`repositories/rules.ts`).
@@ -103,11 +109,11 @@ Vocabulário do projeto: Vault, Session, Project, Thread, Message, Diff, Skill, 
 
 ### 6. Abstração sem uso concreto
 
-- Todo símbolo exportado no diff tem pelo menos um consumidor fora do próprio teste. Verifique: `rg -n "<nomeDoSímbolo>" src`. Sem consumidor → 🔴 "abstração sem uso concreto: remova ou ligue".
-- Precedente real de dívida a não repetir: `src/services/vault/session-middleware.ts` exporta `sessionMiddleware`, `vaultGuard` e `isPublicRoute` numa forma estilo Express que **nenhum handler importa** — cada handler tem seu `guard()` local. Se o diff adicionar mais um caminho paralelo desse tipo, é 🔴; se o diff finalmente ligar ou remover esse módulo, registre como 🟢 positivo.
+- Todo símbolo exportado no diff tem pelo menos um consumidor de **produção** fora do próprio teste. Verifique: `rg -n "<nomeDoSímbolo>" src`. Só teste → 🟡 (torne local); zero consumidores → 🔴 "abstração sem uso concreto: remova ou ligue". Precedentes registrados no artefato: `injectTokenIntoHttpsUrl` órfã após F24 (`ByKind`); `getTokens` exportado só para uso interno em `vcs/oauth.ts`.
+- `session-middleware.ts` (Express-style paralelo ao `guard()`) **já foi removido**. Não reintroduza middleware/auth paralelo ao `guard()` de `_transport` / handlers — 🔴.
 - 🔴 para: interface/`type` de porta com uma única implementação e um único chamador; factory/registry para dois casos; camada genérica (`BaseHandler`, `Repository<T>`, `createCrudRoutes`) introduzida junto com o primeiro uso; flag de configuração sem UI nem consumidor.
 - 🟡 para: parâmetro opcional que nenhum chamador passa; branch de código inalcançável no diff; `export` de algo usado só dentro do próprio arquivo (deveria ser local).
-- Duplicação é assunto de `review-robustness`. Aqui só a mencione quando ela revelar fronteira mal posta (ex.: mesma regra vivendo nos dois lados da fronteira sem constante compartilhada).
+- Duplicação de regra de negócio (ex.: `validate*Key` no renderer e no vault) é 🔴 de `review-robustness` — aqui só aponte se revelar fronteira mal posta (mesma regra nos dois lados sem módulo puro compartilhado). Precedente conforme: `composer.logic.ts` importa constantes de `composer-images.ts`.
 
 ## Formato de saída
 
@@ -134,6 +140,8 @@ Não verificado:
 ```
 
 Veredito: **bloqueado** com qualquer 🔴; **ressalvas** com só 🟡/🟢; **aprovado** sem achados.
+
+Exemplo de relatório completo: [references/examples.md](references/examples.md).
 
 ## Sempre
 

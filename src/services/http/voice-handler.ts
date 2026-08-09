@@ -24,7 +24,10 @@ async function handleTranscribe(req: IncomingMessage, res: ServerResponse): Prom
     sendJson(res, 200, result)
   } catch (err) {
     if (err instanceof VoiceTranscribeError) {
-      const status = err.code === 'voice_key_missing' ? 400 : err.code === 'voice_auth_error' ? 401 : 502
+      // 401/423 ficam reservados a sessão do vault (api-client.ts trata qualquer 401 como "sessão
+      // inválida" e força relock) — key de provider rejeitada é 422, não 401, para não derrubar a
+      // sessão do EngrenaCode por causa de uma credencial de terceiro inválida.
+      const status = err.code === 'voice_key_missing' ? 400 : err.code === 'voice_auth_error' ? 422 : 502
       return sendJson(res, status, { error: { code: err.code, message: err.message } })
     }
     throw err

@@ -1,6 +1,6 @@
 ---
 name: review-robustness
-description: Revisa robustez do EngrenaCode — validação de payload nas fronteiras (HTTP loopback, IPC, filesystem, spawn, APIs externas), tipagem estrita sem any injustificado, duplicação de regra de negócio, tratamento de erro útil e visível ao usuário, e vazamento de segredo. Use ao revisar um diff, branch, PR ou feature quanto a validação, tipos, erros ou credenciais.
+description: Revisa robustez do EngrenaCode — validação em HTTP/IPC/FS/spawn, tipagem sem any injustificado, regra de negócio duplicada, erros úteis ao usuário e vazamento de segredo (incl. sanitize stderr VCS). Use ao revisar diff, branch, PR, feature, ou com /review-robustness quanto a validação, tipos, erros ou credenciais.
 ---
 
 # Review — Robustez
@@ -48,7 +48,7 @@ Marque cada item ✓ / ✗ / — e cite `arquivo:linha`.
 
 ### 1. Validação na fronteira HTTP
 
-Padrão estabelecido nos 12 handlers (referência: `src/services/http/rules-handler.ts`). Rota nova precisa de tudo abaixo:
+Padrão estabelecido em todos os `src/services/http/*-handler.ts` (referência: `rules-handler.ts`). Único sem `guard` é `unlock-handler.ts`, que é o roteador + as rotas públicas pré-sessão. Rota nova precisa de tudo abaixo:
 
 - `guard(req, res)` antes de qualquer efeito: vault travado → **423 `vault_locked`**; header `x-engrenacode-session` ausente/divergente → **401 `unauthorized`**. Rota nova sem `guard` é 🔴, salvo rota pública deliberada (unlock/health) declarada no diff.
 - `parseBody` devolvendo `null` → **400 `invalid_request`** antes de tocar repositório. Faltando é 🔴.
@@ -68,7 +68,7 @@ Padrão estabelecido nos 12 handlers (referência: `src/services/http/rules-hand
 
 ### 3. Tipagem estrita
 
-- `rg -n ": any|as any|<any>" src` — hoje o único acerto é `_event: any` no preload. Todo `any` novo é 🔴, salvo comentário na linha justificando por que `unknown` + narrowing não serve.
+- `rg -n ": any|as any|<any>" src` — hoje sai **vazio**, inclusive no preload. Todo `any` novo é 🔴, salvo comentário na linha justificando por que `unknown` + narrowing não serve.
 - Fronteira recebe `unknown` e estreita; não recebe o tipo desejado por fé. 🔴.
 - `as` que force forma de objeto em código de produção é 🔴 (em fake de teste é aceito — precedente `fakeReq`/`fakeRes` em `rules-handler.test.ts`).
 - `!` (non-null assertion) e `?? {}` mascarando ausência real de dado são 🟡: prefira checagem explícita com erro nomeado.
@@ -80,7 +80,7 @@ Padrão estabelecido nos 12 handlers (referência: `src/services/http/rules-hand
 
 Distinção que importa neste repo — não trate tudo igual:
 
-- **Boilerplate de transporte duplicado é aceito.** Os 12 handlers repetem `sendJson`, `sendError`, `readBody`, `parseBody`, `guard` e a constante `SESSION_HEADER`. Handler novo seguindo esse padrão **não é achado**. O bug é a **divergência**: código de erro diferente, status diferente, nome de header diferente, `guard` que checa sessão antes de vault travado. Divergência é 🔴.
+- **Boilerplate de transporte duplicado é aceito.** Os handlers importam/repetem `sendJson`, `sendError`, `readBody`, `parseBody`, `guard` e a constante `SESSION_HEADER`. Handler novo seguindo esse padrão **não é achado**. O bug é a **divergência**: código de erro diferente, status diferente, nome de header diferente, `guard` que checa sessão antes de vault travado. Divergência é 🔴.
 - **Regra de negócio duplicada é 🔴.** Limite, clamp, enum, cálculo de preço, mapeamento status→código: existe num lugar só. Se cliente e servidor precisam da mesma regra, importe a constante compartilhada em vez de re-declarar o literal — precedente: `composer.logic.ts` espelha a validação do servidor importando `ALLOWED_IMAGE_MIME_TYPES`/`MAX_IMAGE_BYTES` de `composer-images.ts`.
 - Mesma query SQL copiada em dois arquivos é 🟡 → pertence ao repositório da entidade.
 - String voltada ao usuário duplicada em dois componentes é 🟡: quando existe `docs/F<ID>-*/copy.md`, a fonte é ele (precedente de módulo de copy: `components/subagents/copy.ts`).
@@ -100,10 +100,13 @@ Distinção que importa neste repo — não trate tudo igual:
 
 ### 6. Segredo
 
-- Chave de provider e segredo de MCP só no vault (`src/services/vault/provider-keys.ts`, `runner/mcp-secrets.ts`). Segredo em coluna do SQLite, em arquivo do projeto, em `.env` commitado ou em resposta HTTP é 🔴.
-- `localStorage` do renderer guarda apenas `sessionToken` e `engrenacode:theme`. Chave nova com credencial é 🔴.
+- Chave de provider e segredo de MCP/VCS só no vault (`src/services/vault/provider-keys.ts`, `runner/mcp-secrets.ts`, tokens VCS). Segredo em coluna do SQLite, em arquivo do projeto, em `.env` commitado ou em resposta HTTP é 🔴.
+- `localStorage` do renderer: `sessionToken`, `engrenacode:theme`, e filas/UX sem credencial. Chave nova com credencial é 🔴.
 - `rg -n "console\.(log|error|warn)" nos arquivos do diff` — nenhum log imprime token, senha, header de sessão ou body de unlock. 🔴.
 - Endpoint que devolve configuração expõe **status** ("configurada"), nunca o valor da chave. 🔴.
+- Stderr / message que pode chegar à UI passa por `sanitizeProcessError`. Diff que adiciona inject de token em URL HTTPS (`oauth2:`, `x-token-auth:`, `https://:<token>@`, além de `x-access-token:`) ou prefixo de provider (`xai-`, `gsk_`, …) **sem** atualizar o sanitizer + teste que falha se o segredo sobreviver é 🔴.
+- Autenticação WS via subprotocol; aceitar `?token=` na query (legado) é 🟡 — remova ou documente data de corte (vaza em logs/proxy).
+- PTY / spawn de shell: herdar `process.env` inteiro é 🟡 (keys do host no terminal). Preferir allowlist.
 
 ## Formato de saída
 
@@ -133,6 +136,8 @@ Não verificado:
 ```
 
 Veredito: **bloqueado** com qualquer 🔴; **ressalvas** com só 🟡/🟢; **aprovado** sem achados.
+
+Exemplo de relatório completo: [references/examples.md](references/examples.md).
 
 ## Sempre
 
