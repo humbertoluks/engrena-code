@@ -65,6 +65,9 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
   const timerRef = useRef<number | null>(null)
   const startedAtRef = useRef(0)
   const cancelledRef = useRef(false)
+  /** Áudio da última tentativa que falhou (PRD §6 "sem perder o áudio gravado") — `retry()` reenvia
+   * este blob em vez de forçar uma gravação nova; limpo assim que uma transcrição é aceita. */
+  const failedAudioRef = useRef<{ blob: Blob; mimeType: string } | null>(null)
 
   const resolvedKeyReady = keyReady ?? false
   const effectiveState: VoiceMicState = keyReady === null && state === 'idle' ? 'configLoading' : state
@@ -81,6 +84,35 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
     streamRef.current = null
   }, [])
 
+  const attemptTranscribe = useCallback(
+    async (blob: Blob, mimeType: string): Promise<void> => {
+      setState('transcribing')
+      try {
+        const audioBase64 = await blobToBase64(blob)
+        const res = await voiceService.transcribe(audioBase64, mimeType)
+        if (res.error) {
+          failedAudioRef.current = { blob, mimeType }
+          setErrorMessage(mapTranscribeErrorCode(res.error.code))
+          setState('error')
+          return
+        }
+        failedAudioRef.current = null
+        if (!res.text || res.text.trim() === '') {
+          setNoticeMessage(VOICE_COPY.noticeEmptyTranscript)
+          setState('idle')
+          return
+        }
+        onTranscript(res.text)
+        setState('idle')
+      } catch {
+        failedAudioRef.current = { blob, mimeType }
+        setErrorMessage(mapTranscribeErrorCode(undefined))
+        setState('error')
+      }
+    },
+    [onTranscript]
+  )
+
   const finishRecording = useCallback(
     async (mimeType: string): Promise<void> => {
       stopStream()
@@ -93,28 +125,9 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
         return
       }
 
-      setState('transcribing')
-      try {
-        const audioBase64 = await blobToBase64(blob)
-        const res = await voiceService.transcribe(audioBase64, mimeType)
-        if (res.error) {
-          setErrorMessage(mapTranscribeErrorCode(res.error.code))
-          setState('error')
-          return
-        }
-        if (!res.text || res.text.trim() === '') {
-          setNoticeMessage(VOICE_COPY.noticeEmptyTranscript)
-          setState('idle')
-          return
-        }
-        onTranscript(res.text)
-        setState('idle')
-      } catch {
-        setErrorMessage(mapTranscribeErrorCode(undefined))
-        setState('error')
-      }
+      await attemptTranscribe(blob, mimeType)
     },
-    [onTranscript, stopStream]
+    [attemptTranscribe, stopStream]
   )
 
   const stopRecording = useCallback((): void => {
@@ -142,6 +155,7 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
 
     setErrorMessage(null)
     setNoticeMessage(null)
+    failedAudioRef.current = null
     cancelledRef.current = false
     setState('requesting-permission')
 
@@ -218,10 +232,17 @@ export function useVoiceInput({ keyReady, onTranscript }: UseVoiceInputArgs): Us
     }, 250)
   }, [clearTimer, finishRecording, permissionDenied, resolvedKeyReady, state, stopRecording, stopStream])
 
+  /** Reenvia o áudio preservado quando a falha foi na transcrição; sem blob (falha de permissão/gravação
+   * antes de existir áudio), só volta a `idle` pro usuário gravar de novo. */
   const retry = useCallback((): void => {
+    const failed = failedAudioRef.current
     setErrorMessage(null)
+    if (failed) {
+      void attemptTranscribe(failed.blob, failed.mimeType)
+      return
+    }
     setState('idle')
-  }, [])
+  }, [attemptTranscribe])
 
   const toggle = useCallback((): void => {
     if (state === 'idle') void startRecording()
