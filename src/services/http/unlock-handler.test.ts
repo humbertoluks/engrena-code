@@ -273,6 +273,7 @@ describe('createUnlockServer CORS allowlist', () => {
     )
     expect(denied.status).toBe(403)
     expect(denied.data?.error?.code).toBe('cors_denied')
+    expect(denied.data?.error?.message).toBe('Origem não permitida.')
     expect(denied.headers['access-control-allow-origin']).toBeUndefined()
   })
 

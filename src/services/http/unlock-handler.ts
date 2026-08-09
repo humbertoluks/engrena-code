@@ -60,7 +60,7 @@ function applyCors(req: http.IncomingMessage, res: http.ServerResponse): boolean
     res.writeHead(403, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify({
-        error: { code: 'cors_denied', message: 'Origin not allowed.' },
+        error: { code: 'cors_denied', message: 'Origem não permitida.' },
       })
     )
     return false
