@@ -7,19 +7,16 @@ import type { ReactElement, SyntheticEvent } from 'react'
 import { BrandMark, BrandWordmark } from '../components/BrandMark'
 import { ButtonPrimary } from '../components/ButtonPrimary'
 import { ThemeControl } from '../components/ThemeControl'
+import {
+  classifyUnlockFailure,
+  messageForError,
+  type UnlockErrorKind,
+  type VaultUnlockResponse,
+} from './loginScreen.logic'
 
 interface LoginScreenProps {
   onUnlock?: () => void
 }
-
-interface VaultUnlockResponse {
-  unlocked: boolean
-  sessionToken?: string
-  retryAfterMs?: number
-  error?: { code?: string; message?: string }
-}
-
-type ErrorKind = 'invalid' | 'corrupted' | 'backoff' | 'network' | null
 
 /** Copy — docs/F01-vault-e-sessao-local/copy.md */
 const COPY = {
@@ -34,11 +31,6 @@ const COPY = {
   ctaLoading: 'Desbloqueando...',
   footer:
     'As chaves dos providers e o token do GitHub ficam apenas no filesystem local deste dispositivo.',
-  errorInvalid: 'Workspace ou senha inválidos.',
-  errorCorrupted:
-    'O cofre local está danificado ou ilegível. Restaure um backup ou recrie o workspace.',
-  errorNetwork:
-    'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
 } as const
 
 const GATE_BACKGROUND =
@@ -47,43 +39,9 @@ const GATE_BACKGROUND =
 const INPUT_BASE =
   'w-full rounded-sm border bg-surface-2 px-md py-sm text-sm text-fg transition-colors placeholder:text-muted focus:outline-none focus:ring-2'
 
-function messageForError(kind: ErrorKind, remainingMs: number): string | null {
-  switch (kind) {
-    case 'invalid':
-      return COPY.errorInvalid
-    case 'corrupted':
-      return COPY.errorCorrupted
-    case 'network':
-      return COPY.errorNetwork
-    case 'backoff':
-      return `Muitas tentativas. Tente novamente em ${Math.ceil(remainingMs / 1000)}s.`
-    default:
-      return null
-  }
-}
-
-function classifyUnlockFailure(
-  response: Response,
-  data: VaultUnlockResponse,
-): { kind: ErrorKind; retryMs: number } {
-  const errorCode = data.error?.code
-  if (errorCode === 'vault_corrupted' || response.status === 422) {
-    return { kind: 'corrupted', retryMs: 0 }
-  }
-
-  const retryMs =
-    typeof data.retryAfterMs === 'number' ? data.retryAfterMs : 0
-
-  if (response.status === 429 || retryMs > 0) {
-    return { kind: retryMs > 0 ? 'backoff' : 'invalid', retryMs }
-  }
-
-  return { kind: 'invalid', retryMs: 0 }
-}
-
 async function completeSessionUnlock(
   onUnlock?: () => void,
-): Promise<ErrorKind | null> {
+): Promise<UnlockErrorKind> {
   if (!window.electronAPI?.vault?.getSessionToken) return 'network'
   const token = await window.electronAPI.vault.getSessionToken()
   if (typeof token !== 'string' || !token) return 'network'
@@ -99,7 +57,7 @@ export function LoginScreen({
   const [workspace, setWorkspace] = useState('~/dev')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [errorKind, setErrorKind] = useState<ErrorKind>(null)
+  const [errorKind, setErrorKind] = useState<UnlockErrorKind>(null)
   const [backoffUntil, setBackoffUntil] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
 

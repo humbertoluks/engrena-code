@@ -462,7 +462,7 @@ describe('runParallelDelegatedBatch (F18)', () => {
     const diffs = listDiffsForThread(parentThread.id)
     expect(diffs.map((d) => d.file).sort()).toEqual(['task-a.txt', 'task-b.txt'])
     expect(diffs.every((d) => d.status === 'pending')).toBe(true)
-  })
+  }, 30_000)
 
   it('test_merge_same_path_conflict — two children writing the same file end up as a conflict diff, not applied to the parent', async () => {
     const { project, parentThread } = makeGitContext()

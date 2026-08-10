@@ -40,11 +40,20 @@ function fakeResponse(): ServerResponse & { statusCode: number; body: string; he
   return res
 }
 
-function fakeRequest(): IncomingMessage & { destroy: () => void; destroyed: boolean } {
-  const req = new EventEmitter() as IncomingMessage & { destroy: () => void; destroyed: boolean }
+function fakeRequest(): IncomingMessage & { destroy: () => void; destroyed: boolean; paused: boolean; pause: () => void } {
+  const req = new EventEmitter() as IncomingMessage & {
+    destroy: () => void
+    destroyed: boolean
+    paused: boolean
+    pause: () => void
+  }
   req.destroyed = false
+  req.paused = false
   req.destroy = () => {
     req.destroyed = true
+  }
+  req.pause = () => {
+    req.paused = true
   }
   return req
 }
@@ -105,12 +114,13 @@ describe('readBody', () => {
     await expect(promise).rejects.toThrow('boom')
   })
 
-  it('destroys the request and rejects with PayloadTooLargeError above MAX_BODY_BYTES', async () => {
+  it('pauses the request and rejects with PayloadTooLargeError above MAX_BODY_BYTES', async () => {
     const req = fakeRequest()
     const promise = readBody(req)
     req.emit('data', Buffer.alloc(MAX_BODY_BYTES + 1))
     await expect(promise).rejects.toBeInstanceOf(PayloadTooLargeError)
-    expect(req.destroyed).toBe(true)
+    expect(req.paused).toBe(true)
+    expect(req.destroyed).toBe(false)
   })
 })
 

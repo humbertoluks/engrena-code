@@ -132,7 +132,7 @@ export function createUsageEvent(input: CreateUsageEventInput): UsageEvent {
   return getUsageEvent(id) as UsageEvent
 }
 
-export function getUsageEvent(id: string): UsageEvent | null {
+function getUsageEvent(id: string): UsageEvent | null {
   const row = getDb().prepare(`SELECT * FROM usage_events WHERE id = ?`).get(id) as UsageEventRow | undefined
   return row === undefined ? null : toUsageEvent(row)
 }

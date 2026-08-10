@@ -120,6 +120,29 @@ describe('runCliTurn — cli providers', () => {
     }
   })
 
+  it('does not inherit invented host env keys into the CLI spawn (R07)', async () => {
+    const hostKey = 'ENGRENACODE_HOST_SECRET_FOR_TEST'
+    const previous = process.env[hostKey]
+    process.env[hostKey] = 'should-not-reach-child'
+    try {
+      let capturedEnv: Record<string, string | undefined> | undefined
+      const fakeSpawn: SpawnFn = ((_bin: string, _args: string[], opts: unknown) => {
+        capturedEnv = (opts as { env?: Record<string, string | undefined> }).env
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+      expect(capturedEnv?.[hostKey]).toBeUndefined()
+      expect(capturedEnv?.PATH).toBe(process.env.PATH)
+    } finally {
+      if (previous === undefined) delete process.env[hostKey]
+      else process.env[hostKey] = previous
+    }
+  })
+
   it('rejects with a ProviderError when spawn fails to start', async () => {
     const fakeSpawn: SpawnFn = (() => {
       const child = new FakeChild()
@@ -129,6 +152,24 @@ describe('runCliTurn — cli providers', () => {
     setSpawnForTesting(fakeSpawn)
 
     await expect(runCliTurn(baseInput())).rejects.toBeInstanceOf(ProviderError)
+  })
+
+  it('sanitizes secrets in provider_spawn_failed messages (R03)', async () => {
+    const leak =
+      'ENOENT C:\\Users\\Me\\secrets\\vault.enc https://x-access-token:ghp_leakedsecret99@github.com/org/repo.git'
+    const fakeSpawn: SpawnFn = (() => {
+      const child = new FakeChild()
+      queueMicrotask(() => child.emit('error', new Error(leak)))
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const err = await runCliTurn(baseInput()).catch((e) => e)
+    expect(err).toBeInstanceOf(ProviderError)
+    expect((err as ProviderError).code).toBe('provider_spawn_failed')
+    expect((err as ProviderError).message).not.toContain('ghp_leakedsecret99')
+    expect((err as ProviderError).message).not.toContain('C:\\Users\\Me\\secrets\\vault.enc')
+    expect((err as ProviderError).message).toMatch(/\*\*\*/)
   })
 
   it('writes a --mcp-config file under userData/tmp and deletes it after the process closes', async () => {
@@ -185,6 +226,26 @@ describe('runCliTurn — cli providers', () => {
     expect((err as ProviderError).code).toBe('provider_spawn_failed')
     expectUnderTurnArtifacts(configPath)
     expect(existsSync(configPath)).toBe(false)
+  })
+
+  it('cleans up permission --settings when spawn throws synchronously (R11)', async () => {
+    let settingsPath = ''
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+      const flagIndex = args.indexOf('--settings')
+      settingsPath = args[flagIndex + 1]
+      expect(existsSync(settingsPath)).toBe(true)
+      throw new Error('spawn sync boom')
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const err = await runCliTurn(
+      baseInput({ permissionPort: 4321, permissionToken: 'perm-token-abc' })
+    ).catch((e) => e)
+
+    expect(err).toBeInstanceOf(ProviderError)
+    expect((err as ProviderError).code).toBe('provider_spawn_failed')
+    expectUnderTurnArtifacts(settingsPath)
+    expect(existsSync(settingsPath)).toBe(false)
   })
 
   describe('PermissionBroker (supervised) — --settings do hook PreToolUse', () => {

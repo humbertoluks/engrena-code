@@ -238,6 +238,22 @@ describe('POST /api/vault/unlock payload validation', () => {
     expect(res.data?.error?.code).toBe('validation_error')
   })
 
+  it('returns 413 payload_too_large when the unlock body exceeds MAX_BODY_BYTES (R06)', async () => {
+    const { MAX_BODY_BYTES } = await import('./_transport.js')
+    server = createUnlockServer(0)
+    const port = await waitForPort(server)
+    const oversized = Buffer.alloc(MAX_BODY_BYTES + 1, 0x61)
+    const res = await axios.post(`http://127.0.0.1:${port}/api/vault/unlock`, oversized, {
+      headers: { 'Content-Type': 'application/json' },
+      validateStatus: () => true,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      transformRequest: [(data) => data],
+    })
+    expect(res.status).toBe(413)
+    expect(res.data?.error?.code).toBe('payload_too_large')
+  }, 30_000)
+
   it('returns 404 in the ApiErrorBody envelope for unknown routes', async () => {
     server = createUnlockServer(0)
     const port = await waitForPort(server)

@@ -149,6 +149,21 @@ describe('handleGitRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('returns 400 invalid_request when commit body is not a string (R08)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/git-commit`, { subject: 'feat: x', body: 42 }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('invalid_request')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('returns 409 thread_busy when the project is already leased', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

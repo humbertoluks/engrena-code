@@ -292,7 +292,7 @@ export function updateSubagent(id: string, patch: SubagentPatch): Subagent {
   const db = getDb()
   const existing = getSubagentById(id)
   if (!existing) {
-    throw new SubagentNotFoundError(`Subagent ${id} não encontrado.`)
+    throw new SubagentNotFoundError(`Subagente ${id} não encontrado.`)
   }
   validateInput(patch, { partial: true })
 
@@ -362,7 +362,7 @@ function getLinkState(projectId: string, subagentId: string): SubagentLinkState 
         link_sort_order: number | null
       })
     | undefined
-  if (!row) throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+  if (!row) throw new SubagentNotFoundError(`Subagente ${subagentId} não encontrado.`)
   const linked = row.link_project_id !== null
   const { prompt: _prompt, ...rest } = rowToSubagent(row)
   return {
@@ -415,7 +415,7 @@ export function upsertProjectSubagentLink(
 ): SubagentLinkState {
   const db = getDb()
   if (!getSubagentById(subagentId)) {
-    throw new SubagentNotFoundError(`Subagent ${subagentId} não encontrado.`)
+    throw new SubagentNotFoundError(`Subagente ${subagentId} não encontrado.`)
   }
   const existing = db
     .prepare('SELECT * FROM project_subagents WHERE project_id = ? AND subagent_id = ?')
@@ -462,7 +462,7 @@ export function setSubagentCatalogOrder(projectId: string, items: CatalogOrderIt
   const seenOrders = new Set<number>()
   for (const item of items) {
     if (!linkedIds.has(item.id)) {
-      throw new CatalogOrderError(`Subagent ${item.id} não está vinculado a este projeto.`)
+      throw new CatalogOrderError(`Subagente ${item.id} não está vinculado a este projeto.`)
     }
     seenOrders.add(item.sortOrder)
   }

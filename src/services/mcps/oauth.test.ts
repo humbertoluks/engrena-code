@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { McpOauthError, parseOauthMetadata } from './oauth.js'
+import { McpOauthError } from './oauth-errors.js'
+import { parseOauthMetadata } from './oauth-metadata.js'
 
 describe('parseOauthMetadata', () => {
   it('accepts https authorization and token endpoints', () => {

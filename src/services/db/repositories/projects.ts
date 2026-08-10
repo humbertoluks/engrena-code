@@ -113,11 +113,6 @@ export function getProject(id: string): Project | null {
   return row === undefined ? null : toProject(row)
 }
 
-export function getProjectByPath(path: string): Project | null {
-  const row = getDb().prepare('SELECT * FROM projects WHERE path = ?').get(path) as ProjectRow | undefined
-  return row === undefined ? null : toProject(row)
-}
-
 /** Adiciona um projeto. Não exige `.git` (soft add) — gate de inicialização fica no composer/git-init. */
 export function createProject(input: CreateProjectInput): Project {
   const normalized = validateProjectPath(input.path)

@@ -12,6 +12,7 @@ import { runHttpTurn as runGlmHttpTurn } from './glm-driver.js'
 import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
+import { buildPtyEnv } from '../../terminal/pty-env.js'
 import { ensurePermissionHookScript } from '../permission-hook.js'
 
 /** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
@@ -331,10 +332,10 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
   const args = buildArgs(effectiveInput, mcpConfigPath, permissionSettingsPath)
 
   const envVar = API_KEY_ENV_VAR[input.provider]
-  const env = { ...process.env }
-  if (envVar !== undefined) {
-    if (input.apiKey) env[envVar] = input.apiKey
-    else delete env[envVar]
+  // Allowlist espelha PTY (PATH/HOME/…) — não herdar process.env inteiro (secrets do host).
+  const env = buildPtyEnv(process.env)
+  if (envVar !== undefined && input.apiKey) {
+    env[envVar] = input.apiKey
   }
   // Hook script roda via binário do próprio EngrenaCode como interpretador Node puro (mesmo
   // truque de `subagent-mcp-server.ts`) — não exige Node instalado no sistema do usuário.
@@ -397,7 +398,12 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         cleanupMcpConfig()
         cleanupPermissionSettings()
         cleanupTempImages()
-        reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${err.message}`))
+        reject(
+          new ProviderError(
+            'provider_spawn_failed',
+            sanitizeProcessError(`Não foi possível iniciar o provider "${binary}": ${err.message}`)
+          )
+        )
       })
 
       child.on('close', (code) => {
@@ -421,9 +427,15 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
     } catch (err) {
       cleanupMcpConfig()
+      cleanupPermissionSettings()
       cleanupTempImages()
       const message = err instanceof Error ? err.message : String(err)
-      reject(new ProviderError('provider_spawn_failed', `Não foi possível iniciar o provider "${binary}": ${message}`))
+      reject(
+        new ProviderError(
+          'provider_spawn_failed',
+          sanitizeProcessError(`Não foi possível iniciar o provider "${binary}": ${message}`)
+        )
+      )
     }
   })
 }

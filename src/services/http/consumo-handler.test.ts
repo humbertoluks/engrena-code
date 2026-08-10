@@ -307,6 +307,22 @@ describe('pricing endpoints', () => {
     expect((body as { error: { code: string } }).error.code).toBe('validation_error')
   })
 
+  it('POST /api/pricing rejects non-boolean approximate (R09)', async () => {
+    const session = unlockVault()
+    const req = fakeReq('POST', '/api/pricing', session, {
+      provider: 'anthropic',
+      model: 'approx-narrow',
+      inputPerMTok: 1,
+      outputPerMTok: 2,
+      approximate: 'false',
+    })
+    const res = fakeRes()
+    handleConsumoRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(400)
+    expect((body as { error: { code: string } }).error.code).toBe('invalid_request')
+  })
+
   it('POST /api/pricing returns 409 pricing_conflict on a duplicate pair', async () => {
     const session = unlockVault()
     const payload = { provider: 'anthropic', model: 'claude-sonnet-4-6', inputPerMTok: 3, outputPerMTok: 15 }

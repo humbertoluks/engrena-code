@@ -2,14 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { codegraphService, type CodegraphStatusResponse, type CodegraphUiStatus } from '../../services/codegraph-service'
 import { InlineFeedback } from '../InlineFeedback'
+import { badgeLabel, badgeTitle } from './codegraphSection.logic'
 
 const COPY = {
   sectionTitle: 'CodeGraph',
-  badgeIndexed: (n: number) => `CodeGraph: indexado (${n}h atrás)`,
-  badgeIndexing: 'CodeGraph: indexando…',
-  badgeUnsupported: 'CodeGraph: não suportado',
-  badgeAbsent: 'sem graph',
-  badgeError: 'erro',
   panelLoading: 'Carregando status do graph…',
   panelIndexing: 'Indexando…',
   ctaGenerate: 'Gerar graph',
@@ -22,10 +18,6 @@ const COPY = {
   statsIndexed: 'Indexado',
   errorNetwork: 'Não foi possível contatar o servidor local.',
   errorGeneric: 'Falha na ação do CodeGraph.',
-  titleAbsent: 'CodeGraph ausente — clique para criar',
-  titleBuilding: 'Indexação em andamento',
-  titleReady: 'CodeGraph pronto — o agente consulta o grafo de símbolos',
-  titleUnsupported: 'CodeGraph: não suportado',
 } as const
 
 const BADGE_BASE =
@@ -40,34 +32,6 @@ const BADGE_CLASS: Record<string, string> = {
 
 const ROW_BTN =
   'w-full rounded-md px-xs py-[6px] text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--fg)_6%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50'
-
-function badgeLabel(status: CodegraphUiStatus | 'error', ageHours: number | null): string {
-  switch (status) {
-    case 'indexed':
-      return COPY.badgeIndexed(ageHours ?? 0)
-    case 'indexing':
-      return COPY.badgeIndexing
-    case 'unsupported':
-      return COPY.badgeUnsupported
-    case 'error':
-      return COPY.badgeError
-    default:
-      return COPY.badgeAbsent
-  }
-}
-
-function badgeTitle(status: CodegraphUiStatus | 'error'): string {
-  switch (status) {
-    case 'indexed':
-      return COPY.titleReady
-    case 'indexing':
-      return COPY.titleBuilding
-    case 'unsupported':
-      return COPY.titleUnsupported
-    default:
-      return COPY.titleAbsent
-  }
-}
 
 export interface CodegraphSectionProps {
   projectId: string

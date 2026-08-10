@@ -32,17 +32,25 @@ export async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = ''
     let bytes = 0
+    let settled = false
     req.on('data', (chunk) => {
+      if (settled) return
       bytes += chunk.length
       if (bytes > MAX_BODY_BYTES) {
-        req.destroy()
+        settled = true
+        // Pause (don't destroy) so the handler can still write 413 payload_too_large.
+        req.pause()
         reject(new PayloadTooLargeError())
         return
       }
       body += chunk.toString()
     })
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
+    req.on('end', () => {
+      if (!settled) resolve(body)
+    })
+    req.on('error', (err) => {
+      if (!settled) reject(err)
+    })
   })
 }
 

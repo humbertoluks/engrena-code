@@ -170,11 +170,3 @@ export function countPendingForThread(threadId: string): number {
 export function deleteDiffsForThread(threadId: string): void {
   getDb().prepare('DELETE FROM diffs WHERE thread_id = ?').run(threadId)
 }
-
-/** Total de diffs pending em todas as threads. Usado pelo card "Diffs pendentes" do Dashboard (F04). */
-export function countAllPending(): number {
-  const row = getDb()
-    .prepare("SELECT COUNT(*) as c FROM diffs WHERE status = 'pending'")
-    .get() as { c: number }
-  return row.c
-}

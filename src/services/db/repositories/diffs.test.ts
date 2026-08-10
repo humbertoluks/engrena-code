@@ -8,7 +8,8 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
 const { createThread } = await import('./threads.js')
-const { createDiff, countAllPending, getDiff, promoteDiffFromConflict } = await import('./diffs.js')
+const { createDiff, getDiff, promoteDiffFromConflict } = await import('./diffs.js')
+const { getDashboardMetrics } = await import('./dashboard.js')
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f04_diffs_fixture_'))
 
@@ -30,7 +31,7 @@ afterAll(() => {
   rmSync(fixtureRoot, { recursive: true, force: true })
 })
 
-describe('countAllPending', () => {
+describe('pending diffs via dashboard metrics', () => {
   it('sums pending diffs across different threads', () => {
     const projectA = createProject({ path: makeProjectDir('project-a') })
     const projectB = createProject({ path: makeProjectDir('project-b') })
@@ -40,7 +41,7 @@ describe('countAllPending', () => {
     createDiff({ threadId: threadA.id, file: 'a.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude' })
     createDiff({ threadId: threadB.id, file: 'b.ts', additions: 2, deletions: 1, hunks: [], provider: 'codex' })
 
-    expect(countAllPending()).toBe(2)
+    expect(getDashboardMetrics().pendingDiffs).toBe(2)
   })
 
   it('ignores accepted and rejected diffs', () => {
@@ -50,11 +51,11 @@ describe('countAllPending', () => {
     createDiff({ threadId: thread.id, file: 'a.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude', status: 'accepted' })
     createDiff({ threadId: thread.id, file: 'b.ts', additions: 1, deletions: 0, hunks: [], provider: 'claude', status: 'rejected' })
 
-    expect(countAllPending()).toBe(0)
+    expect(getDashboardMetrics().pendingDiffs).toBe(0)
   })
 
   it('returns 0 with no diffs', () => {
-    expect(countAllPending()).toBe(0)
+    expect(getDashboardMetrics().pendingDiffs).toBe(0)
   })
 })
 

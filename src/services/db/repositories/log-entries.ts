@@ -52,7 +52,7 @@ export function createLogEntry(input: CreateLogEntryInput): LogEntry {
 const SELECT_WITH_PROJECT = `SELECT log_entries.*, threads.project_id AS project_id
    FROM log_entries JOIN threads ON threads.id = log_entries.thread_id`
 
-export function getLogEntry(id: string): LogEntry | null {
+function getLogEntry(id: string): LogEntry | null {
   const row = getDb()
     .prepare(`${SELECT_WITH_PROJECT} WHERE log_entries.id = ?`)
     .get(id) as LogEntryRow | undefined

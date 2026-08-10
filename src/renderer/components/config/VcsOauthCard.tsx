@@ -20,10 +20,12 @@ const COPY = {
   errorStart: 'Falha ao iniciar a conexão.',
   errorDisconnect: 'Falha ao desconectar.',
   errorClientId: 'Falha ao salvar o client_id.',
+  errorPoll: 'Não foi possível acompanhar o status OAuth. Tente reconectar.',
   subtitle: 'Conecte via OAuth (nuvem pública). Um VCS por projeto, detectado pelo remote.',
 } as const
 
 const POLL_INTERVAL_MS = 2000
+const POLL_FAIL_LIMIT = 3
 
 export interface VcsOauthCardProps {
   kind: VcsOauthKind
@@ -39,6 +41,7 @@ export function VcsOauthCard({ kind, title, initialStatus }: Readonly<VcsOauthCa
   const [error, setError] = useState<string | null>(null)
 
   const mountedRef = useRef(true)
+  const pollFailsRef = useRef(0)
   useEffect(() => {
     mountedRef.current = true
     return () => {
@@ -48,17 +51,34 @@ export function VcsOauthCard({ kind, title, initialStatus }: Readonly<VcsOauthCa
 
   useEffect(() => {
     if (status !== 'pending') return
+    pollFailsRef.current = 0
     const interval = setInterval(() => {
       configuracaoService
         .vcsStatus()
         .then((res) => {
-          if (!mountedRef.current || res.error || !res.providers) return
+          if (!mountedRef.current) return
+          if (res.error || !res.providers) {
+            pollFailsRef.current += 1
+            if (pollFailsRef.current >= POLL_FAIL_LIMIT) {
+              console.error('[vcs-oauth] status poll failed', res.error)
+              setError(COPY.errorPoll)
+            }
+            return
+          }
+          pollFailsRef.current = 0
           const mine = res.providers.find((p) => p.kind === kind)
           if (!mine) return
           setStatus(mine.status as VcsOauthStatus)
           if (mine.status !== 'pending') setAuthorizeUrl(null)
         })
-        .catch(() => {})
+        .catch((err) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          pollFailsRef.current += 1
+          if (pollFailsRef.current >= POLL_FAIL_LIMIT) {
+            console.error('[vcs-oauth] status poll failed', err)
+            if (mountedRef.current) setError(COPY.errorPoll)
+          }
+        })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [status, kind])

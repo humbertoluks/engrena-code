@@ -148,4 +148,37 @@ describe('handleRulesRequest', () => {
     const rules = (body as { rules: Array<{ id: string; activeInProject: boolean }> }).rules
     expect(rules.find((r) => r.id === created.rule.id)?.activeInProject).toBe(true)
   })
+
+  it('rejects link PUT with non-boolean enabled or non-number sortOrder (D03)', async () => {
+    const session = unlockVault()
+
+    const createReq = fakeReq('POST', '/api/rules', { name: 'narrow-rule', content: 'x' }, session)
+    const createRes = fakeRes()
+    await handleRulesRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { rule: { id: string } }
+
+    const badEnabled = fakeReq(
+      'PUT',
+      `/api/projects/proj-1/rules/${created.rule.id}`,
+      { enabled: 'false' },
+      session
+    )
+    const badEnabledRes = fakeRes()
+    await handleRulesRequest(badEnabled, badEnabledRes)
+    const enabledResult = await badEnabledRes.result()
+    expect(enabledResult.status).toBe(400)
+    expect((enabledResult.body as { error: { code: string } }).error.code).toBe('invalid_request')
+
+    const badSort = fakeReq(
+      'PUT',
+      `/api/projects/proj-1/rules/${created.rule.id}`,
+      { sortOrder: '1' },
+      session
+    )
+    const badSortRes = fakeRes()
+    await handleRulesRequest(badSort, badSortRes)
+    const sortResult = await badSortRes.result()
+    expect(sortResult.status).toBe(400)
+    expect((sortResult.body as { error: { code: string } }).error.code).toBe('invalid_request')
+  })
 })

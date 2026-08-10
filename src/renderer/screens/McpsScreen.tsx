@@ -25,6 +25,7 @@ const COPY = {
   actionDeleteCancel: 'Não',
   ctaConvertOauth: 'Converter para OAuth',
   errorLoad: 'Não foi possível carregar os MCPs.',
+  errorCatalog: 'Não foi possível carregar o catálogo de presets.',
   errorDelete: 'Não foi possível excluir o MCP.',
   errorUpdate: 'Não foi possível atualizar o MCP.',
   errorConvert: 'Não foi possível converter o MCP para OAuth.',
@@ -139,6 +140,7 @@ export function McpsScreen(): ReactElement {
   const [mcps, setMcps] = useState<Mcp[]>([])
   const [presets, setPresets] = useState<McpPreset[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
@@ -174,8 +176,19 @@ export function McpsScreen(): ReactElement {
 
   useEffect(() => {
     mcpsService.catalog().then((res) => {
-      if (mountedRef.current && !res.error) setPresets(res.presets)
-    }).catch(() => {})
+      if (!mountedRef.current) return
+      if (res.error) {
+        console.error('[mcps] catalog failed', res.error)
+        setCatalogError(COPY.errorCatalog)
+        return
+      }
+      setPresets(res.presets)
+      setCatalogError(null)
+    }).catch((err) => {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      console.error('[mcps] catalog failed', err)
+      if (mountedRef.current) setCatalogError(COPY.errorCatalog)
+    })
   }, [])
 
   const installedPresetIds = useMemo(() => new Set(mcps.map((m) => m.presetId).filter((id): id is string => id !== null)), [mcps])
@@ -311,6 +324,9 @@ export function McpsScreen(): ReactElement {
 
   return (
     <section className="mx-auto w-full max-w-[1180px] px-lg py-lg text-fg">
+      {catalogError !== null ? (
+        <p role="alert" className="mb-md text-sm text-red">{catalogError}</p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-md">
         <div>
           <h1 className="font-display text-[26px] font-bold tracking-tight text-fg">{COPY.title}</h1>

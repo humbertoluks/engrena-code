@@ -1,47 +1,82 @@
 ---
 name: coding-react
 description: >-
-  Aplica os padrões de React/renderer do EngrenaCode (isolamento sem Node,
-  fluxo service → HTTP loopback, regra extraída para *.logic.ts, validação
-  compartilhada com o servidor, tema e Tailwind 4) e as lições já registradas
-  em auditoria para não repetir erros de fronteira ou regra não-testável. Use
-  ao escrever ou editar telas, componentes ou hooks em src/renderer/.
+  Applies portable React/renderer coding patterns: process isolation, service
+  client over raw fetch, business rules extracted to testable modules, shared
+  server validation, visible fetch errors, theme/CSS layers, and brand hygiene.
+  Use when writing or editing React components, hooks, screens, or renderer
+  services. Read rules/*.md for the matched concern; read project.md for this
+  repository's path and audit bindings.
 ---
 
 # Coding — React
 
-Guia proativo para **escrever** código no renderer. Não é review (isso é `review-architecture`/`review-delivery`): aplique antes de o código existir.
+Guia proativo para **escrever** código no renderer. Não é review (isso é `review-architecture` / `review-delivery`): aplique antes de o código existir.
 
-Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `React`) + `CLAUDE.md`. A lista de abertos abaixo é **espelho** da última passagem — releia o código antes de agir sobre um item. Carregue também `/vercel-react-best-practices` no início de qualquer sessão de código React (regra do `CLAUDE.md`).
+**Camadas:**
 
-## Padrões obrigatórios
+| Arquivo | Conteúdo |
+|---------|----------|
+| Este `SKILL.md` | Roteamento — quando aplicar e índice de slugs |
+| `rules/*.md` | Regras atômicas **portáveis** (Incorrect/Correct) |
+| `project.md` | Bindings deste repositório (paths, IDs de auditoria, marca) |
 
-- **Sem Node no renderer.** Nunca importe `node:*`, `fs`, `path`, `os`, `child_process`, `http`, `https`, `electron` como valor em `src/renderer/**`. `import type` de `src/services/**` é aceito; import de *valor* só se o módulo for **puro** (sem SQLite/`fs`/spawn/`electron`) — precedente: `composer.logic.ts` ← `composer-images.ts`; validadores de key ← `vault/provider-keys.ts` / `http/github-token.ts`.
-- **Sem `fetch` direto em tela/componente**, exceto `LoginScreen` (unlock, rota pública pré-sessão). Todo dado de domínio passa por `src/renderer/services/<domínio>-service.ts` → `api-client.ts` (`apiRequest`) → `http://127.0.0.1:5174` + header `x-engrenacode-session`.
-- **Regra de negócio nunca vive no `.tsx`.** `vitest.config.ts` só cobre `src/**/*.test.ts` — validação, filtro, formatação, ordenação, clamp, habilitação de botão extraídos para `*.logic.ts` + `*.logic.test.ts`. O `.tsx` só renderiza, faz wiring de evento e chama o service.
-- **Regra compartilhada com o servidor: uma fonte só.** Não re-declare `MIN_KEY_LENGTH`, prefixos (`sk-ant-`, `xai-`, `ghp_`, …) nem mensagens de formato no `*.logic.ts` se o servidor já valida em `provider-keys.ts` / `github-token.ts`. Importe o validador puro e adapte o retorno à UX (`string | null`). Drift cliente/servidor é 🔴 (`R-duplicated-client-server-validation`).
-- **Nunca engula erro de fetch com `.catch(() => {})`.** Logue (`console.error('[<módulo>]', err)`) e leve para estado de erro visível (`InlineFeedback`/`role="alert"`), com o botão voltando a habilitar após falha. Cancelamento deliberado (`AbortError` por unmount) pode ser silencioso.
-- **Um cliente HTTP só** (`api-client.ts`). Não crie `fetch` + headers de sessão duplicados em cada `*-service.ts` novo.
-- `localStorage` do renderer: `sessionToken`, `engrenacode:theme`, e filas/UX sem credencial (ex.: composer queue). Nunca chave de provider, token VCS ou segredo de MCP.
-- Tema: persista em `localStorage` chave `engrenacode:theme` (`light|dark|system`); hexes só em `:root`/`.dark`. Tailwind 4 via `@theme inline`, nunca `tailwind.config.ts` clássico.
-- Tailwind 4: nunca use `max-w-`/`w-`/`h-` com sufixo `xs|sm|md|lg|xl` — `--spacing-*` do Design Lock vence `--container-*` e colapsa o elemento (`max-w-sm` vira `8px`). Use valor explícito, ex. `max-w-[24rem]`.
-- Envolva CSS de elemento em `@layer base` — `@import 'tailwindcss'` põe utilitários em `@layer utilities`, e regra sem layer vence layer, anulando `p-*`/`m-*`. Nunca repita reset de margin/padding/box-sizing (preflight já cobre).
-- Marca: só `EngrenaCode`/`engrenacode` em UI, copy e nomes de componente. Nunca `Lion*`.
-- Antes de implementar uma tela nova ou corrigir uma existente, escreva/consulte o `ui.md` da feature (anatomia + tabela de copy) — tokens sozinhos não garantem fidelidade visual.
-- **Contador derivado de vínculo N:N refetch no fechamento do modal que pode mutá-lo, não só na troca da entidade pai.** Um `useEffect([project])` que busca contagem de Rules/Skills/SubAgents/MCPs não reexecuta quando o modal de vínculo fecha — extraia a busca pra função reutilizável e chame também no `onClose` do modal (padrão `refreshHarnessCounts` em `WorkspaceSidebar.tsx`).
+Carregue também a skill de performance React do ecossistema (ex.: `/vercel-react-best-practices`) quando a sessão for de código React.
 
-## Erros já registrados aqui — não repita
+## When to Apply
 
-Abertos: nenhum nesta Stack.
+- Escrever ou editar componentes, hooks ou telas React
+- Extrair regra de formulário/lista para módulo testável
+- Adicionar service HTTP no renderer
+- Revisar catch de fetch, tema, Tailwind layers ou copy de marca
 
-Já corrigidos — não regrida:
+## Rule Categories by Priority
 
-- `RC-shared-validation` — `configuracaoScreen.logic.ts` importa `validate*Key` de `vault/provider-keys.js` e `validateGithubToken` de `http/github-token.js`. Não volte a re-declarar prefixo, comprimento mínimo ou mensagem de formato no renderer: o `*.logic.ts` só adapta o retorno à UX.
-- `RC-business-rule-in-tsx` — regras de telas/modais migradas para `*.logic.ts` (17/17 com teste irmão na base). Não devolva validação/filtro/formatação para o `.tsx`.
-- `RC-no-silent-catch` — não reintroduza `.catch(() => {})` mudo em `loadStatus`/chamadas equivalentes.
-- `RC-shared-api-request` — services já usam `api-client.ts`; não volte a duplicar `fetch` com headers próprios.
-- `RC-harness-count-stale-after-modal-close` — `WorkspaceSidebar.tsx` refetch das 4 contagens do Repo Harness (Rules/Skills/SubAgents/MCPs) extraído para `refreshHarnessCounts(projectId)`, chamado tanto na troca de projeto quanto no `onClose` dos 4 modais de vínculo. Achado ao vivo no smoke de F05 (dado certo no servidor, contagem obsoleta na tela até reselecionar o projeto). Não volte a deixar o `useEffect` reagir só à entidade pai.
+| Priority | Category | Impact | Prefix |
+|----------|----------|--------|--------|
+| 1 | Boundary | CRITICAL | `boundary-` |
+| 2 | Logic extraction | HIGH | `logic-` |
+| 3 | Error visibility | HIGH | `error-` |
+| 4 | State freshness | MEDIUM | `state-` |
+| 5 | Style and theme | MEDIUM | `style-` |
 
-## Se encontrar um padrão novo
+## Quick Reference
 
-Se um erro não listado aqui aparecer no caminho, registre em `docs/AUDIT-CODE-REVIEW.md` (via `audit-full-base`) ou, se for regra transferível e não-óbvia, em `CLAUDE.md` no formato `Origem · Categoria · [Sempre/Nunca] X porque Y`.
+### 1. Boundary (CRITICAL)
+
+- `boundary-no-node-imports` — Never import Node/Electron as values in the renderer
+- `boundary-no-direct-fetch` — Domain data via service client, not raw fetch in screens
+- `boundary-single-api-client` — One shared HTTP client for authenticated requests
+- `boundary-no-secrets-in-storage` — Never store secrets in renderer localStorage
+
+### 2. Logic extraction (HIGH)
+
+- `logic-extract-from-tsx` — Business rules out of TSX into testable modules
+- `logic-shared-server-validation` — Share validation with the server from one pure module
+- `logic-ui-spec-first` — Write or consult the screen UI spec before implementing
+
+### 3. Error visibility (HIGH)
+
+- `error-no-silent-catch` — Never swallow fetch errors with empty catch
+
+### 4. State freshness (MEDIUM)
+
+- `state-refetch-on-modal-close` — Refetch derived link counts when the mutating modal closes
+
+### 5. Style and theme (MEDIUM)
+
+- `style-theme-persistence` — Persist theme preference in localStorage; hexes only in CSS
+- `style-explicit-sizing` — Explicit sizing when theme spacing overrides container scales
+- `style-css-layer-base` — Element CSS inside `@layer base` under Tailwind 4
+- `style-current-brand-only` — Current product brand only in UI/copy/names
+
+## How to Use
+
+1. Escolha o slug pela categoria acima.
+2. Leia `rules/<slug>.md` para Incorrect/Correct.
+3. Se precisar de path real, header, porta ou ID `RC-*` deste repo, leia `project.md` — **não** invente bindings a partir da regra genérica.
+4. Achado novo de auditoria → atualize `project.md` (e o artefato de audit), não o corpo da regra portável.
+
+## New rule
+
+Copy `rules/_template.md` → `rules/<prefix>-<slug>.md`. Section metadata: `rules/_sections.md`.

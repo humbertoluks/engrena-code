@@ -222,6 +222,27 @@ describe('subagents-handler', () => {
     expect(unlink.status).toBe(200)
   })
 
+  it('rejects link PUT with non-boolean enabled or non-number sortOrder (R01)', async () => {
+    const create = await client.post('/api/subagents', baseInput(), { headers: authHeaders() })
+    const id = create.data.subagent.id
+
+    const badEnabled = await client.put(
+      `/api/projects/proj-1/subagents/${id}`,
+      { enabled: 'false' },
+      { headers: authHeaders() }
+    )
+    expect(badEnabled.status).toBe(400)
+    expect(badEnabled.data.error.code).toBe('invalid_request')
+
+    const badSort = await client.put(
+      `/api/projects/proj-1/subagents/${id}`,
+      { sortOrder: '1' },
+      { headers: authHeaders() }
+    )
+    expect(badSort.status).toBe(400)
+    expect(badSort.data.error.code).toBe('invalid_request')
+  })
+
   it('reorders via catalog-order', async () => {
     const a = (await client.post('/api/subagents', baseInput({ name: 'a' }), { headers: authHeaders() })).data.subagent
     const b = (await client.post('/api/subagents', baseInput({ name: 'b' }), { headers: authHeaders() })).data.subagent

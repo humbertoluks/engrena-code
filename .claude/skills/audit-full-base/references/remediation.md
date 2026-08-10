@@ -18,7 +18,7 @@ Este arquivo é a **fonte de verdade** dos achados de código. Não é PRD de pr
 1. Leia o **cabeçalho** (data, contagens) e o **resumo executivo** (veredito + top bloqueadores).
 2. Trabalhe pela tabela de **Achados abertos**: cada linha é um item acionável (`ID`, `Stack`, `Local`, `Regra`).
 3. Para cada `ID`, abra a **âncora da Regra** (não conforme → conforme → exceções). A regra é o contrato de correção; o `Local` é o ponto de partida no código, não o único arquivo permitido se a correção exigir módulo vizinho (teste irmão, validação compartilhada, etc.).
-4. Escolha a skill Coding Expert pela coluna **Stack**:
+4. Escolha a skill Coding Expert pela coluna **Stack** (leia `SKILL.md` + a regra em `rules/`; bindings do repo em `project.md`):
    - `Electron` → `.claude/skills/coding-electron`
    - `React` → `.claude/skills/coding-react`
    - `Node.js` → `.claude/skills/coding-nodejs`
@@ -45,7 +45,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
    - **Evidência aceita:** hash de commit, ou `working tree (sem commit) + <teste que cobre>`. Nunca "verificado visualmente".
    - Se o tipo é novo, copie o template de regra (abaixo) para corrigidos com âncora `RC-…`.
    - Atualize **contagens** do cabeçalho e a nota do resumo; veredito coerente com os abertos restantes.
-6. **Coding Expert** — mova o `ID` de “Abertos” para “Já corrigidos — não regrida” na skill da Stack.
+6. **Coding Expert** — mova o `ID` de “Achados abertos” para “Já corrigidos — não regrida” em `coding-*/project.md` da Stack (não edite `rules/` por causa de um fix).
 7. **Não** feche por “parece ok” nem por linter verde. Não delete histórico de corrigidos antigos.
 
 #### O que a auditoria full-base não faz

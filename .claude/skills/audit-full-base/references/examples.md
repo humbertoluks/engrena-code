@@ -7,7 +7,7 @@ Auditoria full-base — docs/AUDIT-CODE-REVIEW.md
 Veredito: bloqueado
 Abertos: 1 🔴 / 9 🟡 · Corrigidos (tipos): 32
 Top: D07 smoke ausente em features com UI Feito
-Coding Experts atualizadas: coding-nodejs, coding-react, coding-vitest
+Coding Experts atualizadas: coding-nodejs/project.md, coding-react/project.md, coding-vitest/project.md
 src/ não alterado.
 ```
 

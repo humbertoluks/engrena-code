@@ -5,11 +5,11 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | Campo | Valor |
 |-------|--------|
-| **Passagem atual** | 2026-08-09 |
+| **Passagem atual** | 2026-08-10 (remediação working tree — abertos zerados) |
 | **Escopo** | `src/` (base completa) |
-| **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura) |
-| **Correção de código nesta passagem** | Sessão de fix D07: smoke real das 12 features com UI Feito fechou o achado inteiro (F20/F21/F23/F26/F27 + F04/F05/F08/F10/F14/F16/F17) e achou 3 bugs reais ao vivo: CORS sem `PATCH` (`unlock-handler.ts`), colisão de status 401 entre sessão do vault e key de voz rejeitada (`voice-handler.ts`), e contagem do Repo Harness (Skills/Rules/SubAgents/MCPs) não atualizando após fechar o modal de vínculo (`WorkspaceSidebar.tsx`). Na sequência, A01: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite (`012_skills`), com migração automática do JSON legado uma única vez e API pública convertida de classe/singleton para funções de módulo (`RC-module-repo`) |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — reauditoria + remediação A01/A02/R01–R11/D01–D06/D08 (C18–C30); 2026-08-09 — reauditoria full-base (F23/F24/F26/F27 no radar) + fechamento de R01/R07 (`055807d`) e R02 (working tree); 2026-08-09 (sessão seguinte) — smoke real D07 para F20/F21/F23/F26/F27 (C33) + 2 bugs achados e corrigidos ao vivo (C34, C35); 2026-08-09 (sessão seguinte) — D07 fechado por completo com smoke de F04/F05/F08/F10/F14/F16/F17 (C36) + 1 bug real achado no smoke de F05 (C37); 2026-08-09 (sessão seguinte) — A01 fechado: skills migrado pra SQLite (C38); 2026-08-09 (sessão seguinte) — reconciliação de A02/A03/R03–R06/D01 + parte de D02 formalizada em §4 (C39–C44); 2026-08-09 (sessão seguinte) — D02 fechado por completo, base sem nenhum achado aberto (C45) |
+| **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura); remediação em sessão separada |
+| **Correção de código nesta passagem** | Remediação dos 8 🔴 + 14 🟡: narrowing PUT link; sanitize/`cleanupPermissionSettings` no spawn; catch visível harness/catálogo/OAuth; extract Codegraph/Login logic; dead exports DB/MCP; testes skills/rules + timeout delegate; unlock `readBody`; CLI env allowlist; locale Subagente |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — remediação C18–C30; 2026-08-09 — C31–C45 (base zerada); 2026-08-10 — reauditoria full-base + remediação C46–C57 (este documento) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -23,12 +23,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | `TypeScript` | tipagem pura (raro; prefira Stack do arquivo) |
 | `Vitest` | testes, smoke, gates de entrega |
 
-### Contagem (passagem 2026-08-09)
+### Contagem (passagem 2026-08-10 + remediação)
 
 | | 🔴 | 🟡 | Tipos de regra |
 |--|----|----|-----------------|
 | Achados abertos | 0 | 0 | 0 |
-| Problemas corrigidos (tipos) | — | — | 43 |
+| Problemas corrigidos (tipos / linhas C) | — | — | 45 → 57 |
 
 ---
 
@@ -41,7 +41,7 @@ Este arquivo é a **fonte de verdade** dos achados de código. Não é PRD de pr
 1. Leia o **cabeçalho** (data, contagens) e o **resumo executivo** (§1: veredito + top bloqueadores).
 2. Trabalhe pela tabela de **Achados abertos** (§2): cada linha é um item acionável (`ID`, `Stack`, `Local`, `Regra`).
 3. Para cada `ID`, abra a **âncora da Regra** em §3 (não conforme → conforme → exceções). A regra é o contrato de correção; o `Local` é o ponto de partida no código, não o único arquivo permitido se a correção exigir módulo vizinho (teste irmão, shared validate, etc.).
-4. Escolha a skill Coding Expert pela coluna **Stack**:
+4. Escolha a skill Coding Expert pela coluna **Stack** (leia `SKILL.md` + a regra em `rules/`; bindings do repo em `project.md`):
    - `Electron` → `.claude/skills/coding-electron`
    - `React` → `.claude/skills/coding-react`
    - `Node.js` → `.claude/skills/coding-nodejs`
@@ -66,56 +66,49 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
    - Acrescente linha na tabela de **Problemas corrigidos** (§4) com novo `Cxx`, mesma `Stack`, `Tipo` estável da regra, evidência (`commit` hash ou “working tree + teste X”), link para regra `RC-…`.
    - Se o tipo é novo, copie o template de regra para §4 (corrigidos) com âncora `RC-…`.
    - Atualize **contagens** do cabeçalho e uma nota no resumo (“corrigido nesta passagem: R01, …”); se ainda houver abertos, mantenha o veredito coerente.
-6. **Coding Expert** — ao fechar, mova o `ID` da lista “Abertos” para “Já corrigidos — não regrida” na skill da Stack (`.claude/skills/coding-*`), para a próxima sessão não reintroduzir o bug.
+6. **Coding Expert** — ao fechar, mova o `ID` de “Achados abertos” para “Já corrigidos — não regrida” em `.claude/skills/coding-*/project.md` da Stack (não edite `rules/` por causa de um fix), para a próxima sessão não reintroduzir o bug.
 7. **Não** marque fechado só porque “parece ok” ou porque o linter passou. Não delete histórico de corrigidos antigos (C01…).
 
 ### O que a auditoria full-base não faz
 
-`audit-full-base` **não** corrige `src/`. Ela registra achados neste artefato **e** sincroniza as Coding Experts (`.claude/skills/coding-*`) com o aprendizado. Correção de código é sessão/pedido separado. Depois de um lote grande, rode de novo a full-base para confirmar se os `Cxx` novos ainda batem no código.
+`audit-full-base` **não** corrige `src/`. Ela registra achados neste artefato **e** sincroniza as Coding Experts (`.claude/skills/coding-*/project.md`) com o aprendizado. Correção de código é sessão/pedido separado. Depois de um lote grande, rode de novo a full-base para confirmar se os `Cxx` novos ainda batem no código.
 
 ---
 
 ## 1. Resumo executivo
 
-**Veredito:** base **não bloqueada** e **sem nenhum achado aberto** — 🔴0/🟡0. **D07 fechado por completo** nesta sessão (12/12 features com UI Feito agora têm `smoke-results.md` real), **A01 fechado** (skills migrado de `skills.json`/`fs` para SQLite), a reconciliação de A02/A03/R03–R06/D01(+parte de D02) formalizada em §4, e **D02 fechado por completo** (últimos 3 sibling tests da base). Arquitetura Electron (isolamento renderer, preload nomeado sem passthrough, domínio via HTTP loopback `:5174`) permanece íntegra; F23/F24 no loopback; guard 423→401 e C01–C32 **permanecem corrigidos**.
+**Veredito:** base **liberada** — 🔴0 / 🟡0 após remediação working tree (C46–C57). Fronteiras Electron/HTTP permanecem íntegras; C01–C45 **permanecem válidos**. Fechados nesta remediação: narrowing PUT link (R01/R02/R08/R09); sanitize + cleanup de spawn (R03/R11); catch visível (R04/R05/R10); extract logic Codegraph/Login (D01/D02); dead exports DB/MCP (A01–A06/A02/A03); regressões de teste (D03/D04); unlock body + CLI env allowlist + locale Subagente (R06/R07/R12).
 
-**Corrigido nesta passagem (verificado no código)**
+**Confirmado nesta remediação**
 
-- **R01 + R07** → `C31`: `process-error.ts` redige userinfo HTTPS genérico e `xai-`/`gsk_`, com um caso de teste por scheme (`055807d`).
-- **R02** → `C32`: `configuracaoScreen.logic.ts` importa `validate*Key` / `validateGithubToken` em vez de re-declarar literals (`40037d8`).
-- **D07 (fatia F20/F21/F23/F26/F27)** → `C33`: smoke real via `playwright-cli` + Electron (dev para F20/F21/F23, empacotado `--dir` + CDP para F26/F27 por dependerem de IPC/permissão nativa); `docs/F20|F21|F23|F26|F27-*/smoke-results.md` gravados.
-- **Bug real achado no smoke (CORS sem `PATCH`)** → `C34`: `unlock-handler.ts` não listava `PATCH` em `Access-Control-Allow-Methods`, quebrando o toggle de Memória (F20) e qualquer PATCH real no browser/Electron; corrigido + teste de regressão em `unlock-handler.test.ts`.
-- **Bug real achado no smoke (colisão de status 401)** → `C35`: `voice-handler.ts` respondia `401` para key de voz rejeitada pelo provider (`voice_auth_error`); como `api-client.ts` trata **qualquer** 401 como sessão do vault inválida e força relock, uma key de terceiro errada derrubava a sessão inteira do app. Corrigido para `422`; teste de regressão em `voice-handler.test.ts`.
-- **D07 (fatia final F04/F05/F08/F10/F14/F16/F17)** → `C36`: **D07 fechado por completo**. F04/F08/F10/F14/F16/F17 já tinham smoke real narrado com detalhe em `docs/PROGRESS.md`, mas sem o arquivo dedicado — formalizado em `docs/F<ID>-*/smoke-results.md` citando a proveniência (não são novas rodadas ao vivo). F05 nunca tinha smoke real — rodado ao vivo nesta sessão (CRUD completo em `#skills` + vínculo por projeto via `ProjectSkillsModal`), `docs/F05-skills/smoke-results.md`. Ver [RC-missing-smoke-evidence](#rc-missing-smoke-evidence).
-- **Bug real achado no smoke de F05 (Repo Harness com contagem obsoleta)** → `C37`: `WorkspaceSidebar.tsx` buscava as contagens de Rules/Skills/SubAgents/MCPs num único `useEffect([project])` — fechar qualquer um dos 4 modais de vínculo (`onClose`) nunca reexecutava a busca, deixando o card do harness com a contagem antiga (ex.: "0 vinculados") na mesma sessão até o projeto ser reselecionado, mesmo com o vínculo já persistido no servidor. Corrigido: lógica extraída para `refreshHarnessCounts(projectId)`, chamada tanto na troca de projeto quanto no `onClose` dos 4 modais. Ver [RC-harness-count-stale-after-modal-close](#rc-harness-count-stale-after-modal-close).
-- **A01** → `C38`: `repositories/skills.ts` migrado de `skills.json`/`fs` para SQLite. Migration `012_skills` (tabelas `skills`/`project_skills`, `ON DELETE CASCADE`); migração automática do `skills.json` legado pra tabela na primeira query de cada processo (guardada por contagem de linhas, arquivo renomeado pra `.migrated` depois de importado); API pública convertida de `class SkillsRepository`/singleton para funções de módulo (`listSkills`/`createSkill`/`linkSkill`/…, `RC-module-repo`), com todos os 6 consumidores (`skills-handler.ts`, `apply-catalog.ts`, `skill-registry.ts`, `dashboard-handler.ts` + 6 arquivos de teste) atualizados no mesmo diff. Confirmado ao vivo: app real com `skills.json` legado semeado antes do 1º boot → skill migrada aparece em `#skills` (categoria "legado"), edição persiste, arquivo renomeado pra `skills.json.migrated` no disco.
-- **Reconciliação A02/A03/R03/R04/R05/R06/D01 + parte de D02** → `C39`–`C44`: verificados no código (não exigiram fix novo, já tinham sido corrigidos em commits anteriores — `52cf9cc`/`6490437`/`e0c5672`/`9ac433e`/`4daaafe`/`730c552`) e formalmente movidos de §2 pra §4.
-- **D02 (restante)** → `C45`: **D02 fechado por completo, zerando §2**. `vcs/oauth-config.test.ts` (`isVcsOauthKind` + shape de `VCS_OAUTH_PROVIDERS`), `mcps/catalog.test.ts` (`listMcpPresets`/`getMcpPreset` + shape por `authMode`/`transport`), `config/defaults.test.ts` (sanity do `DEFAULT_PROMPT`). Ver [RC-missing-sibling-coverage](#rc-missing-sibling-coverage).
-
-**Estado da suíte:** `pnpm test` completo — 1022/1022 verde (1 flaky isolado em `ask-user-question.test.ts` observado em rodada anterior, confirmado não-regressão rodando 2x); `tsc -b` limpo.
+- PUT link subagents/mcps/skills/rules rejeitam `enabled`/`sortOrder` com tipo inválido (400).
+- `provider_spawn_failed` passa por `sanitizeProcessError`; catch síncrono limpa permission settings; CLI spawn usa `buildPtyEnv`.
+- Harness/catálogo/OAuth poll: erro visível + `console.error` (AbortError silencioso).
+- `badgeLabel`/`badgeTitle` e unlock classify em `*.logic.ts` com testes irmãos.
+- `pnpm test` **2×** — **1066/1066** verde. Gates `tsc`/`vite`/`biome`/`electron-builder` não reexecutados.
 
 ### Por Stack (abertos)
 
 | Stack | 🔴 | 🟡 |
 |-------|----|----|
 | `Node.js` | 0 | 0 |
-| `Vitest` | 0 | 0 |
-| `SQLite` | 0 | 0 |
-| `Electron` | 0 | 0 |
 | `React` | 0 | 0 |
+| `SQLite` | 0 | 0 |
+| `Vitest` | 0 | 0 |
+| `Electron` | 0 | 0 |
 | `TypeScript` | 0 | 0 |
 
 ---
 
 ## 2. Achados abertos
 
-**Nenhum.** Todo achado da base já foi corrigido e movido para §4 — ver [Resumo executivo](#1-resumo-executivo).
+Nenhum. Todos os IDs da passagem 2026-08-10 foram movidos para §4 (C46–C57).
 
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
 
-Nenhuma regra aberta nesta passagem. Seção mantida como âncora de formato para a próxima auditoria.
+Nenhuma. Tipos da passagem 2026-08-10 foram fechados; contratos estão em §4 como RC-* (novos: spawn-failed-unsanitized, silent-catch-regression, unlock-body-unbounded, cli-env-inheritance, spawn-cleanup-gap, missing-link-body-regression, flaky-process-timeout; reuso: dead-export, http-body-narrowing-gap, business-rule-in-tsx, error-message-locale-residual, no-silent-catch).
 
 ---
 
@@ -172,6 +165,18 @@ Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto nã
 | C43 | `Electron` | `pty-env-inheritance` | `4daaafe`; `pty-session-registry.ts` `buildPtyEnv` allowlist no spawn do terminal dock (fecha R06) | [RC-pty-env-inheritance](#rc-pty-env-inheritance) |
 | C44 | `Vitest` | `missing-sibling-coverage` | `730c552`; `codegraph/ensure.test.ts` + `query.test.ts` (fecha D01 por completo) e `runner/mcp-registry.test.ts`/`rule-registry.test.ts`/`thread-cwd.test.ts`/`turn-control.test.ts` (fecha parte de D02) | [RC-missing-sibling-coverage](#rc-missing-sibling-coverage) |
 | C45 | `Vitest` | `missing-sibling-coverage` | working tree 2026-08-09; `vcs/oauth-config.test.ts`, `mcps/catalog.test.ts`, `config/defaults.test.ts` — **D02 fechado por completo**, `pnpm test` 1022/1022 | [RC-missing-sibling-coverage](#rc-missing-sibling-coverage) |
+| C46 | `Node.js` | `http-body-narrowing-gap` | working tree 2026-08-10; PUT link `subagents-handler`/`mcps-handler` + `git-handler` body string + `consumo-handler` approximate boolean; testes 400 (fecha R01/R02/R08/R09) | [RC-http-body-narrowing-gap](#rc-http-body-narrowing-gap) |
+| C47 | `Node.js` | `spawn-failed-unsanitized` | working tree 2026-08-10; `cli-driver.ts` `sanitizeProcessError` em `provider_spawn_failed` (fecha R03) | [RC-spawn-failed-unsanitized](#rc-spawn-failed-unsanitized) |
+| C48 | `React` | `silent-catch-regression` | working tree 2026-08-10; harness/`McpsScreen` catalog/`McpOauthControls`/`VcsOauthCard` (fecha R04/R05/R10) | [RC-silent-catch-regression](#rc-silent-catch-regression) |
+| C49 | `React` | `business-rule-in-tsx` | working tree 2026-08-10; `codegraphSection.logic.ts` + `loginScreen.logic.ts` + testes (fecha D01/D02) | [RC-business-rule-in-tsx](#rc-business-rule-in-tsx) |
+| C50 | `SQLite` | `dead-export` | working tree 2026-08-10; remove `getProjectByPath`; `getLogEntry`/`getUsageEvent` locais; remove `countAllPending` (fecha A01/A04–A06) | [RC-dead-export](#rc-dead-export) |
+| C51 | `Vitest` | `missing-link-body-regression` | working tree 2026-08-10; PUT 400 em `skills-handler.test.ts`/`rules-handler.test.ts` (fecha D03) | [RC-missing-link-body-regression](#rc-missing-link-body-regression) |
+| C52 | `Vitest` | `flaky-process-timeout` | working tree 2026-08-10; `delegate.test.ts` parallel batch `testTimeout: 30_000` (fecha D04) | [RC-flaky-process-timeout](#rc-flaky-process-timeout) |
+| C53 | `Node.js` | `unlock-body-unbounded` | working tree 2026-08-10; unlock usa `readBody` + 413; `readBody` pausa em vez de destroy (fecha R06) | [RC-unlock-body-unbounded](#rc-unlock-body-unbounded) |
+| C54 | `Node.js` | `cli-env-inheritance` | working tree 2026-08-10; `cli-driver.ts` `buildPtyEnv` + key do provider (fecha R07) | [RC-cli-env-inheritance](#rc-cli-env-inheritance) |
+| C55 | `Node.js` | `spawn-cleanup-gap` | working tree 2026-08-10; catch síncrono chama `cleanupPermissionSettings` (fecha R11) | [RC-spawn-cleanup-gap](#rc-spawn-cleanup-gap) |
+| C56 | `Node.js` | `error-message-locale-residual` | working tree 2026-08-10; `repositories/subagents.ts` `Subagente …` (fecha R12) | [RC-error-message-locale-residual](#rc-error-message-locale-residual) |
+| C57 | `Node.js` | `dead-export` | working tree 2026-08-10; `getTokens` local; `parseOauthMetadata` em `oauth-metadata.ts` com consumidor (fecha A02/A03) | [RC-dead-export](#rc-dead-export) |
 
 ### Regras — problemas corrigidos
 
@@ -1408,39 +1413,188 @@ Arquivos só de tipos; catálogos estáticos cobertos por handler com asserção
 
 ---
 
+<a id="rc-spawn-failed-unsanitized"></a>
+
+### Spawn failed sem sanitize
+Esforço: baixo  
+Classificação: Crítico  
+Stack: `Node.js`  
+Tipo corrigido: `spawn-failed-unsanitized`
+
+#### Por que isso é um problema?
+`provider_spawn_failed` interpolava `err.message` cru (paths/tokens) enquanto o caminho `close` já usava `sanitizeProcessError`.
+
+```
+// Não conforme
+reject(new ProviderError('provider_spawn_failed', `…: ${err.message}`))
+```
+
+```
+// Conforme
+reject(new ProviderError('provider_spawn_failed', sanitizeProcessError(`…: ${err.message}`)))
+```
+
+#### Exceções
+Nenhuma para mensagem que chega à UI.
+
+---
+
+<a id="rc-silent-catch-regression"></a>
+
+### Catch vazio em fetch (regressão)
+Esforço: baixo  
+Classificação: Crítico / Médio  
+Stack: `React`  
+Tipo corrigido: `silent-catch-regression`
+
+#### Por que isso é um problema?
+`.catch(() => {})` regrediu após C07: contagens/presets stale sem `role="alert"`.
+
+```
+// Não conforme
+rulesService.counts().then(/*…*/).catch(() => {})
+```
+
+```
+// Conforme
+.catch((err) => {
+  if (err instanceof DOMException && err.name === 'AbortError') return
+  console.error('harness counts failed', err)
+  setHarnessError('Não foi possível atualizar os vínculos.')
+})
+```
+
+#### Exceções
+Abort/unmount deliberado.
+
+---
+
+<a id="rc-unlock-body-unbounded"></a>
+
+### Unlock sem teto de body
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo corrigido: `unlock-body-unbounded`
+
+#### Por que isso é um problema?
+Unlock público concatenava chunks sem `MAX_BODY_BYTES` → DoS local.
+
+```
+// Conforme
+body = await readBody(req) // 413 payload_too_large via sendTransportError
+```
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="rc-cli-env-inheritance"></a>
+
+### CLI herda process.env inteiro
+Esforço: médio  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo corrigido: `cli-env-inheritance`
+
+#### Por que isso é um problema?
+`{ ...process.env }` no spawn CLI vazava secrets do host; PTY já usava allowlist.
+
+```
+// Conforme
+const env = buildPtyEnv(process.env)
+if (envVar && input.apiKey) env[envVar] = input.apiKey
+```
+
+#### Exceções
+Vars estritamente necessárias ao binário, documentadas.
+
+---
+
+<a id="rc-spawn-cleanup-gap"></a>
+
+### Cleanup de permission settings no catch de spawn
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo corrigido: `spawn-cleanup-gap`
+
+#### Por que isso é um problema?
+Catch síncrono limpava mcp-config/temp images mas deixava `--settings` no disco.
+
+```
+// Conforme
+} catch (err) {
+  cleanupMcpConfig()
+  cleanupPermissionSettings()
+  cleanupTempImages()
+  …
+}
+```
+
+#### Exceções
+Nenhuma quando o arquivo foi criado neste turno.
+
+---
+
+<a id="rc-missing-link-body-regression"></a>
+
+### Falta regressão PUT link skills/rules
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Vitest`  
+Tipo corrigido: `missing-link-body-regression`
+
+#### Por que isso é um problema?
+Narrowing em produção sem `it` 400 → regressão silenciosa.
+
+#### Exceções
+Nenhuma quando o narrowing já existe no handler.
+
+---
+
+<a id="rc-flaky-process-timeout"></a>
+
+### Timeout flaky em teste com processo real
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Vitest`  
+Tipo corrigido: `flaky-process-timeout`
+
+#### Por que isso é um problema?
+Git/spawn real sob default 5s falha sob carga sem ser regressão de produto.
+
+```
+// Conforme
+it('test_parallel_two_children_disjoint_paths', async () => { … }, 30_000)
+```
+
+#### Exceções
+Falha determinística nas duas execuções = bug de produto.
+
+---
+
 ## 5. Fora de escopo / dívida consciente
 
-| Item | Estado 2026-08-09 |
+| Item | Estado 2026-08-10 |
 |------|-------------------|
-| Remediação C01–C32 (Lotes 1–2 + passagens 2026-08-08/09) | **Confirmada** no código (guard, transport, preload, body narrowing, redação de stderr, validação compartilhada) |
-| Smoke-results F20/F21/F23/F26/F27 | **Fechado** 2026-08-09 (C33; ver C34/C35 pelos 2 bugs reais achados no processo) |
-| Smoke-results F04/F05/F08/F10/F14/F16/F17 — **D07 fechado por completo** | **Fechado** 2026-08-09 (C36; ver C37 pelo bug real achado no smoke de F05) |
-| `skills.json` fora do SQLite (A01) | **Fechado** 2026-08-09 (C38; migration `012_skills` + funções de módulo + migração automática do JSON legado) |
-| R03/R04/R05/R06, A02/A03, D01 + parte de D02 | **Fechado** 2026-08-09 (C39–C44; já corrigidos em commits anteriores, reconciliação §2→§4 formalizada nesta sessão) |
-| `vcs/oauth-config.ts`/`mcps/catalog.ts`/`config/defaults.ts` sem irmão (D02 restante) | **Fechado** 2026-08-09 (C45; §2 **zerado**) |
-| F19 smoke “opcional” | Aceito enquanto AC não exigir DOM fechado |
-| Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag |
-| PTY via IPC nomeado (F26) | Capacidade nativa aceita; mapa IPC de `review-architecture` já atualizado (`handle` + `on` de stream) |
-| Servidores `listen(0)` por turno (MCP/OAuth/ask-user/memory) | Por design |
+| Remediação C01–C57 | **Confirmada** no código para C46–C57 (working tree); C01–C45 permanecem válidos |
+| F19 smoke “opcional” | Mantido: ACs tool-only + PROGRESS declara smoke live opcional; há UI (`CodegraphSection`) mas sem `smoke-results.md` — só reabrir se produto exigir DOM fechado |
+| PRD cross-feature F18 `[ ]` | Docs de produto; F18 Feito com smoke real — marcar `[x]` só se o usuário pedir sync PRD |
+| Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag de arquitetura |
+| PTY via IPC nomeado (F26) | Capacidade nativa aceita |
+| Servidores `listen(0)` por turno | Por design |
 | `AUDIT-PRD-S9-MIGRATION.md` | Encerrada; não reabrir como matriz de código |
-| Gates `tsc`/`build` | Reexecutados nesta sessão (D07/A01/reconciliação/D02) — limpos; `biome` não reexecutado |
-| Suíte não determinística sob carga | `testTimeout` default de 5 s em casos de git/spawn reais + timing de `ask-user-question.test.ts` (setTimeout curto) — ambos observados nesta sessão como flaky isolado, não regressão; rode duas vezes antes de chamar regressão |
+| Gates `tsc`/`vite`/`biome`/`electron-builder` | Não reexecutados nesta passagem (só `pnpm test` 2× — 1066/1066) |
+| Suíte flaky sob carga | D04 mitigado com `testTimeout` no parallel batch; ainda rode duas vezes antes de chamar regressão |
 
 ### Fatiamento sugerido
 
-Nenhum achado aberto nesta passagem — nada a fatiar. Lista abaixo preservada como histórico do último lote de remediação.
-
-1. ~~`fix(http): PT-BR cors_denied; narrow subagent body; drop WS ?token=` — R03/R04/R05~~ **feito** (commits `6490437`/`9ac433e`/`e0c5672`, reconciliado 2026-08-09, ver C40/C42/C41)
-2. ~~`fix(F26): allowlist PTY env` — R06~~ **feito** (`4daaafe`, reconciliado 2026-08-09, ver C43)
-3. ~~`refactor(git/vcs): drop dead exports` — A02/A03~~ **feito** (`52cf9cc`, reconciliado 2026-08-09, ver C39)
-4. ~~`test(codegraph/runner): sibling coverage ensure/query/registries` — D01/D02~~ **feito** (`730c552`, reconciliado 2026-08-09, ver C44)
-5. ~~`docs(F20|F21|F23|F26|F27): record smoke evidence` — D07 (após smoke real)~~ **feito** 2026-08-09 (working tree; 2 bugs reais achados e corrigidos no processo, ver C34/C35)
-6. ~~`refactor(F05): migrate skills.json to SQLite` — A01 (maior; onda própria)~~ **feito** 2026-08-09 (working tree; migration `012_skills`, funções de módulo, migração automática do JSON legado, confirmado ao vivo, ver C38)
-7. ~~`docs(F04|F05|F08|F10|F14|F16|F17): record smoke evidence` — D07 restante~~ **feito** 2026-08-09 (**D07 fechado por completo**; 1 bug real achado e corrigido no smoke de F05, ver C36/C37)
-8. ~~`test(vcs|mcps|config): sibling coverage oauth-config/catalog/defaults` — D02 restante~~ **feito** 2026-08-09 (working tree; `pnpm test` 1022/1022, ver C45)
+Remediação 2026-08-10 **concluída** (lotes 1–9). Sem abertos restantes nesta passagem.
 
 ---
 
 ## 6. Como atualizar este artefato
 
-Use [`.claude/skills/audit-full-base/SKILL.md`](../.claude/skills/audit-full-base/SKILL.md): 3 reviews em sequência, preserve esta seção de remediação (texto canônico em [`.claude/skills/audit-full-base/references/remediation.md`](../.claude/skills/audit-full-base/references/remediation.md)), sincronize `coding-*`, mova Abertos→Corrigidos com evidência, atualize contagens/data. Agente de **fix** segue o protocolo desta seção; não invente outro fluxo.
+Use [`.claude/skills/audit-full-base/SKILL.md`](../.claude/skills/audit-full-base/SKILL.md): 3 reviews em sequência, preserve esta seção de remediação (texto canônico em [`.claude/skills/audit-full-base/references/remediation.md`](../.claude/skills/audit-full-base/references/remediation.md)), sincronize `coding-*/project.md`, mova Abertos→Corrigidos com evidência, atualize contagens/data. Agente de **fix** segue o protocolo desta seção; não invente outro fluxo.

@@ -47,33 +47,41 @@ Exemplos de relato e prompt de subagente: [references/examples.md](references/ex
 
 ### Coding Experts
 
-| Stack | Skill |
+| Stack | Skill (roteamento + rules + project) |
 |-------|--------|
-| `Electron` | `coding-electron` |
-| `React` | `coding-react` |
-| `Node.js` | `coding-nodejs` |
-| `SQLite` | `coding-sqlite` |
-| `TypeScript` | `coding-typescript` |
-| `Vitest` | `coding-vitest` |
+| `Electron` | `coding-electron` → sync em `project.md` |
+| `React` | `coding-react` → sync em `project.md` |
+| `Node.js` | `coding-nodejs` → sync em `project.md` |
+| `SQLite` | `coding-sqlite` → sync em `project.md` |
+| `TypeScript` | `coding-typescript` → sync em `project.md` |
+| `Vitest` | `coding-vitest` → sync em `project.md` |
 
-Paths sob `.claude/skills/<name>/SKILL.md`.
+Paths sob `.claude/skills/<name>/`. Achados de passagem **não** entram em `rules/`.
 
 ## Sincronizar Coding Experts
 
-Após gravar o artefato, edite só as `coding-*` com delta nesta passagem.
+Após gravar o artefato, edite só `coding-*/project.md` com delta nesta passagem.
 
-**Abertos novos/alterados:** lista “Abertos” (`ID` + path curto + 1 linha de correção); se tipo de segurança/contrato for novo, 1 bullet em “Padrões obrigatórios”. Não cole o template longo de regra — detalhe fica no artefato.
+Cada Coding Expert tem três camadas:
 
-**Abertos → corrigidos** (confirmado no código): tire de Abertos; ponha em “Já corrigidos — não regrida” (`RC-…`). Limpe entradas stale.
+| Arquivo | Papel | Audit escreve? |
+|---------|--------|----------------|
+| `coding-*/SKILL.md` | Índice de roteamento portável | Só se o mapa de slugs mudou |
+| `coding-*/rules/*.md` | Regras atômicas **portáveis** (Incorrect/Correct) | **Nunca** (achado de passagem não entra aqui) |
+| `coding-*/project.md` | Bindings do EngrenaCode (paths, `RC-*`, abertos) | **Sim** — alvo da sincronização |
 
-**Nada volátil no corpo da skill.** Contagem de teste, contagem de handler, data de passagem e "hoje temos N" envelhecem entre uma passagem e outra e passam a mentir para a próxima sessão. Na `coding-*` fica o padrão durável (o que sempre vale) + o `ID` do aberto; número, data e evidência ficam só no artefato. Fato do repo só entra na skill quando é **invariante de contrato** (ex.: "não existe passthrough genérico no preload"), e aí como regra, não como estatística.
+**Abertos novos/alterados:** em `project.md`, lista “Achados abertos” (`ID` + path curto + 1 linha de correção). Se o tipo for novo e ainda não existir regra portável adequada, acrescente o slug em `rules/` numa sessão de manutenção da skill (não no meio do fix); no interim, o detalhe fica só no artefato.
+
+**Abertos → corrigidos** (confirmado no código): tire de “Achados abertos” em `project.md`; ponha em “Já corrigidos — não regrida” (`RC-…`). Limpe entradas stale.
+
+**Nada volátil em `rules/` nem no `SKILL.md` de roteamento.** Contagem de teste, contagem de handler, data de passagem e "hoje temos N" envelhecem e mentem. Em `project.md` entram só: mapa de paths, invariantes de contrato (ex.: "não existe passthrough genérico no preload") e IDs `RC-*` / abertos. Número, data e evidência ficam só no artefato.
 
 Escopo de escrita do coordenador:
 
-- Pode: `docs/AUDIT-CODE-REVIEW.md`, `coding-*/SKILL.md`, ajuste pontual em `review-*` se o mapa do repo mudou.
-- Não pode: `src/**`, `PROGRESS.md`, `PRD.md`, commit/PR (salvo pedido explícito).
-- Sem delta numa Stack → não reescreva a skill por estética.
-- Relato final lista quais `coding-*` mudaram (ou “nenhuma”).
+- Pode: `docs/AUDIT-CODE-REVIEW.md`, `coding-*/project.md`, ajuste pontual em `review-*` se o mapa do repo mudou; `coding-*/SKILL.md` só se a tabela de slugs precisar refletir regra portável nova.
+- Não pode: `src/**`, `PROGRESS.md`, `PRD.md`, `coding-*/rules/**` (salvo manutenção explícita da skill), commit/PR (salvo pedido explícito).
+- Sem delta numa Stack → não reescreva `project.md` por estética.
+- Relato final lista quais `coding-*/project.md` mudaram (ou “nenhuma”).
 
 ## Artefato
 
@@ -114,5 +122,5 @@ Severidade: 🔴 bloqueador · 🟡 aviso · 🟢 ok (só resumo se útil).
 
 - Artefato com seção de remediação ([references/remediation.md](references/remediation.md))
 - Coding Experts sincronizadas
-- Relato: contagens, top 🔴, path do artefato, lista `coding-*` tocadas ([references/examples.md](references/examples.md))
+- Relato: contagens, top 🔴, path do artefato, lista `coding-*/project.md` tocados ([references/examples.md](references/examples.md))
 - Sem editar `src/` / `PROGRESS` / `PRD` / commit, salvo pedido explícito

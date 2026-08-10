@@ -193,6 +193,12 @@ function handleListProjectMcps(_req: IncomingMessage, res: ServerResponse, proje
 async function handleSetProjectMcpLink(req: IncomingMessage, res: ServerResponse, projectId: string, mcpId: string): Promise<void> {
   const data = parseBody<{ enabled?: boolean; sortOrder?: number }>(await readBody(req))
   if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  if (
+    (data.enabled !== undefined && typeof data.enabled !== 'boolean') ||
+    (data.sortOrder !== undefined && typeof data.sortOrder !== 'number')
+  ) {
+    return sendError(res, 400, 'invalid_request', 'Campos "enabled"/"sortOrder" têm tipo inválido.')
+  }
   try {
     const state = setProjectMcpLink(projectId, mcpId, data)
     sendJson(res, 200, { mcp: state })

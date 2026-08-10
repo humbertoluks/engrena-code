@@ -17,9 +17,11 @@ const COPY = {
   errorStart: 'Falha ao iniciar a conexão.',
   errorDisconnect: 'Falha ao desconectar.',
   errorClientId: 'Falha ao salvar o client_id.',
+  errorPoll: 'Não foi possível acompanhar o status OAuth. Tente reconectar.',
 } as const
 
 const POLL_INTERVAL_MS = 2000
+const POLL_FAIL_LIMIT = 3
 
 export interface McpOauthControlsProps {
   mcpId: string
@@ -34,6 +36,7 @@ export function McpOauthControls({ mcpId, initialStatus }: Readonly<McpOauthCont
   const [error, setError] = useState<string | null>(null)
 
   const mountedRef = useRef(true)
+  const pollFailsRef = useRef(0)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -41,12 +44,29 @@ export function McpOauthControls({ mcpId, initialStatus }: Readonly<McpOauthCont
 
   useEffect(() => {
     if (status !== 'pending') return
+    pollFailsRef.current = 0
     const interval = setInterval(() => {
       mcpsService.oauthStatus(mcpId).then((res) => {
-        if (!mountedRef.current || res.error) return
+        if (!mountedRef.current) return
+        if (res.error) {
+          pollFailsRef.current += 1
+          if (pollFailsRef.current >= POLL_FAIL_LIMIT) {
+            console.error('[mcp-oauth] status poll failed', res.error)
+            setError(COPY.errorPoll)
+          }
+          return
+        }
+        pollFailsRef.current = 0
         setStatus(res.status)
         if (res.status !== 'pending') setAuthorizeUrl(null)
-      }).catch(() => {})
+      }).catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        pollFailsRef.current += 1
+        if (pollFailsRef.current >= POLL_FAIL_LIMIT) {
+          console.error('[mcp-oauth] status poll failed', err)
+          if (mountedRef.current) setError(COPY.errorPoll)
+        }
+      })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [status, mcpId])

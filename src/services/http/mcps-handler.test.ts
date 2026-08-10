@@ -210,4 +210,22 @@ describe('project link', () => {
     const unlink = await call('DELETE', `/api/projects/${project.id}/mcps/${mcpId}`, sessionToken)
     expect((unlink.body as { unlinked: boolean }).unlinked).toBe(true)
   })
+
+  it('rejects link PUT with non-boolean enabled or non-number sortOrder (R02)', async () => {
+    const project = createProject({ path: projectDir })
+    const mcp = await call('POST', '/api/mcps', sessionToken, { name: 'github', transport: 'stdio', command: 'npx' })
+    const mcpId = (mcp.body as { mcp: { id: string } }).mcp.id
+
+    const badEnabled = await call('PUT', `/api/projects/${project.id}/mcps/${mcpId}`, sessionToken, {
+      enabled: 'false',
+    })
+    expect(badEnabled.status).toBe(400)
+    expect((badEnabled.body as { error: { code: string } }).error.code).toBe('invalid_request')
+
+    const badSort = await call('PUT', `/api/projects/${project.id}/mcps/${mcpId}`, sessionToken, {
+      sortOrder: '1',
+    })
+    expect(badSort.status).toBe(400)
+    expect((badSort.body as { error: { code: string } }).error.code).toBe('invalid_request')
+  })
 })

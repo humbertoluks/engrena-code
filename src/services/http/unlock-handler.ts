@@ -19,6 +19,7 @@ import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 import { applySeedCatalog } from '../seeds/apply-catalog.js'
+import { readBody, sendTransportError } from './_transport.js'
 
 const BOOT_RESTART_REASON = 'Aplicação reiniciada durante a execução.'
 
@@ -93,101 +94,112 @@ export function createUnlockServer(port: number = 5174): http.Server {
 
     // POST /api/vault/unlock
     if (req.method === 'POST' && req.url === '/api/vault/unlock') {
-      let body = ''
-      req.on('data', (chunk) => {
-        body += chunk.toString()
-      })
+      let body: string
+      try {
+        body = await readBody(req)
+      } catch (err) {
+        if (sendTransportError(res, err)) return
+        console.error('Unlock body read error:', err)
+        res.writeHead(500)
+        res.end(
+          JSON.stringify({
+            error: {
+              code: 'internal_error',
+              message: 'Erro ao desbloquear cofre',
+            },
+          })
+        )
+        return
+      }
 
-      req.on('end', () => {
-        let data: unknown
-        try {
-          data = JSON.parse(body)
-        } catch {
+      let data: unknown
+      try {
+        data = JSON.parse(body)
+      } catch {
+        res.writeHead(400)
+        res.end(
+          JSON.stringify({
+            error: {
+              code: 'invalid_json',
+              message: 'Corpo inválido.',
+            },
+          })
+        )
+        return
+      }
+
+      try {
+        const workspace =
+          typeof data === 'object' && data !== null && 'workspace' in data
+            ? (data as { workspace: unknown }).workspace
+            : undefined
+        const password =
+          typeof data === 'object' && data !== null && 'password' in data
+            ? (data as { password: unknown }).password
+            : undefined
+
+        if (typeof workspace !== 'string' || typeof password !== 'string' || !workspace || !password) {
           res.writeHead(400)
           res.end(
             JSON.stringify({
               error: {
-                code: 'invalid_json',
-                message: 'Corpo inválido.',
+                code: 'validation_error',
+                message: 'workspace e password são obrigatórios',
               },
             })
           )
           return
         }
 
-        try {
-          const workspace =
-            typeof data === 'object' && data !== null && 'workspace' in data
-              ? (data as { workspace: unknown }).workspace
-              : undefined
-          const password =
-            typeof data === 'object' && data !== null && 'password' in data
-              ? (data as { password: unknown }).password
-              : undefined
+        const result = vaultService.unlock(workspace, password)
 
-          if (typeof workspace !== 'string' || typeof password !== 'string' || !workspace || !password) {
-            res.writeHead(400)
-            res.end(
-              JSON.stringify({
-                error: {
-                  code: 'validation_error',
-                  message: 'workspace e password são obrigatórios',
-                },
-              })
-            )
-            return
-          }
-
-          const result = vaultService.unlock(workspace, password)
-
-          if (result.corrupted) {
-            res.writeHead(422)
-            res.end(
-              JSON.stringify({
-                error: {
-                  code: 'vault_corrupted',
-                  message:
-                    'O cofre local está danificado ou ilegível. Restaure um backup ou recrie o workspace.',
-                },
-              })
-            )
-            return
-          }
-
-          const response: VaultUnlockResponse = {
-            unlocked: result.unlocked
-          }
-
-          if (result.unlocked) {
-            const token = vaultService.getSessionToken()
-            if (token) response.sessionToken = token
-
-            try {
-              applySeedCatalog()
-            } catch (seedErr) {
-              console.error('[seeds] applySeedCatalog failed, unlock proceeds anyway:', seedErr)
-            }
-          }
-
-          if (result.retryAfterMs !== undefined) {
-            response.retryAfterMs = result.retryAfterMs
-          }
-
-          res.writeHead(200)
-          res.end(JSON.stringify(response))
-        } catch (err) {
-          console.error('Unlock error:', err)
-          res.writeHead(500)
+        if (result.corrupted) {
+          res.writeHead(422)
           res.end(
             JSON.stringify({
               error: {
-                code: 'internal_error',
-                message: 'Erro ao desbloquear cofre'
-              }
+                code: 'vault_corrupted',
+                message:
+                  'O cofre local está danificado ou ilegível. Restaure um backup ou recrie o workspace.',
+              },
             })
           )
+          return
         }
-      })
+
+        const response: VaultUnlockResponse = {
+          unlocked: result.unlocked
+        }
+
+        if (result.unlocked) {
+          const token = vaultService.getSessionToken()
+          if (token) response.sessionToken = token
+
+          try {
+            applySeedCatalog()
+          } catch (seedErr) {
+            console.error('[seeds] applySeedCatalog failed, unlock proceeds anyway:', seedErr)
+          }
+        }
+
+        if (result.retryAfterMs !== undefined) {
+          response.retryAfterMs = result.retryAfterMs
+        }
+
+        res.writeHead(200)
+        res.end(JSON.stringify(response))
+      } catch (err) {
+        console.error('Unlock error:', err)
+        res.writeHead(500)
+        res.end(
+          JSON.stringify({
+            error: {
+              code: 'internal_error',
+              message: 'Erro ao desbloquear cofre'
+            }
+          })
+        )
+      }
       return
     }
 

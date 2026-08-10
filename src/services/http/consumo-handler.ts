@@ -166,6 +166,9 @@ async function handleCreatePricing(req: IncomingMessage, res: ServerResponse): P
   if (!validateOptionalRate(body.cacheReadPerMTok) || !validateOptionalRate(body.cacheWritePerMTok)) {
     return sendError(res, 400, 'validation_error', 'Os preços devem ser números maiores ou iguais a zero.')
   }
+  if (body.approximate !== undefined && typeof body.approximate !== 'boolean') {
+    return sendError(res, 400, 'invalid_request', 'Campo "approximate" tem tipo inválido.')
+  }
 
   const input: CreatePricingInput = {
     provider: body.provider,
@@ -174,7 +177,7 @@ async function handleCreatePricing(req: IncomingMessage, res: ServerResponse): P
     outputPerMTok: body.outputPerMTok,
     cacheReadPerMTok: (body.cacheReadPerMTok as number | null | undefined) ?? null,
     cacheWritePerMTok: (body.cacheWritePerMTok as number | null | undefined) ?? null,
-    approximate: Boolean(body.approximate),
+    approximate: typeof body.approximate === 'boolean' ? body.approximate : false,
     source: typeof body.source === 'string' && body.source.trim() !== '' ? body.source.trim() : null,
   }
 
@@ -199,13 +202,16 @@ async function handleUpdatePricing(req: IncomingMessage, res: ServerResponse, id
   if (!validateOptionalRate(body.cacheReadPerMTok) || !validateOptionalRate(body.cacheWritePerMTok)) {
     return sendError(res, 400, 'validation_error', 'Os preços devem ser números maiores ou iguais a zero.')
   }
+  if (body.approximate !== undefined && typeof body.approximate !== 'boolean') {
+    return sendError(res, 400, 'invalid_request', 'Campo "approximate" tem tipo inválido.')
+  }
 
   const input: UpdatePricingInput = {
     inputPerMTok: body.inputPerMTok as number | undefined,
     outputPerMTok: body.outputPerMTok as number | undefined,
     cacheReadPerMTok: body.cacheReadPerMTok as number | null | undefined,
     cacheWritePerMTok: body.cacheWritePerMTok as number | null | undefined,
-    approximate: body.approximate === undefined ? undefined : Boolean(body.approximate),
+    approximate: typeof body.approximate === 'boolean' ? body.approximate : undefined,
     source: body.source === undefined ? undefined : typeof body.source === 'string' && body.source.trim() !== '' ? body.source.trim() : null,
   }
 

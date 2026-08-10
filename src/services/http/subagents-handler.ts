@@ -141,6 +141,12 @@ async function handleUpsertLink(
   if (data === null) {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
+  if (
+    (data.enabled !== undefined && typeof data.enabled !== 'boolean') ||
+    (data.sortOrder !== undefined && typeof data.sortOrder !== 'number')
+  ) {
+    return sendError(res, 400, 'invalid_request', 'Campos "enabled"/"sortOrder" têm tipo inválido.')
+  }
   try {
     const link = upsertProjectSubagentLink(projectId, subagentId, data)
     sendJson(res, 200, { subagent: link })

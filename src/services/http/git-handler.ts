@@ -93,10 +93,17 @@ async function handleGitCommit(req: IncomingMessage, res: ServerResponse, thread
   if (data === null || typeof data.subject !== 'string' || data.subject.trim() === '') {
     return sendError(res, 400, 'validation_error', 'subject é obrigatório.')
   }
+  if (data.body !== undefined && typeof data.body !== 'string') {
+    return sendError(res, 400, 'invalid_request', 'Campo "body" tem tipo inválido.')
+  }
 
   await withGitLease(res, resolved.project, threadId, 'git-commit', async () => {
     try {
-      const result = await gitCommit(resolveThreadCwd(resolved.thread, resolved.project), data.subject as string, data.body)
+      const result = await gitCommit(
+        resolveThreadCwd(resolved.thread, resolved.project),
+        data.subject as string,
+        typeof data.body === 'string' ? data.body : undefined
+      )
       createLogEntry({
         threadId,
         kind: 'git',

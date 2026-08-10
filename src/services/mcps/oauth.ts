@@ -3,24 +3,14 @@ import http from 'http'
 import { shell } from 'electron'
 import { vaultService } from '../vault/vault-service.js'
 import { getMcp, setOauthClientId, setOauthStatus } from '../db/repositories/mcps.js'
+import { McpOauthError } from './oauth-errors.js'
+import { parseOauthMetadata, type OauthMetadata } from './oauth-metadata.js'
+
+export { McpOauthError } from './oauth-errors.js'
 
 const CALLBACK_PORT_RANGE_START = 5180
 const CALLBACK_PORT_RANGE_END = 5199
 const FLOW_TTL_MS = 5 * 60 * 1000
-
-export class McpOauthError extends Error {
-  code: string
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-  }
-}
-
-interface OauthMetadata {
-  authorization_endpoint: string
-  token_endpoint: string
-  registration_endpoint?: string
-}
 
 interface OauthTokens {
   accessToken: string
@@ -54,7 +44,7 @@ function saveTokens(mcpId: string, tokens: OauthTokens): void {
   vaultService.setSecret(tokenVaultKey(mcpId), JSON.stringify(tokens))
 }
 
-export function getTokens(mcpId: string): OauthTokens | undefined {
+function getTokens(mcpId: string): OauthTokens | undefined {
   const raw = vaultService.getSecret(tokenVaultKey(mcpId))
   if (!raw) return undefined
   try {
@@ -66,44 +56,6 @@ export function getTokens(mcpId: string): OauthTokens | undefined {
 
 function clearTokens(mcpId: string): void {
   vaultService.deleteSecret(tokenVaultKey(mcpId))
-}
-
-function requireHttpsUrl(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value) {
-    throw new McpOauthError('oauth_metadata_unavailable', `Metadata OAuth inválida: ${field}.`)
-  }
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new McpOauthError('oauth_metadata_unavailable', `Metadata OAuth inválida: ${field}.`)
-  }
-  if (parsed.protocol !== 'https:') {
-    throw new McpOauthError(
-      'oauth_metadata_unavailable',
-      `Endpoint OAuth deve usar https (${field}).`
-    )
-  }
-  return value
-}
-
-/** Valida endpoints OAuth descobertos — só https, para não contornar a allowlist do IPC. */
-export function parseOauthMetadata(raw: unknown): OauthMetadata {
-  if (typeof raw !== 'object' || raw === null) {
-    throw new McpOauthError('oauth_metadata_unavailable', 'Metadata OAuth incompleta.')
-  }
-  const obj = raw as Record<string, unknown>
-  const metadata: OauthMetadata = {
-    authorization_endpoint: requireHttpsUrl(obj.authorization_endpoint, 'authorization_endpoint'),
-    token_endpoint: requireHttpsUrl(obj.token_endpoint, 'token_endpoint'),
-  }
-  if (obj.registration_endpoint !== undefined && obj.registration_endpoint !== null) {
-    metadata.registration_endpoint = requireHttpsUrl(
-      obj.registration_endpoint,
-      'registration_endpoint'
-    )
-  }
-  return metadata
 }
 
 function parseTokenResponse(data: unknown): OauthTokens {

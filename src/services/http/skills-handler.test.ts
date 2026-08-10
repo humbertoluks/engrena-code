@@ -128,4 +128,20 @@ describe('handleSkillsRequest', () => {
     expect(parsed).toHaveLength(1)
     expect(parsed[0].linked).toBe(true)
   })
+
+  it('rejects link PUT with non-boolean enabled or non-number sortOrder (D03)', async () => {
+    const skill = createSkill({ name: 'skill-narrow', description: 'd', content: '# a' })
+
+    const badEnabled = fakeRequest('PUT', `/api/projects/proj-1/skills/${skill.id}`, { enabled: 'false' })
+    const badEnabledRes = fakeResponse()
+    await handleSkillsRequest(badEnabled, badEnabledRes)
+    expect(badEnabledRes.statusCode).toBe(400)
+    expect(JSON.parse(badEnabledRes.body).error.code).toBe('invalid_request')
+
+    const badSort = fakeRequest('PUT', `/api/projects/proj-1/skills/${skill.id}`, { sortOrder: '1' })
+    const badSortRes = fakeResponse()
+    await handleSkillsRequest(badSort, badSortRes)
+    expect(badSortRes.statusCode).toBe(400)
+    expect(JSON.parse(badSortRes.body).error.code).toBe('invalid_request')
+  })
 })

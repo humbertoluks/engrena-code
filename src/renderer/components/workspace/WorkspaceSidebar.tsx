@@ -29,6 +29,7 @@ const COPY = {
   harnessSubagents: 'SubAgents',
   harnessMcps: 'MCPs',
   harnessMemory: 'Memória',
+  harnessError: 'Não foi possível atualizar os vínculos.',
   linkedOne: (n: number) => `${n} vinculado`,
   linkedMany: (n: number) => `${n} vinculados`,
   activeOne: (n: number) => `${n} ativa`,
@@ -102,25 +103,34 @@ export function WorkspaceSidebar({
   const [skillsCount, setSkillsCount] = useState<number | null>(null)
   const [subagentsCount, setSubagentsCount] = useState<number | null>(null)
   const [mcpsCount, setMcpsCount] = useState<number | null>(null)
+  const [harnessError, setHarnessError] = useState<string | null>(null)
   const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | 'memory' | null>(null)
 
   const refreshHarnessCounts = useCallback(
     (projectId: string) => {
+      const onHarnessFail = (label: string, err: unknown): void => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        console.error(`[harness] ${label} counts failed`, err)
+        setHarnessError(COPY.harnessError)
+      }
+
+      setHarnessError(null)
+
       rulesService.counts().then((res) => {
         if (!res.error) setRulesCount(res.activeByProject[projectId] ?? 0)
-      }).catch(() => {})
+      }).catch((err) => onHarnessFail('rules', err))
 
       skillsService.listForProject(projectId).then((res) => {
         if (!res.error) setSkillsCount(res.filter((s) => s.linked).length)
-      }).catch(() => {})
+      }).catch((err) => onHarnessFail('skills', err))
 
       subagentsService.counts().then((res) => {
         if (!res.error) setSubagentsCount(res.linkedByProject[projectId] ?? 0)
-      }).catch(() => {})
+      }).catch((err) => onHarnessFail('subagents', err))
 
       mcpsService.listForProject(projectId).then((res) => {
         if (Array.isArray(res)) setMcpsCount(res.filter((m) => m.linked).length)
-      }).catch(() => {})
+      }).catch((err) => onHarnessFail('mcps', err))
     },
     [],
   )
@@ -131,6 +141,7 @@ export function WorkspaceSidebar({
       setSkillsCount(null)
       setSubagentsCount(null)
       setMcpsCount(null)
+      setHarnessError(null)
       return
     }
     refreshHarnessCounts(project.id)
@@ -201,6 +212,9 @@ export function WorkspaceSidebar({
 
           <section>
             <h3 className="mb-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.harness}</h3>
+            {harnessError !== null ? (
+              <p role="alert" className="mb-xs text-[11.5px] text-red">{harnessError}</p>
+            ) : null}
             <div className="flex flex-col gap-[2px]">
               <HarnessRow
                 label={COPY.harnessRules}
