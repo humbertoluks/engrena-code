@@ -1,6 +1,6 @@
 ---
 name: implement-feature
-description: Implementa uma feature de forma autônoma com base na spec e no plan, fazendo um Conventional Commit por fase e reportando resultados contra os critérios de aceitação da feature. Adaptada ao EngrenaCode — trata docs/<feature-id>-*/ui.md e copy.md como fonte de verdade para fases de UI e exige Conventional Commits.
+description: Implementa uma feature de forma autônoma com base na spec e no plan, fazendo um Conventional Commit por fase e reportando resultados contra os critérios de aceitação da feature. Adaptada ao EngrenaCode — trata apps/engrena-code/docs/<feature-id>-*/ui.md e copy.md como fonte de verdade para fases de UI e exige Conventional Commits.
 ---
 
 # Implement Feature
@@ -11,33 +11,33 @@ Implementa de forma autônoma uma feature a partir dos `spec.md` + `plan.md` exi
 
 ## Adaptação ao EngrenaCode
 
-- `docs/PRD.md` já existe neste repositório (PT-BR, features F01–F11); use-o diretamente como fonte do PRD — sem auto-descoberta necessária.
+- `apps/engrena-code/docs/PRD.md` já existe neste repositório (PT-BR, features F01–F11); use-o diretamente como fonte do PRD — sem auto-descoberta necessária.
 - Pastas de feature (`docs/F<ID>-<kebab-name>/`) costumam incluir `ui.md` (anatomia, tokens, checklist de aceite visual) e `copy.md` (strings literais por id) junto com `spec.md`/`plan.md`. Esses arquivos são escritos por um processo de design separado (ver `CLAUDE.md` → "Design · Processo") e são a **fonte de verdade** para qualquer fase que toque UI — nunca invente copy ou layout que divirja deles.
 - Mensagens de commit neste repositório seguem **Conventional Commits** em inglês (ver 5.4 abaixo e o `git log` recente: `feat(F02): ...`, `fix(login): ...`, `docs: ...`), independentemente dos docs em PT-BR. Não escreva subjects de commit em português.
-- `docs/PROGRESS.md` é a fonte autoritativa do status real de implementação F01–F11 neste repositório — consulte-o, não as actions `_reversa_forward`, ao julgar se uma dependência está de fato pronta.
+- `apps/engrena-code/docs/PROGRESS.md` é a fonte autoritativa do status real de implementação F01–F11 neste repositório — consulte-o, não as actions `_reversa_forward`, ao julgar se uma dependência está de fato pronta.
 
 ## ENTRADA
 
 Formato livre. A skill descobre o que foi passado. Qualquer combinação funciona:
 
 - Um identificador de feature: `F09`, `Video Upload`, ou similar.
-- Uma pasta de feature: `docs/F09-in-video-transcription-search/`, `./F09/`, etc.
-- Um arquivo dentro da pasta da feature: `docs/F09-in-video-transcription-search/spec.md`.
-- Um caminho de PRD: `@docs/PRD.md`, `docs/PRD.md`, `@PRD.md`.
+- Uma pasta de feature: `apps/engrena-code/docs/F09-in-video-transcription-search/`, `./F09/`, etc.
+- Um arquivo dentro da pasta da feature: `apps/engrena-code/docs/F09-in-video-transcription-search/spec.md`.
+- Um caminho de PRD: `@apps/engrena-code/docs/PRD.md`, `apps/engrena-code/docs/PRD.md`, `@PRD.md`.
 - Instruções extras em linguagem natural em qualquer lugar (ver **Overrides**).
 
 A skill só precisa localizar dois arquivos e uma fonte de referência:
 
-1. **`spec.md` e `plan.md`** da feature-alvo. Se a entrada aponta para uma pasta, olhe dentro. Se aponta para um arquivo, olhe na pasta pai. Se aponta para um ID ou nome, busque em `docs/` por uma pasta que bata com `<ID>-*` ou cujo nome em kebab-case corresponda ao nome dado.
-2. **O PRD**. Se passado explicitamente, use-o. Caso contrário, auto-descubra: `docs/PRD.md` → `PRD.md` → qualquer `*.md` de topo cujo conteúdo pareça uma especificação de produto. Se nenhum for encontrado, aborte. Se vários forem plausíveis, aborte e liste-os. Neste repositório espera-se que `docs/PRD.md` já exista.
+1. **`spec.md` e `plan.md`** da feature-alvo. Se a entrada aponta para uma pasta, olhe dentro. Se aponta para um arquivo, olhe na pasta pai. Se aponta para um ID ou nome, busque em `apps/engrena-code/docs/` por uma pasta que bata com `<ID>-*` ou cujo nome em kebab-case corresponda ao nome dado.
+2. **O PRD**. Se passado explicitamente, use-o. Caso contrário, auto-descubra: `apps/engrena-code/docs/PRD.md` → `PRD.md` → qualquer `*.md` de topo cujo conteúdo pareça uma especificação de produto. Se nenhum for encontrado, aborte. Se vários forem plausíveis, aborte e liste-os. Neste repositório espera-se que `apps/engrena-code/docs/PRD.md` já exista.
 
 ## SAÍDA
 
 - **Commits**: um Conventional Commit por fase do `plan.md`, no branch atual (sem criar branch, sem trocar de branch).
-- **`docs/PROGRESS.md` + checkboxes do PRD**: atualizados no Passo 6.6, só quando a execução fecha com status `success` e o arquivo existe no repositório-alvo.
+- **`apps/engrena-code/docs/PROGRESS.md` + checkboxes do PRD**: atualizados no Passo 6.6, só quando a execução fecha com status `success` e o arquivo existe no repositório-alvo.
 - **Relatório no chat** ao final: checklist de critérios de aceitação da feature marcada ✓ / ✗ / — contra os resultados reais dos testes, mais seções para Desvios, Soft-fails, Falhas pré-existentes, Overrides aplicados, Overrides ignorados e Status das fases.
 
-Nenhum outro arquivo é escrito além das mudanças de código, `docs/PROGRESS.md`/PRD no fechamento (Passo 6.6) e dos objetos de commit. O relatório no chat é efêmero.
+Nenhum outro arquivo é escrito além das mudanças de código, `apps/engrena-code/docs/PROGRESS.md`/PRD no fechamento (Passo 6.6) e dos objetos de commit. O relatório no chat é efêmero.
 
 ---
 
@@ -47,8 +47,8 @@ Nenhum outro arquivo é escrito além das mudanças de código, `docs/PROGRESS.m
 
 Parseie a entrada inteira como formato livre. Extraia:
 
-- **Referência da feature**: o primeiro token que resolve para uma pasta contendo `spec.md` + `plan.md`. Matches: padrões de ID como `F\d+`, caminhos de pasta, caminhos de arquivo (pasta pai = alvo), nomes de feature (kebab-case + fuzzy match com nomes de pasta em `docs/`).
-- **Referência do PRD**: um caminho `*.md` explícito prefixado com `@` ou escrito literalmente; se parecer um PRD (conteúdo de especificação de produto no topo), aceite. Caso contrário auto-descubra (`docs/PRD.md` neste repositório).
+- **Referência da feature**: o primeiro token que resolve para uma pasta contendo `spec.md` + `plan.md`. Matches: padrões de ID como `F\d+`, caminhos de pasta, caminhos de arquivo (pasta pai = alvo), nomes de feature (kebab-case + fuzzy match com nomes de pasta em `apps/engrena-code/docs/`).
+- **Referência do PRD**: um caminho `*.md` explícito prefixado com `@` ou escrito literalmente; se parecer um PRD (conteúdo de especificação de produto no topo), aceite. Caso contrário auto-descubra (`apps/engrena-code/docs/PRD.md` neste repositório).
 - **Instruções extras**: qualquer texto restante que não seja caminho/ID/nome — trate como overrides em linguagem natural (Passo 3).
 
 Se a resolução falhar:
@@ -64,7 +64,7 @@ Leia por completo:
 
 - `spec.md` da feature-alvo — Component Overview, Data Model, API Contracts, Business Rules, UX Flows, Error Handling, Testing Strategy, Assumptions/Decisions.
 - `plan.md` — fases e passos em ordem.
-- **`ui.md` e `copy.md` da feature-alvo, se existirem** (`docs/<feature-id>-*/ui.md`, `docs/<feature-id>-*/copy.md`). Quando presentes, são a fonte de verdade para qualquer fase que toque UI: `ui.md` traz anatomia, ordem de layout, tokens/classes, estados e o checklist de aceite visual; `copy.md` traz as strings literais por id. Leia ambos antes de implementar qualquer fase que renderize UI. Se não existirem para uma feature que claramente tem UI (conforme UX Flows do spec.md), prossiga mas registre em Soft-fails — implementar UI sem `ui.md`/`copy.md` arrisca a lacuna de fidelidade visual que este projeto guarda explicitamente (ver `CLAUDE.md` → "Design · Processo").
+- **`ui.md` e `copy.md` da feature-alvo, se existirem** (`apps/engrena-code/docs/<feature-id>-*/ui.md`, `apps/engrena-code/docs/<feature-id>-*/copy.md`). Quando presentes, são a fonte de verdade para qualquer fase que toque UI: `ui.md` traz anatomia, ordem de layout, tokens/classes, estados e o checklist de aceite visual; `copy.md` traz as strings literais por id. Leia ambos antes de implementar qualquer fase que renderize UI. Se não existirem para uma feature que claramente tem UI (conforme UX Flows do spec.md), prossiga mas registre em Soft-fails — implementar UI sem `ui.md`/`copy.md` arrisca a lacuna de fidelidade visual que este projeto guarda explicitamente (ver `CLAUDE.md` → "Design · Processo").
 - **O conteúdo de critérios de aceitação do PRD para esta feature** — localize semanticamente, não por número de seção. Cabeçalhos típicos: "Acceptance Criteria", "Critérios de Aceitação", "AC". Forma típica: lista de checkbox `- [ ]` escopada à feature (por ID ou nome). Localize também qualquer checklist cross-feature/integração que referencie esta feature. NÃO assuma número fixo de seção — encontre o conteúdo pela forma.
 
 Se o PRD não tiver conteúdo de critérios de aceitação para esta feature, prossiga com checklist AC vazia e anote em soft-fails.
@@ -92,7 +92,7 @@ Instruções ambíguas ou contraditórias → o default vence; logado em "Overri
 
 ### Passo 4: Pré-voo de Dependências
 
-Localize o conteúdo de dependências no PRD semanticamente (cabeçalhos típicos: "Dependency Graph", "Dependencies", "Grafo de Dependências"; forma típica: tabela ou lista pareando cada feature com seus pré-requisitos). Para cada dependência listada da feature-alvo, verifique se ela aparece implementada no codebase (procure pelos arquivos característicos descritos no Component Overview do `spec.md` dessa dependência, ou marcadores óbvios em nível de fonte; cruze com `docs/PROGRESS.md` quando presente).
+Localize o conteúdo de dependências no PRD semanticamente (cabeçalhos típicos: "Dependency Graph", "Dependencies", "Grafo de Dependências"; forma típica: tabela ou lista pareando cada feature com seus pré-requisitos). Para cada dependência listada da feature-alvo, verifique se ela aparece implementada no codebase (procure pelos arquivos característicos descritos no Component Overview do `spec.md` dessa dependência, ou marcadores óbvios em nível de fonte; cruze com `apps/engrena-code/docs/PROGRESS.md` quando presente).
 
 - Qualquer dependência faltando → **aborte antes de qualquer implementação**. Reporte: "F<alvo> depende de F<N>, que ainda não está implementada."
 - Todas as dependências presentes → prossiga para o Passo 5.
@@ -211,19 +211,19 @@ Nunca reporte `success` quando qualquer das checagens acima tiver falha não res
 
 **6.6 — Fechar docs de progresso (só se status = `success`)**
 
-`docs/PROGRESS.md`, quando existir, é a fonte autoritativa de status real do repositório (ver `CLAUDE.md` → "Adaptação ao EngrenaCode") e sua própria nota de topo instrui: "Atualizar ao fechar cada feature" + "Ao fechar uma feature: marcar `[x]` lá [no PRD] **e** atualizar a tabela acima na mesma mudança." Os Passos 1–6 desta skill *leem* `PROGRESS.md` (Passo 4) mas nunca o escrevem — sem este passo o arquivo fica sistematicamente desatualizado mesmo em execuções `success`.
+`apps/engrena-code/docs/PROGRESS.md`, quando existir, é a fonte autoritativa de status real do repositório (ver `CLAUDE.md` → "Adaptação ao EngrenaCode") e sua própria nota de topo instrui: "Atualizar ao fechar cada feature" + "Ao fechar uma feature: marcar `[x]` lá [no PRD] **e** atualizar a tabela acima na mesma mudança." Os Passos 1–6 desta skill *leem* `PROGRESS.md` (Passo 4) mas nunca o escrevem — sem este passo o arquivo fica sistematicamente desatualizado mesmo em execuções `success`.
 
 Quando o Passo 6.5 resultar em `success`:
 
-- Atualize a linha da feita-feature na tabela "Resumo por feature" de `docs/PROGRESS.md` (status, evidência, próximo passo).
-- Reconcilie a tabela de Ondas de `docs/PROGRESS.md` contra as Ondas de Execução do PRD §8 — não basta editar "a linha da onda correspondente, se existir". Localize a onda desta feature no PRD e:
+- Atualize a linha da feita-feature na tabela "Resumo por feature" de `apps/engrena-code/docs/PROGRESS.md` (status, evidência, próximo passo).
+- Reconcilie a tabela de Ondas de `apps/engrena-code/docs/PROGRESS.md` contra as Ondas de Execução do PRD §8 — não basta editar "a linha da onda correspondente, se existir". Localize a onda desta feature no PRD e:
   - Se a feature não aparece na linha daquela onda no `PROGRESS.md`, **adicione-a** — a tabela deve listar toda feature do PRD, pendente ou feita, e nunca deixar backlog vivendo só em texto narrativo ("próxima frente de produto", release gate).
   - Reavalie o estado da onda inteira: com qualquer feature dela ainda pendente, a onda é **Parcial**, nunca "Completa", por mais que esta execução tenha fechado a sua.
   - Mantenha o sinal de paralelismo da linha: se as features daquela onda podem ser construídas em paralelo e qual serialização se aplica (fundação, ou acoplamento real de arquivos que você observou nesta execução).
   - Se a divergência for maior que a sua feature (várias features do PRD ausentes da tabela), corrija a tabela inteira nesta mesma passada e cite isso em `Deviations`.
 - No PRD, marque `[x]` nos itens de "Critérios de Aceitação" desta feature que passaram na re-checagem do Passo 6.3 (não marque os que ficaram `—` sem teste, nem os cobertos só por soft-fail/smoke pulado).
-- Faça stage só de `docs/PROGRESS.md` + `docs/PRD.md` e inclua num commit `docs(F<ID>): ...` separado dos commits de fase (ou junto do commit da última fase, se nenhum override desabilitou commits) — nunca misture com commits de código de outra fase.
-- Se `docs/PROGRESS.md` não existir neste repositório, pule silenciosamente (não é universal a todo projeto-alvo desta skill).
+- Faça stage só de `apps/engrena-code/docs/PROGRESS.md` + `apps/engrena-code/docs/PRD.md` e inclua num commit `docs(F<ID>): ...` separado dos commits de fase (ou junto do commit da última fase, se nenhum override desabilitou commits) — nunca misture com commits de código de outra fase.
+- Se `apps/engrena-code/docs/PROGRESS.md` não existir neste repositório, pule silenciosamente (não é universal a todo projeto-alvo desta skill).
 
 Quando o status for `completed with regressions`, `incomplete` ou `aborted at phase <N>`, NÃO toque em `PROGRESS.md`/PRD — deixe-os refletindo o último estado fechado real.
 
@@ -297,7 +297,7 @@ Se abortado, o relatório ainda lista o que as fases commitadas alcançaram e ma
 - Para fases que tocam UI, verificar anatomia/tokens contra `ui.md` e strings literais contra `copy.md` antes de declarar feito.
 - Executar o Passo 6 (Verificação Final) por completo antes de reportar — re-run da suite completa, walk-through do Component Overview, re-checagem de AC, smoke check de ambiente.
 - Derivar o status final exclusivamente do Passo 6.5. Reportar `success` só quando toda checagem do Passo 6 estiver verde.
-- Quando o status final for `success` e `docs/PROGRESS.md` existir no repositório-alvo, executar o Passo 6.6 (atualizar a tabela de progresso + `[x]` no PRD) antes do relatório — nunca deixar o fechamento só no chat.
+- Quando o status final for `success` e `apps/engrena-code/docs/PROGRESS.md` existir no repositório-alvo, executar o Passo 6.6 (atualizar a tabela de progresso + `[x]` no PRD) antes do relatório — nunca deixar o fechamento só no chat.
 - No Passo 6.6, reconciliar a tabela de Ondas contra o PRD §8: garantir que a feature fechada está listada na onda dela, que ondas com pendências não figuram como "Completa", e que cada linha declara o paralelismo.
 - Comunicar com o usuário em português do Brasil.
 
@@ -314,7 +314,7 @@ Se abortado, o relatório ainda lista o que as fases commitadas alcançaram e ma
 - Re-rodar fases já commitadas no branch (detectadas por match de mensagem de commit).
 - Inserir stubs de serviço em módulos de produção — stubs só são permitidos em arquivos de teste.
 - Explorar o codebase de antemão com varredura ampla — ler arquivos sob demanda conforme as fases exigirem.
-- Marcar uma onda como "Completa" em `docs/PROGRESS.md` enquanto o PRD §8 listar nela qualquer feature ainda pendente, nem deixar a feature fechada fora da linha de onda dela.
+- Marcar uma onda como "Completa" em `apps/engrena-code/docs/PROGRESS.md` enquanto o PRD §8 listar nela qualquer feature ainda pendente, nem deixar a feature fechada fora da linha de onda dela.
 - Declarar uma fase completa só com base em "eu escrevi os arquivos". O checklist de conclusão em 5.2 deve valer.
 - Inventar copy ou layout para uma fase de UI quando `ui.md`/`copy.md` existem e dizem o contrário.
 - Commitar com mensagem genérica e sem inferência `feat(F<ID>): <phase name>` — sempre inferir o tipo real de Conventional Commits primeiro.
@@ -367,7 +367,7 @@ Overrides não reconhecidos ou contraditórios: o default vence; logados em `Ove
 
 **PRD sem conteúdo de dependências**: pule o Passo 4 e prossiga.
 
-**`docs/PROGRESS.md` com tabela de Ondas divergente do PRD §8** (features do PRD ausentes da tabela, onda marcada "Completa" com pendências, backlog só em texto narrativo): corrija a tabela no Passo 6.6 usando o PRD §8 como fonte de verdade da composição das ondas e a tabela "Resumo por feature" como fonte do status. Registre a correção em `Deviations`. Não abra um commit separado só para isso — vai junto do commit `docs(F<ID>): ...` de fechamento.
+**`apps/engrena-code/docs/PROGRESS.md` com tabela de Ondas divergente do PRD §8** (features do PRD ausentes da tabela, onda marcada "Completa" com pendências, backlog só em texto narrativo): corrija a tabela no Passo 6.6 usando o PRD §8 como fonte de verdade da composição das ondas e a tabela "Resumo por feature" como fonte do status. Registre a correção em `Deviations`. Não abra um commit separado só para isso — vai junto do commit `docs(F<ID>): ...` de fechamento.
 
 **Estilo de mensagem de commit inconsistente no histórico recente**: aplique Conventional Commits puro — infira o tipo do conteúdo real da fase e escolha o scope pelas regras em 5.4 — em vez de defaultar para um genérico `feat(F<ID>): <phase name>`.
 

@@ -2,15 +2,16 @@
 
 Camada acoplada a este repo. Levando a skill para outro projeto: reescreva só este arquivo.
 
-Fonte: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `SQLite`).
+Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-code/docs/AUDIT-CODE-REVIEW.md) (Stack `SQLite`).
 
 ## Mapa do repo
 
 | Conceito | Neste repo |
 |----------|------------|
-| Client | `src/services/db/client.ts` (`getDb` / `closeDb`) |
-| Migrations | `src/services/db/migrations/NNN_<assunto>.ts` |
-| Repositories | `src/services/db/repositories/<entity-plural>.ts` |
+| Core | `packages/db-core` (`createDb` / `runMigrations`) |
+| Client (Code) | `apps/engrena-code/src/services/db/client.ts` (`getDb` / `closeDb` + `engrenacode.db`) |
+| Migrations | `apps/engrena-code/src/services/db/migrations/NNN_<assunto>.ts` (lista injetada no core) |
+| Repositories | `apps/engrena-code/src/services/db/repositories/<entity-plural>.ts` |
 | Dívida conhecida | prefixo `001_` duplicado (`001_rules.ts` e `001_subagents.ts`) — não repita |
 
 ## Precedentes vivos

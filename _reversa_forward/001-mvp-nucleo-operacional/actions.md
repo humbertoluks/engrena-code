@@ -1,6 +1,6 @@
 # Actions: 001-mvp-nucleo-operacional
 
-> **Tracking EngrenaCode:** progresso real do MVP está em [`docs/PROGRESS.md`](../../docs/PROGRESS.md). Esta tabela Reversa ficou em parada non-destructive e **não** é a fonte de status do app novo.
+> **Tracking EngrenaCode:** progresso real do MVP está em [`apps/engrena-code/docs/PROGRESS.md`](../../apps/engrena-code/docs/PROGRESS.md). Esta tabela Reversa ficou em parada non-destructive e **não** é a fonte de status do app novo.
 
 > Total de ações: 18
 > Paralelizáveis (`[//]`): 6

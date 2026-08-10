@@ -2,19 +2,19 @@
 
 Camada acoplada a este repo. Levando a skill para outro projeto: reescreva só este arquivo.
 
-Fonte: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `Vitest`) + `CLAUDE.md` → "TESTE".
+Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-code/docs/AUDIT-CODE-REVIEW.md) (Stack `Vitest`) + `CLAUDE.md` → "TESTE".
 
 ## Mapa do repo
 
 | Conceito | Neste repo |
 |----------|------------|
-| Runner | Vitest; `vitest.config.ts` inclui só `src/**/*.test.ts`, `environment: node` |
-| Env de isolamento | `ENGRENACODE_USER_DATA` = `mkdtempSync(join(tmpdir(), 'engrenacode_claude_<slug>_'))` |
-| Precedente HTTP fake | `rules-handler.test.ts` |
-| Sanitizer tests | `process-error.test.ts` (um caso por scheme F24) |
-| Smoke evidence | `docs/F<ID>-*/smoke-results.md` |
+| Runner | Vitest; `apps/engrena-code/vitest.config.ts` inclui só `src/**/*.test.ts`, `environment: node` |
+| Env de isolamento | `ENGRENACODE_USER_DATA` = `mkdtempSync(join(tmpdir(), 'engrenacode_claude_<slug>_'))` (Plan: `ENGRENAPLAN_USER_DATA`) |
+| Precedente HTTP fake | `apps/engrena-code/src/services/http/rules-handler.test.ts` |
+| Sanitizer tests | `apps/engrena-code/src/services/process-error.test.ts` (um caso por scheme F24) |
+| Smoke evidence | `apps/engrena-code/docs/F<ID>-*/smoke-results.md` |
 | Artefatos smoke | `.playwright-cli/` (gitignored) |
-| Comando unit | `pnpm test` |
+| Comando unit | `pnpm --filter engrena-code test` (raiz: `pnpm test`) |
 
 ## Pré-condições de smoke real (este repo)
 

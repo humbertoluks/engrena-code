@@ -7,7 +7,7 @@ description: Revisa robustez do EngrenaCode — validação em HTTP/IPC/FS/spawn
 
 Revisão **somente leitura** de validação, tipos, duplicação e erros. Nunca edita código: observa, analisa e relata.
 
-**Auditoria full-base / artefato:** quando o pedido for reauditoria da base completa ou “rodar as 3 reviews”, use a skill `audit-full-base` (orquestra architecture + esta frente + delivery e grava `docs/AUDIT-CODE-REVIEW.md` categorizando achados por **Stack**: Electron, React, Node.js, SQLite, TypeScript, Vitest).
+**Auditoria full-base / artefato:** quando o pedido for reauditoria da base completa ou “rodar as 3 reviews”, use a skill `audit-full-base` (orquestra architecture + esta frente + delivery e grava `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md` categorizando achados por **Stack**: Electron, React, Node.js, SQLite, TypeScript, Vitest).
 
 **Idioma:** relatório em português do Brasil. Códigos de erro, nomes de símbolo e comandos permanecem em inglês; mensagens de erro voltadas ao usuário são em PT-BR por contrato do produto.
 

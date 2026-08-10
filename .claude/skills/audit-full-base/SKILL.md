@@ -3,7 +3,7 @@ name: audit-full-base
 description: >-
   Orquestra auditoria full-base do EngrenaCode: review-architecture,
   review-robustness e review-delivery em sequência; grava
-  docs/AUDIT-CODE-REVIEW.md; sincroniza Coding Experts (.claude/skills/coding-*).
+  apps/engrena-code/docs/AUDIT-CODE-REVIEW.md; sincroniza Coding Experts (.claude/skills/coding-*).
   Use com /audit-full-base, reauditoria, “rodar as 3 reviews”, auditoria da base,
   escopo src/, ou quando o diff das reviews individuais estiver vazio.
 ---
@@ -18,7 +18,7 @@ Coordena as 3 reviews, atualiza o artefato **e** as Coding Experts. **Não** edi
 
 - Reauditoria / “3 reviews” / auditoria da base / `/audit-full-base`.
 - Escopo = `src/` completo (não só `git diff` do branch).
-- Precisa de `docs/AUDIT-CODE-REVIEW.md` + coding experts alinhadas.
+- Precisa de `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md` + coding experts alinhadas.
 
 Diff/PR/feature isolada → use `review-architecture` | `review-robustness` | `review-delivery` direto.
 
@@ -29,7 +29,7 @@ coordenador
   → review-architecture   (leitura, contexto limpo)
   → review-robustness     (leitura; resumo curto dos 🔴 de arch)
   → review-delivery       (leitura; achados 1–2; pode pnpm test)
-  → consolida docs/AUDIT-CODE-REVIEW.md
+  → consolida apps/engrena-code/docs/AUDIT-CODE-REVIEW.md
   → sincroniza .claude/skills/coding-*
 ```
 
@@ -78,14 +78,14 @@ Cada Coding Expert tem três camadas:
 
 Escopo de escrita do coordenador:
 
-- Pode: `docs/AUDIT-CODE-REVIEW.md`, `coding-*/project.md`, ajuste pontual em `review-*` se o mapa do repo mudou; `coding-*/SKILL.md` só se a tabela de slugs precisar refletir regra portável nova.
+- Pode: `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`, `coding-*/project.md`, ajuste pontual em `review-*` se o mapa do repo mudou; `coding-*/SKILL.md` só se a tabela de slugs precisar refletir regra portável nova.
 - Não pode: `src/**`, `PROGRESS.md`, `PRD.md`, `coding-*/rules/**` (salvo manutenção explícita da skill), commit/PR (salvo pedido explícito).
 - Sem delta numa Stack → não reescreva `project.md` por estética.
 - Relato final lista quais `coding-*/project.md` mudaram (ou “nenhuma”).
 
 ## Artefato
 
-**Path:** `docs/AUDIT-CODE-REVIEW.md`
+**Path:** `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`
 
 ### Estrutura
 

@@ -1,6 +1,6 @@
 # Protocolo de remediação e template de regra
 
-Lido pela skill `audit-full-base` ao gravar `docs/AUDIT-CODE-REVIEW.md`.
+Lido pela skill `audit-full-base` ao gravar `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`.
 Texto canônico: copie para o artefato; não duplique o corpo inteiro de volta no `SKILL.md`.
 
 ---

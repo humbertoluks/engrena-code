@@ -2,18 +2,18 @@
 
 Camada acoplada a este repo. Levando a skill para outro projeto: reescreva só este arquivo.
 
-Fonte: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `Electron`) + `CLAUDE.md`.
+Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-code/docs/AUDIT-CODE-REVIEW.md) (Stack `Electron`) + `CLAUDE.md`.
 
 ## Mapa do repo
 
 | Conceito | Neste repo |
 |----------|------------|
-| Main | `src/main/index.ts` (ESM + `__dirname` via `fileURLToPath`) |
-| Preload | `src/preload/index.ts` → `preload.cjs` |
-| Prefixos IPC | `engrenacode:<domínio>:<ação>` |
-| Grupos do bridge | `vault`, `dialog`, `shell`, `terminal` |
-| PTY env | `src/services/terminal/pty-env.ts` |
-| Dev URL | `process.env.VITE_DEV_SERVER_URL` (`.env.local`); unlock loopback reserva `5174` |
+| Main | `apps/engrena-code/src/main/index.ts` (ESM + `__dirname` via `fileURLToPath`) |
+| Preload | `apps/engrena-code/src/preload/index.ts` → `preload.cjs` |
+| Prefixos IPC | Code `engrenacode:<domínio>:<ação>`; Plan `engrenaplan:vault:*` |
+| Grupos do bridge | Code: `vault`, `dialog`, `shell`, `terminal` |
+| PTY env | `apps/engrena-code/src/services/terminal/pty-env.ts` |
+| Dev URL | `VITE_DEV_SERVER_URL` (`.env.local`); unlock Code `5174` / Plan `5184` |
 | Produção | `loadFile(path.join(__dirname, '../dist/index.html'))` |
 
 ## Precedentes vivos

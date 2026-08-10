@@ -2,23 +2,23 @@
 
 Camada acoplada a este repo. Levando a skill para outro projeto: reescreva só este arquivo.
 
-Fonte de verdade de achados: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `React`). A lista de abertos abaixo é **espelho** da última passagem — releia o código antes de agir.
+Fonte de verdade de achados: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-code/docs/AUDIT-CODE-REVIEW.md) (Stack `React`). A lista de abertos abaixo é **espelho** da última passagem — releia o código antes de agir.
 
 ## Mapa do repo
 
 | Conceito da regra | Neste repo |
 |-------------------|------------|
-| Cliente HTTP único | `src/renderer/services/api-client.ts` (`apiRequest`) |
-| Base URL loopback | `http://127.0.0.1:5174` |
-| Header de sessão | `x-engrenacode-session` |
+| Cliente HTTP único | `apps/engrena-code/src/renderer/services/api-client.ts` (`apiRequest`) |
+| Base URL loopback | Code `http://127.0.0.1:5174` (Plan: `5184`) |
+| Header de sessão | `x-engrenacode-session` (Plan: `x-engrenaplan-session`) |
 | Token em storage | `localStorage` chave `sessionToken` |
-| Tema | `localStorage` chave `engrenacode:theme` (`light` \| `dark` \| `system`) |
+| Tema | `configureThemeStorageKey` + `engrenacode:theme` (`light` \| `dark` \| `system`) |
 | Unlock público (exceção de fetch) | `LoginScreen.tsx` → `POST /vault/unlock` |
-| Validadores puros compartilhados | `src/services/vault/provider-keys.ts`, `src/services/http/github-token.ts` |
-| Regra extraída | `src/renderer/**/*.logic.ts` + `*.logic.test.ts` |
-| Spec de tela | `docs/F<ID>-*/ui.md` + `copy.md` |
-| Design tokens | Tailwind 4 `@theme inline`; hexes em `:root` / `.dark` |
-| Marca atual | `EngrenaCode` / `engrenacode` |
+| Validadores puros compartilhados | `apps/engrena-code/src/services/vault/provider-keys.ts`, `.../http/github-token.ts` |
+| Regra extraída | `apps/engrena-code/src/renderer/**/*.logic.ts` + `*.logic.test.ts` |
+| Spec de tela | `apps/engrena-code/docs/F<ID>-*/ui.md` + `copy.md` |
+| Design tokens | `@engrena/ui` (`:root` / `.dark` / `@theme inline`) |
+| Marca atual | `EngrenaCode` / `engrenacode` (+ `EngrenaPlan` no app Plan) |
 | Marca legada (ban) | `LionCode`, `lioncode`, `LionClaw`, `LionLabs`, `LionSprite` |
 
 ## Precedentes vivos

@@ -3,7 +3,7 @@
 ## Relato ao usuário (fim da passagem)
 
 ```
-Auditoria full-base — docs/AUDIT-CODE-REVIEW.md
+Auditoria full-base — apps/engrena-code/docs/AUDIT-CODE-REVIEW.md
 Veredito: bloqueado
 Abertos: 1 🔴 / 9 🟡 · Corrigidos (tipos): 32
 Top: D07 smoke ausente em features com UI Feito

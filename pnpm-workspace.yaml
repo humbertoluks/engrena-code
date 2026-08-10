@@ -1,5 +1,16 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
 allowBuilds:
   better-sqlite3: false
   electron-winstaller: false
   esbuild: true
   node-pty: true
+
+# vite-plugin-electron imports `vite` without declaring a peer; without this,
+# pnpm isolation breaks Electron+Vite `dev` (ERR_MODULE_NOT_FOUND for vite).
+packageExtensions:
+  vite-plugin-electron:
+    peerDependencies:
+      vite: '*'

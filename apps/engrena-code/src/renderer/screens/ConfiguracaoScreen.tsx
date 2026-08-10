@@ -1,0 +1,1200 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
+import {
+  Badge,
+  ButtonPrimary,
+  ButtonSecondary,
+  Card,
+  CardHeader,
+  Field,
+  InlineFeedback,
+  SegmentedControl,
+  StatusDot,
+} from '@engrena/ui'
+import type { DotVariant, FeedbackVariant } from '@engrena/ui'
+import {
+  configuracaoService,
+  type CLIStatusData,
+  type ConfigStatus,
+  type ProviderKeyName,
+  type VcsOauthStatus,
+  type VcsProviderStatus,
+  type VoiceKeyName,
+} from '../services/configuracao-service'
+import {
+  validateClaudeKeyLocal,
+  validateCodexKeyLocal,
+  validateMinimaxKeyLocal,
+  validateGlmKeyLocal,
+  validateGrokKeyLocal,
+  validateGithubTokenLocal,
+  validateOpenaiKeyLocal,
+  validateGroqKeyLocal,
+} from './configuracaoScreen.logic'
+import { VcsOauthCard } from '../components/config/VcsOauthCard'
+
+// ── Copy ─────────────────────────────────────────────────────────────────────
+
+const COPY = {
+  pageTitle: 'Configuração',
+  pageSubtitle:
+    'Credenciais salvas localmente no userData do app (filesystem). Nenhuma chave sai deste dispositivo.',
+
+  claudeTitle: 'Autenticação do Claude',
+  claudeSubtitle:
+    'Escolha como o Claude autentica. Na assinatura, sua key salva fica como fallback inerte e nunca cobra a API sozinha; em API key, a key do cofre passa a cobrar por uso.',
+  claudeTestCta: 'Testar conexão',
+  claudeTestLoading: 'Testando...',
+  claudeStatusOk: '✓ Usando a assinatura (Claude Code) — sem cobrança de API.',
+  claudeStatusMissing:
+    'Assinatura selecionada, mas não detectei login do Claude Code. Rode `claude` no terminal para autenticar.',
+  claudeStatusApiKeyWarn: '⚠ Usando API key — isto cobra por uso da API Anthropic.',
+  claudeApiKeyDisabledHint: 'Salve uma key Claude abaixo para habilitar.',
+  claudeStatusApiKeyNoKey: 'Nenhuma key salva: os turnos vão falhar. Volte para Assinatura ou salve a key abaixo.',
+  claudeTestError: 'Não foi possível testar a conexão agora.',
+
+  clisTitle: 'CLIs de assinatura',
+  clisSubtitle:
+    'Claude, Codex e Kimi usam a assinatura dos respectivos CLIs — sem API key. O app herda a sessão autenticada.',
+  clisTestCta: 'Testar conexões',
+  clisTestLoading: 'Testando…',
+  clisHintClaude: 'Rode `claude` (login no primeiro uso) no terminal para autenticar.',
+  clisHintCodex: 'Rode `codex login` no terminal para autenticar.',
+  clisHintKimi: 'Rode `kimi login` no terminal para autenticar.',
+  clisHintNotInstalled: (loginCmd: string) =>
+    `Instale o CLI e rode \`${loginCmd}\` para autenticar.`,
+  clisNotInstalled: 'não instalado',
+  clisInstalled: 'instalado',
+  clisLoggedIn: 'logado (assinatura)',
+  clisNotLoggedIn: 'não logado',
+  clisLoggedInUnknown: 'estado desconhecido — clique em Testar',
+
+  promptTitle: 'System prompt global do harness',
+  promptSubtitle:
+    'Instruções injetadas antes do prompt da thread, em todos os providers. Esvazie e salve para desligar; "Restaurar padrão" volta ao texto do EngrenaCode.',
+  promptSaveCta: 'Salvar prompt global',
+  promptSaveLoading: 'Salvando…',
+  promptRestoreCta: 'Restaurar padrão',
+  promptBadgeDefault: 'Usando o padrão do EngrenaCode.',
+  promptBadgeCustom: 'Customizado.',
+  promptDotActive: 'Ativo',
+  promptDotOff: 'Desligado',
+
+  githubTitle: 'Token do GitHub',
+  githubSubtitle: 'Personal access token usado pelo git flow ao abrir PRs (ou via CLI gh).',
+  githubLabel: 'Personal access token',
+  githubPlaceholder: 'ghp_…',
+  githubHint: 'Escopos recomendados: `repo`, `workflow`.',
+  githubSaveCta: 'Salvar token',
+  githubSaveLoading: 'Salvando...',
+  githubSaveConfirm: 'Salvar este token do GitHub no cofre local?',
+  githubReveal: 'Revelar token',
+  githubHide: 'Ocultar token',
+  vcsGitlabTitle: 'GitLab',
+  vcsBitbucketTitle: 'Bitbucket',
+  vcsAzureTitle: 'Azure DevOps',
+  githubBadgePresent: 'Customizado',
+  githubBadgeEmpty: 'Não configurado',
+
+  keysTitle: 'API keys dos providers',
+  keysSubtitle:
+    'Claude, Codex e Minimax guardam a key no cofre local. Claude só cobra em modo API key (na assinatura a key fica inerte). Codex e Minimax usam a key quando configurada.',
+  keysSaveCta: 'Salvar chaves',
+  keysSaveLoading: 'Salvando...',
+  keysSuccess: 'Chaves salvas localmente (não validadas com o provider).',
+  keysBadgeConfigured: 'configurada',
+  keysBadgeMissing: 'não configurada',
+  keysLabelClaude: 'Claude',
+  keysPlaceholderClaude: 'sk-ant-…',
+  keysLabelCodex: 'Codex',
+  keysPlaceholderCodex: 'sk-codex-…',
+  keysLabelMinimax: 'Minimax',
+  keysPlaceholderMinimax: 'mm-…',
+  keysErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
+  keysErrorGeneric: 'Não foi possível salvar. Tente novamente.',
+  keysReveal: (label: string) => `Revelar ${label}`,
+  keysHide: (label: string) => `Ocultar ${label}`,
+  glmTitle: 'GLM',
+  glmSubtitle: 'Zhipu AI / BigModel — key salva no cofre local, sem CLI/assinatura.',
+  glmPlaceholder: '<id>.<secret>',
+  grokTitle: 'Grok',
+  grokSubtitle: 'xAI — key salva no cofre local, sem CLI/assinatura.',
+  grokPlaceholder: 'xai-…',
+  providerCardSaveCta: 'Salvar chave',
+  providerCardSaveLoading: 'Salvando...',
+  providerCardTestCta: 'Testar conexão',
+  providerCardTestLoading: 'Testando...',
+  providerCardTestError: 'Não foi possível testar a conexão agora.',
+  providerCardSaveError: 'Não foi possível salvar. Tente novamente.',
+
+  voiceTitle: 'Ditado por voz (transcrição)',
+  voiceSubtitle:
+    'Chave da OpenAI ou da Groq para o microfone do composer (Whisper). O áudio nunca sai desta máquina para outro destino.',
+  voiceLabelOpenai: 'OpenAI',
+  voicePlaceholderOpenai: 'sk-…',
+  voiceLabelGroq: 'Groq',
+  voicePlaceholderGroq: 'gsk_…',
+  voiceSaveCta: 'Salvar chaves',
+  voiceSaveLoading: 'Salvando...',
+  voiceSuccess: 'Chaves de transcrição salvas no cofre.',
+  voiceErrorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
+  voiceErrorGeneric: 'Não foi possível salvar. Tente novamente.',
+} as const
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+
+const INPUT_BASE =
+  'w-full rounded-sm border border-border bg-surface-2 px-md py-sm text-sm text-fg font-mono transition-colors placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30'
+
+const TEXTAREA_BASE =
+  'w-full rounded-sm border border-border bg-surface-2 px-md py-sm text-sm text-fg font-mono leading-relaxed transition-colors placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 resize-y disabled:opacity-50'
+
+// ── Sub-components (defined outside parent to satisfy rerender-no-inline-components) ──
+
+interface Feedback {
+  variant: FeedbackVariant
+  message: string
+}
+
+// ── Claude Card ───────────────────────────────────────────────────────────────
+
+interface ClaudeCardProps {
+  mode: 'subscription' | 'api-key'
+  subscriptionOk: boolean
+  hasApiKey: boolean
+  onModeChange: (mode: 'subscription' | 'api-key') => Promise<void>
+  onTest: () => Promise<void>
+  testLoading: boolean
+  feedback: Feedback | null
+}
+
+function claudeModeOptions(hasApiKey: boolean): Array<{ value: string; label: string; disabled?: boolean; disabledTitle?: string }> {
+  return [
+    { value: 'subscription', label: 'Assinatura' },
+    {
+      value: 'api-key',
+      label: 'API key',
+      disabled: !hasApiKey,
+      disabledTitle: hasApiKey ? undefined : COPY.claudeApiKeyDisabledHint,
+    },
+  ]
+}
+
+function claudeDot(mode: 'subscription' | 'api-key', subscriptionOk: boolean): DotVariant {
+  if (mode === 'subscription') return subscriptionOk ? 'ok' : 'warn'
+  return 'warn'
+}
+
+function claudeStatusMessage(mode: 'subscription' | 'api-key', subscriptionOk: boolean): string {
+  if (mode === 'subscription') {
+    return subscriptionOk ? COPY.claudeStatusOk : COPY.claudeStatusMissing
+  }
+  return COPY.claudeStatusApiKeyWarn
+}
+
+function ClaudeCard({
+  mode,
+  subscriptionOk,
+  hasApiKey,
+  onModeChange,
+  onTest,
+  testLoading,
+  feedback,
+}: Readonly<ClaudeCardProps>): ReactElement {
+  const dot = claudeDot(mode, subscriptionOk)
+  const statusMsg = claudeStatusMessage(mode, subscriptionOk)
+  const showNoKeyWarning = mode === 'api-key' && !hasApiKey
+
+  return (
+    <Card>
+      <CardHeader
+        title={COPY.claudeTitle}
+        subtitle={COPY.claudeSubtitle}
+        dot={dot}
+        dotTitle={dot === 'ok' ? 'Autenticado' : 'Não autenticado'}
+      />
+      <div className="flex flex-col gap-md">
+        <SegmentedControl
+          name="Claude auth mode"
+          options={claudeModeOptions(hasApiKey)}
+          value={mode}
+          onChange={(v) => { void onModeChange(v as 'subscription' | 'api-key') }}
+        />
+        <p className={`text-[12.5px] ${dot === 'ok' ? 'text-green' : 'text-amber'}`}>
+          {statusMsg}
+        </p>
+        {showNoKeyWarning ? (
+          <p className="text-[12.5px] text-red">{COPY.claudeStatusApiKeyNoKey}</p>
+        ) : null}
+        <div className="flex items-center gap-md">
+          <ButtonPrimary loading={testLoading} loadingLabel={COPY.claudeTestLoading} onClick={() => { void onTest() }}>
+            {COPY.claudeTestCta}
+          </ButtonPrimary>
+          {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── CLI Row ────────────────────────────────────────────────────────────────────
+
+interface CliRowProps {
+  name: string
+  label: string
+  status: CLIStatusData | null
+  loginHint: string
+  notInstalledHint: string
+}
+
+function cliDot(status: CLIStatusData | null): DotVariant {
+  if (status === null) return 'unknown'
+  if (!status.installed) return 'off'
+  if (status.loggedIn === null) return 'unknown'
+  return status.loggedIn ? 'ok' : 'warn'
+}
+
+function cliStatusLabel(status: CLIStatusData | null): string {
+  if (status === null) return COPY.clisLoggedInUnknown
+  if (!status.installed) return COPY.clisNotInstalled
+  if (status.loggedIn === null) return COPY.clisLoggedInUnknown
+  return status.loggedIn ? COPY.clisLoggedIn : COPY.clisNotLoggedIn
+}
+
+function CliRow({ name, label, status, loginHint, notInstalledHint }: Readonly<CliRowProps>): ReactElement {
+  const dot = cliDot(status)
+  const statusLabel = cliStatusLabel(status)
+  const showLoginHint = status?.installed && status.loggedIn === false
+  const showNotInstalledHint = status !== null && !status.installed
+
+  return (
+    <div className="grid grid-cols-[140px_1fr_auto] items-start gap-sm py-sm">
+      <span className="text-[13.5px] font-medium text-fg">{label}</span>
+      <div className="flex flex-col gap-[2px]">
+        <div className="flex items-center gap-xs">
+          <StatusDot variant={dot} />
+          <span className="text-[12.5px] text-muted">{statusLabel}</span>
+        </div>
+        {status?.path !== undefined ? (
+          <span className="font-mono text-[11.5px] text-muted">{status.path}</span>
+        ) : null}
+        {showLoginHint ? (
+          <span className="text-[11.5px] text-amber">{loginHint}</span>
+        ) : null}
+        {showNotInstalledHint ? (
+          <span className="text-[11.5px] text-muted">{notInstalledHint}</span>
+        ) : null}
+      </div>
+      <span className="text-[11.5px] text-muted" aria-label={`${name} instalado`}>
+        {status?.installed ? COPY.clisInstalled : ''}
+      </span>
+    </div>
+  )
+}
+
+// ── CLIs Card ─────────────────────────────────────────────────────────────────
+
+interface CLIsCardProps {
+  clis: ConfigStatus['clis'] | null
+  onTest: () => Promise<void>
+  testLoading: boolean
+  feedback: Feedback | null
+}
+
+function CLIsCard({ clis, onTest, testLoading, feedback }: Readonly<CLIsCardProps>): ReactElement {
+  return (
+    <Card>
+      <CardHeader title={COPY.clisTitle} subtitle={COPY.clisSubtitle} />
+      <div className="mb-md flex items-center gap-md">
+        <ButtonPrimary loading={testLoading} loadingLabel={COPY.clisTestLoading} onClick={() => { void onTest() }}>
+          {COPY.clisTestCta}
+        </ButtonPrimary>
+        {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+      </div>
+      <div className="divide-y divide-border">
+        <CliRow
+          name="claude"
+          label="Claude"
+          status={clis?.claude ?? null}
+          loginHint={COPY.clisHintClaude}
+          notInstalledHint={COPY.clisHintNotInstalled('claude')}
+        />
+        <CliRow
+          name="codex"
+          label="Codex"
+          status={clis?.codex ?? null}
+          loginHint={COPY.clisHintCodex}
+          notInstalledHint={COPY.clisHintNotInstalled('codex login')}
+        />
+        <CliRow
+          name="kimi"
+          label="Kimi"
+          status={clis?.kimi ?? null}
+          loginHint={COPY.clisHintKimi}
+          notInstalledHint={COPY.clisHintNotInstalled('kimi login')}
+        />
+      </div>
+    </Card>
+  )
+}
+
+// ── Prompt Card ───────────────────────────────────────────────────────────────
+
+interface PromptCardProps {
+  isDefault: boolean
+  isEmpty: boolean
+  serverText: string
+  onSave: (text: string) => Promise<void>
+  onRestore: () => Promise<void>
+  saveLoading: boolean
+  restoreLoading: boolean
+  feedback: Feedback | null
+}
+
+function PromptCard({
+  isDefault,
+  isEmpty,
+  serverText,
+  onSave,
+  onRestore,
+  saveLoading,
+  restoreLoading,
+  feedback,
+}: Readonly<PromptCardProps>): ReactElement {
+  const [draft, setDraft] = useState(serverText)
+  const serverTextRef = useRef(serverText)
+
+  // Sync draft when server state changes (e.g. after restore)
+  useEffect(() => {
+    if (serverText !== serverTextRef.current) {
+      setDraft(serverText)
+      serverTextRef.current = serverText
+    }
+  }, [serverText])
+
+  const isDirty = draft !== serverText
+  const promptDot: DotVariant = isEmpty ? 'off' : 'ok'
+
+  return (
+    <Card>
+      <CardHeader
+        title={COPY.promptTitle}
+        subtitle={COPY.promptSubtitle}
+        dot={promptDot}
+        dotTitle={isEmpty ? COPY.promptDotOff : COPY.promptDotActive}
+      />
+      <div className="flex flex-col gap-md">
+        <textarea
+          rows={14}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={saveLoading || restoreLoading}
+          className={TEXTAREA_BASE}
+          aria-label="System prompt global"
+        />
+        <div className="flex items-center gap-xs">
+          <span className="rounded-sm border border-border bg-surface-2 px-sm py-[3px] font-mono text-[11.5px] text-muted">
+            {isDefault ? COPY.promptBadgeDefault : COPY.promptBadgeCustom}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-sm">
+          <ButtonPrimary
+            loading={saveLoading}
+            loadingLabel={COPY.promptSaveLoading}
+            disabled={!isDirty}
+            onClick={() => { void onSave(draft) }}
+          >
+            {COPY.promptSaveCta}
+          </ButtonPrimary>
+          <ButtonSecondary
+            loading={restoreLoading}
+            disabled={isDefault || saveLoading}
+            title={isDefault ? COPY.promptBadgeDefault : 'Descarta o texto customizado e volta ao padrão'}
+            onClick={() => { void onRestore() }}
+          >
+            {COPY.promptRestoreCta}
+          </ButtonSecondary>
+          {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── Keys Card ─────────────────────────────────────────────────────────────────
+
+interface KeyRowState {
+  draft: string
+  revealed: boolean
+  error: string | null
+}
+
+function emptyKeyRow(): KeyRowState {
+  return { draft: '', revealed: false, error: null }
+}
+
+/** Subconjunto de `ProviderKeyName` que ainda vive em `KeysCard` (save em lote) — GLM/Grok ganharam
+ * cards standalone com "Testar conexão" próprio (F23 spec §3.2), fora deste componente. */
+type KeysCardProviderName = 'claude' | 'codex' | 'minimax'
+
+interface KeyRowDef {
+  name: KeysCardProviderName
+  label: string
+  placeholder: string
+  validate: (v: string) => string | null
+}
+
+const KEY_ROWS: KeyRowDef[] = [
+  { name: 'claude', label: COPY.keysLabelClaude, placeholder: COPY.keysPlaceholderClaude, validate: validateClaudeKeyLocal },
+  { name: 'codex', label: COPY.keysLabelCodex, placeholder: COPY.keysPlaceholderCodex, validate: validateCodexKeyLocal },
+  { name: 'minimax', label: COPY.keysLabelMinimax, placeholder: COPY.keysPlaceholderMinimax, validate: validateMinimaxKeyLocal },
+]
+
+interface KeysCardProps {
+  keysStatus: ConfigStatus['keys'] | null
+  onSave: (fields: Partial<Record<KeysCardProviderName, string>>) => Promise<void>
+  saveLoading: boolean
+  feedback: Feedback | null
+}
+
+function KeysCard({ keysStatus, onSave, saveLoading, feedback }: Readonly<KeysCardProps>): ReactElement {
+  const [rows, setRows] = useState<Record<KeysCardProviderName, KeyRowState>>({
+    claude: emptyKeyRow(),
+    codex: emptyKeyRow(),
+    minimax: emptyKeyRow(),
+  })
+
+  const updateDraft = useCallback((name: KeysCardProviderName, value: string): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], draft: value, error: null } }))
+  }, [])
+
+  const toggleReveal = useCallback((name: KeysCardProviderName): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], revealed: !prev[name].revealed } }))
+  }, [])
+
+  const handleSave = useCallback((): void => {
+    const errors: Partial<Record<KeysCardProviderName, string>> = {}
+    const fields: Partial<Record<KeysCardProviderName, string>> = {}
+
+    for (const row of KEY_ROWS) {
+      const draft = rows[row.name].draft
+      const err = row.validate(draft)
+      if (err !== null) {
+        errors[row.name] = err
+        continue
+      }
+      if (draft !== '') fields[row.name] = draft
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of Object.keys(errors) as KeysCardProviderName[]) {
+          next[name] = { ...next[name], error: errors[name] ?? null }
+        }
+        return next
+      })
+      return
+    }
+
+    void onSave(fields)
+  }, [rows, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={COPY.keysTitle} subtitle={COPY.keysSubtitle} />
+      <div className="divide-y divide-border">
+        {KEY_ROWS.map((row) => {
+          const state = rows[row.name]
+          const configured = keysStatus?.[row.name] ?? false
+          return (
+            <div
+              key={row.name}
+              className="grid grid-cols-1 items-start gap-sm py-sm min-[720px]:grid-cols-[140px_1fr_auto]"
+            >
+              <span className="text-[13.5px] font-medium text-fg">{row.label}</span>
+              <Field
+                id={`key-${row.name}`}
+                ariaLabel={row.label}
+                value={state.draft}
+                onChange={(v) => updateDraft(row.name, v)}
+                placeholder={configured ? '••••••••••••••••' : row.placeholder}
+                revealed={state.revealed}
+                onToggleReveal={() => toggleReveal(row.name)}
+                revealLabel={COPY.keysReveal(row.label)}
+                hideLabel={COPY.keysHide(row.label)}
+                error={state.error}
+              />
+              <Badge tone={configured ? 'positive' : 'neutral'}>
+                {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+              </Badge>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-md flex items-center gap-md">
+        <ButtonPrimary loading={saveLoading} loadingLabel={COPY.keysSaveLoading} onClick={handleSave}>
+          {COPY.keysSaveCta}
+        </ButtonPrimary>
+        {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+      </div>
+    </Card>
+  )
+}
+
+// ── Voice / STT Keys Card (F27) ─────────────────────────────────────────────
+// Mesmo padrão de save em lote de `KeysCard`, sem "Testar conexão" — nem PRD nem `ui.md`
+// pedem teste de conexão pro STT (card documentado só tem "Salvar chaves").
+
+interface VoiceKeyRowDef {
+  name: VoiceKeyName
+  label: string
+  placeholder: string
+  validate: (v: string) => string | null
+}
+
+const VOICE_KEY_ROWS: VoiceKeyRowDef[] = [
+  { name: 'openai', label: COPY.voiceLabelOpenai, placeholder: COPY.voicePlaceholderOpenai, validate: validateOpenaiKeyLocal },
+  { name: 'groq', label: COPY.voiceLabelGroq, placeholder: COPY.voicePlaceholderGroq, validate: validateGroqKeyLocal },
+]
+
+interface VoiceKeysCardProps {
+  voiceStatus: ConfigStatus['voice'] | null
+  onSave: (fields: Partial<Record<VoiceKeyName, string>>) => Promise<void>
+  saveLoading: boolean
+  feedback: Feedback | null
+}
+
+function VoiceKeysCard({ voiceStatus, onSave, saveLoading, feedback }: Readonly<VoiceKeysCardProps>): ReactElement {
+  const [rows, setRows] = useState<Record<VoiceKeyName, KeyRowState>>({
+    openai: emptyKeyRow(),
+    groq: emptyKeyRow(),
+  })
+
+  const updateDraft = useCallback((name: VoiceKeyName, value: string): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], draft: value, error: null } }))
+  }, [])
+
+  const toggleReveal = useCallback((name: VoiceKeyName): void => {
+    setRows((prev) => ({ ...prev, [name]: { ...prev[name], revealed: !prev[name].revealed } }))
+  }, [])
+
+  const handleSave = useCallback((): void => {
+    const errors: Partial<Record<VoiceKeyName, string>> = {}
+    const fields: Partial<Record<VoiceKeyName, string>> = {}
+
+    for (const row of VOICE_KEY_ROWS) {
+      const draft = rows[row.name].draft
+      const err = row.validate(draft)
+      if (err !== null) {
+        errors[row.name] = err
+        continue
+      }
+      if (draft !== '') fields[row.name] = draft
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of Object.keys(errors) as VoiceKeyName[]) {
+          next[name] = { ...next[name], error: errors[name] ?? null }
+        }
+        return next
+      })
+      return
+    }
+
+    void onSave(fields)
+  }, [rows, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={COPY.voiceTitle} subtitle={COPY.voiceSubtitle} />
+      <div className="divide-y divide-border">
+        {VOICE_KEY_ROWS.map((row) => {
+          const state = rows[row.name]
+          const configured = voiceStatus?.[row.name] ?? false
+          return (
+            <div
+              key={row.name}
+              className="grid grid-cols-1 items-start gap-sm py-sm min-[720px]:grid-cols-[140px_1fr_auto]"
+            >
+              <span className="text-[13.5px] font-medium text-fg">{row.label}</span>
+              <Field
+                id={`voice-key-${row.name}`}
+                ariaLabel={row.label}
+                value={state.draft}
+                onChange={(v) => updateDraft(row.name, v)}
+                placeholder={configured ? '••••••••••••••••' : row.placeholder}
+                revealed={state.revealed}
+                onToggleReveal={() => toggleReveal(row.name)}
+                revealLabel={COPY.keysReveal(row.label)}
+                hideLabel={COPY.keysHide(row.label)}
+                error={state.error}
+              />
+              <Badge tone={configured ? 'positive' : 'neutral'}>
+                {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+              </Badge>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-md flex items-center gap-md">
+        <ButtonPrimary loading={saveLoading} loadingLabel={COPY.voiceSaveLoading} onClick={handleSave}>
+          {COPY.voiceSaveCta}
+        </ButtonPrimary>
+        {feedback !== null ? <InlineFeedback variant={feedback.variant} message={feedback.message} /> : null}
+      </div>
+    </Card>
+  )
+}
+
+// ── GitHub Card ───────────────────────────────────────────────────────────────
+// Validação (validateGithubTokenLocal) vive em configuracaoScreen.logic.ts (testada em
+// configuracaoScreen.logic.test.ts).
+
+interface GithubCardProps {
+  tokenPresent: boolean
+  onSave: (token: string) => Promise<void>
+  saveLoading: boolean
+  feedback: Feedback | null
+}
+
+function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<GithubCardProps>): ReactElement {
+  const [tokenDraft, setTokenDraft] = useState('')
+  const [revealed, setRevealed] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  const handleSave = useCallback((): void => {
+    const err = validateGithubTokenLocal(tokenDraft)
+    if (err !== null) {
+      setLocalError(err)
+      return
+    }
+    setLocalError(null)
+    if (tokenDraft !== '' && !window.confirm(COPY.githubSaveConfirm)) return
+    void onSave(tokenDraft)
+  }, [tokenDraft, onSave])
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
+    setTokenDraft(e.target.value)
+    if (localError !== null) setLocalError(null)
+  }, [localError])
+
+  const effectiveFeedback: Feedback | null = localError !== null
+    ? { variant: 'error', message: localError }
+    : feedback
+
+  return (
+    <Card>
+      <CardHeader title={COPY.githubTitle} subtitle={COPY.githubSubtitle} />
+      <div className="flex flex-col gap-md">
+        <div className="flex flex-col gap-xs">
+          <label htmlFor="github-token" className="text-sm font-medium text-fg">
+            {COPY.githubLabel}
+          </label>
+          <div className="relative">
+            <input
+              id="github-token"
+              type={revealed ? 'text' : 'password'}
+              value={tokenDraft}
+              onChange={handleChange}
+              placeholder={tokenPresent ? '••••••••••••••••' : COPY.githubPlaceholder}
+              aria-invalid={localError !== null || undefined}
+              className={`${INPUT_BASE} pr-[40px] ${localError !== null ? 'border-red focus:border-red focus:ring-red/30' : ''}`}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={() => setRevealed((v) => !v)}
+              title={revealed ? COPY.githubHide : COPY.githubReveal}
+              aria-label={revealed ? COPY.githubHide : COPY.githubReveal}
+              className="absolute right-sm top-1/2 -translate-y-1/2 text-muted hover:text-fg"
+            >
+              {revealed ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[15px] w-[15px]" aria-hidden="true">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[15px] w-[15px]" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              )}
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[11.5px] text-muted">{COPY.githubHint}</span>
+            <span className="rounded-sm border border-border bg-surface-2 px-sm py-[3px] font-mono text-[11.5px] text-muted">
+              {tokenPresent ? COPY.githubBadgePresent : COPY.githubBadgeEmpty}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-md">
+          <ButtonPrimary loading={saveLoading} loadingLabel={COPY.githubSaveLoading} onClick={handleSave}>
+            {COPY.githubSaveCta}
+          </ButtonPrimary>
+          {effectiveFeedback !== null ? (
+            <InlineFeedback variant={effectiveFeedback.variant} message={effectiveFeedback.message} />
+          ) : null}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── Provider Key Test Card (GLM/Grok, F23) ──────────────────────────────────────
+//
+// GLM e Grok não têm CLI/assinatura (F23 spec §3.2) — cada um ganha um card standalone
+// (não uma linha em KeysCard, que salva as 3 keys existentes em lote sem "Testar conexão"
+// por linha) com key + salvar + testar conexão próprios. Um único componente parametrizado
+// cobre os dois, já que a anatomia é idêntica; sem ui.md/copy.md ainda, então esta é a forma
+// mínima do contrato (F23 spec §1 "UI/copy — lacuna registrada").
+
+interface ProviderKeyTestCardProps {
+  title: string
+  subtitle: string
+  placeholder: string
+  configured: boolean
+  validate: (v: string) => string | null
+  onSave: (key: string) => Promise<void>
+  onTest: () => Promise<void>
+  saveLoading: boolean
+  testLoading: boolean
+  saveFeedback: Feedback | null
+  testFeedback: Feedback | null
+}
+
+function ProviderKeyTestCard({
+  title,
+  subtitle,
+  placeholder,
+  configured,
+  validate,
+  onSave,
+  onTest,
+  saveLoading,
+  testLoading,
+  saveFeedback,
+  testFeedback,
+}: Readonly<ProviderKeyTestCardProps>): ReactElement {
+  const [draft, setDraft] = useState('')
+  const [revealed, setRevealed] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = useCallback((): void => {
+    const err = validate(draft)
+    if (err !== null) {
+      setError(err)
+      return
+    }
+    if (draft === '') return
+    setError(null)
+    void onSave(draft)
+  }, [draft, validate, onSave])
+
+  return (
+    <Card>
+      <CardHeader title={title} subtitle={subtitle} />
+      <div className="flex flex-col gap-md">
+        <div className="grid grid-cols-1 items-start gap-sm min-[720px]:grid-cols-[1fr_auto]">
+          <Field
+            id={`provider-key-${title}`}
+            ariaLabel={title}
+            value={draft}
+            onChange={(v) => { setDraft(v); setError(null) }}
+            placeholder={configured ? '••••••••••••••••' : placeholder}
+            revealed={revealed}
+            onToggleReveal={() => setRevealed((v) => !v)}
+            revealLabel={COPY.keysReveal(title)}
+            hideLabel={COPY.keysHide(title)}
+            error={error}
+          />
+          <Badge tone={configured ? 'positive' : 'neutral'}>
+            {configured ? COPY.keysBadgeConfigured : COPY.keysBadgeMissing}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-md">
+          <ButtonPrimary loading={saveLoading} loadingLabel={COPY.providerCardSaveLoading} onClick={handleSave}>
+            {COPY.providerCardSaveCta}
+          </ButtonPrimary>
+          {saveFeedback !== null ? <InlineFeedback variant={saveFeedback.variant} message={saveFeedback.message} /> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-md">
+          <ButtonSecondary loading={testLoading} onClick={() => { void onTest() }}>
+            {COPY.providerCardTestCta}
+          </ButtonSecondary>
+          {testFeedback !== null ? <InlineFeedback variant={testFeedback.variant} message={testFeedback.message} /> : null}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── ConfiguracaoScreen ────────────────────────────────────────────────────────
+
+interface ActionState {
+  loading: boolean
+  feedback: Feedback | null
+}
+
+function makeAction(): ActionState {
+  return { loading: false, feedback: null }
+}
+
+export function ConfiguracaoScreen(): ReactElement {
+  const [status, setStatus] = useState<ConfigStatus | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [vcsStatus, setVcsStatus] = useState<VcsProviderStatus[] | null>(null)
+
+  const [claudeAction, setClaudeAction] = useState<ActionState>(makeAction)
+  const [clisAction, setClisAction] = useState<ActionState>(makeAction)
+  const [promptAction, setPromptAction] = useState<ActionState>(makeAction)
+  const [promptRestoreAction, setPromptRestoreAction] = useState<ActionState>(makeAction)
+  const [githubAction, setGithubAction] = useState<ActionState>(makeAction)
+  const [keysAction, setKeysAction] = useState<ActionState>(makeAction)
+  const [glmSaveAction, setGlmSaveAction] = useState<ActionState>(makeAction)
+  const [glmTestAction, setGlmTestAction] = useState<ActionState>(makeAction)
+  const [grokSaveAction, setGrokSaveAction] = useState<ActionState>(makeAction)
+  const [grokTestAction, setGrokTestAction] = useState<ActionState>(makeAction)
+  const [voiceAction, setVoiceAction] = useState<ActionState>(makeAction)
+
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  const loadStatus = useCallback(async (): Promise<void> => {
+    try {
+      const data = await configuracaoService.getStatus()
+      if (mountedRef.current) {
+        setStatus(data)
+        setLoadError(null)
+      }
+    } catch {
+      if (mountedRef.current) setLoadError('Não foi possível carregar a configuração.')
+    }
+  }, [])
+
+  useEffect(() => { void loadStatus() }, [loadStatus])
+
+  useEffect(() => {
+    configuracaoService
+      .vcsStatus()
+      .then((res) => {
+        if (mountedRef.current && !res.error && res.providers) setVcsStatus(res.providers)
+      })
+      .catch(() => {
+        // Cards VCS ficam sem estado inicial (fallback dentro do componente) — best-effort, igual memória/vcs no Workspace.
+      })
+  }, [])
+
+  const handleClaudeMode = useCallback(async (mode: 'subscription' | 'api-key'): Promise<void> => {
+    setClaudeAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.setClaudeMode(mode)
+      if (!mountedRef.current) return
+      setStatus((prev) => prev === null ? prev : {
+        ...prev,
+        claude: { mode: res.mode as 'subscription' | 'api-key', subscriptionOk: res.subscriptionOk ?? false },
+      })
+      setClaudeAction({ loading: false, feedback: null })
+    } catch {
+      if (mountedRef.current) setClaudeAction({ loading: false, feedback: { variant: 'error', message: 'Não foi possível alterar o modo.' } })
+    }
+  }, [])
+
+  const handleClaudeTest = useCallback(async (): Promise<void> => {
+    setClaudeAction((prev) => ({ ...prev, loading: true, feedback: null }))
+    try {
+      const res = await configuracaoService.testClaude()
+      if (!mountedRef.current) return
+      setClaudeAction({
+        loading: false,
+        feedback: { variant: res.success ? 'success' : 'warn', message: res.detail },
+      })
+      if (res.success && status !== null) {
+        setStatus((prev) => prev === null ? prev : {
+          ...prev,
+          claude: { ...prev.claude, subscriptionOk: true },
+        })
+      }
+    } catch {
+      if (mountedRef.current) setClaudeAction({ loading: false, feedback: { variant: 'error', message: COPY.claudeTestError } })
+    }
+  }, [status])
+
+  const handleClisTest = useCallback(async (): Promise<void> => {
+    setClisAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.testClis()
+      if (!mountedRef.current) return
+      setStatus((prev) => prev === null ? prev : { ...prev, clis: res.results })
+      setClisAction({ loading: false, feedback: { variant: 'info', message: res.summary } })
+    } catch {
+      if (mountedRef.current) setClisAction({ loading: false, feedback: { variant: 'error', message: 'Falha ao testar as conexões.' } })
+    }
+  }, [])
+
+  const handlePromptSave = useCallback(async (text: string): Promise<void> => {
+    const payload = text === '' ? null : text
+    setPromptAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.savePrompt(payload)
+      if (!mountedRef.current) return
+      setStatus((prev) => prev === null ? prev : {
+        ...prev,
+        prompt: { isDefault: res.isDefault, isEmpty: res.isEmpty, currentText: text === '' ? res.currentText : text },
+      })
+      setPromptAction({ loading: false, feedback: { variant: 'success', message: res.message } })
+    } catch {
+      if (mountedRef.current) setPromptAction({ loading: false, feedback: { variant: 'error', message: 'Falha ao salvar o prompt global.' } })
+    }
+  }, [])
+
+  const handlePromptRestore = useCallback(async (): Promise<void> => {
+    setPromptRestoreAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.restorePrompt()
+      if (!mountedRef.current) return
+      setStatus((prev) => prev === null ? prev : {
+        ...prev,
+        prompt: { isDefault: res.isDefault, isEmpty: res.isEmpty, currentText: res.currentText },
+      })
+      setPromptRestoreAction({ loading: false, feedback: null })
+      setPromptAction({ loading: false, feedback: { variant: 'success', message: res.message } })
+    } catch {
+      if (mountedRef.current) setPromptRestoreAction({ loading: false, feedback: { variant: 'error', message: 'Falha ao restaurar o prompt.' } })
+    }
+  }, [])
+
+  const handleGithubSave = useCallback(async (token: string): Promise<void> => {
+    setGithubAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveGithubToken(token)
+      if (!mountedRef.current) return
+      if (res.error) {
+        setGithubAction({ loading: false, feedback: { variant: 'error', message: res.error.message } })
+        return
+      }
+      setStatus((prev) => prev === null ? prev : {
+        ...prev,
+        github: { tokenPresent: token !== '' },
+      })
+      setGithubAction({ loading: false, feedback: { variant: 'success', message: res.message ?? 'Token salvo.' } })
+    } catch {
+      if (mountedRef.current) setGithubAction({ loading: false, feedback: { variant: 'error', message: 'Não foi possível contatar o servidor local.' } })
+    }
+  }, [])
+
+  const handleKeysSave = useCallback(async (fields: Partial<Record<ProviderKeyName, string>>): Promise<void> => {
+    setKeysAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys(fields)
+      if (!mountedRef.current) return
+      if (res.error) {
+        setKeysAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.keysErrorGeneric } })
+        return
+      }
+      setStatus((prev) => prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys })
+      setKeysAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setKeysAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
+  const handleGlmSave = useCallback(async (key: string): Promise<void> => {
+    setGlmSaveAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys({ glm: key })
+      if (!mountedRef.current) return
+      if (res.error) {
+        setGlmSaveAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.providerCardSaveError } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys }))
+      setGlmSaveAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setGlmSaveAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
+  const handleGlmTest = useCallback(async (): Promise<void> => {
+    setGlmTestAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.testGlm()
+      if (!mountedRef.current) return
+      setGlmTestAction({ loading: false, feedback: { variant: res.success ? 'success' : 'warn', message: res.detail } })
+    } catch {
+      if (mountedRef.current) setGlmTestAction({ loading: false, feedback: { variant: 'error', message: COPY.providerCardTestError } })
+    }
+  }, [])
+
+  const handleGrokSave = useCallback(async (key: string): Promise<void> => {
+    setGrokSaveAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveProviderKeys({ grok: key })
+      if (!mountedRef.current) return
+      if (res.error) {
+        setGrokSaveAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.providerCardSaveError } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.keys === undefined ? prev : { ...prev, keys: res.keys }))
+      setGrokSaveAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.keysSuccess } })
+    } catch {
+      if (mountedRef.current) setGrokSaveAction({ loading: false, feedback: { variant: 'error', message: COPY.keysErrorNetwork } })
+    }
+  }, [])
+
+  const handleGrokTest = useCallback(async (): Promise<void> => {
+    setGrokTestAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.testGrok()
+      if (!mountedRef.current) return
+      setGrokTestAction({ loading: false, feedback: { variant: res.success ? 'success' : 'warn', message: res.detail } })
+    } catch {
+      if (mountedRef.current) setGrokTestAction({ loading: false, feedback: { variant: 'error', message: COPY.providerCardTestError } })
+    }
+  }, [])
+
+  const handleVoiceSave = useCallback(async (fields: Partial<Record<VoiceKeyName, string>>): Promise<void> => {
+    setVoiceAction({ loading: true, feedback: null })
+    try {
+      const res = await configuracaoService.saveVoiceKeys(fields)
+      if (!mountedRef.current) return
+      if (res.error) {
+        setVoiceAction({ loading: false, feedback: { variant: 'error', message: res.error.message || COPY.voiceErrorGeneric } })
+        return
+      }
+      setStatus((prev) => (prev === null || res.voice === undefined ? prev : { ...prev, voice: res.voice }))
+      setVoiceAction({ loading: false, feedback: { variant: 'success', message: res.message ?? COPY.voiceSuccess } })
+    } catch {
+      if (mountedRef.current) setVoiceAction({ loading: false, feedback: { variant: 'error', message: COPY.voiceErrorNetwork } })
+    }
+  }, [])
+
+  if (loadError !== null) {
+    return (
+      <section id="configuracao" className="mx-auto max-w-[760px] px-lg py-xl">
+        <p role="alert" className="text-sm text-red">{loadError}</p>
+        <button type="button" onClick={() => { void loadStatus() }} className="mt-sm text-sm text-accent underline">
+          Tentar novamente
+        </button>
+      </section>
+    )
+  }
+
+  const promptFeedback: Feedback | null = promptAction.feedback ?? promptRestoreAction.feedback
+
+  return (
+    <section id="configuracao" className="mx-auto max-w-[760px] px-lg py-xl">
+      <h1 className="font-display text-[21px] font-semibold tracking-tight text-fg">
+        {COPY.pageTitle}
+      </h1>
+      <p className="mt-xs text-[13.5px] text-muted">{COPY.pageSubtitle}</p>
+
+      <div className="mt-lg grid grid-cols-1 gap-md">
+        <ClaudeCard
+          mode={status?.claude.mode ?? 'subscription'}
+          subscriptionOk={status?.claude.subscriptionOk ?? false}
+          hasApiKey={status?.keys.claude ?? false}
+          onModeChange={handleClaudeMode}
+          onTest={handleClaudeTest}
+          testLoading={claudeAction.loading}
+          feedback={claudeAction.feedback}
+        />
+
+        <CLIsCard
+          clis={status?.clis ?? null}
+          onTest={handleClisTest}
+          testLoading={clisAction.loading}
+          feedback={clisAction.feedback}
+        />
+
+        <PromptCard
+          isDefault={status?.prompt.isDefault ?? true}
+          isEmpty={status?.prompt.isEmpty ?? false}
+          serverText={status?.prompt.currentText ?? ''}
+          onSave={handlePromptSave}
+          onRestore={handlePromptRestore}
+          saveLoading={promptAction.loading}
+          restoreLoading={promptRestoreAction.loading}
+          feedback={promptFeedback}
+        />
+
+        <KeysCard
+          keysStatus={status?.keys ?? null}
+          onSave={handleKeysSave}
+          saveLoading={keysAction.loading}
+          feedback={keysAction.feedback}
+        />
+
+        <ProviderKeyTestCard
+          title={COPY.glmTitle}
+          subtitle={COPY.glmSubtitle}
+          placeholder={COPY.glmPlaceholder}
+          configured={status?.keys.glm ?? false}
+          validate={validateGlmKeyLocal}
+          onSave={handleGlmSave}
+          onTest={handleGlmTest}
+          saveLoading={glmSaveAction.loading}
+          testLoading={glmTestAction.loading}
+          saveFeedback={glmSaveAction.feedback}
+          testFeedback={glmTestAction.feedback}
+        />
+
+        <ProviderKeyTestCard
+          title={COPY.grokTitle}
+          subtitle={COPY.grokSubtitle}
+          placeholder={COPY.grokPlaceholder}
+          configured={status?.keys.grok ?? false}
+          validate={validateGrokKeyLocal}
+          onSave={handleGrokSave}
+          onTest={handleGrokTest}
+          saveLoading={grokSaveAction.loading}
+          testLoading={grokTestAction.loading}
+          saveFeedback={grokSaveAction.feedback}
+          testFeedback={grokTestAction.feedback}
+        />
+
+        <GithubCard
+          tokenPresent={status?.github.tokenPresent ?? false}
+          onSave={handleGithubSave}
+          saveLoading={githubAction.loading}
+          feedback={githubAction.feedback}
+        />
+
+        <VoiceKeysCard
+          voiceStatus={status?.voice ?? null}
+          onSave={handleVoiceSave}
+          saveLoading={voiceAction.loading}
+          feedback={voiceAction.feedback}
+        />
+
+        {vcsStatus !== null ? (
+          <>
+            <VcsOauthCard
+              kind="gitlab"
+              title={COPY.vcsGitlabTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'gitlab')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+            <VcsOauthCard
+              kind="bitbucket"
+              title={COPY.vcsBitbucketTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'bitbucket')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+            <VcsOauthCard
+              kind="azure"
+              title={COPY.vcsAzureTitle}
+              initialStatus={(vcsStatus.find((p) => p.kind === 'azure')?.status as VcsOauthStatus) ?? 'needs-client-id'}
+            />
+          </>
+        ) : null}
+      </div>
+    </section>
+  )
+}

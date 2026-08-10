@@ -69,10 +69,10 @@ Quando múltiplos padrões conflitam, o Research aplica a heurística do Auto-Ac
 
 ## 4. Docs canônicos (preferir antes de explorar)
 
-Lista de docs do repo que já codificam padrões. Writers e Research devem lê-los antes de reexplorar disco. No EngrenaCode, isto inclui `docs/DEVELOPMENT.md`, `docs/design-system/`, e — quando a feature em questão tem UI — `docs/<feature-id>-*/ui.md` e `docs/<feature-id>-*/copy.md` já existentes.
+Lista de docs do repo que já codificam padrões. Writers e Research devem lê-los antes de reexplorar disco. No EngrenaCode, isto inclui `apps/engrena-code/docs/DEVELOPMENT.md`, `docs/design-system/`, e — quando a feature em questão tem UI — `apps/engrena-code/docs/<feature-id>-*/ui.md` e `apps/engrena-code/docs/<feature-id>-*/copy.md` já existentes.
 
 ```markdown
-- `docs/DEVELOPMENT.md` — …
+- `apps/engrena-code/docs/DEVELOPMENT.md` — …
 - `docs/design-system/…` — …
 ```
 
@@ -84,7 +84,7 @@ Uma linha por `docs/F*/spec.md` já presente (anti-redundância para writers). M
 
 | Feature | Path | Uma linha de decisão / escopo | ui.md / copy.md |
 |---------|------|-------------------------------|------------------|
-| F01 | `docs/F01-…/spec.md` | | sim / sim |
+| F01 | `apps/engrena-code/docs/F01-…/spec.md` | | sim / sim |
 
 ---
 

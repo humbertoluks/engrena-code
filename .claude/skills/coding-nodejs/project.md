@@ -2,21 +2,21 @@
 
 Camada acoplada a este repo. Levando a skill para outro projeto: reescreva só este arquivo.
 
-Fonte de verdade: [`docs/AUDIT-CODE-REVIEW.md`](../../../docs/AUDIT-CODE-REVIEW.md) (Stack `Node.js`) + `CLAUDE.md` → "HTTP · Guard".
+Fonte de verdade: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-code/docs/AUDIT-CODE-REVIEW.md) (Stack `Node.js`) + `CLAUDE.md` → "HTTP · Guard".
 
 ## Mapa do repo
 
 | Conceito da regra | Neste repo |
 |-------------------|------------|
-| Transport compartilhado | `src/services/http/_transport.ts` |
-| Handler padrão (create) | `src/services/http/rules-handler.ts` |
-| Unlock / CORS | `src/services/http/unlock-handler.ts` |
+| Transport compartilhado | `packages/http-core` + shim `apps/engrena-code/src/services/http/_transport.ts` |
+| Handler padrão (create) | `apps/engrena-code/src/services/http/rules-handler.ts` |
+| Unlock / CORS | `apps/engrena-code/src/services/http/unlock-handler.ts` |
 | Guard order | 423 `vault_locked` → 401 `unauthorized`; header `x-engrenacode-session` |
-| Loopback | `127.0.0.1:5174` via `createUnlockServer` |
-| Sanitizer | `src/services/process-error.ts` (`sanitizeProcessError`) |
-| Vault store | `src/services/vault/store.ts` → `userData/vault.enc` |
-| Validadores puros | `src/services/vault/provider-keys.ts`, `src/services/http/github-token.ts` |
-| WS upgrade | `src/services/http/ws-upgrade.ts` (só subprotocol) |
+| Loopback | Code `127.0.0.1:5174`; Plan `5184` (`createUnlockServer`) |
+| Sanitizer | `apps/engrena-code/src/services/process-error.ts` (`sanitizeProcessError`) |
+| Vault | `packages/vault` + shim `apps/engrena-code/src/services/vault/vault-service.ts` → `userData/vault.enc` |
+| Validadores puros | `apps/engrena-code/src/services/vault/provider-keys.ts`, `.../http/github-token.ts` |
+| WS upgrade | `apps/engrena-code/src/services/http/ws-upgrade.ts` (só subprotocol) |
 | Locale de erro ao usuário | PT-BR |
 
 ## Precedentes vivos

@@ -1,71 +1,79 @@
-# EngrenaCode
+# Engrena
 
-IDE desktop local-first (Electron) para orquestrar agentes de IA (Claude, Codex, Kimi — Minimax via API key) no seu próprio repositório: histórico de conversa, revisão de diffs arquivo a arquivo e fluxo GitHub (commit, push, PR) na mesma tela.
+Monorepo pnpm da família **Engrena**:
 
-Nada do seu código passa por servidor remoto: o app roda 100% local, com cofre cifrado (`vault.enc`) e um servidor HTTP/WS em loopback (`127.0.0.1`).
+| Produto | Papel |
+|---------|--------|
+| **EngrenaPlan** | Planeja (Discovery → PRD → Spec → Plano) |
+| **EngrenaCode** | Entrega (IDE local-first de agentes de IA) |
 
-## Stack
+Packages compartilhados: `@engrena/ui`, `@engrena/vault`, `@engrena/http-core`, `@engrena/db-core`.
 
-- Electron + Vite (`vite-plugin-electron`) + React 19 + TypeScript
-- Tailwind CSS 4 (tokens via `@theme inline`, sem `tailwind.config.ts` clássico)
-- SQLite (`node:sqlite`) local-first, sem Postgres/Docker
-- Vitest para testes unitários/integração
-- Biome para lint/format
+## Mapa do repositório
 
-## Pré-requisitos
+```text
+apps/
+  engrena-code/     # EngrenaCode (Electron + Vite + React)
+  engrena-plan/     # EngrenaPlan (scaffold unlock + shell)
+packages/
+  ui/               # @engrena/ui
+  vault/            # @engrena/vault
+  http-core/        # @engrena/http-core
+  db-core/          # @engrena/db-core
+docs/
+  design-system/    # Design Lock Engrena (hexes, spacing, tipografia)
+  engrena/          # Plano operacional monorepo
+  architecture/     # Contratos do monorepo
+```
 
-- Node.js ≥ 18 (recomendado 20+)
-- pnpm ≥ 8
-- Git
-- Opcional, para turnos reais de agente: binário `claude` e/ou `codex`/`kimi` no PATH, autenticado
+Docs de produto ficam **dentro de cada app**:
+
+- Code: [`apps/engrena-code/docs`](apps/engrena-code/docs)
+- Plan: [`apps/engrena-plan/docs`](apps/engrena-plan/docs)
+- Engrena (família): [`docs/`](docs/) na raiz
+
+Arquitetura e portas: [`docs/architecture/monorepo.md`](docs/architecture/monorepo.md).  
+Plano / memória dos sprints: [`docs/engrena/MONOREPO-SPRINTS.md`](docs/engrena/MONOREPO-SPRINTS.md).
 
 ## Setup
 
 ```bash
 pnpm install
-cp .env.example .env.local   # ajustar VITE_DEV_SERVER_URL se a porta 5173 estiver ocupada
-pnpm dev
 ```
 
-`pnpm dev` sobe o Vite (renderer) e o Electron (main + preload) juntos via `vite-plugin-electron` — sem orquestração extra. O servidor de unlock do vault fica fixo em `127.0.0.1:5174`; nunca reutilize essa porta para o Vite.
+### EngrenaCode
 
-## Scripts
-
-| Comando | O que faz |
-|---|---|
-| `pnpm dev` | Ambiente de desenvolvimento (Vite + Electron) |
-| `pnpm build` | `tsc -b && vite build && electron-builder` — gera instaladores em `dist/` |
-| `pnpm preview` | Preview do build do renderer |
-| `pnpm test` | Suite Vitest (unit/integração) |
-| `pnpm lint` / `pnpm format` | Biome |
-
-## Estrutura
-
-Layout híbrido: infra compartilhada em camadas (`main`/`preload`/`renderer`/`services`/`db`), features de produto colocalizadas em `src/features/<slug>/`.
-
-```
-src/
-  main/        # Electron main: janela, IPC, bootstrap do HTTP local
-  preload/     # Bridge IPC (contextBridge, CommonJS)
-  renderer/    # App React: screens de infra, design system, hooks
-  db/          # Schema e migrations (SQLite)
-  services/    # Infra/domínio compartilhado (vault, handlers HTTP, providers, github, mcps, runner)
-  features/    # workspace, dashboard, skills, rules, subagents, registros, consumo
+```bash
+cp apps/engrena-code/.env.example apps/engrena-code/.env.local
+# Ajuste VITE_DEV_SERVER_URL se 5173 estiver ocupada.
+# Nunca use 5174 (unlock Code) nem 5184 (unlock Plan).
+pnpm --filter engrena-code dev
+# atalho raiz: pnpm dev
 ```
 
-Detalhes de arquitetura, correções aplicadas e troubleshooting: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+- Unlock loopback: `http://127.0.0.1:5174`
+- Docs: [`apps/engrena-code/docs`](apps/engrena-code/docs)
 
-## Documentação
+### EngrenaPlan
 
-| Onde | O quê |
-|---|---|
-| [`docs/PRD.md`](docs/PRD.md) | Visão de produto, features F01–F11, critérios de aceitação |
-| [`docs/PROGRESS.md`](docs/PROGRESS.md) | Status real por feature neste repo (feito vs pendente) |
-| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Setup, dependências, build, troubleshooting |
-| `docs/F0*-*/{spec,plan,ui,copy}.md` | Spec técnica, plano, UI e copy por feature |
-| `CLAUDE.md` | Convenções e regras aprendidas para trabalhar neste repo com Claude Code |
+```bash
+cp apps/engrena-plan/.env.example apps/engrena-plan/.env.local
+pnpm --filter engrena-plan dev
+# atalho raiz: pnpm dev:plan
+```
 
-## Testes e smoke
+- Vite default: `http://localhost:5175`
+- Unlock loopback: `http://127.0.0.1:5184`
+- Docs: [`apps/engrena-plan/docs`](apps/engrena-plan/docs)
 
-- Unit/integração: `pnpm test` (Vitest).
-- Smoke visual (Electron + Playwright): ambiente isolado via `ENGRENACODE_USER_DATA` apontando para um diretório temporário — nunca toca o vault real do usuário. Resultados documentados em `docs/F0*-*/smoke-results.md`.
+## Scripts na raiz
+
+| Comando | Alvo |
+|---------|------|
+| `pnpm dev` / `pnpm test` / `pnpm build` | EngrenaCode |
+| `pnpm dev:plan` / `pnpm test:plan` | EngrenaPlan |
+| `pnpm test:ui` / `test:vault` / `test:http-core` / `test:db-core` | packages |
+
+## Marca
+
+Só **Engrena** / **EngrenaCode** / **EngrenaPlan**. Sem Lion* em UI, copy ou docs ativos.

@@ -1,6 +1,6 @@
 ---
 name: spec-writer
-description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Suporta modo lote para gerar múltiplas features da mesma onda em paralelo. Adaptado ao EngrenaCode — integra docs/PRD.md existente e trata ui.md/copy.md por feature como fonte de verdade de UX/copy.
+description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Suporta modo lote para gerar múltiplas features da mesma onda em paralelo. Adaptado ao EngrenaCode — integra apps/engrena-code/docs/PRD.md existente e trata ui.md/copy.md por feature como fonte de verdade de UX/copy.
 ---
 
 # Feature Specs Writer
@@ -14,18 +14,18 @@ Gera especificações técnicas prontas para implementação com base no PRD do 
 1. `spec.md` - Especificação técnica (7 seções)
 2. `plan.md` - Plano de implementação (fases e passos)
 
-**Localização da saída:** `docs/<feature-id>-<kebab-name>/spec.md` e `docs/<feature-id>-<kebab-name>/plan.md`
-- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `docs/F03-video-upload/`.
+**Localização da saída:** `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`
+- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `apps/engrena-code/docs/F03-video-upload/`.
 
 ## Adaptação ao EngrenaCode
 
-- `docs/PRD.md` já existe neste repositório (PT-BR, 9 seções, features F01–F11). Use-o diretamente como o PRD — não pergunte onde encontrá-lo.
+- `apps/engrena-code/docs/PRD.md` já existe neste repositório (PT-BR, 9 seções, features F01–F11). Use-o diretamente como o PRD — não pergunte onde encontrá-lo.
 - Cada feature pasta (`docs/F<ID>-<kebab-name>/`) pode conter, além de `spec.md`/`plan.md`: `ui.md` (anatomia, tokens, aceite visual) e `copy.md` (catálogo de strings literais por id). Esses dois arquivos são escritos por um processo de design separado (ver `CLAUDE.md` → "Design · Processo") e, quando presentes, são a **fonte de verdade** para qualquer UX/copy que a spec descreva. A skill nunca redefine anatomia ou strings já documentadas ali — só cita os caminhos.
-- Ao trabalhar em uma feature com UI: antes do Passo 2 (Entrevista), verifique se `docs/<feature-id>-*/ui.md` e `copy.md` já existem.
+- Ao trabalhar em uma feature com UI: antes do Passo 2 (Entrevista), verifique se `apps/engrena-code/docs/<feature-id>-*/ui.md` e `copy.md` já existem.
   - Se existirem, leia-os por completo e trate seu conteúdo (anatomia, tokens, tabela de copy, aceite visual) como respondido — não pergunte sobre isso na entrevista, referencie os ids de copy e a anatomia diretamente na spec.
   - Se não existirem, anote a lacuna em Assumptions/Decisions ("`ui.md`/`copy.md` ainda não escritos para esta feature") e prossiga com a spec técnica; não invente copy final nem anatomia de tela — descreva o contrato de dados/estado que a UI vai consumir e sinalize que o processo de design de UI é pré-requisito antes da implementação visual.
 - Referências de template usadas por esta skill vivem em `references/feature-template.md` e `references/research-brief-template.md`, dentro desta mesma pasta de skill (não em `refrerences/` nem fora de `.claude/skills/spec-writer/`).
-- **Precedência entre PRD e `PROGRESS.md`:** a composição das ondas e as dependências vêm sempre do PRD §8; o status real de implementação vem da tabela "Resumo por feature" de `docs/PROGRESS.md`. A tabela de Ondas do `PROGRESS.md` é apenas um espelho e pode estar stale — se ela divergir do PRD §8 (feature do PRD ausente da tabela, ou onda marcada "Completa" com feature pendente), **não** use o espelho para resolver ondas nem para julgar dependências: use o PRD, e avise o usuário da divergência no relatório final (Passo 6 / B.6) para que ela seja corrigida.
+- **Precedência entre PRD e `PROGRESS.md`:** a composição das ondas e as dependências vêm sempre do PRD §8; o status real de implementação vem da tabela "Resumo por feature" de `apps/engrena-code/docs/PROGRESS.md`. A tabela de Ondas do `PROGRESS.md` é apenas um espelho e pode estar stale — se ela divergir do PRD §8 (feature do PRD ausente da tabela, ou onda marcada "Completa" com feature pendente), **não** use o espelho para resolver ondas nem para julgar dependências: use o PRD, e avise o usuário da divergência no relatório final (Passo 6 / B.6) para que ela seja corrigida.
 
 ---
 
@@ -37,9 +37,9 @@ Nota: Estes são passos internos de execução do agente. O documento de plano O
 
 **1.1: Identificar o PRD e a feature-alvo**
 
-Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
+Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`apps/engrena-code/docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
 
-- Localize o arquivo PRD a partir da referência do usuário ou procure por `docs/PRD.md` (neste repositório, é sempre esse — ver "Adaptação ao EngrenaCode"), `PRD.md`, ou locais convencionais similares. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
+- Localize o arquivo PRD a partir da referência do usuário ou procure por `apps/engrena-code/docs/PRD.md` (neste repositório, é sempre esse — ver "Adaptação ao EngrenaCode"), `PRD.md`, ou locais convencionais similares. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
 - Identifique a feature-alvo dentro do PRD por ID ou nome.
 - Se a entrada for ambígua (ex.: "upload" bate em múltiplas features), confirme com o usuário antes de prosseguir.
 - Se a feature referenciada não existir no PRD, liste as features disponíveis da Seção 8 e peça ao usuário para esclarecer.
@@ -48,7 +48,7 @@ Aceite entrada em formato livre do usuário. O usuário pode referenciar a featu
 
 **1.2: Verificar disponibilidade de dependências e Features de Fundação (greenfield)**
 
-Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque também `docs/PROGRESS.md`, que é a fonte de status real F01–F11 deste repositório). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
+Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque também `apps/engrena-code/docs/PROGRESS.md`, que é a fonte de status real F01–F11 deste repositório). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
 
 Se o PRD contém uma subseção **Features de Fundação** na Seção 8, aplique estas verificações adicionais com base no estado de implementação de cada feature de Fundação:
 
@@ -104,7 +104,7 @@ Extraia a definição completa da feature-alvo do PRD e carregue como contexto p
 
 **1.5b: Ler UI da feature, quando existir**
 
-Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `docs/<feature-id>-*/ui.md` e `docs/<feature-id>-*/copy.md`:
+Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `apps/engrena-code/docs/<feature-id>-*/ui.md` e `apps/engrena-code/docs/<feature-id>-*/copy.md`:
 - Se existirem: leia-os por completo. `ui.md` fornece anatomia, tokens/classes, estados e checklist de aceite visual; `copy.md` fornece o catálogo de strings literais por id. Ambos entram como contexto primário da spec — a spec cita os caminhos e os ids, nunca redescreve o conteúdo.
 - Se não existirem: registre a lacuna para a Seção 3.3 (Assumptions) da spec.
 
@@ -249,7 +249,7 @@ Documento PLAN:
 - [ ] Sem estimativas de tempo
 - [ ] Features com UI: fechamento menciona light/dark, anatomia vs `ui.md` e copy vs `copy.md` quando esses arquivos existirem
 
-**Salve ambos arquivos em `docs/<feature-id>-<kebab-name>/spec.md` e `docs/<feature-id>-<kebab-name>/plan.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
+**Salve ambos arquivos em `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
 
 ### Passo 6: Resultado de Saída
 
@@ -286,14 +286,14 @@ O Passo 1 (Resolver Entrada e Pré-Análise) é adaptado para o contexto de lote
 
 **B.1: Resolver o lote**
 
-- **Localize o PRD** usando regras do Passo 1.1 (`docs/PRD.md` neste repositório). Se nenhum PRD for encontrado, pare e dirija o usuário para `prd-writer`. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar ANTES de continuar — esta é a primeira possível pausa interativa no orquestrador.
+- **Localize o PRD** usando regras do Passo 1.1 (`apps/engrena-code/docs/PRD.md` neste repositório). Se nenhum PRD for encontrado, pare e dirija o usuário para `prd-writer`. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar ANTES de continuar — esta é a primeira possível pausa interativa no orquestrador.
 - Analise entrada em uma lista de features-alvo (expanda ondas, mescle listas, deduplicat).
-- Ao expandir uma referência de onda, expanda a partir das Ondas de Execução do PRD §8, nunca do espelho em `docs/PROGRESS.md`. Se alguma feature da tabela de dependências do PRD não aparecer em nenhuma onda, pare e reporte a lacuna — não adivinhe a onda dela nem a exclua silenciosamente do lote.
+- Ao expandir uma referência de onda, expanda a partir das Ondas de Execução do PRD §8, nunca do espelho em `apps/engrena-code/docs/PROGRESS.md`. Se alguma feature da tabela de dependências do PRD não aparecer em nenhuma onda, pare e reporte a lacuna — não adivinhe a onda dela nem a exclua silenciosamente do lote.
 - Se o PRD não tem subseção `Ondas de Execução` na Seção 8 e a entrada referencia uma onda (ex.: `onda 3`), rejeite com: "Referências de onda exigem uma subseção 'Ondas de Execução' na Seção 8 do PRD, que este PRD não tem. Use IDs de feature diretamente ou atualize o PRD." Não tente sintetizar ondas.
 - Se qualquer nome de feature na entrada for ambíguo (bate múltiplas features no PRD, ex.: "upload" bate F03 e F11), liste os candidatos ao usuário e peça desambiguação ANTES de prosseguir para o resto de B.1. Esta é a segunda possível pausa interativa antes do plano consolidado.
 - Se qualquer ID ou nome de feature não existir no PRD, rejeite com a lista de features disponíveis.
 - Valide a regra same-wave.
-- Para cada alvo, verifique se `docs/<feature-id>-<kebab-name>/spec.md` já existe. Marque tais features como "already has spec". Verifique também se `ui.md`/`copy.md` já existem por feature (usado em B.5a para popular o brief).
+- Para cada alvo, verifique se `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` já existe. Marque tais features como "already has spec". Verifique também se `ui.md`/`copy.md` já existem por feature (usado em B.5a para popular o brief).
 
 **B.2: Classificação Greenfield e Fundação**
 
@@ -319,7 +319,7 @@ Modo: Two-phase — Research 1x depois paralelo (N writers)   # ou "sequencial (
 Estado do codebase: Fundação completa   # ou greenfield / Fundação Parcial
 Brief: docs/_shared/codebase-patterns.md (Phase A)
 Auto-aceitar: todas as recomendações de spec-writer serão aplicadas
-Destino: docs/F04-video-library/, docs/F07-background-processing-pipeline/, docs/F12-administration-panel/
+Destino: apps/engrena-code/docs/F04-video-library/, apps/engrena-code/docs/F07-background-processing-pipeline/, apps/engrena-code/docs/F12-administration-panel/
 
 OK para prosseguir? (sim/não)
 ```
@@ -363,12 +363,12 @@ Writer Contract — spec-writer Phase B
 - PRD path: <path> (leia só o bloco desta feature + Seção 9 que a referencia)
 - Brief path: docs/_shared/codebase-patterns.md (READ-ONLY; autoridade Camada 1/2)
 - Template: references/feature-template.md
-- UI da feature: se brief seção 5 indica ui.md/copy.md existentes, leia docs/<feature-id>-*/ui.md e copy.md (READ-ONLY; fonte de verdade de UX/copy)
+- UI da feature: se brief seção 5 indica ui.md/copy.md existentes, leia apps/engrena-code/docs/<feature-id>-*/ui.md e copy.md (READ-ONLY; fonte de verdade de UX/copy)
 - Auto-Aceitar: [colar política ou path da seção]
 - Passos: 1.5 → 1.5b → (pular 1.1/1.2 avisos) → 1.3 delta-only → 3 → 4 → 5 → 6
 - 1.3: ler brief; explorar só código do escopo da feature; PROIBIDO Camada 2 ampla
 - Se brief ausente/stale: FALHAR (não improvisar); orquestrador regenera Research
-- Salvar docs/<feature-id>-<kebab>/spec.md e plan.md
+- Salvar apps/engrena-code/docs/<feature-id>-<kebab>/spec.md e plan.md
 - Spec Seção 3.1 herda brief; 3.3 documenta Assumptions Auto-Aceitar (inclui ui.md/copy.md ausente, se for o caso); NÃO recopiar Camada 1 nem anatomia/copy já documentados
 ```
 
@@ -381,9 +381,9 @@ Aguarde todos os writers. Reporte resultado consolidado:
 ```
 Lote completo: 3/4 features geradas com sucesso
 Brief: docs/_shared/codebase-patterns.md
-✓ F04 → docs/F04-video-library/
-✓ F07 → docs/F07-background-processing-pipeline/
-✓ F12 → docs/F12-administration-panel/
+✓ F04 → apps/engrena-code/docs/F04-video-library/
+✓ F07 → apps/engrena-code/docs/F07-background-processing-pipeline/
+✓ F12 → apps/engrena-code/docs/F12-administration-panel/
 ✗ F05 → falhou: <razão>
 ```
 
@@ -420,7 +420,7 @@ Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a pad
 **Precedência:** Quando uma feature está rodando em Modo Lote, os grupos de regra `(Modo Lote)` abaixo sobrescrevem qualquer regra conflitante nas listas gerais `Always`/`Never` — notavelmente, Modo Lote sobrescreve regras relacionadas a entrevista ("Preserve iterative interview style", "Skip interview questions...", etc.). Todas as regras não-conflitantes ainda se aplicam.
 
 **Sempre:**
-- Gere DOIS arquivos (spec e plan) em `docs/<feature-id>-<kebab-name>/`
+- Gere DOIS arquivos (spec e plan) em `apps/engrena-code/docs/<feature-id>-<kebab-name>/`
 - Valide ambos documentos antes de salvar
 - Execute Codebase Pattern Discovery em duas camadas (baseline + broad) antes da entrevista — em Modo Lote isso é satisfeito pelo Research (B.5a); writers fazem delta-only sobre o brief
 - Leia a feature-alvo do PRD e use Consome/Provê/Escopo Central/Escopo Completo/Capacidades/Experiência/Tratamento de Erros/critérios de aceitação como contexto primário
@@ -470,7 +470,7 @@ Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a pad
 
 **Precedência Modo Lote:** Em Modo Lote, qualquer caso de borda abaixo que instrua o sub-agente a "pergunte ao usuário", "confirme com o usuário", ou "vá mais fundo na entrevista" é sobrescrito pela linha correspondente da Política de Auto-Aceitar (seção Modo Lote). Sub-agentes nunca fazem pausa para perguntar; casos de borda no nível do orquestrador ("Múltiplos arquivos PRD", "Referência de feature ambígua", avisos de dependência) são resolvidos uma vez em B.1–B.3 antes do dispatch.
 
-**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Neste repositório, isso só deveria acontecer se `docs/PRD.md` tiver sido removido.
+**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Neste repositório, isso só deveria acontecer se `apps/engrena-code/docs/PRD.md` tiver sido removido.
 
 **Feature não encontrada no PRD:** Liste as features disponíveis da Seção 8 do PRD e pergunte ao usuário qual foi a intenção.
 

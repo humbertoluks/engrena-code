@@ -7,7 +7,7 @@ description: Revisa entrega do EngrenaCode — cobertura Vitest por camada, *.lo
 
 Revisão **somente leitura** de testes, evidência e granularidade de commit. Nunca edita código nem cria testes: observa, analisa e relata.
 
-**Auditoria full-base / artefato:** quando o pedido for reauditoria da base completa ou “rodar as 3 reviews”, use a skill `audit-full-base` (orquestra architecture + robustness + esta frente e grava `docs/AUDIT-CODE-REVIEW.md` categorizando achados por **Stack**: Electron, React, Node.js, SQLite, TypeScript, Vitest).
+**Auditoria full-base / artefato:** quando o pedido for reauditoria da base completa ou “rodar as 3 reviews”, use a skill `audit-full-base` (orquestra architecture + robustness + esta frente e grava `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md` categorizando achados por **Stack**: Electron, React, Node.js, SQLite, TypeScript, Vitest).
 
 **Idioma:** relatório em português do Brasil. Comandos, nomes de teste e mensagens de commit permanecem em inglês.
 
@@ -103,8 +103,8 @@ Obrigatório quando algum critério de aceitação do diff depende de DOM, naveg
 
 Aplique só quando o diff pretende **fechar** uma feature:
 
-- Linha da feature atualizada em `docs/PROGRESS.md` (status, evidência, próximo passo). Faltando é 🔴.
-- Tabela de Ondas de `docs/PROGRESS.md` reconciliada com o PRD §8: a feature aparece na onda dela, onda com pendência não figura como "Completa", cada linha declara o paralelismo. Divergente é 🔴 (`CLAUDE.md` → Docs · Ondas).
+- Linha da feature atualizada em `apps/engrena-code/docs/PROGRESS.md` (status, evidência, próximo passo). Faltando é 🔴.
+- Tabela de Ondas de `apps/engrena-code/docs/PROGRESS.md` reconciliada com o PRD §8: a feature aparece na onda dela, onda com pendência não figura como "Completa", cada linha declara o paralelismo. Divergente é 🔴 (`CLAUDE.md` → Docs · Ondas).
 - `[x]` no PRD somente nos critérios com teste ou smoke que passou de fato. Marcar critério coberto só por soft-fail é 🔴.
 - Regra nova ou não-óbvia descoberta no caminho registrada em `CLAUDE.md` no formato `Origem · Categoria · [Sempre/Nunca] X porque Y`. Faltando é 🟢.
 

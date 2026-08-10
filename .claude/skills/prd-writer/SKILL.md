@@ -5,7 +5,7 @@ description: |
   iterativo de esclarecimento. Use quando: (1) Iniciar um novo projeto e precisar de
   requisitos estruturados, (2) Criar especificações de produto no formato PRD de 9 seções,
   (3) Definir escopo de produto a partir de uma descrição ou arquivos de contexto,
-  (4) Estender o PRD existente do EngrenaCode (`docs/PRD.md`) com features novas.
+  (4) Estender o PRD existente do EngrenaCode (`apps/engrena-code/docs/PRD.md`) com features novas.
   Palavras-chave: "prd", "requisitos de produto", "criar PRD", "gerar PRD", "novo produto",
   "documento de requisitos", "estender PRD".
 ---
@@ -16,21 +16,21 @@ Você gera PRDs (Documentos de Requisitos de Produto) completos e detalhados atr
 
 ## Adaptação ao EngrenaCode
 
-Este repositório já tem um PRD em `docs/PRD.md`, escrito integralmente em português, com features F01–F11 (ver `docs/PROGRESS.md` para status real de implementação — não usar `_reversa_forward` actions como sinal de progresso). Ao ser invocada neste projeto, a skill quase sempre está em modo **extensão**, não criação do zero:
+Este repositório já tem um PRD em `apps/engrena-code/docs/PRD.md`, escrito integralmente em português, com features F01–F11 (ver `apps/engrena-code/docs/PROGRESS.md` para status real de implementação — não usar `_reversa_forward` actions como sinal de progresso). Ao ser invocada neste projeto, a skill quase sempre está em modo **extensão**, não criação do zero:
 
-- **Sempre** leia `docs/PRD.md` inteiro antes da Fase 1. Trate-o como PRD existente, não como base vazia.
+- **Sempre** leia `apps/engrena-code/docs/PRD.md` inteiro antes da Fase 1. Trate-o como PRD existente, não como base vazia.
 - Novas features recebem o próximo ID sequencial livre (`F12`, `F13`...) — nunca reutilize ou renumere IDs já usados nas Seções 5, 6, 8, 9.
 - Preserve a estrutura, o tom e o nível de detalhe das seções já escritas. Não reescreva features existentes a menos que o usuário peça explicitamente uma revisão delas.
 - Ao editar a Seção 8 (Grafo de Dependências), insira a(s) feature(s) nova(s) mantendo ordem topológica com as já existentes; recalcule Ondas de Execução só se a nova feature alterar dependências de features já ondeadas. Toda feature nova recebe uma onda — nenhuma feature pode existir na tabela de dependências e ficar fora das Ondas de Execução.
-- `docs/PROGRESS.md` tem uma tabela "Ondas (PRD §8)" que **espelha** as Ondas de Execução da Seção 8. Sempre que esta skill mexer nas ondas (feature nova, dependência alterada, recálculo), sincronize esse espelho na mesma execução — ver FASE 5, passo 2. Sem isso o espelho congela no recorte antigo e o backlog novo só sobrevive em texto solto fora da tabela.
-- Só crie um PRD novo do zero se `docs/PRD.md` genuinamente não existir ou se o usuário pedir explicitamente um documento separado.
+- `apps/engrena-code/docs/PROGRESS.md` tem uma tabela "Ondas (PRD §8)" que **espelha** as Ondas de Execução da Seção 8. Sempre que esta skill mexer nas ondas (feature nova, dependência alterada, recálculo), sincronize esse espelho na mesma execução — ver FASE 5, passo 2. Sem isso o espelho congela no recorte antigo e o backlog novo só sobrevive em texto solto fora da tabela.
+- Só crie um PRD novo do zero se `apps/engrena-code/docs/PRD.md` genuinamente não existir ou se o usuário pedir explicitamente um documento separado.
 
 ## PARÂMETROS DE ENTRADA
 
 Do comando invocador, você recebe:
 - `PROJECT_NAME`: Nome do projeto (EngrenaCode, salvo indicação contrária)
-- `OUTPUT_FOLDER`: Pasta onde salvar o PRD (`docs/`, salvo indicação contrária)
-- `PRD_PATH`: Caminho completo do arquivo do PRD (`docs/PRD.md`, salvo indicação contrária)
+- `OUTPUT_FOLDER`: Pasta onde salvar o PRD (`apps/engrena-code/docs/`, salvo indicação contrária)
+- `PRD_PATH`: Caminho completo do arquivo do PRD (`apps/engrena-code/docs/PRD.md`, salvo indicação contrária)
 - `PRODUCT_DESCRIPTION`: Conteúdo combinado do contexto (arquivo ou pasta) e/ou descrição
 
 ---
@@ -45,7 +45,7 @@ Do comando invocador, você recebe:
 **Passo 2: Explorar Contexto do Projeto**
 
 Analise o diretório atual do projeto em busca de código existente, documentação e arquitetura:
-- Procure por: PRDs existentes em locais comuns (docs/, .codekit/, etc.) — neste projeto, `docs/PRD.md` existe e deve ser lido por completo (ver "Adaptação ao EngrenaCode" acima)
+- Procure por: PRDs existentes em locais comuns (docs/, .codekit/, etc.) — neste projeto, `apps/engrena-code/docs/PRD.md` existe e deve ser lido por completo (ver "Adaptação ao EngrenaCode" acima)
 - Extraia: tecnologias em uso, convenções de nomenclatura, personas existentes, regras de negócio, pontos de integração
 - Resuma achados: "Contexto do projeto: [novo projeto / projeto existente com X, Y, Z]"
 - Se o projeto está vazio/novo, anote: "Contexto do projeto: novo projeto - sem contexto existente"
@@ -311,7 +311,7 @@ Integridade das Ondas de Execução:
 - [ ] Cálculo de onda — a onda de cada feature é igual a `max(onda de cada dependência) + 1`; Onda 1 contém exatamente as features sem dependências
 - [ ] Ordenação de onda — dentro de uma onda, features são listadas por prioridade ascendente (1, 2, 3) com desempate por ID de feature (menor primeiro)
 - [ ] Sem feature órfã de onda — nenhuma feature nova entrou na tabela de dependências sem ser atribuída a uma onda, e nenhuma feature aparece só em texto narrativo (release gates, "próxima frente", roadmap) sem a linha de onda correspondente
-- [ ] Espelho de progresso — quando `docs/PROGRESS.md` existe com uma tabela de ondas, ela lista exatamente as mesmas features nas mesmas ondas da Seção 8 (ver FASE 5, passo 2)
+- [ ] Espelho de progresso — quando `apps/engrena-code/docs/PROGRESS.md` existe com uma tabela de ondas, ela lista exatamente as mesmas features nas mesmas ondas da Seção 8 (ver FASE 5, passo 2)
 
 Integridade das Features de Fundação (apenas quando a subseção está presente):
 - [ ] Toda feature listada em Features de Fundação existe na tabela de dependências
@@ -337,9 +337,9 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 
 ### FASE 5: Salvar PRD
 
-1. Salve o PRD em `{PRD_PATH}` — em modo extensão, isso significa reescrever `docs/PRD.md` inteiro com as seções novas/atualizadas mescladas, preservando tudo que não mudou.
+1. Salve o PRD em `{PRD_PATH}` — em modo extensão, isso significa reescrever `apps/engrena-code/docs/PRD.md` inteiro com as seções novas/atualizadas mescladas, preservando tudo que não mudou.
 
-2. **Sincronize o espelho de ondas em `docs/PROGRESS.md`** (pule só se o arquivo não existir ou não tiver tabela de ondas). O espelho é derivado da Seção 8, nunca uma segunda fonte de verdade:
+2. **Sincronize o espelho de ondas em `apps/engrena-code/docs/PROGRESS.md`** (pule só se o arquivo não existir ou não tiver tabela de ondas). O espelho é derivado da Seção 8, nunca uma segunda fonte de verdade:
    - Toda feature da tabela de dependências aparece em exatamente uma linha de onda, **incluindo as pendentes** — feature nova nunca fica só num parágrafo de roadmap ("próxima frente", release gate) fora da tabela.
    - Cada linha carrega o paralelismo explícito da onda: se as features daquela onda podem ser construídas em paralelo, e qual serialização se aplica (fundação, ou acoplamento real conhecido no repo).
    - O estado da onda reflete o status real das features nela: uma onda com qualquer feature pendente não é "Completa".
@@ -352,7 +352,7 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 4. PRD tem EXATAMENTE 9 seções
 5. NUNCA inclua: "Validação", "Próximos Passos", checklists, cabeçalho de ID, data, versão
 6. PRD começa com o título do produto como H1, depois Seção 1
-7. Informe ao usuário o caminho exato e, quando o espelho de ondas foi sincronizado, cite também `docs/PROGRESS.md`
+7. Informe ao usuário o caminho exato e, quando o espelho de ondas foi sincronizado, cite também `apps/engrena-code/docs/PROGRESS.md`
 
 ---
 
@@ -372,8 +372,8 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Mantenha consistência: Problema -> Solução, Feature -> Histórias -> Funcionalidades -> Critérios
 - Valide internamente ANTES de salvar
 - Comece o PRD com o título do produto (H1), sem cabeçalho de ID/data/versão
-- Em modo extensão sobre `docs/PRD.md`: leia o PRD inteiro primeiro, preserve IDs e conteúdo existentes, continue a sequência de IDs sem gap
-- Atribua uma onda a toda feature nova e sincronize o espelho "Ondas" de `docs/PROGRESS.md` na mesma execução, com paralelismo explícito por linha
+- Em modo extensão sobre `apps/engrena-code/docs/PRD.md`: leia o PRD inteiro primeiro, preserve IDs e conteúdo existentes, continue a sequência de IDs sem gap
+- Atribua uma onda a toda feature nova e sincronize o espelho "Ondas" de `apps/engrena-code/docs/PROGRESS.md` na mesma execução, com paralelismo explícito por linha
 
 **NUNCA:**
 - Inclua seções extras
@@ -382,7 +382,7 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Force um número fixo de histórias por feature — derive da complexidade da feature
 - Inclua referências antecipadas na tabela de dependências (quebra ordem topológica)
 - Renumere ou reescreva silenciosamente uma feature existente do EngrenaCode ao estender o PRD
-- Deixe uma feature nova só em texto narrativo de roadmap (release gate, "próxima frente") sem linha própria nas Ondas de Execução e no espelho de `docs/PROGRESS.md`
+- Deixe uma feature nova só em texto narrativo de roadmap (release gate, "próxima frente") sem linha própria nas Ondas de Execução e no espelho de `apps/engrena-code/docs/PROGRESS.md`
 
 ---
 
@@ -414,7 +414,7 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Verifique se cada dependência é uma exigência funcional de dados genuína, não apenas um "seria bom ter antes" lógico
 - Mantenha apenas dependências em que a feature não pode funcionar sem a saída da outra
 
-**`docs/PRD.md` já existe (caso normal no EngrenaCode):**
+**`apps/engrena-code/docs/PRD.md` já existe (caso normal no EngrenaCode):**
 - Entre em modo extensão automaticamente — não pergunte se deve sobrescrever, apenas confirme quais features está adicionando/alterando antes de escrever
 
 ## OUTPUT
