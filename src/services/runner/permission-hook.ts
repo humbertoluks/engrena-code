@@ -7,9 +7,16 @@ import { app } from 'electron'
  * porque `--permission-mode default` exige aprovação interativa via stdin, que não existe no
  * spawn headless (`-p`). O hook substitui isso: lê `tool_name`/`tool_input` do stdin (contrato
  * documentado do PreToolUse), segura a decisão em `POST /permission` do `permission-broker.ts`
- * até a UI responder, e traduz pra `hookSpecificOutput.permissionDecision` (`allow` exit 0,
- * `deny` exit 2 — stdout/stderr conforme o contrato de hooks do Claude Code).
- * Falha de rede/parse fecha em `deny` (fail-closed), nunca deixa a tool passar sem decisão.
+ * até a UI responder, e traduz pra `hookSpecificOutput.permissionDecision`.
+ *
+ * `hookEventName: 'PreToolUse'` é obrigatório no `hookSpecificOutput`: sem ele o CLI ignora a
+ * decisão do hook em silêncio e cai no comportamento padrão — que em spawn headless nega toda
+ * escrita ("Claude requested permissions to write to X, but you haven't granted it yet"),
+ * fazendo o agente pedir confirmação em prosa e encerrar o turno. Confirmado ao vivo.
+ *
+ * Decisão sempre por stdout + exit 0 (allow e deny): é o canal documentado onde
+ * `permissionDecisionReason` chega limpo ao modelo. Falha de rede/parse fecha em `deny`
+ * (fail-closed), nunca deixa a tool passar sem decisão.
  */
 const SCRIPT_SOURCE = `#!/usr/bin/env node
 function flag(name) {
@@ -20,16 +27,25 @@ function flag(name) {
 const port = flag('port')
 const token = flag('token')
 
-function allow() {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { permissionDecision: 'allow' } }))
+function decide(permissionDecision, reason) {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision,
+        permissionDecisionReason: reason,
+      },
+    })
+  )
   process.exit(0)
 }
 
+function allow() {
+  decide('allow', 'Permissão concedida pelo usuário no EngrenaCode.')
+}
+
 function deny(message) {
-  process.stderr.write(
-    JSON.stringify({ hookSpecificOutput: { permissionDecision: 'deny' }, systemMessage: message })
-  )
-  process.exit(2)
+  decide('deny', message)
 }
 
 async function main() {

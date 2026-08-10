@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { usePrincipalWorkspace } from '../hooks/usePrincipalWorkspace'
 import { ProjectTree } from '../components/workspace/ProjectTree'
@@ -19,6 +19,7 @@ const COPY = {
 
 export function PrincipalScreen(): ReactElement {
   const ws = usePrincipalWorkspace()
+  const [terminalMaximized, setTerminalMaximized] = useState(false)
 
   const pendingDiffCount = ws.diffs.filter((d) => d.status === 'pending').length
   const currentPermission = ws.permissionQueue[0] ?? null
@@ -43,8 +44,8 @@ export function PrincipalScreen(): ReactElement {
   }, [ws.projects, ws.selectProject, ws.selectThread, ws.setActiveTab])
 
   return (
-    <div className="grid h-full grid-rows-[1fr_auto] gap-sm p-sm">
-      <div className="grid grid-cols-[280px_1fr_280px] gap-sm overflow-hidden">
+    <div className="relative h-full">
+      <div className="grid h-full grid-cols-[280px_1fr_280px] gap-sm overflow-hidden p-sm">
         <ProjectTree
           projects={ws.projects}
           selectedProjectId={ws.selectedProjectId}
@@ -62,7 +63,7 @@ export function PrincipalScreen(): ReactElement {
           onRemoveProject={(id) => void ws.removeProject(id)}
         />
 
-        <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
           <div className="flex items-center gap-xs border-b border-border px-md py-xs">
             <button
               type="button"
@@ -103,7 +104,7 @@ export function PrincipalScreen(): ReactElement {
             </div>
           ) : null}
 
-          <div className="flex-1 overflow-y-auto">
+          <div className={terminalMaximized ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto'}>
             {ws.activeTab === 'history' ? (
               <ChatHistory
                 messages={ws.messages}
@@ -114,6 +115,7 @@ export function PrincipalScreen(): ReactElement {
                 error={ws.historyError}
                 streamingText={ws.streamingText}
                 hasThread={ws.selectedThreadId !== null}
+                threadState={ws.selectedThread?.state ?? null}
                 pendingQuestion={ws.pendingQuestion}
                 onAnswerQuestion={ws.answerQuestion}
                 answerBusy={ws.answerBusy}
@@ -135,11 +137,14 @@ export function PrincipalScreen(): ReactElement {
             <TaskComposer
               composer={ws.composer}
               updateComposer={ws.updateComposer}
+              onAccessLevelChange={(level) => void ws.setAccessLevel(level)}
               composerCatalog={ws.composerCatalog}
               selectedThread={ws.selectedThread}
               projectId={ws.selectedProjectId}
               queue={ws.queue}
               onDequeue={ws.dequeue}
+              onUpdateQueueItem={ws.updateQueueItem}
+              onPromoteQueueItem={ws.promoteQueueItem}
               sendError={ws.sendError}
               configStatus={ws.configStatus}
               vcsStatus={ws.vcsStatus}
@@ -150,6 +155,12 @@ export function PrincipalScreen(): ReactElement {
               hasProject={ws.selectedProjectId !== null}
             />
           </div>
+
+          <TerminalDock
+            projectId={ws.selectedProjectId}
+            threadId={ws.selectedThreadId}
+            onMaximizedChange={setTerminalMaximized}
+          />
         </div>
 
         <WorkspaceSidebar
@@ -157,6 +168,7 @@ export function PrincipalScreen(): ReactElement {
           selectedThread={ws.selectedThread}
           vcsStatus={ws.vcsStatus}
           memoryStatus={ws.memoryStatus}
+          usageLimitStatus={ws.usageLimitStatus}
           onMemoryChanged={ws.refreshMemoryStatus}
           subagentRuns={ws.subagentRuns}
           onOpenSubagentRun={ws.openSubagentRun}
@@ -173,8 +185,6 @@ export function PrincipalScreen(): ReactElement {
         />
       </div>
 
-      <TerminalDock projectId={ws.selectedProjectId} threadId={ws.selectedThreadId} />
-
       {ws.addProjectModalOpen ? (
         <AddProjectModal onClose={() => ws.setAddProjectModalOpen(false)} onSubmit={(path, name) => ws.addProject(path, name)} />
       ) : null}
@@ -189,6 +199,7 @@ export function PrincipalScreen(): ReactElement {
           params={currentPermission.params}
           queuedCount={ws.permissionQueue.length - 1}
           onAllow={() => void ws.resolvePermission(currentPermission.requestId, true)}
+          onAllowAll={() => void ws.resolvePermission(currentPermission.requestId, true, true)}
           onDeny={() => void ws.resolvePermission(currentPermission.requestId, false)}
         />
       ) : null}

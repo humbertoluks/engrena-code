@@ -55,8 +55,14 @@ Ordem obrigatória no viewport (conteúdo sob o `AppShell` ~40px):
    1. (Opcional legado) QuickActions / ConfigBanner — fora do aceite núcleo
    2. Conteúdo da aba ativa: `ChatHistory` (Histórico) / `SystemPrompt` (Prompt, via Harness) / `DiffViewer` (Diff)
    3. `TaskComposer` (`max-w-5xl`): fila + textarea + pills de runtime + enviar/parar
-4. **Sidebar direita (card `WorkspaceSidebar`):** “Nova Thread” + seções colapsáveis Ambiente / Arquivos / Thread (Histórico \| Diff) / **Repositório** (`GitActions`) / **Repo Harness** (Prompt; Rules/Skills/SubAgents com counts e modais reais).
-5. **Overlays:** `AddProjectModal`; `PermissionPrompt` (access Supervised); erros inline no composer.
+4. **Sidebar direita (`WorkspaceSidebar`):** pilha de **cards colapsáveis** (`<details>` via `SidebarSection`):
+   1. CTA **Nova Thread** (pill)
+   2. **Limites** (fechado; status USD F25 + link `#consumo` — não é o card de cotas de assinatura do legado)
+   3. **Subagents** (aberto por padrão)
+   4. **Ambiente** / **Arquivos** (`FileExplorer`, lazy no 1º open) / **Thread** / **Repositório** (fechados)
+   5. **CodeGraph** (badge no summary; abre se missing/error)
+   6. **Repo Harness** (aberto por padrão — Rules/Skills/SubAgents/MCPs/Memória)
+5. **Overlays:** `AddProjectModal`; `PermissionPrompt` (access Supervised); erros inline no composer; `FileViewerModal` (leitura de arquivo do explorer).
 
 **Alinhamento do card / painel:** sidebars em cartões soltos (`rounded-xl border border-border bg-surface`); centro com composer `mx-auto max-w-5xl`  
 **Largura máx.:** centro chat/composer `max-w-5xl`; modal adicionar projeto `max-w-md` / card padrão
@@ -107,7 +113,7 @@ Na sidebar direita, seção Thread: só **Histórico** \| **Diff**. A aba **Prom
 | Composer shell | `rounded-xl border border-border bg-surface-2` + `focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25` | |
 | Textarea | `bg-transparent text-fg` + `placeholder:text-muted` | |
 | Pill runtime | `rounded-md` / menu `rounded-lg border border-border bg-surface` | labels EN nos pills Access/Execution |
-| CTA enviar | `bg-accent` / ícone; parar quando running | |
+| CTA enviar | círculo `bg-accent` + seta ↑; Parar = círculo `bg-fg` + stop `bg-bg` | aria/title mantém copy textual |
 | Aba Diff badge | `text-amber` / `bg-amber/[0.14]` | contagem pending |
 | Diff add/del | cores de diff (legado hex `#7ee787` / `#ff9a9a`) | token-gap vs Design Lock |
 | Git botões | `rounded-full border-border bg-surface-2` | disabled quando busy |
@@ -207,6 +213,7 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `composer.error.capabilities` | Não foi possível validar as capacidades efetivas. |
 | `composer.cta.retry` | Tentar novamente |
 | `queue.badge.queued` | na fila |
+| `queue.header` | {N} na fila |
 | `queue.badge.sending` | enviando |
 | `queue.badge.paused` | pausada |
 | `queue.badge.error` | erro |
@@ -217,6 +224,8 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `queue.action.edit` | Editar |
 | `queue.action.save` | Salvar |
 | `queue.action.cancel` | Cancelar |
+| `queue.action.promote` | Priorizar (próxima) |
+| `queue.action.remove` | Remover da fila |
 | `queue.action.retry` | Tentar novamente |
 | `error.threadBusy` | Thread {threadId} esta em execucao ou o projeto esta ocupado; tente novamente. |
 
@@ -245,6 +254,8 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `prompt.hint` | Aplicado a todas as próximas mensagens desta thread, em qualquer provider. |
 | `prompt.cta.save` | Salvar prompt |
 | `prompt.cta.loading` | Salvando… |
+
+> Visual ativo: `chat.thinking` e o título mono da tool com status `running` usam shimmer L→R (`text-shimmer`); ao concluir, texto volta a `text-muted` estático.
 
 ### Diff
 
@@ -336,6 +347,9 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `permission.label.params` | Parâmetros |
 | `permission.deny` | Negar |
 | `permission.allow` | Permitir |
+| `permission.allowAll` | Permitir todos |
+| `permission.allowAll.hint` | Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code). |
+| `permission.composer.pending` | Há uma permissão pendente. Use Permitir, Permitir todos ou Negar no modal (ou responda sim/não/permitir todos). |
 
 ## Campos e controles
 
@@ -346,18 +360,18 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `addProject.submit` | button | — | disabled se path vazio / loading |
 | `newThread` | button | — | limpa thread selecionada; não abre modal |
 | `composer.providerModel` | pill/picker | sim (1º envio) | MVP: Claude \| Codex \| Kimi; provider imutável após criar |
-| `composer.access` | pill select | sim | Supervised / Auto-accept edits / Full access |
+| `composer.access` | pill select | sim | Supervised / Auto-accept edits / Full access; editável com thread running (PATCH imediato; upgrade mid-turn libera permission broker) |
 | `composer.execution` | pill select | sim | Main / Worktree; **locked** após 1º envio |
 | `composer.textarea` | textarea | sim p/ enviar | Enter envia; Shift+Enter quebra; Enter em running enfileira |
-| `composer.send` | button | — | vira Parar quando running; gated por F02 |
-| `queue.chip` | chip editável | — | editar / remover / retry |
+| `composer.send` | button | — | círculo accent + seta; vira círculo fg + stop quando running; gated por F02 |
+| `queue.chip` | painel colapsável | — | header `{N} na fila`; rows com texto 13px, editar / priorizar / remover |
 | `thread.tabs` | tabs | — | Histórico / Diff na sidebar; Prompt via Harness |
 | `diff.file.checkbox` | checkbox | — | só `pending`; alimenta subset |
 | `diff.file.accept` / `diff.file.reject` | buttons | — | 1 arquivo (id/path); loading por card |
 | `diff.select.all` / `diff.select.none` | buttons | — | ≥2 pending |
 | `diff.accept` / `diff.reject` | buttons | — | seleção vazia → todos pending; senão → subset |
 | `git.quick` + ações | buttons | — | `disabled` se `busy` (running thread ou stage); PAT vault no push/PR |
-| `permission.allow` / `deny` | buttons | — | fila Supervised; Esc/backdrop = deny |
+| `permission.allow` / `deny` / `allowAll` | buttons | — | Allow once / Deny / don’t ask again por ferramenta (sessão da thread) |
 
 ## Estados
 
@@ -370,9 +384,9 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `loading` | dispatch / add project / accept-diff / git stage | spinners / labels de estágio |
 | `disabled` | validação, locks de runtime, git busy, F02 unhealthy | CTAs disabled + hints |
 | `error` | falha API / validação | slot vermelho (modal, composer, diff, git) |
-| `running` | `thread.state === 'running'` | placeholder fila; botão Parar; runtime locked; **git disabled** |
+| `running` | `thread.state === 'running'` | placeholder fila; botão Parar; runtime locked (exceto Access); **git disabled**; `chat.thinking` e título de tool `running` com shimmer L→R (`text-shimmer`); Access pill persiste via `PATCH /api/threads/:id` |
 | `stopping` | cancel em andamento | “Cancelando execução…”; textarea disabled |
-| `queued` | Enter durante running | chips na fila + bolhas no chat |
+| `queued` | Enter durante running | painel `{N} na fila` acima do composer (lista legível, não chip) |
 | `repositoryBlocked` | pasta sem git utilizável | gate “Inicialize o Git…” |
 | `diffPending` | ≥1 diff `pending` | aba Diff com badge; ações no header + rodapé |
 | `diffFileAccepted` | arquivo `accepted` | badge `aceito`; sem checkbox/ações |
@@ -381,7 +395,7 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `diffAccepted` / `diffRejected` | todos revisados / reject terminal | banners de sucesso/rejeição; Abrir PR se aplicável |
 | `thread_busy` | HTTP 409 `thread_busy` | mensagem `error.threadBusy` no ponto da ação; **sem** badge dedicado na fonte |
 | `gitBusy` | stage ≠ null **ou** thread running | botões git disabled |
-| `permissionOpen` | tool call Supervised | modal Permitir/Negar |
+| `permissionOpen` | tool call Supervised | modal Negar / Permitir / Permitir todos; composer: sim/não/permitir todos; outro texto → hint `permission.composer.pending` (não enfileira). Permitir todos = don’t ask again por `toolName` nesta thread até fim do processo |
 | `harnessLive` | F05–F07 | Skills/Rules/SubAgents com counts e modais reais |
 
 ## Componentes sugeridos

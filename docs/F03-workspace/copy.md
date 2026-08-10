@@ -104,12 +104,15 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 | `composer.error.capabilities` | Não foi possível validar as capacidades efetivas. | |
 | `composer.cta.retry` | Tentar novamente | |
 | `composer.queue.badge.queued` | na fila | |
+| `composer.queue.header` | {N} na fila | painel colapsável acima do composer (padrão Cursor) |
 | `composer.queue.badge.sending` | enviando | |
 | `composer.queue.badge.paused` | pausada | |
 | `composer.queue.badge.error` | erro | |
 | `composer.queue.action.edit` | Editar | |
 | `composer.queue.action.save` | Salvar | |
 | `composer.queue.action.cancel` | Cancelar | |
+| `composer.queue.action.promote` | Priorizar (próxima) | move o item para o início da fila |
+| `composer.queue.action.remove` | Remover da fila | |
 | `composer.queue.action.retry` | Tentar novamente | |
 
 ### chat
@@ -228,7 +231,10 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 | `permission.label.tool` | Ferramenta | |
 | `permission.label.params` | Parâmetros | |
 | `permission.deny` | Negar | |
-| `permission.allow` | Permitir | |
+| `permission.allow` | Permitir | só esta chamada |
+| `permission.allowAll` | Permitir todos | Claude Code “don’t ask again” por toolName na thread (sessão do processo) |
+| `permission.allowAll.hint` | Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code). | |
+| `permission.composer.pending` | Há uma permissão pendente. Use Permitir, Permitir todos ou Negar no modal (ou responda sim/não/permitir todos). | Composer bloqueia texto livre enquanto o modal está aberto |
 
 ## Placeholders dinâmicos
 

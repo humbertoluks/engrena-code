@@ -41,6 +41,11 @@ export interface ProviderTurnInput {
   /** Broker do hook `PreToolUse` (spec `PermissionBroker`) — só usado por Claude em modo `supervised`. */
   permissionPort?: number
   permissionToken?: string
+  /**
+   * Session ID do Claude Code CLI para `--resume` no follow-up (mantém contexto entre turnos headless).
+   * Só aplicado quando `provider === 'claude'`.
+   */
+  resumeSessionId?: string | null
   signal?: AbortSignal
 }
 
@@ -58,6 +63,8 @@ export interface ProviderTurnResult {
   usage?: ProviderUsage
   /** Custo já calculado pelo SDK do provider (`total_cost_usd`, hoje só Claude) — `undefined` = não reportado, `null` = reportado como indisponível. */
   costUsd?: number | null
+  /** `session_id` do stream-json (Claude) — persistido na thread para `--resume` no próximo turno. */
+  sessionId?: string | null
 }
 
 export class ProviderError extends Error {

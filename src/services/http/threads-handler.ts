@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
-import { getThread, deleteThread, listThreadsForProject } from '../db/repositories/threads.js'
+import { getThread, deleteThread, listThreadsForProject, updateThread } from '../db/repositories/threads.js'
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
 import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
 import { getProject } from '../db/repositories/projects.js'
@@ -22,7 +22,7 @@ import {
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
-import { resolvePermissionRequest } from '../runner/permission-broker.js'
+import { resolvePermissionRequest, allowPendingPermissionsForThread, clearAllowedToolsForThread } from '../runner/permission-broker.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -268,6 +268,8 @@ function handleCancel(_req: IncomingMessage, res: ServerResponse, threadId: stri
 interface PermissionBody {
   requestId?: string
   allow?: boolean
+  /** Claude Code "don't ask again" — não perguntar de novo por esta ferramenta nesta thread. */
+  always?: boolean
 }
 
 async function handlePermission(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -278,9 +280,15 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   if (data === null || typeof data.requestId !== 'string' || typeof data.allow !== 'boolean') {
     return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
   }
+  if (data.always !== undefined && typeof data.always !== 'boolean') {
+    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  }
+  if (data.always === true && data.allow !== true) {
+    return sendError(res, 400, 'validation_error', 'always exige allow=true.')
+  }
 
-  const resolved = resolvePermissionRequest(data.requestId, data.allow)
-  if (!resolved) {
+  const resolved = resolvePermissionRequest(data.requestId, data.allow, data.always === true)
+  if (!resolved.ok) {
     return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
   }
 
@@ -290,7 +298,42 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
     requestId: data.requestId,
     allow: data.allow,
   })
-  sendJson(res, 200, { resolved: true })
+  sendJson(res, 200, { resolved: true, always: data.always === true, toolName: resolved.toolName })
+}
+
+interface PatchThreadBody {
+  accessLevel?: string
+}
+
+/**
+ * PATCH /api/threads/:id — persiste Access sem exigir follow-up (pill no composer).
+ * Upgrade fora de supervised libera permissões pendentes do turno atual.
+ */
+async function handlePatchThread(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const data = parseBody<PatchThreadBody>(await readBody(req))
+  if (data === null || data.accessLevel === undefined) {
+    return sendError(res, 400, 'validation_error', 'Informe accessLevel.')
+  }
+  if (!(ACCESS_LEVELS as readonly string[]).includes(data.accessLevel)) {
+    return sendError(res, 400, 'validation_error', 'accessLevel inválido.')
+  }
+
+  const nextAccess = data.accessLevel as (typeof ACCESS_LEVELS)[number]
+  const previousAccess = thread.accessLevel
+  const updated = updateThread(threadId, { accessLevel: nextAccess })
+  if (updated === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  if (previousAccess === 'supervised' && nextAccess !== 'supervised') {
+    const allowedIds = allowPendingPermissionsForThread(threadId)
+    for (const requestId of allowedIds) {
+      emit(threadId, { type: 'permission.resolved', threadId, requestId, allow: true })
+    }
+  }
+
+  sendJson(res, 200, { thread: updated })
 }
 
 interface AnswerQuestionBody {
@@ -446,6 +489,7 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
   try {
     const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
     deleteDiffsForThread(thread.id)
+    clearAllowedToolsForThread(thread.id)
     deleteThread(thread.id)
     sendJson(res, 200, {
       deleted: true,
@@ -511,6 +555,10 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const threadMatch = THREAD_RE.exec(url)
     if (threadMatch && method === 'DELETE') {
       await handleDeleteThread(req, res, threadMatch[1])
+      return true
+    }
+    if (threadMatch && method === 'PATCH') {
+      await handlePatchThread(req, res, threadMatch[1])
       return true
     }
 

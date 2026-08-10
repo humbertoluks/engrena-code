@@ -78,6 +78,7 @@ describe('getVcsStatus', () => {
       ahead: 0,
       behind: 0,
       dirty: false,
+      dirtyFiles: [],
     })
   })
 
@@ -93,6 +94,7 @@ describe('getVcsStatus', () => {
       ahead: 0,
       behind: 0,
       dirty: false,
+      dirtyFiles: [],
     })
   })
 
@@ -104,6 +106,7 @@ describe('getVcsStatus', () => {
     expect(status.detached).toBe(false)
     expect(status.branch).toBeTruthy()
     expect(status.dirty).toBe(false)
+    expect(status.dirtyFiles).toEqual([])
     expect(status.ahead).toBe(0)
     expect(status.behind).toBe(0)
   })
@@ -113,6 +116,7 @@ describe('getVcsStatus', () => {
     writeFileSync(join(dir, 'novo.txt'), 'x\n')
     const status = await getVcsStatus(dir)
     expect(status.dirty).toBe(true)
+    expect(status.dirtyFiles).toContain('novo.txt')
   })
 })
 

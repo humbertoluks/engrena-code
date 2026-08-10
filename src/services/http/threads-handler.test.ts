@@ -15,6 +15,7 @@ const { createToolCall } = await import('../db/repositories/messages.js')
 const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
   '../runner/ask-user-question.js'
 )
+const { createPermissionServer, hasPendingPermission } = await import('../runner/permission-broker.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
 const {
@@ -768,6 +769,82 @@ describe('handleThreadsRequest', () => {
     const { status, body } = await res.result()
     expect(status).toBe(404)
     expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+  })
+
+  describe('PATCH /api/threads/:id (accessLevel)', () => {
+    it('persists accessLevel without a follow-up prompt', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'running',
+      })
+
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect((body as { thread: { accessLevel: string } }).thread.accessLevel).toBe('auto-accept-edits')
+      expect(getThread(thread.id)?.accessLevel).toBe('auto-accept-edits')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('rejects an invalid accessLevel', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+      })
+
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'god-mode' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('upgrade from supervised allows pending PreToolUse permissions', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'running',
+      })
+
+      const server = await createPermissionServer(thread.id, () => {})
+      const pendingFetch = fetch(`http://127.0.0.1:${server.port}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+        body: JSON.stringify({ toolName: 'Bash', toolInput: { command: 'echo hi' } }),
+      })
+      await waitFor(() => hasPendingPermission(thread.id))
+
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      expect((await res.result()).status).toBe(200)
+
+      const body = (await (await pendingFetch).json()) as { allow: boolean }
+      expect(body.allow).toBe(true)
+      expect(hasPendingPermission(thread.id)).toBe(false)
+
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
   })
 
   describe('POST /api/threads/:id/answer (F21)', () => {

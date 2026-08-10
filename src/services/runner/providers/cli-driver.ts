@@ -200,6 +200,11 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
     args.push('--effort', effort)
   }
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
+  // Claude headless: `--resume <session_id>` continua a conversa no disco (~/.claude/projects/…).
+  // Codex/Kimi não usam este flag neste driver — só Claude reporta `session_id` no stream-json.
+  if (input.provider === 'claude' && input.resumeSessionId) {
+    args.push('--resume', input.resumeSessionId)
+  }
   args.push('--permission-mode', permissionModeFlag(input.accessLevel, permissionSettingsPath !== undefined))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
   if (permissionSettingsPath) args.push('--settings', permissionSettingsPath)
@@ -310,6 +315,12 @@ function extractCostUsd(payload: Record<string, unknown>): number | null | undef
   return undefined
 }
 
+/** `session_id` em eventos stream-json (system init / result) — opaco, string não-vazia. */
+function extractSessionId(payload: Record<string, unknown>): string | null {
+  const raw = payload.session_id
+  return typeof raw === 'string' && raw.length > 0 ? raw : null
+}
+
 export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurnResult> {
   if (PROVIDER_KIND[input.provider] === 'http') {
     const httpTurn = HTTP_TURN_BY_PROVIDER[input.provider]
@@ -360,6 +371,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       let stderrBuf = ''
       let resultUsage: ProviderUsage | undefined
       let resultCostUsd: number | null | undefined
+      let resultSessionId: string | null = null
 
       input.signal?.addEventListener('abort', () => {
         child.kill()
@@ -370,6 +382,8 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
 
         try {
           const payload = JSON.parse(line.trim()) as Record<string, unknown>
+          const sid = extractSessionId(payload)
+          if (sid) resultSessionId = sid
           if (payload.type === 'result') {
             sawResult = true
             const text = extractFinalText(payload)
@@ -411,7 +425,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         cleanupPermissionSettings()
         cleanupTempImages()
         if (sawResult) {
-          resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
+          resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
           return
         }
         if (code !== 0) {
@@ -423,7 +437,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
           )
           return
         }
-        resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd })
+        resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
       })
     } catch (err) {
       cleanupMcpConfig()

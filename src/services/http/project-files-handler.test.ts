@@ -121,11 +121,20 @@ describe('handleProjectFilesRequest', () => {
       expect((result.body as { files: unknown[] }).files.length).toBe(1)
     })
 
-    it('rejects limit above 50', async () => {
+    it('rejects limit above 5000', async () => {
       const project = createProject({ path: fixtureRoot })
       const res = fakeRes()
-      await handleProjectFilesRequest(fakeReq('GET', `/api/projects/${project.id}/files?limit=51`, session), res)
+      await handleProjectFilesRequest(fakeReq('GET', `/api/projects/${project.id}/files?limit=5001`, session), res)
       expect((await res.result()).status).toBe(400)
+    })
+
+    it('allows explorer-sized limit above the mention default', async () => {
+      const project = createProject({ path: fixtureRoot })
+      const res = fakeRes()
+      await handleProjectFilesRequest(fakeReq('GET', `/api/projects/${project.id}/files?limit=5000`, session), res)
+      const result = await res.result()
+      expect(result.status).toBe(200)
+      expect((result.body as { files: unknown[] }).files.length).toBe(3)
     })
 
     it('rejects a non-integer limit', async () => {
@@ -154,6 +163,44 @@ describe('handleProjectFilesRequest', () => {
       const paths = (result.body as { files: Array<{ path: string }> }).files.map((f) => f.path)
       expect(paths).toEqual([])
       expect(paths.every((p) => !p.includes('..'))).toBe(true)
+    })
+  })
+
+  describe('GET /api/projects/:id/file', () => {
+    it('reads a text file inside the project', async () => {
+      const project = createProject({ path: fixtureRoot })
+      const res = fakeRes()
+      await handleProjectFilesRequest(
+        fakeReq('GET', `/api/projects/${project.id}/file?path=${encodeURIComponent('README.md')}`, session),
+        res,
+      )
+      const result = await res.result()
+      expect(result.status).toBe(200)
+      const body = result.body as { path: string; content: string }
+      expect(body.path).toBe('README.md')
+      expect(body.content).toContain('# readme')
+    })
+
+    it('rejects path traversal', async () => {
+      const project = createProject({ path: fixtureRoot })
+      const res = fakeRes()
+      await handleProjectFilesRequest(
+        fakeReq('GET', `/api/projects/${project.id}/file?path=${encodeURIComponent('../outside.txt')}`, session),
+        res,
+      )
+      expect((await res.result()).status).toBe(400)
+    })
+
+    it('returns 404 for missing file', async () => {
+      const project = createProject({ path: fixtureRoot })
+      const res = fakeRes()
+      await handleProjectFilesRequest(
+        fakeReq('GET', `/api/projects/${project.id}/file?path=${encodeURIComponent('missing.ts')}`, session),
+        res,
+      )
+      const result = await res.result()
+      expect(result.status).toBe(404)
+      expect((result.body as { error: { code: string } }).error.code).toBe('file_not_found')
     })
   })
 })

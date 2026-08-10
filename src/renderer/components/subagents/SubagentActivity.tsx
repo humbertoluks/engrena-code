@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { SubagentRun } from '../../services/subagents-service'
 import { t } from './copy.js'
 import { formatRunDuration, isActiveRunStatus, resolveLatestParallelBatch } from './subagentRun.format.js'
+import { SidebarSection } from '../workspace/SidebarSection'
 
 export interface SubagentActivityProps {
   runs: SubagentRun[]
@@ -87,16 +88,14 @@ export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityP
   }, [active.length])
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-md">
-      <div className="mb-sm flex items-center gap-xs text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">
-        {active.length > 0 ? (
-          <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-accent" aria-hidden="true" />
-        ) : null}
-        {t('subagentsRun.activity.title')}
-      </div>
-
+    <SidebarSection
+      title={t('subagentsRun.activity.title')}
+      icon={<SubagentsIcon active={active.length > 0} />}
+      collapsible
+      defaultOpen
+    >
       {latestBatch !== null ? (
-        <p role="status" className="mb-sm rounded-sm border border-border bg-surface px-sm py-xs text-[11.5px] text-muted">
+        <p role="status" className="mb-[2px] rounded-sm border border-border bg-surface px-sm py-xs text-[11.5px] text-muted">
           {t('wp.activity.aggregate', {
             done: latestBatch.done,
             total: latestBatch.total,
@@ -107,13 +106,15 @@ export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityP
       ) : null}
 
       {runs.length === 0 ? (
-        <p className="text-[12px] text-muted">{t('subagentsRun.activity.empty.none')}</p>
+        <p className="m-0 px-sm py-[4px] text-[12px] text-muted">{t('subagentsRun.activity.empty.none')}</p>
       ) : (
         <>
-          <div className="mb-sm">
-            <p className="mb-xs text-[11px] text-muted">{t('subagentsRun.activity.section.active')}</p>
+          <div className="mb-[2px]">
+            <p className="m-0 px-sm py-[2px] text-[11px] uppercase tracking-[0.04em] text-muted">
+              {t('subagentsRun.activity.section.active')}
+            </p>
             {active.length === 0 ? (
-              <p className="text-[12px] text-muted">{t('subagentsRun.activity.empty.active')}</p>
+              <p className="m-0 px-sm py-[4px] text-[12px] text-muted">{t('subagentsRun.activity.empty.active')}</p>
             ) : (
               <div className="flex flex-col gap-[2px]">
                 {active.map((run) => (
@@ -123,11 +124,11 @@ export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityP
             )}
           </div>
           <div>
-            <p className="mb-xs text-[11px] text-muted">
+            <p className="m-0 px-sm py-[2px] text-[11px] uppercase tracking-[0.04em] text-muted">
               {t('subagentsRun.activity.section.done', { N: done.length })}
             </p>
             {done.length === 0 ? (
-              <p className="text-[12px] text-muted">{t('subagentsRun.activity.empty.done')}</p>
+              <p className="m-0 px-sm py-[4px] text-[12px] text-muted">{t('subagentsRun.activity.empty.done')}</p>
             ) : (
               <div className="flex flex-col gap-[2px]">
                 {done.map((run) => (
@@ -138,6 +139,28 @@ export function SubagentActivity({ runs, onOpenRun }: Readonly<SubagentActivityP
           </div>
         </>
       )}
-    </div>
+    </SidebarSection>
+  )
+}
+
+function SubagentsIcon({ active }: Readonly<{ active: boolean }>): ReactElement {
+  return (
+    <span className="relative inline-flex">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        className="h-[13px] w-[13px]"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4" y="8" width="16" height="11" rx="2" />
+        <path d="M12 8V5M8 13h.01M16 13h.01" />
+      </svg>
+      {active ? (
+        <span className="absolute -right-[3px] -top-[2px] h-[6px] w-[6px] animate-pulse rounded-full bg-accent" aria-hidden="true" />
+      ) : null}
+    </span>
   )
 }

@@ -56,3 +56,28 @@
 | Accept/reject por arquivo; git mutável bloqueado com thread running | **pass** (accept real) |
 | Segunda execução no mesmo projeto retorna `thread_busy` | não reexercitado nesta rodada (coberto por unitário pré-existente) |
 | Skills, rules e subagents vinculados participam do turno | **pass** — Repo Harness confirma vínculo real consumido pelo turno |
+
+---
+
+# Smoke: Supervised end-to-end (2026-08-10)
+
+**Contexto:** turno Supervised nao criava arquivo nenhum — o agente respondia em prosa ("Preciso permissao pra criar arquivos. Confirma?") e encerrava o turno; responder "Sim" abria um turno novo sem contexto ("Qual tarefa?").
+
+**Metodo:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_todolist_smoke`; vault/userData reais do usuario intocados; `ANTHROPIC_API_KEY` unset (assinatura). Projeto fixture `TodolistV1` em `C:\Users\Me\Code\EngrenaCode\TodolistV1`, provider Claude, modelo `claude-haiku-4-5`, access `Supervised`, execution `Main`.
+
+## Causa raiz (confirmada por experimento isolado contra o binario `claude`)
+
+O hook `PreToolUse` emitia `hookSpecificOutput` **sem** `hookEventName`. O CLI dispara o hook (comprovado: log do hook recebeu `tool_name: Write`), mas **ignora a decisao em silencio** sem esse campo e cai no default headless, que nega escrita: `permission_denials: [Write]` + "Claude requested permissions to write to X, but you haven't granted it yet". Com `hookEventName: 'PreToolUse'` no mesmo output, `allow` cria o arquivo e `deny` bloqueia com a razao chegando limpa ao modelo (ambos por stdout + exit 0).
+
+## Confirmado ao vivo
+
+1. **Gate de git**: pasta sem repo → banner "Inicialize o Git"; clique em `Inicializar Git` cria repo + `chore: initial commit (EngrenaCode)`.
+2. **Modal de permissao real**: primeira tool (`Bash`) abre `Permitir a ferramenta Bash?` com parametros; `Permitir` libera o turno.
+3. **Antes da correcao**: turno terminava com pedido de confirmacao em prosa; `Sim` no chat gerava tool `Write` negada ("but you haven't granted it yet"), zero arquivos no disco.
+4. **`--resume`**: apos o fix de sessao, o follow-up "Sim, pode criar os arquivos." manteve o contexto (o agente foi direto ao `Write` do `package.json`), em vez do antigo "Qual tarefa?".
+5. **Depois da correcao do hook**: thread nova com o mesmo prompt criou `package.json` e `server.js` reais no disco; aba `Diff 2`; resposta final "Pronto. Projeto setup completo...". `server.js` com Express, array em memoria e as 4 rotas REST pedidas.
+
+## Nao exercitado
+
+- `Negar` no modal durante o fluxo do app (deny validado no experimento isolado + unitario `permission-hook.test.ts`).
+- Worktree, Auto-accept edits e Full access nesta rodada.

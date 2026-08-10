@@ -64,9 +64,47 @@ describe('runCliTurn — cli providers', () => {
     setSpawnForTesting(fakeSpawn)
 
     const result = await runCliTurn(baseInput())
-    expect(result).toEqual({ text: 'pong' })
+    expect(result.text).toBe('pong')
+    expect(result.sessionId).toBeNull()
     expect(capturedArgs).toContain('-p')
     expect(capturedOptions.cwd).toBe('/tmp/project')
+  })
+
+  it('passes --resume when Claude has a resumeSessionId and returns session_id from the result', async () => {
+    let capturedArgs: string[] = []
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[], _opts: unknown) => {
+      capturedArgs = args
+      const child = new FakeChild()
+      child.stdout.write(
+        `${JSON.stringify({ type: 'result', result: 'cont', is_error: false, session_id: 'sess-abc-123' })}\n`
+      )
+      queueMicrotask(() => {
+        child.stdout.end()
+        child.emit('close', 0)
+      })
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    const result = await runCliTurn(baseInput({ resumeSessionId: 'sess-abc-123' }))
+    expect(result).toMatchObject({ text: 'cont', sessionId: 'sess-abc-123' })
+    const resumeIdx = capturedArgs.indexOf('--resume')
+    expect(resumeIdx).toBeGreaterThan(-1)
+    expect(capturedArgs[resumeIdx + 1]).toBe('sess-abc-123')
+  })
+
+  it('does not pass --resume for non-claude providers even with resumeSessionId', async () => {
+    let capturedArgs: string[] = []
+    const fakeSpawn: SpawnFn = ((_bin: string, args: string[], _opts: unknown) => {
+      capturedArgs = args
+      const child = new FakeChild()
+      emitResultAndClose(child, 'ok')
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn
+    setSpawnForTesting(fakeSpawn)
+
+    await runCliTurn(baseInput({ provider: 'codex', resumeSessionId: 'sess-x' }))
+    expect(capturedArgs).not.toContain('--resume')
   })
 
   it('injects ANTHROPIC_API_KEY when Claude runs with an api key', async () => {

@@ -61,19 +61,27 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
       tool_input: { file_path: 'x.txt' },
     })
     expect(code).toBe(0)
-    expect(JSON.parse(stdout)).toEqual({ hookSpecificOutput: { permissionDecision: 'allow' } })
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput: { hookEventName: string; permissionDecision: string }
+    }
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow')
+    // Sem hookEventName o CLI ignora a decisão e nega toda escrita em headless.
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse')
     server.close()
   })
 
-  it('exits 2 with hookSpecificOutput.permissionDecision=deny when the broker denies', async () => {
+  it('exits 0 with hookSpecificOutput.permissionDecision=deny when the broker denies', async () => {
     const server = await startFakePermissionServer(() => ({ allow: false }))
-    const { code, stderr } = await runHook(server.port, server.token, {
+    const { code, stdout } = await runHook(server.port, server.token, {
       tool_name: 'Bash',
       tool_input: { command: 'rm -rf /' },
     })
-    expect(code).toBe(2)
-    const parsed = JSON.parse(stderr) as { hookSpecificOutput: { permissionDecision: string } }
+    expect(code).toBe(0)
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput: { hookEventName: string; permissionDecision: string }
+    }
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse')
     server.close()
   })
 
@@ -92,28 +100,29 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
     server.close()
   })
 
-  it('fails closed (deny, exit 2) when the broker is unreachable', async () => {
-    const { code, stderr } = await runHook(1, 'wrong-token', { tool_name: 'Write', tool_input: {} })
-    expect(code).toBe(2)
-    expect((JSON.parse(stderr) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision).toBe(
-      'deny'
-    )
+  it('fails closed (deny) when the broker is unreachable', async () => {
+    const { code, stdout } = await runHook(1, 'wrong-token', { tool_name: 'Write', tool_input: {} })
+    expect(code).toBe(0)
+    expect(
+      (JSON.parse(stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision
+    ).toBe('deny')
   })
 
-  it('fails closed (deny, exit 2) on invalid stdin JSON', async () => {
+  it('fails closed (deny) on invalid stdin JSON', async () => {
     const scriptPath = ensurePermissionHookScript()
-    const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+    const result = await new Promise<{ code: number | null; stdout: string }>((resolve) => {
       const child = spawn(process.execPath, [scriptPath, '--port', '1', '--token', 'x'])
-      let stderr = ''
-      child.stderr.on('data', (c: Buffer) => (stderr += c.toString()))
-      child.on('close', (code) => resolve({ code, stderr }))
+      let stdout = ''
+      child.stdout.on('data', (c: Buffer) => (stdout += c.toString()))
+      child.on('close', (code) => resolve({ code, stdout }))
       child.stdin.write('not json')
       child.stdin.end()
     })
-    expect(result.code).toBe(2)
-    expect((JSON.parse(result.stderr) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision).toBe(
-      'deny'
-    )
+    expect(result.code).toBe(0)
+    expect(
+      (JSON.parse(result.stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput
+        .permissionDecision
+    ).toBe('deny')
   })
 })
 

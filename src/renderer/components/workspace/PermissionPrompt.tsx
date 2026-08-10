@@ -7,6 +7,8 @@ const COPY = {
   labelParams: 'Parâmetros',
   deny: 'Negar',
   allow: 'Permitir',
+  allowAll: 'Permitir todos',
+  allowAllHint: 'Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code).',
 } as const
 
 export interface PermissionPromptProps {
@@ -14,10 +16,18 @@ export interface PermissionPromptProps {
   params: unknown
   queuedCount: number
   onAllow: () => void
+  onAllowAll: () => void
   onDeny: () => void
 }
 
-export function PermissionPrompt({ toolName, params, queuedCount, onAllow, onDeny }: Readonly<PermissionPromptProps>): ReactElement {
+export function PermissionPrompt({
+  toolName,
+  params,
+  queuedCount,
+  onAllow,
+  onAllowAll,
+  onDeny,
+}: Readonly<PermissionPromptProps>): ReactElement {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-lg"
@@ -43,7 +53,7 @@ export function PermissionPrompt({ toolName, params, queuedCount, onAllow, onDen
           {JSON.stringify(params, null, 2)}
         </pre>
 
-        <div className="flex justify-end gap-xs">
+        <div className="flex flex-wrap justify-end gap-xs">
           <button
             type="button"
             onClick={onDeny}
@@ -51,8 +61,20 @@ export function PermissionPrompt({ toolName, params, queuedCount, onAllow, onDen
           >
             {COPY.deny}
           </button>
-          <button type="button" onClick={onAllow} className="rounded-md bg-accent px-md py-xs text-[13px] font-medium text-white">
+          <button
+            type="button"
+            onClick={onAllow}
+            className="rounded-md border border-border bg-surface-2 px-md py-xs text-[13px] hover:bg-surface"
+          >
             {COPY.allow}
+          </button>
+          <button
+            type="button"
+            title={COPY.allowAllHint}
+            onClick={onAllowAll}
+            className="rounded-md bg-accent px-md py-xs text-[13px] font-medium text-white"
+          >
+            {COPY.allowAll}
           </button>
         </div>
       </div>

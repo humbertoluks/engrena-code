@@ -135,6 +135,25 @@ describe('dispatchNewThread', () => {
     })
 
     expect(thread.state).toBe('running')
+    expect(thread.title).toBe('oi')
+    await waitForState(thread.id, ['idle', 'error'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('sets title from the first line of a multi-line solicitation', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'Crie um projeto Node.js com Express\n- GET /todos\n- POST /todos',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    expect(thread.title).toBe('Crie um projeto Node.js com Express')
     await waitForState(thread.id, ['idle', 'error'])
     rmSync(dir, { recursive: true, force: true })
   })
@@ -208,9 +227,13 @@ describe('dispatchNewThread', () => {
       executionMode: 'main',
     })
 
-    await waitForState(thread.id, ['idle', 'error'])
+    await waitFor(() => capturedSystemPrompt !== undefined)
     expect(capturedSystemPrompt).toContain('Responda em PT-BR.')
     expect(capturedSystemPrompt).toContain(rule.name)
+    expect(capturedSystemPrompt).toContain('Never kill processes by generic name')
+    expect(capturedSystemPrompt).toContain('npx kill-port')
+    await waitForState(thread.id, ['idle', 'error'])
+    clearAllLeases()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -928,6 +951,37 @@ describe('dispatchFollowUp', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('persists Claude session_id and passes resumeSessionId on follow-up', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const calls: Array<{ resumeSessionId?: string | null }> = []
+
+    setRunCliTurnForTesting(async (input) => {
+      calls.push({ resumeSessionId: input.resumeSessionId })
+      return { text: 'primeira', sessionId: 'sess-from-cli' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'crie um todo',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(calls[0]?.resumeSessionId == null || calls[0]?.resumeSessionId === '').toBe(true)
+    expect(getThread(thread.id)?.cliSessionId).toBe('sess-from-cli')
+
+    setRunCliTurnForTesting(async (input) => {
+      calls.push({ resumeSessionId: input.resumeSessionId })
+      return { text: 'segunda', sessionId: 'sess-from-cli' }
+    })
+    dispatchFollowUp({ threadId: thread.id, prompt: 'continue' })
+    await waitForState(thread.id, ['idle', 'error'])
+    expect(calls[1]?.resumeSessionId).toBe('sess-from-cli')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('throws DispatchValidationError for an unknown thread', () => {
     expect(() => dispatchFollowUp({ threadId: 'thr_nao_existe', prompt: 'oi' })).toThrow(DispatchValidationError)
   })
@@ -1556,7 +1610,7 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const req = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
     expect(req.toolName).toBe('Write')
 
-    expect(resolvePermissionRequest(req.requestId, true)).toBe(true)
+    expect(resolvePermissionRequest(req.requestId, true).ok).toBe(true)
 
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
@@ -1601,7 +1655,7 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
 
     await waitFor(() => received.some((e) => e.type === 'permission.request'))
     const req = received.find((e) => e.type === 'permission.request') as { requestId: string }
-    expect(resolvePermissionRequest(req.requestId, false)).toBe(true)
+    expect(resolvePermissionRequest(req.requestId, false).ok).toBe(true)
 
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])

@@ -235,8 +235,8 @@ export function createUnlockServer(port: number = 5174): http.Server {
         if (handled) return
       }
 
-      // Project files routes — menu `@file` (F16 §5.2)
-      if (req.url?.startsWith('/api/projects/') && req.url.includes('/files')) {
+      // Project files routes — menu `@file` (F16) + FileExplorer list/read
+      if (req.url?.startsWith('/api/projects/') && req.url.includes('/file')) {
         const handled = await handleProjectFilesRequest(req, res)
         if (handled) return
       }

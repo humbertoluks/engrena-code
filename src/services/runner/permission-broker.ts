@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from 'crypto'
 import http from 'http'
+import { getThread } from '../db/repositories/threads.js'
 
 interface PendingPermission {
   threadId: string
+  toolName: string
   resolve: (allow: boolean) => void
 }
 
@@ -10,6 +12,13 @@ interface PendingPermission {
  * hook (dentro do turno) e o `POST /api/threads/:id/permission` (fora, disparado pela UI) só
  * compartilham o `requestId`. */
 const pending = new Map<string, PendingPermission>()
+
+/**
+ * Allowlist por thread + toolName — equivalente Claude Code "Yes, don't ask again" para aquela
+ * ferramenta pelo resto da sessão do processo (file edits no CC: até o fim da sessão).
+ * Bash no CC persiste no repo; aqui a sessão da thread cobre o caso sem settings.local.json.
+ */
+const allowedToolsByThread = new Map<string, Set<string>>()
 
 export interface PermissionRequestInfo {
   requestId: string
@@ -24,10 +33,28 @@ export interface PermissionServerHandle {
   close: () => void
 }
 
-function waitForDecision(requestId: string, threadId: string): Promise<boolean> {
+function waitForDecision(requestId: string, threadId: string, toolName: string): Promise<boolean> {
   return new Promise((resolve) => {
-    pending.set(requestId, { threadId, resolve })
+    pending.set(requestId, { threadId, toolName, resolve })
   })
+}
+
+export function isToolAllowedForThread(threadId: string, toolName: string): boolean {
+  return allowedToolsByThread.get(threadId)?.has(toolName) === true
+}
+
+/** Claude Code "don't ask again" para a ferramenta — vale até o fim do processo / clear da thread. */
+export function rememberAllowedTool(threadId: string, toolName: string): void {
+  let set = allowedToolsByThread.get(threadId)
+  if (!set) {
+    set = new Set()
+    allowedToolsByThread.set(threadId, set)
+  }
+  set.add(toolName)
+}
+
+export function clearAllowedToolsForThread(threadId: string): void {
+  allowedToolsByThread.delete(threadId)
 }
 
 /**
@@ -35,6 +62,9 @@ function waitForDecision(requestId: string, threadId: string): Promise<boolean> 
  * (spawnado pelo CLI via `--settings`, ver `cli-driver.ts`), segura a resposta até
  * `resolvePermissionRequest` ser chamado por um request externo (`threads-handler.ts`), e devolve
  * `{allow}` pro hook decidir `permissionDecision: allow|deny`.
+ *
+ * Auto-allow quando: (1) accessLevel ≠ supervised, ou (2) tool já está na allowlist da thread
+ * ("Permitir todos" / don't ask again).
  */
 export function createPermissionServer(
   threadId: string,
@@ -65,10 +95,25 @@ export function createPermissionServer(
       } catch {
         parsed = {}
       }
-      const requestId = randomUUID()
+
       const toolName = typeof parsed.toolName === 'string' ? parsed.toolName : 'unknown'
+
+      const current = getThread(threadId)
+      if (current !== null && current.accessLevel !== 'supervised') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ allow: true }))
+        return
+      }
+
+      if (isToolAllowedForThread(threadId, toolName)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ allow: true }))
+        return
+      }
+
+      const requestId = randomUUID()
       onRequest({ requestId, threadId, toolName, params: parsed.toolInput })
-      waitForDecision(requestId, threadId).then((allow) => {
+      waitForDecision(requestId, threadId, toolName).then((allow) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow }))
       })
@@ -90,13 +135,24 @@ export function createPermissionServer(
   })
 }
 
-/** No-op silencioso se `requestId` já foi resolvido/expirou — mesma tolerância de `resolveAskUserQuestion`. */
-export function resolvePermissionRequest(requestId: string, allow: boolean): boolean {
+/**
+ * Resolve um pedido pendente. Com `always=true` e allow, grava a ferramenta na allowlist da thread
+ * (Claude Code "Yes, don't ask again").
+ * Retorna false se o requestId não existe; `{ toolName }` quando resolveu.
+ */
+export function resolvePermissionRequest(
+  requestId: string,
+  allow: boolean,
+  always = false
+): { ok: true; toolName: string } | { ok: false } {
   const entry = pending.get(requestId)
-  if (!entry) return false
+  if (!entry) return { ok: false }
   pending.delete(requestId)
+  if (allow && always) {
+    rememberAllowedTool(entry.threadId, entry.toolName)
+  }
   entry.resolve(allow)
-  return true
+  return { ok: true, toolName: entry.toolName }
 }
 
 /** Nega toda permissão pendente de uma thread (cancel/erro/fim de turno) — mesmo contrato do
@@ -107,6 +163,21 @@ export function denyPendingPermissionsForThread(threadId: string): void {
     pending.delete(requestId)
     entry.resolve(false)
   }
+}
+
+/**
+ * Libera permissões pendentes com allow (upgrade Supervised → Auto-accept/Full mid-turn).
+ * Retorna os `requestId` resolvidos para o handler emitir `permission.resolved`.
+ */
+export function allowPendingPermissionsForThread(threadId: string): string[] {
+  const resolvedIds: string[] = []
+  for (const [requestId, entry] of pending) {
+    if (entry.threadId !== threadId) continue
+    pending.delete(requestId)
+    entry.resolve(true)
+    resolvedIds.push(requestId)
+  }
+  return resolvedIds
 }
 
 export function hasPendingPermission(threadId: string): boolean {

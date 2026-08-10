@@ -392,6 +392,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 **Capacidades:**
 - Projetos: pasta local; `git init` opcional se não for repo; sem teto duro (orientação 10–15 repos ativos)
 - Thread: 1 provider entre Claude, Codex, Kimi; access levels `supervised` | `auto-accept-edits` | `full-access`; execution mode `main` | `worktree` travado no primeiro envio
+- Supervised: modal de permissão por tool com **Negar**, **Permitir** (só esta chamada) e **Permitir todos** (Claude Code “Yes, don’t ask again”: não perguntar de novo por aquela ferramenta nesta thread até o fim da sessão do processo)
 - 1 thread running por projeto; conflito → 409 `thread_busy`
 - Diffs: pending | accepted | rejected por arquivo
 - Git mutável bloqueado com thread running
@@ -401,6 +402,7 @@ Fundação de estilo global do renderer EngrenaCode (herança visual Design Lock
 - `#principal`: sidebar projetos/threads, histórico streaming, aba Diff, composer
 - Tool calls com status explícito; follow-up enfileirável
 - Diffs dos subagents na mesma revisão do pai
+- Modal Supervised com três ações; composer aceita sinónimos (`sim` / `não` / `permitir todos`) enquanto o modal está aberto
 
 **Tratamento de Erros:**
 - Provider indisponível → composer desabilitado com motivo (“Codex não logado”, etc.)
@@ -1244,6 +1246,7 @@ graph TD
 - [x] Accept/reject por arquivo; git mutável bloqueado com thread running
 - [x] Segunda execução no mesmo projeto retorna thread_busy
 - [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07 (rules + load_skill F12 ok; `call_subagent` E2E confirmado real em F15)
+- [ ] Supervised: modal com Negar / Permitir / **Permitir todos** (don’t ask again por ferramenta na thread até o fim da sessão do processo)
 
 ### F04. Dashboard
 - [x] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos

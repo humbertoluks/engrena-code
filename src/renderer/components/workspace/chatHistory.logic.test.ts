@@ -1,20 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { CALL_SUBAGENT_TOOL_NAME, correlateSubagentRuns } from './chatHistory.logic'
-import type { ToolCall } from '../../services/threads-service'
+import {
+  CALL_SUBAGENT_TOOL_NAME,
+  correlateSubagentRuns,
+  countUserMessageLines,
+  formatClock,
+  formatDurationSeconds,
+  groupTimelineItems,
+  shouldCollapseUserMessage,
+  thinkingStartMs,
+  toolSummary,
+  turnDurationForAssistant,
+} from './chatHistory.logic'
+import type { Message, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 
-function tool(id: string, name = CALL_SUBAGENT_TOOL_NAME): ToolCall {
+function tool(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'seq'>): ToolCall {
   return {
-    id,
     threadId: 'thr_parent',
     messageId: null,
-    name,
     params: null,
     status: 'completed',
     result: null,
-    seq: 1,
     startedAt: 1,
     endedAt: 2,
+    ...partial,
+  }
+}
+
+function message(partial: Partial<Message> & Pick<Message, 'id' | 'role' | 'seq' | 'createdAt'>): Message {
+  return {
+    threadId: 'thr_parent',
+    content: partial.content ?? partial.role,
+    blocks: null,
+    ...partial,
   }
 }
 
@@ -37,7 +55,7 @@ function run(partial: Partial<SubagentRun> & Pick<SubagentRun, 'childThreadId' |
 describe('correlateSubagentRuns', () => {
   it('matches by parentToolCallId first', () => {
     const map = correlateSubagentRuns(
-      [tool('tc_a'), tool('tc_b')],
+      [tool({ id: 'tc_a', name: CALL_SUBAGENT_TOOL_NAME, seq: 1 }), tool({ id: 'tc_b', name: CALL_SUBAGENT_TOOL_NAME, seq: 2 })],
       [run({ childThreadId: 'c1', parentToolCallId: 'tc_b' }), run({ childThreadId: 'c2', parentToolCallId: 'tc_a' })]
     )
     expect(map.get('tc_a')?.childThreadId).toBe('c2')
@@ -46,7 +64,11 @@ describe('correlateSubagentRuns', () => {
 
   it('falls back to FIFO for runs without parentToolCallId', () => {
     const map = correlateSubagentRuns(
-      [tool('tc_1'), tool('tc_2'), tool('other', 'Bash')],
+      [
+        tool({ id: 'tc_1', name: CALL_SUBAGENT_TOOL_NAME, seq: 1 }),
+        tool({ id: 'tc_2', name: CALL_SUBAGENT_TOOL_NAME, seq: 2 }),
+        tool({ id: 'other', name: 'Bash', seq: 3 }),
+      ],
       [
         run({ childThreadId: 'c1', parentToolCallId: null }),
         run({ childThreadId: 'c2', parentToolCallId: null }),
@@ -55,5 +77,85 @@ describe('correlateSubagentRuns', () => {
     expect(map.get('tc_1')?.childThreadId).toBe('c1')
     expect(map.get('tc_2')?.childThreadId).toBe('c2')
     expect(map.has('other')).toBe(false)
+  })
+})
+
+describe('formatDurationSeconds / formatClock', () => {
+  it('formats short and long durations', () => {
+    expect(formatDurationSeconds(0)).toBe('0s')
+    expect(formatDurationSeconds(47_000)).toBe('47s')
+    expect(formatDurationSeconds(72_000)).toBe('1m 12s')
+    expect(formatDurationSeconds(3_723_000)).toBe('1h 2m 3s')
+  })
+
+  it('formats clock from epoch ms', () => {
+    const ms = Date.parse('2026-08-10T12:05:00')
+    expect(formatClock(ms)).toMatch(/^\d{2}:\d{2}$/)
+    expect(formatClock(undefined)).toBe('')
+  })
+})
+
+describe('toolSummary', () => {
+  it('prefers command then falls back to tool name', () => {
+    expect(toolSummary({ name: 'Bash', params: { command: 'npm init -y' } })).toBe('npm init -y')
+    expect(toolSummary({ name: 'Read', params: { file_path: 'a.ts' } })).toBe('a.ts')
+    expect(toolSummary({ name: 'Glob', params: {} })).toBe('Glob')
+  })
+})
+
+describe('groupTimelineItems', () => {
+  it('interleaves by seq and collapses adjacent tools into a work log', () => {
+    const messages = [
+      message({ id: 'm1', role: 'user', seq: 0, createdAt: 100, content: 'oi' }),
+      message({ id: 'm2', role: 'assistant', seq: 3, createdAt: 400, content: 'feito' }),
+    ]
+    const tools = [
+      tool({ id: 't1', name: 'Bash', seq: 1, params: { command: 'ls' } }),
+      tool({ id: 't2', name: 'Write', seq: 2, params: { file_path: 'a.js' } }),
+      tool({ id: 't3', name: 'Bash', seq: 4, params: { command: 'node a.js' } }),
+    ]
+    const groups = groupTimelineItems(messages, tools, new Map())
+    expect(groups.map((g) => g.kind)).toEqual(['message', 'tools', 'message', 'tools'])
+    expect(groups[1]).toMatchObject({ kind: 'tools', tools: [{ id: 't1' }, { id: 't2' }] })
+    expect(groups[3]).toMatchObject({ kind: 'tools', tools: [{ id: 't3' }] })
+  })
+
+  it('lifts correlated call_subagent out of the work log into a subagent group', () => {
+    const tools = [
+      tool({ id: 't1', name: 'Bash', seq: 1 }),
+      tool({ id: 'tc', name: CALL_SUBAGENT_TOOL_NAME, seq: 2 }),
+      tool({ id: 't2', name: 'Bash', seq: 3 }),
+    ]
+    const map = new Map([['tc', run({ childThreadId: 'c1', parentToolCallId: 'tc' })]])
+    const groups = groupTimelineItems([], tools, map)
+    expect(groups.map((g) => g.kind)).toEqual(['tools', 'subagent', 'tools'])
+    expect(groups[0]).toMatchObject({ kind: 'tools', tools: [{ id: 't1' }] })
+    expect(groups[2]).toMatchObject({ kind: 'tools', tools: [{ id: 't2' }] })
+  })
+})
+
+describe('turnDurationForAssistant / thinkingStartMs', () => {
+  it('measures from previous user message', () => {
+    const messages = [
+      message({ id: 'u', role: 'user', seq: 0, createdAt: 1000, content: 'x' }),
+      message({ id: 'a', role: 'assistant', seq: 1, createdAt: 4500, content: 'y' }),
+    ]
+    expect(turnDurationForAssistant(messages, messages[1])).toBe(3500)
+    expect(thinkingStartMs(messages, 9999)).toBe(1000)
+  })
+})
+
+describe('shouldCollapseUserMessage', () => {
+  it('counts soft lines and collapses only above max', () => {
+    expect(countUserMessageLines('')).toBe(0)
+    expect(countUserMessageLines('one')).toBe(1)
+    expect(countUserMessageLines('a\nb\nc')).toBe(3)
+    expect(countUserMessageLines('a\r\nb\r\nc\r\nd')).toBe(4)
+
+    expect(shouldCollapseUserMessage('short')).toBe(false)
+    expect(shouldCollapseUserMessage('a\nb\nc')).toBe(false)
+    expect(shouldCollapseUserMessage('a\nb\nc\nd')).toBe(true)
+    expect(shouldCollapseUserMessage('a\nb\nc\nd', 4)).toBe(false)
+    expect(shouldCollapseUserMessage(null)).toBe(false)
   })
 })

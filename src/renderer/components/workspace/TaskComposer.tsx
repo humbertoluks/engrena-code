@@ -41,9 +41,12 @@ const COPY = {
   limitBanner100: 'Você atingiu o limite de consumo deste período.',
   limitBlockedTurn: 'Limite de consumo atingido. Ajuste o limite em Consumo para continuar.',
   limitAdjustLink: 'Ajustar limite',
-  queueQueued: 'na fila',
+  queueHeader: (n: number) => `${n} na fila`,
   queueEdit: 'Editar',
+  queueSave: 'Salvar',
   queueCancel: 'Cancelar',
+  queuePromote: 'Priorizar (próxima)',
+  queueRemove: 'Remover da fila',
 } as const
 
 const ACCESS_LEVELS: ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
@@ -63,11 +66,14 @@ const EXECUTION_LABEL: Record<ThreadExecutionMode, string> = {
 export interface TaskComposerProps {
   composer: ComposerDraft
   updateComposer: (patch: Partial<ComposerDraft>) => void
+  onAccessLevelChange: (accessLevel: ThreadAccessLevel) => void
   composerCatalog: ComposerCatalog | null
   selectedThread: Thread | null
   projectId: string | null
   queue: QueueItem[]
   onDequeue: (id: string) => void
+  onUpdateQueueItem: (id: string, text: string) => void
+  onPromoteQueueItem: (id: string) => void
   sendError: string | null
   configStatus: ConfigStatus | null
   vcsStatus: VcsStatus | null
@@ -81,11 +87,14 @@ export interface TaskComposerProps {
 export function TaskComposer({
   composer,
   updateComposer,
+  onAccessLevelChange,
   composerCatalog,
   selectedThread,
   projectId,
   queue,
   onDequeue,
+  onUpdateQueueItem,
+  onPromoteQueueItem,
   sendError,
   configStatus,
   vcsStatus,
@@ -219,20 +228,12 @@ export function TaskComposer({
   return (
     <div className="mx-auto w-full max-w-5xl">
       {queue.length > 0 ? (
-        <div className="mb-xs flex flex-wrap gap-xs">
-          {queue.map((item) => (
-            <span
-              key={item.id}
-              className="flex items-center gap-xs rounded-md border border-border bg-surface-2 px-xs py-[2px] text-[11px] text-muted"
-            >
-              <span className="max-w-[16rem] truncate">{item.text}</span>
-              <span className="text-accent">{COPY.queueQueued}</span>
-              <button type="button" onClick={() => onDequeue(item.id)} aria-label={COPY.queueCancel} className="text-muted hover:text-red">
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
+        <ComposerQueuePanel
+          queue={queue}
+          onDequeue={onDequeue}
+          onUpdate={onUpdateQueueItem}
+          onPromote={onPromoteQueueItem}
+        />
       ) : null}
 
       {providerUnavailable && !providerLocked && !gitGateActive ? (
@@ -358,8 +359,8 @@ export function TaskComposer({
               value={composer.accessLevel}
               options={ACCESS_LEVELS}
               labels={ACCESS_LABEL}
-              disabled={isRunning}
-              onChange={(v) => updateComposer({ accessLevel: v })}
+              disabled={disabled || isStopping}
+              onChange={(v) => void onAccessLevelChange(v)}
             />
             <PillGroup
               label={COPY.executionGroup}
@@ -395,23 +396,207 @@ export function TaskComposer({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-md bg-red px-md py-xs text-[12px] font-medium text-white"
+              aria-label={COPY.sendStop}
+              title={COPY.sendStop}
+              className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-fg"
             >
-              {COPY.sendStop}
+              <span className="block h-[10px] w-[10px] rounded-[2px] bg-bg" aria-hidden="true" />
             </button>
           ) : (
             <button
               type="button"
               onClick={handleSend}
               disabled={disabled || composer.text.trim() === ''}
-              className="rounded-md bg-accent px-md py-xs text-[12px] font-medium text-white disabled:opacity-50"
+              aria-label={COPY.send}
+              title={COPY.send}
+              className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-50"
             >
-              {COPY.send}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                className="h-[14px] w-[14px]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M8 12V4M4.5 7.5L8 4l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+function ComposerQueuePanel({
+  queue,
+  onDequeue,
+  onUpdate,
+  onPromote,
+}: Readonly<{
+  queue: QueueItem[]
+  onDequeue: (id: string) => void
+  onUpdate: (id: string, text: string) => void
+  onPromote: (id: string) => void
+}>): ReactElement {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit(item: QueueItem): void {
+    setEditingId(item.id)
+    setDraft(item.text)
+    requestAnimationFrame(() => editInputRef.current?.focus())
+  }
+
+  function cancelEdit(): void {
+    setEditingId(null)
+    setDraft('')
+  }
+
+  function saveEdit(): void {
+    if (editingId === null) return
+    const trimmed = draft.trim()
+    if (trimmed === '') return
+    onUpdate(editingId, trimmed)
+    cancelEdit()
+  }
+
+  return (
+    <details open className="group/queue mb-sm overflow-hidden rounded-xl border border-border bg-surface">
+      <summary className="flex cursor-pointer list-none items-center gap-sm px-md py-sm text-[12px] font-medium text-muted transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          className="-rotate-90 h-[12px] w-[12px] shrink-0 text-muted transition-transform group-open/queue:rotate-0"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>{COPY.queueHeader(queue.length)}</span>
+      </summary>
+      <ul className="border-t border-border px-xs py-xs">
+        {queue.map((item, index) => {
+          const editing = editingId === item.id
+          return (
+            <li
+              key={item.id}
+              className="group/item flex items-center gap-sm rounded-md px-sm py-[7px] hover:bg-surface-2"
+            >
+              <span
+                className="h-[10px] w-[10px] shrink-0 rounded-full border border-muted/70"
+                aria-hidden="true"
+              />
+              {editing ? (
+                <div className="flex min-w-0 flex-1 items-center gap-xs">
+                  <input
+                    ref={editInputRef}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        saveEdit()
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        cancelEdit()
+                      }
+                    }}
+                    className="min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-sm py-[4px] text-[13px] text-fg focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveEdit}
+                    disabled={draft.trim() === ''}
+                    className="rounded-md bg-accent px-sm py-[3px] text-[11px] font-medium text-white disabled:opacity-50"
+                  >
+                    {COPY.queueSave}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="rounded-md px-sm py-[3px] text-[11px] text-muted hover:text-fg"
+                  >
+                    {COPY.queueCancel}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 truncate text-[13px] leading-snug text-fg">{item.text}</span>
+                  <div className="flex shrink-0 items-center gap-[2px] opacity-0 transition-opacity group-focus-within/item:opacity-100 group-hover/item:opacity-100">
+                    <QueueIconButton label={COPY.queueEdit} onClick={() => startEdit(item)}>
+                      <PencilIcon />
+                    </QueueIconButton>
+                    {index > 0 ? (
+                      <QueueIconButton label={COPY.queuePromote} onClick={() => onPromote(item.id)}>
+                        <ArrowUpIcon />
+                      </QueueIconButton>
+                    ) : null}
+                    <QueueIconButton label={COPY.queueRemove} onClick={() => onDequeue(item.id)} danger>
+                      <TrashIcon />
+                    </QueueIconButton>
+                  </div>
+                </>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </details>
+  )
+}
+
+function QueueIconButton({
+  label,
+  onClick,
+  children,
+  danger,
+}: Readonly<{
+  label: string
+  onClick: () => void
+  children: ReactElement
+  danger?: boolean
+}>): ReactElement {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`flex h-[28px] w-[28px] items-center justify-center rounded-md text-muted hover:bg-surface ${
+        danger ? 'hover:text-red' : 'hover:text-fg'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function PencilIcon(): ReactElement {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-[14px] w-[14px]" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ArrowUpIcon(): ReactElement {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-[14px] w-[14px]" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M8 12V4M4.5 7.5L8 4l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function TrashIcon(): ReactElement {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-[14px] w-[14px]" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M3.5 5h9M6.5 5V3.5h3V5M5.5 5v7.5h5V5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

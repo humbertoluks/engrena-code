@@ -22,6 +22,8 @@ export interface VcsStatus {
   ahead: number
   behind: number
   dirty: boolean
+  /** Relative paths with uncommitted changes (from git porcelain). */
+  dirtyFiles?: string[]
   kind?: VcsProviderKind
   changeRequestShort?: 'PR' | 'MR'
 }

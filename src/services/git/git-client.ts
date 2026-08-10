@@ -3,6 +3,7 @@ import { promisify } from 'util'
 import axios from 'axios'
 import { stderrTail } from '../process-error.js'
 import { parseVcsRemote, type VcsKind } from '../vcs/remote.js'
+import { parseDirtyPathsFromPorcelain } from './porcelain-paths.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -47,17 +48,28 @@ export interface VcsStatus {
   ahead: number
   behind: number
   dirty: boolean
+  /** Relative paths with uncommitted changes (porcelain). Empty when clean / no git. */
+  dirtyFiles: string[]
 }
 
 export async function getVcsStatus(cwd: string): Promise<VcsStatus> {
-  const hasGit = await isGitRepo(cwd)
-  if (!hasGit) {
-    return { hasGit: false, hasHead: false, branch: null, detached: false, ahead: 0, behind: 0, dirty: false }
+  const empty: VcsStatus = {
+    hasGit: false,
+    hasHead: false,
+    branch: null,
+    detached: false,
+    ahead: 0,
+    behind: 0,
+    dirty: false,
+    dirtyFiles: [],
   }
+
+  const hasGit = await isGitRepo(cwd)
+  if (!hasGit) return empty
 
   const hasHead = await hasGitHead(cwd)
   if (!hasHead) {
-    return { hasGit: true, hasHead: false, branch: null, detached: false, ahead: 0, behind: 0, dirty: false }
+    return { ...empty, hasGit: true }
   }
 
   const { stdout: branchOut } = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
@@ -65,7 +77,8 @@ export async function getVcsStatus(cwd: string): Promise<VcsStatus> {
   const detached = branch === 'HEAD'
 
   const { stdout: statusOut } = await git(cwd, ['status', '--porcelain'])
-  const dirty = statusOut.trim().length > 0
+  const dirtyFiles = parseDirtyPathsFromPorcelain(statusOut)
+  const dirty = dirtyFiles.length > 0
 
   let ahead = 0
   let behind = 0
@@ -78,7 +91,16 @@ export async function getVcsStatus(cwd: string): Promise<VcsStatus> {
     // sem upstream configurado — mantém 0/0
   }
 
-  return { hasGit: true, hasHead: true, branch: detached ? null : branch, detached, ahead, behind, dirty }
+  return {
+    hasGit: true,
+    hasHead: true,
+    branch: detached ? null : branch,
+    detached,
+    ahead,
+    behind,
+    dirty,
+    dirtyFiles,
+  }
 }
 
 /** `git init` + commit inicial vazio caso o repo ainda não tenha HEAD (add project soft não exige `.git`). */

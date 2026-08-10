@@ -19,12 +19,15 @@ Exemplos: `terminal.dock.title`, `terminal.pane.exitedTitle`.
 |----|-------|-------|
 | `terminal.dock.title` | Terminal | Botão de toggle do header |
 | `terminal.dock.toggleAria` | Alternar terminal | `aria-label` do toggle |
-| `terminal.dock.toggleTitle` | Terminal roda com os privilégios do seu sistema — sem sandbox adicional do EngrenaCode. Atalho: Ctrl+\` | `title` do toggle — cobre o requisito de aviso do PRD §6 e o hint do atalho; sem precedente na fonte LionCodeLabs (feature nunca teve esse aviso lá), decisão própria EngrenaCode |
-| `terminal.dock.newTabCta` | + Nova aba | `disabled` sem `projectId` |
-| `terminal.dock.closeTabAria` | Fechar aba | `aria-label` do `×` por aba |
-| `terminal.dock.tabLabel` | Terminal {n} | `n` = posição 1-indexada na lista, não `tabId` |
-| `terminal.dock.emptyState` | Nenhuma aba aberta. | Transitório — dock abre sempre com 1 aba criada automaticamente |
-| `terminal.dock.noProject` | Selecione um projeto para abrir um terminal. | Corpo quando `projectId === null` |
+| `terminal.dock.toggleTitle` | Terminal roda com os privilégios do seu sistema — sem sandbox adicional do EngrenaCode. Atalho: Ctrl+\` | `title` do toggle |
+| `terminal.dock.newTabAria` | Novo terminal | `aria-label` / `title` do botão `+` |
+| `terminal.dock.closeTabAria` | Fechar {label} | `aria-label` do `×` por aba; só visível com >1 aba |
+| `terminal.dock.tabLabel` | Terminal {n} | `n` = posição 1-indexada |
+| `terminal.dock.resizeAria` | Redimensionar terminal | Alça de drag |
+| `terminal.dock.maximizeAria` | Maximizar terminal | Botão ∧ |
+| `terminal.dock.restoreAria` | Restaurar tamanho do terminal | Botão ∨ |
+| `terminal.dock.emptyState` | Nenhuma aba aberta. | Transitório |
+| `terminal.dock.noProject` | Selecione um projeto para abrir um terminal. | Sem `projectId` |
 
 ### terminal.pane (`TerminalPane.tsx`)
 

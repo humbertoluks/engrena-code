@@ -19,6 +19,7 @@ import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
+import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
@@ -325,7 +326,7 @@ export function usePrincipalWorkspace() {
     }
   }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus, loadUsageLimitStatus])
 
-  // Rehidrata model/reasoning atuais da thread selecionada nos controles do composer (spec F16 plan §10).
+  // Rehidrata model/reasoning/access da thread selecionada nos controles do composer (spec F16 + Access mid-thread).
   useEffect(() => {
     if (!selectedThread) return
     setComposer((prev) => ({
@@ -333,8 +334,17 @@ export function usePrincipalWorkspace() {
       provider: selectedThread.provider,
       model: selectedThread.model,
       reasoningLevel: selectedThread.reasoningLevel,
+      accessLevel: selectedThread.accessLevel,
+      executionMode: selectedThread.executionMode,
     }))
-  }, [selectedThread?.id, selectedThread?.model, selectedThread?.reasoningLevel, selectedThread?.provider])
+  }, [
+    selectedThread?.id,
+    selectedThread?.model,
+    selectedThread?.reasoningLevel,
+    selectedThread?.provider,
+    selectedThread?.accessLevel,
+    selectedThread?.executionMode,
+  ])
 
   useEffect(() => {
     setStreamingText('')
@@ -491,6 +501,21 @@ export function usePrincipalWorkspace() {
     setComposer((prev) => ({ ...prev, ...patch }))
   }, [])
 
+  /** Persiste Access na thread imediatamente (não espera o próximo follow-up). */
+  const setAccessLevel = useCallback(
+    async (accessLevel: ThreadAccessLevel) => {
+      setComposer((prev) => ({ ...prev, accessLevel }))
+      if (!selectedThreadId) return
+      const res = await threadsService.patchAccess(selectedThreadId, accessLevel)
+      if (res.error) {
+        setSendError(res.error.message)
+        return
+      }
+      if (selectedProjectId && res.thread) upsertThreadLocal(selectedProjectId, res.thread)
+    },
+    [selectedThreadId, selectedProjectId, upsertThreadLocal]
+  )
+
   const enqueue = useCallback(
     (text: string, images: ComposerImage[], model: string | null, reasoningLevel: string | null) => {
       setQueue((prev) => {
@@ -509,6 +534,35 @@ export function usePrincipalWorkspace() {
     (id: string) => {
       setQueue((prev) => {
         const next = prev.filter((q) => q.id !== id)
+        saveQueue(queueKey, next)
+        return next
+      })
+    },
+    [queueKey]
+  )
+
+  const updateQueueItem = useCallback(
+    (id: string, text: string) => {
+      const trimmed = text.trim()
+      if (trimmed === '') return
+      setQueue((prev) => {
+        const next = prev.map((q) => (q.id === id ? { ...q, text: trimmed } : q))
+        saveQueue(queueKey, next)
+        return next
+      })
+    },
+    [queueKey]
+  )
+
+  /** Move item to the front so it runs next when the turn ends. */
+  const promoteQueueItem = useCallback(
+    (id: string) => {
+      setQueue((prev) => {
+        const idx = prev.findIndex((q) => q.id === id)
+        if (idx <= 0) return prev
+        const item = prev[idx]
+        if (!item) return prev
+        const next = [item, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
         saveQueue(queueKey, next)
         return next
       })
@@ -545,10 +599,38 @@ export function usePrincipalWorkspace() {
     [selectedThreadId, selectedProjectId, composer.accessLevel, upsertThreadLocal]
   )
 
+  const resolvePermission = useCallback(async (requestId: string, allow: boolean, always = false) => {
+    const entry = permissionQueue.find((p) => p.requestId === requestId)
+    if (!entry) return
+    await threadsService.permission(entry.threadId, { requestId, allow, always: always || undefined })
+    setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
+  }, [permissionQueue])
+
   const send = useCallback(async () => {
     const text = composer.text.trim()
     if (text === '') return
     setSendError(null)
+
+    // PermissionPrompt aberto: chat "sim"/"não"/"permitir todos" resolve o PreToolUse;
+    // qualquer outro texto NÃO entra na fila (senão vira follow-up `-p "Sim"` sem contexto).
+    const pendingPermission =
+      selectedThreadId !== null
+        ? permissionQueue.find((p) => p.threadId === selectedThreadId)
+        : undefined
+    if (pendingPermission) {
+      const reply = interpretPermissionChatReply(text)
+      if (reply.kind === 'blocked') {
+        setSendError(reply.message)
+        return
+      }
+      await resolvePermission(
+        pendingPermission.requestId,
+        reply.kind === 'allow' || reply.kind === 'allow_always',
+        reply.kind === 'allow_always'
+      )
+      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      return
+    }
 
     // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
     // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
@@ -582,7 +664,17 @@ export function usePrincipalWorkspace() {
 
     await sendFollowUp(text, composer.images, composer.model, composer.reasoningLevel)
     setComposer((prev) => ({ ...prev, text: '', images: [] }))
-  }, [composer, selectedThread, selectedThreadId, selectedProjectId, enqueue, sendFollowUp, upsertThreadLocal])
+  }, [
+    composer,
+    selectedThread,
+    selectedThreadId,
+    selectedProjectId,
+    permissionQueue,
+    enqueue,
+    sendFollowUp,
+    resolvePermission,
+    upsertThreadLocal,
+  ])
 
   const cancel = useCallback(async () => {
     if (!selectedThreadId) return
@@ -592,13 +684,6 @@ export function usePrincipalWorkspace() {
   const dismissMcpNotices = useCallback(() => {
     setMcpNotices([])
   }, [])
-
-  const resolvePermission = useCallback(async (requestId: string, allow: boolean) => {
-    const entry = permissionQueue.find((p) => p.requestId === requestId)
-    if (!entry) return
-    await threadsService.permission(entry.threadId, { requestId, allow })
-    setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
-  }, [permissionQueue])
 
   const acceptDiffs = useCallback(
     async (input: { action?: 'accept' | 'reject'; ids?: string[]; paths?: string[] }) => {
@@ -705,8 +790,11 @@ export function usePrincipalWorkspace() {
     composerCatalog,
     composer,
     updateComposer,
+    setAccessLevel,
     queue,
     dequeue,
+    updateQueueItem,
+    promoteQueueItem,
     sendError,
     send,
     cancel,

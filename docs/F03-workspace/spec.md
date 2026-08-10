@@ -258,7 +258,7 @@ UI: se já `running`, enfileira localmente (não depende de 409 na mesma thread)
 | GET | `/api/threads/:id/history` | mensagens/blocks persistidos |
 | GET | `/api/threads/:id/diffs` | `{ diffs: Diff[] }` |
 | POST | `/api/threads/:id/cancel` | `stopping` → `idle`/`error` |
-| POST | `/api/threads/:id/permission` | resposta Supervised (shape alinhado ao legado / `ui.md`) |
+| POST | `/api/threads/:id/permission` | Supervised: body `{ requestId, allow, always? }`. `always: true` exige `allow: true` e marca a ferramenta para não perguntar de novo nesta thread (Claude Code “don’t ask again”, escopo sessão do processo) |
 
 ### 5.5 Accept / reject diff (delta vs legado)
 

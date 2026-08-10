@@ -4,6 +4,7 @@ import type { Project, VcsStatus } from '../../services/projects-service'
 import type { PipelineHistory, Thread } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import type { MemoryStatus } from '../../services/memory-service'
+import type { UsageLimitStatusResponse } from '../../services/consumo-service'
 import { rulesService } from '../../services/rules-service'
 import { skillsService } from '../../services/skills-service'
 import { subagentsService } from '../../services/subagents-service'
@@ -17,12 +18,38 @@ import { SubagentActivity } from '../subagents/SubagentActivity'
 import { PipelinePanel } from './PipelinePanel'
 import { GitActions } from './GitActions'
 import { CodegraphSection } from '../codegraph/CodegraphSection'
+import { FileExplorer } from './FileExplorer'
+import { SidebarInfoRow, SidebarSection } from './SidebarSection'
+import {
+  AmbienteIcon,
+  HarnessIcon,
+  LimitesIcon,
+  PlusIcon,
+  RepoIcon,
+  ThreadIcon,
+} from './sidebarIcons'
 
 const COPY = {
   newThread: 'Nova Thread',
+  newThreadTitle: 'Nova thread no projeto',
   noProject: 'Selecione um projeto para ver o ambiente, os vínculos e as ações do repositório.',
+  limites: 'Limites',
+  limitesEmpty: 'Sem limite configurado.',
+  limitesAdjust: 'Ajustar em Consumo',
+  limitesFmt: (spent: number, limit: number, pct: number) =>
+    `$${spent.toFixed(2)} / $${limit.toFixed(2)} · ${Math.round(pct)}%`,
   ambiente: 'Ambiente',
+  ambienteProjeto: 'Projeto',
+  ambientePath: 'Caminho',
+  ambienteBranch: 'Branch',
+  ambienteAlteracoes: 'Alterações',
   thread: 'Thread',
+  threadProvider: 'Provider',
+  threadAccess: 'Acesso',
+  threadExecution: 'Execução',
+  threadState: 'Estado',
+  threadEmpty: 'Abra ou inicie uma thread para ver o detalhe.',
+  repositorio: 'Repositório',
   harness: 'Repo Harness',
   harnessRules: 'Rules',
   harnessSkills: 'Skills',
@@ -39,6 +66,12 @@ const COPY = {
   memoryDisabled: 'desligada',
   memoryCorrupted: 'journal ilegível',
 } as const
+
+const NEW_THREAD_BTN =
+  'inline-flex flex-1 items-center justify-center gap-sm rounded-full border border-border bg-surface-2 px-md py-sm text-[12px] font-semibold text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50'
+
+const HARNESS_ROW =
+  'flex w-full items-center justify-between rounded-md px-sm py-[4px] text-left text-[12px] text-fg transition-colors hover:bg-[color-mix(in_srgb,var(--fg)_6%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
 
 // docs/F24-multi-vcs/copy.md `vcs.badge.*`
 const VCS_BADGE_LABEL: Record<'github' | 'gitlab' | 'bitbucket' | 'azure', string> = {
@@ -60,11 +93,17 @@ function pluralCount(n: number, one: (n: number) => string, many: (n: number) =>
   return n === 1 ? one(n) : many(n)
 }
 
+function workingTreeSummary(vcsStatus: VcsStatus | null): string {
+  if (!vcsStatus?.hasGit) return '—'
+  return vcsStatus.dirty ? 'com mudanças' : 'limpo'
+}
+
 export interface WorkspaceSidebarProps {
   project: Project | null
   selectedThread: Thread | null
   vcsStatus: VcsStatus | null
   memoryStatus: MemoryStatus | null
+  usageLimitStatus: UsageLimitStatusResponse | null
   onMemoryChanged: () => void
   subagentRuns: SubagentRun[]
   onOpenSubagentRun: (run: SubagentRun) => void
@@ -85,6 +124,7 @@ export function WorkspaceSidebar({
   selectedThread,
   vcsStatus,
   memoryStatus,
+  usageLimitStatus,
   onMemoryChanged,
   subagentRuns,
   onOpenSubagentRun,
@@ -106,34 +146,43 @@ export function WorkspaceSidebar({
   const [harnessError, setHarnessError] = useState<string | null>(null)
   const [openModal, setOpenModal] = useState<'rules' | 'skills' | 'subagents' | 'mcps' | 'memory' | null>(null)
 
-  const refreshHarnessCounts = useCallback(
-    (projectId: string) => {
-      const onHarnessFail = (label: string, err: unknown): void => {
-        if (err instanceof DOMException && err.name === 'AbortError') return
-        console.error(`[harness] ${label} counts failed`, err)
-        setHarnessError(COPY.harnessError)
-      }
+  const refreshHarnessCounts = useCallback((projectId: string) => {
+    const onHarnessFail = (label: string, err: unknown): void => {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      console.error(`[harness] ${label} counts failed`, err)
+      setHarnessError(COPY.harnessError)
+    }
 
-      setHarnessError(null)
+    setHarnessError(null)
 
-      rulesService.counts().then((res) => {
+    rulesService
+      .counts()
+      .then((res) => {
         if (!res.error) setRulesCount(res.activeByProject[projectId] ?? 0)
-      }).catch((err) => onHarnessFail('rules', err))
+      })
+      .catch((err) => onHarnessFail('rules', err))
 
-      skillsService.listForProject(projectId).then((res) => {
+    skillsService
+      .listForProject(projectId)
+      .then((res) => {
         if (!res.error) setSkillsCount(res.filter((s) => s.linked).length)
-      }).catch((err) => onHarnessFail('skills', err))
+      })
+      .catch((err) => onHarnessFail('skills', err))
 
-      subagentsService.counts().then((res) => {
+    subagentsService
+      .counts()
+      .then((res) => {
         if (!res.error) setSubagentsCount(res.linkedByProject[projectId] ?? 0)
-      }).catch((err) => onHarnessFail('subagents', err))
+      })
+      .catch((err) => onHarnessFail('subagents', err))
 
-      mcpsService.listForProject(projectId).then((res) => {
+    mcpsService
+      .listForProject(projectId)
+      .then((res) => {
         if (Array.isArray(res)) setMcpsCount(res.filter((m) => m.linked).length)
-      }).catch((err) => onHarnessFail('mcps', err))
-    },
-    [],
-  )
+      })
+      .catch((err) => onHarnessFail('mcps', err))
+  }, [])
 
   useEffect(() => {
     if (!project) {
@@ -147,40 +196,59 @@ export function WorkspaceSidebar({
     refreshHarnessCounts(project.id)
   }, [project, refreshHarnessCounts])
 
+  const limitItem = usageLimitStatus?.items[0] ?? null
+
   return (
-    <div className="flex h-full flex-col gap-md overflow-y-auto rounded-xl border border-border bg-surface p-sm">
-      {project ? (
+    <aside
+      aria-label="Painel do workspace"
+      className="flex h-full min-w-0 flex-col gap-sm overflow-y-auto rounded-xl border border-[color-mix(in_srgb,var(--border)_60%,transparent)] bg-surface p-sm"
+    >
+      <div className="flex items-center gap-sm">
         <button
           type="button"
           onClick={onNewThread}
-          className="rounded-md border border-border bg-surface-2 px-sm py-xs text-[12px] font-medium hover:bg-surface"
+          disabled={!project}
+          title={COPY.newThreadTitle}
+          className={NEW_THREAD_BTN}
         >
-          + {COPY.newThread}
+          <PlusIcon />
+          {COPY.newThread}
         </button>
-      ) : null}
+      </div>
+
+      <SidebarSection title={COPY.limites} icon={<LimitesIcon />} collapsible>
+        {limitItem ? (
+          <>
+            <SidebarInfoRow label={limitItem.scope === 'global' ? 'Global' : 'Projeto'}>
+              <span className="font-mono text-[11.5px]">
+                {COPY.limitesFmt(limitItem.spentUsd, limitItem.limitUsd, limitItem.pct)}
+              </span>
+            </SidebarInfoRow>
+            <a
+              href="#consumo"
+              className="mx-sm mb-xs rounded-md px-sm py-[4px] text-[12px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {COPY.limitesAdjust}
+            </a>
+          </>
+        ) : (
+          <>
+            <p className="m-0 px-sm py-[4px] text-[12px] text-muted">{COPY.limitesEmpty}</p>
+            <a
+              href="#consumo"
+              className="mx-sm mb-xs rounded-md px-sm py-[4px] text-[12px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {COPY.limitesAdjust}
+            </a>
+          </>
+        )}
+      </SidebarSection>
 
       {!project ? (
-        <p className="text-[12px] text-muted">{COPY.noProject}</p>
+        <p className="m-0 px-sm text-xs leading-relaxed text-muted">{COPY.noProject}</p>
       ) : (
         <>
-          <section>
-            <h3 className="mb-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.ambiente}</h3>
-            <p className="truncate font-mono text-[11px] text-muted" title={project.path}>
-              {project.path}
-            </p>
-            {vcsStatus?.branch ? <p className="mt-[2px] text-[11px] text-muted">branch: {vcsStatus.branch}</p> : null}
-          </section>
-
-          {selectedThread ? (
-            <section>
-              <h3 className="mb-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.thread}</h3>
-              <p className="text-[11px] text-muted">
-                {selectedThread.provider} · {selectedThread.accessLevel} · {selectedThread.executionMode} · {selectedThread.state}
-              </p>
-            </section>
-          ) : null}
-
-          {selectedThread ? <SubagentActivity runs={subagentRuns} onOpenRun={onOpenSubagentRun} /> : null}
+          <SubagentActivity runs={subagentRuns} onOpenRun={onOpenSubagentRun} />
 
           {selectedThread && pipeline ? (
             <PipelinePanel
@@ -192,12 +260,52 @@ export function WorkspaceSidebar({
             />
           ) : null}
 
-          <section>
+          <SidebarSection title={COPY.ambiente} icon={<AmbienteIcon />} collapsible>
+            <SidebarInfoRow label={COPY.ambienteProjeto} title={project.name}>
+              <span className="truncate font-semibold text-fg">{project.name}</span>
+            </SidebarInfoRow>
+            <SidebarInfoRow label={COPY.ambientePath} title={project.path}>
+              <span className="truncate font-mono text-[11px] text-muted">{project.path}</span>
+            </SidebarInfoRow>
+            <SidebarInfoRow label={COPY.ambienteBranch}>
+              <span className="font-mono text-[11.5px]">{vcsStatus?.branch ?? '—'}</span>
+            </SidebarInfoRow>
+            <SidebarInfoRow label={COPY.ambienteAlteracoes} title="Linhas na working tree">
+              <span className="font-mono text-[11.5px]">{workingTreeSummary(vcsStatus)}</span>
+            </SidebarInfoRow>
             {vcsStatus?.kind && vcsStatus.kind !== 'unknown' ? (
-              <span className="mb-xs inline-block rounded-sm border border-border px-xs py-[1px] font-mono text-[10.5px] text-muted">
-                {VCS_BADGE_LABEL[vcsStatus.kind]}
-              </span>
+              <SidebarInfoRow label="VCS">
+                <span className="rounded-sm border border-border px-xs py-[1px] font-mono text-[10.5px] text-muted">
+                  {VCS_BADGE_LABEL[vcsStatus.kind]}
+                </span>
+              </SidebarInfoRow>
             ) : null}
+          </SidebarSection>
+
+          <FileExplorer projectId={project.id} changedFiles={vcsStatus?.dirtyFiles ?? []} />
+
+          <SidebarSection title={COPY.thread} icon={<ThreadIcon />} collapsible>
+            {selectedThread ? (
+              <>
+                <SidebarInfoRow label={COPY.threadProvider}>
+                  <span className="font-mono text-[11.5px]">{selectedThread.provider}</span>
+                </SidebarInfoRow>
+                <SidebarInfoRow label={COPY.threadAccess}>
+                  <span className="font-mono text-[11.5px]">{selectedThread.accessLevel}</span>
+                </SidebarInfoRow>
+                <SidebarInfoRow label={COPY.threadExecution}>
+                  <span className="font-mono text-[11.5px]">{selectedThread.executionMode}</span>
+                </SidebarInfoRow>
+                <SidebarInfoRow label={COPY.threadState}>
+                  <span className="font-mono text-[11.5px]">{selectedThread.state}</span>
+                </SidebarInfoRow>
+              </>
+            ) : (
+              <p className="m-0 px-sm py-[4px] text-[12px] text-muted">{COPY.threadEmpty}</p>
+            )}
+          </SidebarSection>
+
+          <SidebarSection title={COPY.repositorio} icon={<RepoIcon />} collapsible>
             <GitActions
               vcsStatus={vcsStatus}
               selectedThread={selectedThread}
@@ -206,43 +314,44 @@ export function WorkspaceSidebar({
               onOpenPr={onOpenPr}
               onTextgen={onTextgen}
             />
-          </section>
+          </SidebarSection>
 
           <CodegraphSection projectId={project.id} />
 
-          <section>
-            <h3 className="mb-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.harness}</h3>
+          <SidebarSection title={COPY.harness} icon={<HarnessIcon />} collapsible defaultOpen>
             {harnessError !== null ? (
-              <p role="alert" className="mb-xs text-[11.5px] text-red">{harnessError}</p>
+              <p role="alert" className="m-0 px-sm py-[4px] text-[11.5px] text-red">
+                {harnessError}
+              </p>
             ) : null}
-            <div className="flex flex-col gap-[2px]">
-              <HarnessRow
-                label={COPY.harnessRules}
-                meta={rulesCount === null ? '' : pluralCount(rulesCount, COPY.activeOne, COPY.activeMany)}
-                onClick={() => setOpenModal('rules')}
-              />
-              <HarnessRow
-                label={COPY.harnessSkills}
-                meta={skillsCount === null ? '' : pluralCount(skillsCount, COPY.linkedOne, COPY.linkedMany)}
-                onClick={() => setOpenModal('skills')}
-              />
-              <HarnessRow
-                label={COPY.harnessSubagents}
-                meta={subagentsCount === null ? '' : pluralCount(subagentsCount, COPY.linkedOne, COPY.linkedMany)}
-                onClick={() => setOpenModal('subagents')}
-              />
-              <HarnessRow
-                label={COPY.harnessMcps}
-                meta={mcpsCount === null ? '' : pluralCount(mcpsCount, COPY.linkedOne, COPY.linkedMany)}
-                onClick={() => setOpenModal('mcps')}
-              />
-              <HarnessRow
-                label={COPY.harnessMemory}
-                meta={memoryMeta(memoryStatus)}
-                onClick={() => setOpenModal('memory')}
-              />
-            </div>
-          </section>
+            <HarnessRow
+              label={COPY.harnessRules}
+              meta={rulesCount === null ? '' : pluralCount(rulesCount, COPY.activeOne, COPY.activeMany)}
+              onClick={() => setOpenModal('rules')}
+            />
+            <HarnessRow
+              label={COPY.harnessSkills}
+              meta={skillsCount === null ? '' : pluralCount(skillsCount, COPY.linkedOne, COPY.linkedMany)}
+              onClick={() => setOpenModal('skills')}
+            />
+            <HarnessRow
+              label={COPY.harnessSubagents}
+              meta={
+                subagentsCount === null ? '' : pluralCount(subagentsCount, COPY.linkedOne, COPY.linkedMany)
+              }
+              onClick={() => setOpenModal('subagents')}
+            />
+            <HarnessRow
+              label={COPY.harnessMcps}
+              meta={mcpsCount === null ? '' : pluralCount(mcpsCount, COPY.linkedOne, COPY.linkedMany)}
+              onClick={() => setOpenModal('mcps')}
+            />
+            <HarnessRow
+              label={COPY.harnessMemory}
+              meta={memoryMeta(memoryStatus)}
+              onClick={() => setOpenModal('memory')}
+            />
+          </SidebarSection>
         </>
       )}
 
@@ -290,19 +399,19 @@ export function WorkspaceSidebar({
           onClose={() => setOpenModal(null)}
         />
       ) : null}
-    </div>
+    </aside>
   )
 }
 
-function HarnessRow({ label, meta, onClick }: Readonly<{ label: string; meta: string; onClick: () => void }>): ReactElement {
+function HarnessRow({
+  label,
+  meta,
+  onClick,
+}: Readonly<{ label: string; meta: string; onClick: () => void }>): ReactElement {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center justify-between rounded-md px-xs py-[3px] text-left text-[12px] text-fg hover:bg-surface-2"
-    >
+    <button type="button" onClick={onClick} className={HARNESS_ROW}>
       <span>{label}</span>
-      <span className="text-[11px] text-muted">{meta}</span>
+      <span className="truncate text-[11px] text-muted">{meta}</span>
     </button>
   )
 }

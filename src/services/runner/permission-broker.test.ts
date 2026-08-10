@@ -4,6 +4,8 @@ import {
   resolvePermissionRequest,
   denyPendingPermissionsForThread,
   hasPendingPermission,
+  allowPendingPermissionsForThread,
+  clearAllowedToolsForThread,
   type PermissionRequestInfo,
 } from './permission-broker.js'
 
@@ -31,7 +33,7 @@ describe('createPermissionServer', () => {
     expect(hasPendingPermission('thr_1')).toBe(true)
 
     const resolved = resolvePermissionRequest(seen[0].requestId, true)
-    expect(resolved).toBe(true)
+    expect(resolved).toEqual({ ok: true, toolName: 'Write' })
 
     const res = await requestPromise
     const body = (await res.json()) as { allow: boolean }
@@ -77,7 +79,56 @@ describe('createPermissionServer', () => {
 describe('resolvePermissionRequest', () => {
   it('is a silent no-op for an unknown requestId', () => {
     expect(() => resolvePermissionRequest('does-not-exist', true)).not.toThrow()
-    expect(resolvePermissionRequest('does-not-exist', true)).toBe(false)
+    expect(resolvePermissionRequest('does-not-exist', true)).toEqual({ ok: false })
+  })
+
+  it('rememberAllowedTool skips UI on the next matching tool call (Permitir todos)', async () => {
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer('thr_always', (info) => seen.push(info))
+
+    const first = fetch(`http://127.0.0.1:${server.port}/permission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+      body: JSON.stringify({ toolName: 'Bash', toolInput: { command: 'ls' } }),
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seen).toHaveLength(1)
+    expect(resolvePermissionRequest(seen[0].requestId, true, true)).toEqual({ ok: true, toolName: 'Bash' })
+    await first
+
+    const second = await fetch(`http://127.0.0.1:${server.port}/permission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+      body: JSON.stringify({ toolName: 'Bash', toolInput: { command: 'pwd' } }),
+    })
+    expect(((await second.json()) as { allow: boolean }).allow).toBe(true)
+    expect(seen).toHaveLength(1)
+
+    clearAllowedToolsForThread('thr_always')
+    server.close()
+  })
+})
+
+describe('allowPendingPermissionsForThread', () => {
+  it('resolves every pending request for the thread with allow:true', async () => {
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer('thr_allow', (info) => seen.push(info))
+
+    const req = fetch(`http://127.0.0.1:${server.port}/permission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+      body: JSON.stringify({ toolName: 'Write', toolInput: {} }),
+    })
+    await new Promise((r) => setTimeout(r, 20))
+
+    const ids = allowPendingPermissionsForThread('thr_allow')
+    expect(ids).toEqual([seen[0].requestId])
+
+    const res = await req
+    expect(((await res.json()) as { allow: boolean }).allow).toBe(true)
+    expect(hasPendingPermission('thr_allow')).toBe(false)
+
+    server.close()
   })
 })
 

@@ -18,6 +18,8 @@ export interface Thread {
   state: ThreadState
   title: string | null
   systemPrompt: string | null
+  /** Session ID do Claude Code CLI (`--resume` no follow-up). Null para providers sem persistência de sessão. */
+  cliSessionId: string | null
   createdAt: number
   updatedAt: number
 }
@@ -43,6 +45,7 @@ interface ThreadRow {
   state: string
   title: string | null
   system_prompt: string | null
+  cli_session_id: string | null
   created_at: number
   updated_at: number
 }
@@ -60,6 +63,7 @@ function toThread(row: ThreadRow): Thread {
     state: row.state as ThreadState,
     title: row.title,
     systemPrompt: row.system_prompt,
+    cliSessionId: row.cli_session_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -125,6 +129,7 @@ export interface UpdateThreadInput {
   worktreePath?: string | null
   title?: string | null
   systemPrompt?: string | null
+  cliSessionId?: string | null
 }
 
 export function updateThread(id: string, patch: UpdateThreadInput): Thread | null {
@@ -139,11 +144,12 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
     worktreePath: patch.worktreePath !== undefined ? patch.worktreePath : existing.worktreePath,
     title: patch.title !== undefined ? patch.title : existing.title,
     systemPrompt: patch.systemPrompt !== undefined ? patch.systemPrompt : existing.systemPrompt,
+    cliSessionId: patch.cliSessionId !== undefined ? patch.cliSessionId : existing.cliSessionId,
   }
 
   getDb()
     .prepare(
-      `UPDATE threads SET state = ?, model = ?, reasoning_level = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, updated_at = ?
+      `UPDATE threads SET state = ?, model = ?, reasoning_level = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, cli_session_id = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(
@@ -154,6 +160,7 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
       next.worktreePath,
       next.title,
       next.systemPrompt,
+      next.cliSessionId,
       Date.now(),
       id
     )

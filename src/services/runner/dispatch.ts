@@ -28,6 +28,7 @@ import {
   unregisterActiveController,
 } from './turn-control.js'
 import { parseSlashCommand } from './slash-commands.js'
+import { deriveThreadTitle } from './thread-title.js'
 import { runPipelineCommand } from './pipeline-runner.js'
 import { assertUsageLimitNotExceeded } from './usage-limit-eval.js'
 import { getActivePipelineForThread, updatePipeline } from '../db/repositories/pipelines.js'
@@ -55,6 +56,7 @@ import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch }
 import { ensureIndexForTurn } from '../codegraph/ensure.js'
 import { vaultService } from '../vault/vault-service.js'
 import { DEFAULT_PROMPT } from '../config/defaults.js'
+import { RUNTIME_SAFETY_PROMPT } from './runtime-safety-prompt.js'
 import {
   runCliTurn as defaultRunCliTurn,
   ProviderError,
@@ -181,6 +183,8 @@ function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: Sk
   const globalPrompt = promptGlobal === undefined ? DEFAULT_PROMPT : promptGlobal
   if (globalPrompt) parts.push(globalPrompt)
 
+  parts.push(RUNTIME_SAFETY_PROMPT)
+
   const rulesBlock = RuleRegistry.composeBlockForTurn(project.id)
   if (rulesBlock) parts.push(rulesBlock)
 
@@ -233,6 +237,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       accessLevel: input.accessLevel,
       executionMode: input.executionMode,
       state: 'running',
+      title: deriveThreadTitle(input.prompt),
     })
   } catch (err) {
     releaseLease(project.id)
@@ -429,6 +434,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
       mcpServers: mcpsPrepared.resolved,
       permissionPort: permissionServer?.port,
       permissionToken: permissionServer?.token,
+      resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,
       images,
       signal: controller.signal,
       onEvent: (event) => {
@@ -501,6 +507,11 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
 
     const result = await runCliTurnImpl(turnInput)
     const finalText = result.text || assistantText
+
+    // Claude: grava session_id para o próximo follow-up usar `--resume` (continuidade headless).
+    if (result.sessionId && thread.provider === 'claude') {
+      updateThread(thread.id, { cliSessionId: result.sessionId })
+    }
 
     if (result.usage) {
       persistAgentUsage({ turnId, project, thread, usage: result.usage, costUsd: result.costUsd })

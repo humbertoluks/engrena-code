@@ -125,4 +125,20 @@ describe('reasoningLevel persistence (F16 §7.1 test_create_thread_persists_reas
     expect(updated?.model).toBe('gpt-5.1-codex')
     expect(updated?.reasoningLevel).toBe('max')
   })
+
+  it('defaults cliSessionId to null and persists via updateThread', () => {
+    const project = createProject({ path: makeProjectDir('project-cli-session') })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'idle',
+    })
+    expect(thread.cliSessionId).toBeNull()
+
+    const updated = updateThread(thread.id, { cliSessionId: 'sess-xyz' })
+    expect(updated?.cliSessionId).toBe('sess-xyz')
+    expect(getThread(thread.id)?.cliSessionId).toBe('sess-xyz')
+  })
 })

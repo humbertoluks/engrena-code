@@ -15,6 +15,7 @@ import * as migration009WriteParallel from './migrations/009_write_parallel.js'
 import * as migration010SlashPipeline from './migrations/010_slash_pipeline.js'
 import * as migration011UsageLimits from './migrations/011_usage_limits.js'
 import * as migration012Skills from './migrations/012_skills.js'
+import * as migration013CliSession from './migrations/013_cli_session.js'
 
 interface Migration {
   id: string
@@ -35,6 +36,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration010SlashPipeline.id, sql: migration010SlashPipeline.sql },
   { id: migration011UsageLimits.id, sql: migration011UsageLimits.sql },
   { id: migration012Skills.id, sql: migration012Skills.sql },
+  { id: migration013CliSession.id, sql: migration013CliSession.sql },
 ]
 
 function resolveUserData(): string {

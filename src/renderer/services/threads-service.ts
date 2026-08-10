@@ -22,6 +22,7 @@ export interface Thread {
   state: ThreadState
   title: string | null
   systemPrompt: string | null
+  cliSessionId?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -169,6 +170,12 @@ export const threadsService = {
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 
+  /** Persiste Access na thread sem exigir follow-up (pill do composer). */
+  patchAccess: (
+    threadId: string,
+    accessLevel: ThreadAccessLevel
+  ): Promise<{ thread: Thread } & ApiErrorBody> => apiRequest('PATCH', `/api/threads/${threadId}`, { accessLevel }),
+
   composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => apiRequest('GET', '/api/composer/catalog'),
 
   history: (
@@ -185,8 +192,9 @@ export const threadsService = {
 
   permission: (
     threadId: string,
-    input: { requestId: string; allow: boolean }
-  ): Promise<{ resolved: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/permission`, input),
+    input: { requestId: string; allow: boolean; always?: boolean }
+  ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/permission`, input),
 
   answerQuestion: (
     threadId: string,
