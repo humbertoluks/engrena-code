@@ -204,3 +204,94 @@ export function shouldCollapseUserMessage(
   if (!Number.isFinite(maxLines) || maxLines < 1) return false
   return countUserMessageLines(content) > maxLines
 }
+
+// ── Atividade em curso (rótulo shimmer do chat) ───────────────────────────────
+
+/** Rótulo shimmer + início da atividade atual do turno. */
+export interface ChatActivity {
+  label: string
+  startMs: number
+}
+
+export const DEFAULT_ACTIVITY_LABEL = 'Pensando'
+const FALLBACK_TOOL_LABEL = 'Trabalhando'
+
+/**
+ * Verbo por tool. Nome exato primeiro (tools nativas do CLI); prefixo `mcp__` e
+ * desconhecidos caem no rótulo genérico — nunca expor o nome cru da tool.
+ */
+const TOOL_ACTIVITY_LABEL: Record<string, string> = {
+  Read: 'Lendo',
+  NotebookRead: 'Lendo',
+  Write: 'Escrevendo',
+  Edit: 'Editando',
+  MultiEdit: 'Editando',
+  NotebookEdit: 'Editando',
+  Bash: 'Executando',
+  BashOutput: 'Executando',
+  KillShell: 'Executando',
+  PowerShell: 'Executando',
+  Grep: 'Buscando',
+  Glob: 'Procurando arquivos',
+  WebFetch: 'Pesquisando na web',
+  WebSearch: 'Pesquisando na web',
+  Task: 'Delegando',
+  Agent: 'Delegando',
+  TodoWrite: 'Planejando',
+  ExitPlanMode: 'Planejando',
+  AskUserQuestion: 'Perguntando',
+}
+
+export function activityLabelForTool(name: string): string {
+  if (name === CALL_SUBAGENT_TOOL_NAME) return 'Delegando'
+  if (name === LOAD_SKILL_TOOL_NAME) return 'Carregando skill'
+  return TOOL_ACTIVITY_LABEL[name] ?? FALLBACK_TOOL_LABEL
+}
+
+/** Bolha otimista já despachada (fora do histórico persistido) — só o instante do envio importa. */
+export interface DispatchedPendingLike {
+  status: string
+  createdAt: number
+}
+
+/**
+ * Início do "Pensando…": a mensagem do usuário mais recente entre o histórico persistido e as
+ * bolhas otimistas já despachadas. Sem contar a pendente, o follow-up herdava o horário do turno
+ * anterior e o cronômetro nascia inflado ("Pensando… 31s" no primeiro segundo).
+ */
+function pendingAwareStartMs(
+  messages: Message[],
+  pending: readonly DispatchedPendingLike[],
+  nowMs: number
+): number {
+  let start = thinkingStartMs(messages, nowMs)
+  for (const item of pending) {
+    if (item.status === 'queued' || item.status === 'permission') continue
+    if (Number.isFinite(item.createdAt) && item.createdAt > start) start = item.createdAt
+  }
+  return start
+}
+
+/**
+ * Atividade a mostrar enquanto a thread está `running`: a tool em execução mais recente
+ * (rótulo + `startedAt` dela) ou "Pensando" a partir da última mensagem do usuário.
+ */
+export function currentActivity(
+  messages: Message[],
+  toolCalls: ToolCall[],
+  nowMs: number,
+  pending: readonly DispatchedPendingLike[] = []
+): ChatActivity {
+  let latest: ToolCall | null = null
+  for (const tool of toolCalls) {
+    if (tool.status !== 'running') continue
+    if (latest === null || tool.seq > latest.seq) latest = tool
+  }
+
+  if (latest !== null) {
+    const startMs = Number.isFinite(latest.startedAt) && latest.startedAt > 0 ? latest.startedAt : nowMs
+    return { label: activityLabelForTool(latest.name), startMs }
+  }
+
+  return { label: DEFAULT_ACTIVITY_LABEL, startMs: pendingAwareStartMs(messages, pending, nowMs) }
+}

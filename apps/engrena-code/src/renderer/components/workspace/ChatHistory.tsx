@@ -5,12 +5,12 @@ import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import {
   anyToolRunning,
   correlateSubagentRuns,
+  currentActivity,
   formatClock,
   formatDurationSeconds,
   formatToolPayload,
   groupTimelineItems,
   shouldCollapseUserMessage,
-  thinkingStartMs,
   toolSummary,
   turnDurationForAssistant,
 } from './chatHistory.logic'
@@ -24,7 +24,7 @@ const COPY = {
   error: 'Falha ao carregar o histórico da thread.',
   emptyThread: 'Sem mensagens ainda. O histórico aparece conforme o agente executa.',
   emptyNoThread: 'Envie uma mensagem abaixo para iniciar uma thread, ou selecione uma na barra lateral.',
-  thinking: (elapsed: string) => `Pensando… ${elapsed}`,
+  activity: (label: string, elapsed: string) => `${label}… ${elapsed}`,
   thought: (elapsed: string) => `Pensou por ${elapsed}`,
   workLog: (n: number) => `Work log (${n})`,
   workLogWorking: 'trabalhando…',
@@ -63,7 +63,12 @@ function MessageImageThumbs({ blocks }: Readonly<{ blocks: unknown[] | null }>):
   )
 }
 
-function ThinkingTimer({ startMs }: Readonly<{ startMs: number }>): ReactElement {
+/**
+ * Linha shimmer do que o agente está fazendo agora ("Pensando…", "Lendo…", "Buscando…") com
+ * cronômetro da atividade. Fica sempre abaixo do último texto — o work log mostra a tool, mas
+ * o usuário precisa de sinal de vida também quando a resposta já começou a aparecer.
+ */
+function ActivityIndicator({ label, startMs }: Readonly<{ label: string; startMs: number }>): ReactElement {
   const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startMs)
 
   useEffect(() => {
@@ -80,7 +85,7 @@ function ThinkingTimer({ startMs }: Readonly<{ startMs: number }>): ReactElement
         className="h-[6px] w-[6px] flex-none animate-pulse rounded-full bg-accent"
         aria-hidden="true"
       />
-      <span className="text-shimmer">{COPY.thinking(formatDurationSeconds(elapsedMs))}</span>
+      <span className="text-shimmer">{COPY.activity(label, formatDurationSeconds(elapsedMs))}</span>
     </div>
   )
 }
@@ -404,14 +409,10 @@ export function ChatHistory({
   const runByToolCallId = correlateSubagentRuns(toolCalls, subagentRuns)
   const groups = groupTimelineItems(messages, toolCalls, runByToolCallId)
 
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
-  const showThinking =
-    threadState === 'running' &&
-    streamingText === '' &&
-    !pendingQuestion &&
-    (anyToolRunning(toolCalls) || lastAssistant === undefined || messages.at(-1)?.role === 'user')
-
-  const thinkStart = thinkingStartMs(messages, Date.now())
+  // Enquanto o turno roda o indicador fica sempre visível (mesmo com texto já em tela): sumir
+  // depois da primeira frase do agente fazia o chat parecer travado no meio do trabalho.
+  const showActivity = threadState === 'running' && !pendingQuestion
+  const activity = currentActivity(messages, toolCalls, Date.now(), pendingMessages)
 
   return (
     <div className="flex flex-col p-md">
@@ -478,7 +479,7 @@ export function ChatHistory({
         </div>
       ) : null}
 
-      {showThinking ? <ThinkingTimer startMs={thinkStart} /> : null}
+      {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
       {queued.map((pending) => (
         <PendingUserMessage key={pending.id} pending={pending} />

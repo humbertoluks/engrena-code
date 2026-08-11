@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activityLabelForTool,
   CALL_SUBAGENT_TOOL_NAME,
   correlateSubagentRuns,
+  currentActivity,
   countUserMessageLines,
   formatClock,
+  DEFAULT_ACTIVITY_LABEL,
   formatDurationSeconds,
   groupTimelineItems,
+  LOAD_SKILL_TOOL_NAME,
   shouldCollapseUserMessage,
   thinkingStartMs,
   toolSummary,
@@ -157,5 +161,48 @@ describe('shouldCollapseUserMessage', () => {
     expect(shouldCollapseUserMessage('a\nb\nc\nd')).toBe(true)
     expect(shouldCollapseUserMessage('a\nb\nc\nd', 4)).toBe(false)
     expect(shouldCollapseUserMessage(null)).toBe(false)
+  })
+})
+
+describe('currentActivity', () => {
+  it('falls back to "Pensando" from the last user message when no tool is running', () => {
+    const messages = [
+      message({ id: 'u', role: 'user', seq: 0, createdAt: 1000, content: 'x' }),
+      message({ id: 'a', role: 'assistant', seq: 1, createdAt: 2000, content: 'y' }),
+    ]
+    expect(currentActivity(messages, [tool({ id: 't1', name: 'Read', seq: 2 })], 9999)).toEqual({
+      label: DEFAULT_ACTIVITY_LABEL,
+      startMs: 1000,
+    })
+  })
+
+  it('uses the latest running tool label and its startedAt', () => {
+    const tools = [
+      tool({ id: 't1', name: 'Read', seq: 1, status: 'running', startedAt: 5000, endedAt: null }),
+      tool({ id: 't2', name: 'Grep', seq: 2, status: 'running', startedAt: 7000, endedAt: null }),
+      tool({ id: 't3', name: 'Bash', seq: 3, status: 'completed', startedAt: 8000 }),
+    ]
+    expect(currentActivity([], tools, 9999)).toEqual({ label: 'Buscando', startMs: 7000 })
+  })
+
+  it('never leaks a raw tool name for unknown or MCP tools', () => {
+    expect(activityLabelForTool('Grep')).toBe('Buscando')
+    expect(activityLabelForTool(CALL_SUBAGENT_TOOL_NAME)).toBe('Delegando')
+    expect(activityLabelForTool(LOAD_SKILL_TOOL_NAME)).toBe('Carregando skill')
+    expect(activityLabelForTool('mcp__context7__query-docs')).toBe('Trabalhando')
+    expect(activityLabelForTool('WhateverNewTool')).toBe('Trabalhando')
+  })
+
+  it('counts from the optimistic bubble on a follow-up, not from the previous turn', () => {
+    const messages = [
+      message({ id: 'u1', role: 'user', seq: 0, createdAt: 1000, content: 'primeiro' }),
+      message({ id: 'a1', role: 'assistant', seq: 1, createdAt: 2000, content: 'resposta' }),
+    ]
+    const pending = [
+      { status: 'sent', createdAt: 30000 },
+      { status: 'queued', createdAt: 90000 },
+    ]
+    expect(currentActivity(messages, [], 31000, pending).startMs).toBe(30000)
+    expect(currentActivity(messages, [], 31000, []).startMs).toBe(1000)
   })
 })
