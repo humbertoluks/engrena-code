@@ -8,8 +8,22 @@ import type { UsageLimitStatusResponse } from '../../services/consumo-service'
 import { ComposerModelControls } from './ComposerModelControls'
 import { FileMentionMenu } from './FileMentionMenu'
 import { CommandMenu } from './CommandMenu'
-import { ComposerImageAttachments, ImageAttachmentThumbs } from './ComposerImageAttachments'
-import { extractMentionQuery, insertMentionPath, validateComposerSlash, type MentionQuery } from './composer.logic'
+import { ComposerImageAttachments, readFileAsBase64 } from './ComposerImageAttachments'
+import { ComposerContextChips } from './ComposerContextChips'
+import {
+  droppedTextAsAttachment,
+  makeFileAttachment,
+  MAX_ATTACHMENT_CHARS,
+  type ComposerAttachment,
+} from './composerAttachments.logic'
+import { DROP_PATH_MIME, imagesFromClipboard, readDroppedFiles } from './composerDrop.logic'
+import {
+  extractMentionQuery,
+  insertMentionPath,
+  validateComposerSlash,
+  validateImageFile,
+  type MentionQuery,
+} from './composer.logic'
 import { extractSlashTrigger, insertSlashCommand, type SlashTrigger } from './commandTrigger'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
 import { VoiceMicButton } from './VoiceMicButton'
@@ -47,6 +61,7 @@ const COPY = {
   queueCancel: 'Cancelar',
   queuePromote: 'Priorizar (próxima)',
   queueRemove: 'Remover da fila',
+  dropHint: 'Solte para anexar ao contexto',
 } as const
 
 const ACCESS_LEVELS: ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
@@ -65,6 +80,11 @@ const EXECUTION_LABEL: Record<ThreadExecutionMode, string> = {
 
 export interface TaskComposerProps {
   composer: ComposerDraft
+  /** Anexos efetivos (explícitos + implícito do arquivo aberto). */
+  attachments: readonly ComposerAttachment[]
+  onAttach: (attachment: ComposerAttachment) => void
+  onDetach: (id: string) => void
+  attachError: string | null
   updateComposer: (patch: Partial<ComposerDraft>) => void
   onAccessLevelChange: (accessLevel: ThreadAccessLevel) => void
   composerCatalog: ComposerCatalog | null
@@ -86,6 +106,10 @@ export interface TaskComposerProps {
 
 export function TaskComposer({
   composer,
+  attachments,
+  onAttach,
+  onDetach,
+  attachError,
   updateComposer,
   onAccessLevelChange,
   composerCatalog,
@@ -191,6 +215,59 @@ export function TaskComposer({
     })
   }
 
+  const [dragActive, setDragActive] = useState(false)
+
+  async function attachImageFiles(files: File[]): Promise<void> {
+    const accepted: typeof composer.images = []
+    for (const file of files) {
+      const validation = validateImageFile(file)
+      if (!validation.ok) {
+        setImageError(validation.message)
+        continue
+      }
+      accepted.push({
+        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        mimeType: file.type as (typeof composer.images)[number]['mimeType'],
+        name: file.name,
+        dataBase64: await readFileAsBase64(file),
+        byteLength: file.size,
+      })
+    }
+    if (accepted.length > 0) updateComposer({ images: [...composer.images, ...accepted] })
+  }
+
+  /** Solto da árvore do projeto: path relativo já confiável, vira anexo de arquivo. */
+  function attachDroppedProjectPaths(data: DataTransfer): boolean {
+    const raw = data.getData(DROP_PATH_MIME)
+    if (!raw) return false
+    for (const path of raw.split(String.fromCharCode(10)).map((p) => p.trim()).filter(Boolean)) {
+      onAttach(makeFileAttachment(path))
+    }
+    return true
+  }
+
+  async function handleDrop(event: React.DragEvent<HTMLDivElement>): Promise<void> {
+    setDragActive(false)
+    if (disabled) return
+    event.preventDefault()
+    if (attachDroppedProjectPaths(event.dataTransfer)) return
+
+    const files = Array.from(event.dataTransfer.files ?? [])
+    if (files.length === 0) return
+    const { texts, images, unsupported } = await readDroppedFiles(files)
+    for (const item of texts) onAttach(droppedTextAsAttachment(item.name, item.text.slice(0, MAX_ATTACHMENT_CHARS)))
+    if (images.length > 0) await attachImageFiles(images)
+    if (unsupported.length > 0) setImageError(`Não dá para anexar: ${unsupported.join(', ')}.`)
+  }
+
+  async function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> {
+    if (disabled) return
+    const images = imagesFromClipboard(event.clipboardData?.items ?? null)
+    if (images.length === 0) return
+    event.preventDefault()
+    await attachImageFiles(images)
+  }
+
   /** Bloqueio pré-envio de slash inválido (spec F22 §5.2) — client nunca chega a chamar `onSend`. */
   function handleSend(): void {
     const validation = validateComposerSlash(composer.text)
@@ -278,21 +355,41 @@ export function TaskComposer({
         </div>
       ) : null}
 
+      {attachError !== null ? (
+        <p role="alert" className="mb-xs text-[12px] text-amber">
+          {attachError}
+        </p>
+      ) : null}
+
       {sendError !== null ? (
         <p role="alert" className="mb-xs text-[12px] text-red">
           {sendError}
         </p>
       ) : null}
 
-      <div className="relative rounded-xl border border-border bg-surface-2 p-sm focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
-        {composer.images.length > 0 ? (
-          <div className="mb-xs">
-            <ImageAttachmentThumbs
-              images={composer.images}
-              onRemove={(id) => updateComposer({ images: composer.images.filter((img) => img.id !== id) })}
-            />
-          </div>
+      <div
+        onDragOver={(e) => {
+          if (disabled) return
+          e.preventDefault()
+          setDragActive(true)
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => void handleDrop(e)}
+        className={`relative rounded-xl border bg-surface-2 p-sm focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25 ${
+          dragActive ? 'border-accent ring-2 ring-accent/25' : 'border-border'
+        }`}
+      >
+        {dragActive ? (
+          <p role="status" className="mb-xs text-[11.5px] text-accent">
+            {COPY.dropHint}
+          </p>
         ) : null}
+        <ComposerContextChips
+          attachments={attachments}
+          images={composer.images}
+          onRemoveAttachment={onDetach}
+          onRemoveImage={(id) => updateComposer({ images: composer.images.filter((img) => img.id !== id) })}
+        />
 
         <div className="relative">
           {slashTrigger !== null ? (
@@ -306,6 +403,7 @@ export function TaskComposer({
             value={composer.text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => void handlePaste(e)}
             onKeyUp={(e) => syncTriggers(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
             onClick={(e) => syncTriggers(composer.text, e.currentTarget.selectionStart ?? composer.text.length)}
             placeholder={placeholder}

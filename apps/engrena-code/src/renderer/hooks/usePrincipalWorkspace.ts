@@ -21,6 +21,13 @@ import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
 import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
 import {
+  addAttachment,
+  removeAttachment as removeAttachmentFromList,
+  toWirePayload,
+  withImplicitContext,
+  type ComposerAttachment,
+} from '../components/workspace/composerAttachments.logic'
+import {
   reconcilePendingMessages,
   type PendingMessage,
   type PendingMessageStatus,
@@ -43,6 +50,8 @@ export interface QueueItem {
   id: string
   text: string
   images: ComposerImage[]
+  /** Contexto anexado quando a mensagem entrou na fila — sem isto o turno enfileirado perde os chips. */
+  attachments?: ComposerAttachment[]
   model: string | null
   reasoningLevel: string | null
 }
@@ -55,6 +64,7 @@ export interface ComposerDraft {
   executionMode: ThreadExecutionMode
   text: string
   images: ComposerImage[]
+  attachments: ComposerAttachment[]
 }
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
@@ -129,6 +139,7 @@ export function usePrincipalWorkspace() {
     executionMode: 'main',
     text: '',
     images: [],
+    attachments: [],
   })
   const [queue, setQueue] = useState<QueueItem[]>([])
   // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
@@ -504,6 +515,40 @@ export function usePrincipalWorkspace() {
     setPendingMessages((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
+  // Contexto implícito: arquivo aberto no viewer (+ seleção), espelhando `chatImplicitContext.ts`
+  // do VS Code. Vira chip removível e pode ser desligado — nunca entra escondido no turno.
+  const [activeFile, setActiveFile] = useState<{ path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null>(null)
+  const [implicitContextEnabled, setImplicitContextEnabled] = useState(true)
+  const [attachError, setAttachError] = useState<string | null>(null)
+
+  const composerAttachments = useMemo(
+    () => withImplicitContext(composer.attachments, activeFile, implicitContextEnabled),
+    [composer.attachments, activeFile, implicitContextEnabled]
+  )
+
+  const attach = useCallback((attachment: ComposerAttachment) => {
+    setComposer((prev) => {
+      const result = addAttachment(prev.attachments, attachment)
+      if (!result.ok) {
+        setAttachError(result.message)
+        return prev
+      }
+      setAttachError(null)
+      return { ...prev, attachments: result.attachments }
+    })
+  }, [])
+
+  /** Chip implícito não sai da lista explícita — remover significa desligar o implícito. */
+  const detach = useCallback((id: string) => {
+    setAttachError(null)
+    setComposer((prev) => {
+      const next = removeAttachmentFromList(prev.attachments, id)
+      if (next.length !== prev.attachments.length) return { ...prev, attachments: next }
+      setImplicitContextEnabled(false)
+      return prev
+    })
+  }, [])
+
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
@@ -514,6 +559,7 @@ export function usePrincipalWorkspace() {
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
     setPendingMessages([])
+    setAttachError(null)
     setSendError(null)
     setActiveTab('history')
   }, [])
@@ -575,11 +621,24 @@ export function usePrincipalWorkspace() {
   )
 
   const enqueue = useCallback(
-    (text: string, images: ComposerImage[], model: string | null, reasoningLevel: string | null) => {
+    (
+      text: string,
+      images: ComposerImage[],
+      model: string | null,
+      reasoningLevel: string | null,
+      attachments: ComposerAttachment[] = []
+    ) => {
       setQueue((prev) => {
         const next = [
           ...prev,
-          { id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, images, model, reasoningLevel },
+          {
+            id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            images,
+            attachments,
+            model,
+            reasoningLevel,
+          },
         ]
         saveQueue(queueKey, next)
         return next
@@ -637,7 +696,7 @@ export function usePrincipalWorkspace() {
     queueRef.current = rest
     setQueue(rest)
     saveQueue(queueKey, rest)
-    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel).then((ok) => {
+    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel, head.attachments ?? []).then((ok) => {
       // O item sai da fila antes do POST (evita despacho duplo se outro `state.change` chegar
       // no meio). Falhou — ex.: outra thread do projeto pegou a lease primeiro —, volta para a
       // frente da fila; sem isso a mensagem enfileirada some sem nunca ter rodado.
@@ -654,7 +713,8 @@ export function usePrincipalWorkspace() {
       text: string,
       images: ComposerImage[] = [],
       model: string | null = null,
-      reasoningLevel: string | null = null
+      reasoningLevel: string | null = null,
+      attachments: ComposerAttachment[] = []
     ): Promise<boolean> => {
       if (!selectedThreadId) return false
       const pendingId = addPending(text, images, 'sending')
@@ -665,6 +725,7 @@ export function usePrincipalWorkspace() {
           reasoningLevel,
           accessLevel: composer.accessLevel,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
+          contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
         })
         if (res.error) {
           removePending(pendingId)
@@ -737,8 +798,8 @@ export function usePrincipalWorkspace() {
     // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
     // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
     if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
-      enqueue(text, composer.images, composer.model, composer.reasoningLevel)
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      enqueue(text, composer.images, composer.model, composer.reasoningLevel, composerAttachments)
+      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
       return
     }
 
@@ -746,8 +807,9 @@ export function usePrincipalWorkspace() {
 
     if (!selectedThreadId) {
       const images = composer.images
+      const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
       try {
         const res = await threadsService.create(selectedProjectId, {
           prompt: text,
@@ -757,6 +819,7 @@ export function usePrincipalWorkspace() {
           accessLevel: composer.accessLevel,
           executionMode: composer.executionMode,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
+          contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
         })
         if (res.error) {
           removePending(pendingId)
@@ -774,8 +837,9 @@ export function usePrincipalWorkspace() {
     }
 
     const images = composer.images
-    setComposer((prev) => ({ ...prev, text: '', images: [] }))
-    await sendFollowUp(text, images, composer.model, composer.reasoningLevel)
+    const attachments = composerAttachments
+    setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+    await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
   }, [
     composer,
     selectedThread,
@@ -789,6 +853,7 @@ export function usePrincipalWorkspace() {
     addPending,
     setPendingStatus,
     removePending,
+    composerAttachments,
   ])
 
   const cancel = useCallback(async () => {
@@ -923,6 +988,14 @@ export function usePrincipalWorkspace() {
     configStatus,
     composerCatalog,
     composer,
+    composerAttachments,
+    attach,
+    detach,
+    attachError,
+    activeFile,
+    setActiveFile,
+    implicitContextEnabled,
+    setImplicitContextEnabled,
     updateComposer,
     setAccessLevel,
     queue,

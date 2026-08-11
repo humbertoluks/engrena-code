@@ -1,7 +1,8 @@
 import { apiRequest, type ApiErrorBody } from './api-client'
+import type { ContextAttachmentInput } from '../../services/runner/providers/context-attachments.js'
 import type { SubagentRun } from './subagents-service'
 
-export type { ApiErrorBody }
+export type { ApiErrorBody, ContextAttachmentInput }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ export const threadsService = {
       accessLevel: ThreadAccessLevel
       executionMode: ThreadExecutionMode
       images?: ComposerImagePayload[]
+      contextAttachments?: ContextAttachmentInput[]
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
@@ -167,6 +169,7 @@ export const threadsService = {
       reasoningLevel?: string | null
       accessLevel?: ThreadAccessLevel
       images?: ComposerImagePayload[]
+      contextAttachments?: ContextAttachmentInput[]
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 

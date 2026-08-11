@@ -1093,6 +1093,79 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
 
+    describe('contextAttachments', () => {
+      it('rejeita anexo de contexto malformado no create', async () => {
+        const dir = makeProjectDir()
+        const project = createProject({ path: dir })
+        const req = fakeReq(
+          'POST',
+          `/api/projects/${project.id}/threads`,
+          {
+            prompt: 'oi',
+            provider: 'claude',
+            accessLevel: 'supervised',
+            executionMode: 'main',
+            contextAttachments: [{ kind: 'pasta', path: 'src' }],
+          },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status, body } = await res.result()
+        expect(status).toBe(400)
+        expect((body as { error: { code: string } }).error.code).toBe('attachment_invalid')
+        rmSync(dir, { recursive: true, force: true })
+      })
+
+      it('rejeita anexo de contexto malformado no follow-up', async () => {
+        const dir = makeProjectDir()
+        const project = createProject({ path: dir })
+        const thread = createThread({
+          projectId: project.id,
+          provider: 'claude',
+          accessLevel: 'supervised',
+          executionMode: 'main',
+          state: 'idle',
+        })
+        const req = fakeReq(
+          'POST',
+          `/api/threads/${thread.id}/messages`,
+          { prompt: 'segue', contextAttachments: [{ kind: 'selection', path: 'a.ts', text: '' }] },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status, body } = await res.result()
+        expect(status).toBe(400)
+        expect((body as { error: { code: string } }).error.code).toBe('attachment_invalid')
+        rmSync(dir, { recursive: true, force: true })
+      })
+
+      it('aceita anexo válido no create e persiste os blocks de contexto', async () => {
+        const dir = makeProjectDir()
+        writeFileSync(join(dir, 'alvo.ts'), 'const alvo = 1')
+        const project = createProject({ path: dir })
+        setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+        const req = fakeReq(
+          'POST',
+          `/api/projects/${project.id}/threads`,
+          {
+            prompt: 'explique',
+            provider: 'claude',
+            accessLevel: 'auto-accept-edits',
+            executionMode: 'main',
+            contextAttachments: [{ kind: 'file', path: 'alvo.ts' }],
+          },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status } = await res.result()
+        expect(status).toBe(201)
+        rmSync(dir, { recursive: true, force: true })
+      })
+    })
+
     describe('test_images_rejected_when_not_multimodal', () => {
       it('rejects images on create for a non-multimodal provider (minimax)', async () => {
         const dir = makeProjectDir()

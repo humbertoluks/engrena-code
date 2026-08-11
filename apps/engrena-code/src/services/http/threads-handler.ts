@@ -20,6 +20,7 @@ import {
   type DispatchNewThreadInput,
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
+import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
 import { resolvePermissionRequest, allowPendingPermissionsForThread, clearAllowedToolsForThread } from '../runner/permission-broker.js'
@@ -101,6 +102,7 @@ interface CreateThreadBody {
   accessLevel?: string
   executionMode?: string
   images?: unknown[]
+  contextAttachments?: unknown
 }
 
 async function handleCreateThread(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -143,6 +145,13 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     images = data.images as ComposerImageInput[]
   }
 
+  let contextAttachments: ContextAttachmentInput[] | undefined
+  if (data.contextAttachments !== undefined) {
+    const attErr = validateContextAttachments(data.contextAttachments)
+    if (attErr) return sendError(res, 400, attErr.code, attErr.message)
+    contextAttachments = data.contextAttachments as ContextAttachmentInput[]
+  }
+
   try {
     const thread = await dispatchNewThread({
       projectId,
@@ -153,6 +162,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
       accessLevel: data.accessLevel as DispatchNewThreadInput['accessLevel'],
       executionMode: data.executionMode as DispatchNewThreadInput['executionMode'],
       images,
+      contextAttachments,
     })
     sendJson(res, 201, { thread, stream: streamPathFor(thread.id) })
   } catch (err) {
@@ -168,6 +178,7 @@ interface FollowUpBody {
   accessLevel?: string
   executionMode?: string
   images?: unknown[]
+  contextAttachments?: unknown
 }
 
 async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -216,7 +227,15 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
     images = data.images as ComposerImageInput[]
   }
 
+  if (data.contextAttachments !== undefined) {
+    const attErr = validateContextAttachments(data.contextAttachments)
+    if (attErr) return sendError(res, 400, attErr.code, attErr.message)
+  }
+
   const input: DispatchFollowUpInput = { threadId, prompt: data.prompt }
+  if (data.contextAttachments !== undefined) {
+    input.contextAttachments = data.contextAttachments as ContextAttachmentInput[]
+  }
   if (data.model !== undefined) input.model = data.model
   if (data.reasoningLevel !== undefined) input.reasoningLevel = data.reasoningLevel
   if (data.accessLevel !== undefined) input.accessLevel = data.accessLevel as DispatchFollowUpInput['accessLevel']

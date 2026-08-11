@@ -42,6 +42,37 @@ interface ImageBlock {
   dataBase64: string
 }
 
+interface ContextBlock {
+  type: 'context'
+  kind: 'file' | 'selection'
+  path: string
+  label: string
+}
+
+function isContextBlock(block: unknown): block is ContextBlock {
+  return typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'context'
+}
+
+/** Chips do contexto que foi junto na mensagem — o mesmo rótulo que estava no composer. */
+function MessageContextChips({ blocks }: Readonly<{ blocks: unknown[] | null }>): ReactElement | null {
+  const contexts = (blocks ?? []).filter(isContextBlock)
+  if (contexts.length === 0) return null
+  return (
+    <div className="mb-xs flex flex-wrap justify-end gap-xs">
+      {contexts.map((ctx) => (
+        <span
+          key={`${ctx.kind}-${ctx.label}`}
+          title={ctx.path}
+          className="inline-flex max-w-[14rem] items-center gap-[4px] rounded-md border border-border px-xs py-px text-[10.5px] text-muted"
+        >
+          <span aria-hidden="true">{ctx.kind === 'selection' ? '✂' : '📄'}</span>
+          <span className="min-w-0 truncate font-mono">{ctx.label}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function isImageBlock(block: unknown): block is ImageBlock {
   return typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'image'
 }
@@ -233,6 +264,7 @@ function UserMessage({ message }: Readonly<{ message: Message }>): ReactElement 
 
   return (
     <div className="mb-md flex flex-col items-end">
+      <MessageContextChips blocks={message.blocks} />
       <MessageImageThumbs blocks={message.blocks} />
       <div
         role={collapsible ? 'button' : undefined}

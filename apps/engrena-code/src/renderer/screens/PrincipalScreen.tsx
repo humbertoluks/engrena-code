@@ -176,6 +176,10 @@ export function PrincipalScreen(): ReactElement {
           <div className="border-t border-border p-sm">
             <TaskComposer
               composer={ws.composer}
+              attachments={ws.composerAttachments}
+              onAttach={ws.attach}
+              onDetach={ws.detach}
+              attachError={ws.attachError}
               updateComposer={ws.updateComposer}
               onAccessLevelChange={(level) => void ws.setAccessLevel(level)}
               composerCatalog={ws.composerCatalog}
@@ -204,6 +208,7 @@ export function PrincipalScreen(): ReactElement {
         </div>
 
         <WorkspaceSidebar
+          onActiveFileChange={ws.setActiveFile}
           project={ws.selectedProject}
           selectedThread={ws.selectedThread}
           vcsStatus={ws.vcsStatus}

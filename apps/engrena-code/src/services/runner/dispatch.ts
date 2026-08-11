@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { readFileSync } from 'fs'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import {
   createThread,
@@ -64,6 +65,14 @@ import {
   type ProviderUsage,
 } from './providers/cli-driver.js'
 import type { ComposerImageInput } from './providers/composer-images.js'
+import {
+  attachmentLabel,
+  composePromptWithContext,
+  truncateAttachmentContent,
+  type ContextAttachmentInput,
+  type ResolvedAttachment,
+} from './providers/context-attachments.js'
+import { resolveProjectFilePath } from '../project-files/path-guard.js'
 
 export class DispatchValidationError extends Error {
   code: string
@@ -83,6 +92,7 @@ export interface DispatchNewThreadInput {
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   images?: ComposerImageInput[]
+  contextAttachments?: ContextAttachmentInput[]
 }
 
 export interface DispatchFollowUpInput {
@@ -92,6 +102,7 @@ export interface DispatchFollowUpInput {
   reasoningLevel?: string | null
   accessLevel?: ThreadAccessLevel
   images?: ComposerImageInput[]
+  contextAttachments?: ContextAttachmentInput[]
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -261,7 +272,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
   if (slash.kind === 'command') {
     void runPipelineCommand({ project, thread, command: slash.command, prompt: input.prompt, argsText: slash.args })
   } else {
-    void runTurn(project, thread, input.prompt, input.images)
+    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments)
   }
 
   return thread
@@ -303,13 +314,44 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
   if (slash.kind === 'command') {
     void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
   } else {
-    void runTurn(project, updated, input.prompt, input.images)
+    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments)
   }
 
   return updated
 }
 
-async function runTurn(project: Project, thread: Thread, prompt: string, images?: ComposerImageInput[]): Promise<void> {
+/**
+ * Lê o conteúdo de cada anexo agora, no turno: seleção vem pronta do renderer, arquivo é lido do
+ * disco (path checado pela guarda compartilhada). Anexo que sumiu ou é inseguro some do contexto
+ * em silêncio — atrapalhar o turno inteiro por um chip velho seria pior.
+ */
+function resolveContextAttachments(project: Project, attachments?: ContextAttachmentInput[]): ResolvedAttachment[] {
+  if (!attachments || attachments.length === 0) return []
+  const resolved: ResolvedAttachment[] = []
+  for (const attachment of attachments) {
+    const label = attachmentLabel(attachment)
+    if (attachment.kind === 'selection') {
+      resolved.push({ label, content: truncateAttachmentContent(attachment.text) })
+      continue
+    }
+    const safe = resolveProjectFilePath(project.path, attachment.path)
+    if (!safe.ok) continue
+    try {
+      resolved.push({ label, content: truncateAttachmentContent(readFileSync(safe.absPath, 'utf8')) })
+    } catch {
+      // arquivo removido entre anexar e enviar
+    }
+  }
+  return resolved
+}
+
+async function runTurn(
+  project: Project,
+  thread: Thread,
+  prompt: string,
+  images?: ComposerImageInput[],
+  contextAttachments?: ContextAttachmentInput[]
+): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
   let askUserQuestionServer: AskUserQuestionServerHandle | null = null
@@ -326,7 +368,22 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
             dataBase64: img.dataBase64,
           }))
         : null
-    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks: imageBlocks })
+    const resolvedAttachments = resolveContextAttachments(project, contextAttachments)
+    const contextBlocks =
+      contextAttachments && contextAttachments.length > 0
+        ? contextAttachments.map((att) => ({
+            type: 'context' as const,
+            kind: att.kind,
+            path: att.path,
+            label: attachmentLabel(att),
+          }))
+        : null
+    const blocks =
+      imageBlocks || contextBlocks ? [...(imageBlocks ?? []), ...(contextBlocks ?? [])] : null
+    // O usuário vê no histórico o que digitou (+ chips); o conteúdo dos anexos só vai no prompt
+    // do provider, lido do disco agora — nunca uma cópia velha guardada no banco.
+    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks })
+    const providerPrompt = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)
     const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot)
@@ -425,7 +482,7 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
       cwd,
-      prompt,
+      prompt: providerPrompt,
       systemPrompt: systemPrompt || undefined,
       model: thread.model,
       reasoningLevel: thread.reasoningLevel,

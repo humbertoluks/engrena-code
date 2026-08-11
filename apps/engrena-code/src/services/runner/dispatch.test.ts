@@ -1731,3 +1731,89 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe('anexos de contexto do composer', () => {
+  it('lê o arquivo anexado no turno e põe o bloco de contexto antes do pedido', async () => {
+    const dir = makeProjectDir()
+    writeFileSync(join(dir, 'alvo.ts'), 'export const alvo = 42\n')
+    const project = createProject({ path: dir })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'explique este arquivo',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [{ kind: 'file', path: 'alvo.ts' }],
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPrompt).toContain('## Contexto anexado pelo usuário')
+    expect(capturedPrompt).toContain('alvo.ts')
+    expect(capturedPrompt).toContain('export const alvo = 42')
+    expect(capturedPrompt.indexOf('alvo.ts')).toBeLessThan(capturedPrompt.indexOf('explique este arquivo'))
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('persiste só o que o usuário digitou, com os anexos como blocks da mensagem', async () => {
+    const dir = makeProjectDir()
+    writeFileSync(join(dir, 'alvo.ts'), 'export const alvo = 42\n')
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'explique este arquivo',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [
+        { kind: 'file', path: 'alvo.ts' },
+        { kind: 'selection', path: 'alvo.ts', text: 'const alvo = 42', startLine: 1, endLine: 1 },
+      ],
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const userMessage = listMessagesForThread(thread.id).find((m) => m.role === 'user')
+    expect(userMessage?.content).toBe('explique este arquivo')
+    const blocks = (userMessage?.blocks ?? []) as Array<Record<string, unknown>>
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({ type: 'context', kind: 'file', path: 'alvo.ts', label: 'alvo.ts' })
+    expect(blocks[1]).toMatchObject({ type: 'context', kind: 'selection', label: 'alvo.ts:1-1' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('ignora anexo com path inseguro ou arquivo inexistente sem derrubar o turno', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'siga',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [
+        { kind: 'file', path: '../fora.ts' },
+        { kind: 'file', path: 'nao-existe.ts' },
+      ],
+    })
+    const finalState = await waitForState(thread.id, ['idle', 'error'])
+
+    expect(finalState).toBe('idle')
+    expect(capturedPrompt).toBe('siga')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

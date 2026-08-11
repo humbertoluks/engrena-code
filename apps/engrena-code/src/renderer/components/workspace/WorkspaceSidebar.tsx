@@ -99,6 +99,10 @@ function workingTreeSummary(vcsStatus: VcsStatus | null): string {
 }
 
 export interface WorkspaceSidebarProps {
+  /** Arquivo aberto no viewer — sobe para o composer como contexto implícito. */
+  onActiveFileChange?: (
+    active: { path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null
+  ) => void
   project: Project | null
   selectedThread: Thread | null
   vcsStatus: VcsStatus | null
@@ -120,6 +124,7 @@ export interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar({
+  onActiveFileChange,
   project,
   selectedThread,
   vcsStatus,
@@ -282,7 +287,11 @@ export function WorkspaceSidebar({
             ) : null}
           </SidebarSection>
 
-          <FileExplorer projectId={project.id} changedFiles={vcsStatus?.dirtyFiles ?? []} />
+          <FileExplorer
+            projectId={project.id}
+            changedFiles={vcsStatus?.dirtyFiles ?? []}
+            onActiveFileChange={onActiveFileChange}
+          />
 
           <SidebarSection title={COPY.thread} icon={<ThreadIcon />} collapsible>
             {selectedThread ? (
