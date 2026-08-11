@@ -1,9 +1,10 @@
 import { useState, type ReactElement } from 'react'
-import { validateAnswer } from './askUserQuestion.logic'
+import { submitsOnOptionClick, validateAnswer } from './askUserQuestion.logic'
 
 const COPY = {
   header: 'O agente precisa da sua resposta',
   hintSingle: 'Escolha uma opção',
+  hintSingleOneClick: 'Escolha uma opção — o clique já envia',
   hintMulti: 'Escolha uma ou mais opções',
   freeTextPlaceholder: 'Outra…',
   blocked: 'Marque uma opção ou escreva uma resposta.',
@@ -48,10 +49,23 @@ export function AskUserQuestionCard({
 
   const answerable = validateAnswer(selectedOptions, freeText)
   const canSubmit = answerable && !busy
+  const oneClick = submitsOnOptionClick(multiSelect, freeText)
 
   function submit(): void {
     if (!canSubmit) return
     onAnswer({ selectedOptions, freeText: freeText.trim() || null })
+  }
+
+  /** Escolha única sem texto livre: o clique é a resposta. Marca antes de enviar para o botão
+   *  ficar aceso enquanto o `busy` do envio chega. */
+  function pickOption(option: string): void {
+    if (busy) return
+    if (!oneClick) {
+      toggleOption(option)
+      return
+    }
+    setSelectedOptions([option])
+    onAnswer({ selectedOptions: [option], freeText: null })
   }
 
   return (
@@ -61,14 +75,16 @@ export function AskUserQuestionCard({
 
       {options.length > 0 ? (
         <>
-          <p className="mt-xs text-[11px] text-muted">{multiSelect ? COPY.hintMulti : COPY.hintSingle}</p>
+          <p className="mt-xs text-[11px] text-muted">
+            {multiSelect ? COPY.hintMulti : oneClick ? COPY.hintSingleOneClick : COPY.hintSingle}
+          </p>
           <div className="mt-xs mb-xs flex flex-wrap gap-xs">
             {options.map((option) => (
               <button
                 key={option}
                 type="button"
                 disabled={busy}
-                onClick={() => toggleOption(option)}
+                onClick={() => pickOption(option)}
                 aria-pressed={selectedOptions.includes(option)}
                 className={`rounded-md border px-sm py-[3px] text-[12px] disabled:opacity-50 ${FOCUS_RING} ${
                   selectedOptions.includes(option)

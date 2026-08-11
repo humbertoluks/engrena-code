@@ -35,6 +35,16 @@ export function validateAnswer(selectedOptions: string[], freeText: string): boo
   return selectedOptions.length > 0 || freeText.trim() !== ''
 }
 
+/**
+ * Escolha única e sem texto livre digitado: o clique na opção já é a resposta inteira, então
+ * enviar é um passo só — o mesmo que os botões de decisão do fallback fazem. Com múltipla escolha
+ * (o usuário ainda vai marcar outras) ou com texto livre em andamento (que se perderia), o envio
+ * continua no botão.
+ */
+export function submitsOnOptionClick(multiSelect: boolean, freeText: string): boolean {
+  return !multiSelect && freeText.trim() === ''
+}
+
 /** Copy de erro do envio de resposta (F21 `copy.md` — `askQuestion.error.*`). */
 export const ANSWER_ERROR_COPY = {
   generic: 'Não foi possível enviar a resposta. Tente novamente.',

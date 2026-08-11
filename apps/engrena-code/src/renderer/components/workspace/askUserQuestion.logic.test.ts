@@ -4,6 +4,7 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   answerErrorMessage,
   findPendingAskUserQuestion,
+  submitsOnOptionClick,
   validateAnswer,
 } from './askUserQuestion.logic'
 import type { ToolCall } from '../../services/threads-service'
@@ -92,5 +93,20 @@ describe('answerErrorMessage', () => {
   it('falls back to the retryable message for unknown codes and for network failures', () => {
     expect(answerErrorMessage('internal_error')).toBe(ANSWER_ERROR_COPY.generic)
     expect(answerErrorMessage(undefined)).toBe(ANSWER_ERROR_COPY.generic)
+  })
+})
+
+describe('submitsOnOptionClick', () => {
+  it('escolha única sem texto livre resolve em um clique', () => {
+    expect(submitsOnOptionClick(false, '')).toBe(true)
+    expect(submitsOnOptionClick(false, '   ')).toBe(true)
+  })
+
+  it('múltipla escolha continua exigindo o botão', () => {
+    expect(submitsOnOptionClick(true, '')).toBe(false)
+  })
+
+  it('texto livre em andamento continua exigindo o botão (senão o texto se perde)', () => {
+    expect(submitsOnOptionClick(false, 'quero outra coisa')).toBe(false)
   })
 })

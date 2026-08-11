@@ -144,5 +144,9 @@ tentativa seguinte à correção usou a tool.
 pergunta no meio do texto / pergunta aberta / pergunta longa não viram decisão, bloco gravado na
 mensagem pelo runner, `alwaysAllowedTools` no turno.
 
-**Observação de UX, não corrigida:** o card do agente exige dois cliques (marcar a opção e depois
-`Enviar`); os botões de decisão do fallback resolvem em um clique só.
+**Um clique no card do agente (2026-08-11, mesma rodada):** o card exigia marcar a opção e depois
+`Enviar`. Com escolha única e sem texto livre digitado, o clique passou a ser a resposta inteira —
+mesmo comportamento dos botões de decisão do fallback. Verificado ao vivo: card com `Sim`/`Não` e a
+dica "o clique já envia", um clique em `Não` fechou o card em 4,3 s, turno retomou e o agente
+respondeu "Não cria. Diz." sem criar arquivo. Múltipla escolha e texto livre em andamento continuam
+enviando pelo botão (o texto se perderia).
