@@ -60,7 +60,7 @@ Leia apenas os arquivos relevantes para a tarefa em andamento:
 | `apps/engrena-code/docs/DEVELOPMENT.md` | Setup inicial, deps, vite/biome/tsconfig, correções aplicadas, dev/build |
 | `apps/engrena-code/docs/F01-vault-e-sessao-local/spec.md` | Spec de Vault: encryption, unlock gate, IPC, erro handling |
 | `apps/engrena-code/docs/F01.1-design-system/spec.md` | Tokens, tema tri-modo, Shiki/xterm, superfícies |
-| `apps/engrena-code/docs/F28-chat-parity/smoke-results.md` | Paridade de chat com o Copilot Chat (contexto/anexos, histórico, `#codebase`, exclusions): o que já foi validado ao vivo e o que ficou só em unitário |
+| `apps/engrena-code/docs/F28-chat-parity/smoke-results.md` | Paridade de chat com o Copilot Chat (contexto/anexos, histórico, `#codebase`, exclusions, prompts salvos e modos): o que já foi validado ao vivo e o que ficou só em unitário |
 | `apps/engrena-plan/docs/PRD.md` | Escopo mínimo Plan (stub) |
 | `docs/design-system/` | Design Lock Engrena (raiz): hexes, spacing, tipografia |
 | `docs/architecture/monorepo.md` | Contratos packages, portas, env, isolamento |
@@ -147,3 +147,4 @@ Tarefa concluída quando:
 - `HTTP · threads-handler · Sempre registrar rota nova nas DUAS listas (regex + matchesThreadsRoute) porque o guarda de prefixo devolve false antes do dispatch e o request fica pendurado até o teste estourar em 5 s sem erro nenhum`
 - `Build · electron-builder · Sempre encerrar o app de smoke antes de pnpm build porque o rename de release/win-unpacked falha com EPERM enquanto o Electron do dev está aberto (tsc/vite já passaram; o erro é só empacotamento)`
 - `Ferramenta · Arquivo com backslash · Nunca escrever via heredoc/Bash conteúdo com backslash (regex \n, split('\'), ESCAPE '\') porque o shell colapsa e gera string não terminada; usar a ferramenta Write ou trocar por String.fromCharCode/escape alternativo (LIKE ... ESCAPE '#')`
+- `Runner · Claude CLI · Nunca contar com --append-system-prompt para instrução que muda no meio da thread porque o turno com --resume reaproveita o system prompt gravado na sessão do CLI e ignora o novo; bloco que precisa valer no turno retomado (modo de chat) viaja no prompt, como os anexos de contexto`

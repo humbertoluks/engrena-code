@@ -24,6 +24,7 @@ export interface Thread {
   title: string | null
   systemPrompt: string | null
   cliSessionId?: string | null
+  chatMode?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -169,6 +170,7 @@ export const threadsService = {
       executionMode: ThreadExecutionMode
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
+      chatMode?: string | null
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
@@ -181,6 +183,7 @@ export const threadsService = {
       accessLevel?: ThreadAccessLevel
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
+      chatMode?: string | null
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 

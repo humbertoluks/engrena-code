@@ -73,6 +73,8 @@ import {
   type ResolvedAttachment,
 } from './providers/context-attachments.js'
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { resolveChatMode } from '../prompts/chat-mode-resolver.js'
+import { composeModeBlock } from '../prompts/prompt-spec.js'
 import { isPathIgnored } from '../ignore/ignore-service.js'
 
 export class DispatchValidationError extends Error {
@@ -94,6 +96,8 @@ export interface DispatchNewThreadInput {
   executionMode: ThreadExecutionMode
   images?: ComposerImageInput[]
   contextAttachments?: ContextAttachmentInput[]
+  /** Nome do modo de chat (F28 §3.4) — fica na thread e reentra no system prompt a cada turno. */
+  chatMode?: string | null
 }
 
 export interface DispatchFollowUpInput {
@@ -104,6 +108,7 @@ export interface DispatchFollowUpInput {
   accessLevel?: ThreadAccessLevel
   images?: ComposerImageInput[]
   contextAttachments?: ContextAttachmentInput[]
+  chatMode?: string | null
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -188,7 +193,12 @@ function persistAgentUsage(params: {
   })
 }
 
-function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: SkillSnapshot): string {
+function buildSystemPrompt(
+  project: Project,
+  threadId: string,
+  skillSnapshot: SkillSnapshot,
+  chatMode: string | null
+): string {
   const parts: string[] = []
 
   const promptGlobal = vaultService.getSecret('prompt:global')
@@ -202,6 +212,10 @@ function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: Sk
 
   const memoryBlock = MemoryRegistry.composeBlockForTurn(project.id, threadId)
   if (memoryBlock) parts.push(memoryBlock)
+
+  // Modo de chat depois das rules: é escolha do turno, então fala por último entre as instruções.
+  const modeBlock = composeModeBlock(resolveChatMode(project, chatMode))
+  if (modeBlock) parts.push(modeBlock)
 
   if (skillSnapshot.catalog.length > 0) {
     parts.push(
@@ -250,6 +264,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       executionMode: input.executionMode,
       state: 'running',
       title: deriveThreadTitle(input.prompt),
+      chatMode: input.chatMode ?? null,
     })
   } catch (err) {
     releaseLease(project.id)
@@ -297,11 +312,14 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
     accessLevel?: ThreadAccessLevel
     model?: string | null
     reasoningLevel?: string | null
+    chatMode?: string | null
     state: 'running'
   } = { state: 'running' }
   if (input.accessLevel) patch.accessLevel = input.accessLevel
   if (input.model !== undefined) patch.model = input.model
   if (input.reasoningLevel !== undefined) patch.reasoningLevel = input.reasoningLevel
+  // Trocar de modo no meio da thread vale para os turnos seguintes, como trocar de modelo.
+  if (input.chatMode !== undefined) patch.chatMode = input.chatMode
 
   let updated: Thread
   try {
@@ -386,10 +404,19 @@ async function runTurn(
     // O usuário vê no histórico o que digitou (+ chips); o conteúdo dos anexos só vai no prompt
     // do provider, lido do disco agora — nunca uma cópia velha guardada no banco.
     appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks })
-    const providerPrompt = composePromptWithContext(prompt, resolvedAttachments)
+    const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)
-    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot)
+    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, thread.chatMode)
+    // Turno retomado (`--resume`) reaproveita o system prompt gravado na sessão do CLI e ignora o
+    // `--append-system-prompt` novo — sem isto, trocar de modo no meio da thread não valia nada.
+    // Então o bloco do modo viaja no prompt do turno, como os anexos de contexto.
+    const resumingClaude = thread.provider === 'claude' && thread.cliSessionId !== null
+    const modeBlockForTurn = resumingClaude
+      ? composeModeBlock(resolveChatMode(project, thread.chatMode))
+      : ''
+    const providerPrompt =
+      modeBlockForTurn === '' ? withContext : modeBlockForTurn + '\n\n' + withContext
     const cwd = resolveThreadCwd(thread, project)
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)

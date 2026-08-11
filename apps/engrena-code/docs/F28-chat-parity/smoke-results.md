@@ -73,3 +73,44 @@ não vaza entre projetos, revoga, cascade ao apagar o projeto).
 
 **Não exercitado ao vivo:** "Sempre neste projeto" sobrevivendo ao restart do app — exigiria um turno
 supervised extra mais reinício; o caminho está coberto por unitário no repositório e no broker.
+
+---
+
+## Onda 4 — prompts salvos e modos de chat (2026-08-11)
+
+**Ambiente:** mesmo das anteriores, `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_onda4_smoke`.
+Fixtures versionadas no `TodolistV1`: `.engrena/prompts/checar-rota.prompt.md` (com variável
+`${input:rota:GET /todos}`) e `.engrena/modes/modo-repo.chatmode.md` (`model: claude-haiku-4-5`,
+`access: full-access`, instrução com o marcador `MODO-REPO-4321`).
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Digitar `/` no composer | menu com "Comandos" e "Prompts salvos" | **pass** — `/checar-rota — … (do repositório)` |
+| 2 | Escolher o prompt do repo | corpo entra no composer com a 1ª variável selecionada | **pass** — texto `Explique em uma linha o que a rota GET /todos faz.`, seleção `GET /todos` |
+| 3 | "+ prompt" com nome "Explicar Rota" | salva com nome em slug | **pass** — `/explicar-rota` no menu, com ✕ |
+| 4 | ✕ no prompt salvo | some da lista; o do repo permanece | **pass** — sobra só `checar-rota` (source `file`) |
+| 5 | Abrir a pill MODO | lista modos do projeto, inclusive o do repo | **pass** — `modo-repo — … (do repositório)` |
+| 6 | Aplicar `modo-repo` | preset do frontmatter cai nos controles | **pass** — modelo `claude-haiku-4-5`, access `Full access` |
+| 7 | Turno real com o modo aplicado | instrução do modo governa a resposta | **pass** — resposta abre com `MODO-REPO-4321` |
+| 8 | Reiniciar o app e reabrir a thread | pill volta com o modo da thread | **pass** — `MODO modo-repo` veio de `threads.chat_mode` |
+| 9 | Salvar preset atual como modo, com instruções | modo novo vira o ativo na hora | **pass** — pill vira `modo-ui` (ver bug 1) |
+| 10 | Follow-up na mesma thread com o modo trocado | novo modo governa o turno retomado | **pass** — resposta abre com `MODO-UI-9182` (ver bug 2) |
+| 11 | ✕ no modo salvo | some da lista e a pill volta para "Sem modo" | **pass** |
+
+**Dois bugs achados no smoke e corrigidos aqui:**
+
+1. Salvar o preset gravava no banco mas a pill continuava no modo anterior — `applyChatMode` lia a lista
+   do render anterior, ainda sem o modo recém-criado. Passou a marcar o nome direto no rascunho.
+2. Trocar de modo no meio da thread não mudava nada no turno seguinte: com `--resume`, o Claude CLI
+   reaproveita o system prompt gravado na sessão e ignora o `--append-system-prompt` novo. O bloco do modo
+   passou a viajar no prompt do turno quando a thread é retomada, como já acontece com os anexos de contexto.
+
+**Coberto por unitário:** slug do nome (acento, pontuação, teto de 40), variáveis `${input:nome:placeholder}`
+(ordem, dedupe, valor vazio não vence o placeholder), frontmatter (sem frontmatter, aspas, linha inválida),
+arquivo com outra extensão / corpo vazio ignorado, nome do banco vencendo o mesmo nome em arquivo, conflito
+de nome (409), projeto inexistente (404), guarda de cofre travado (423) antes do token (401), modo
+desconhecido não vira bloco, turno sem modo não ganha bloco.
+
+**Não implementado nesta onda:** o plano previa que o modo também ligasse skills/rules do projeto; ficou de
+fora — o modo cobre provider, modelo, reasoning, access, execution e instruções. Instruções pela UI existem
+no formulário de salvar; edição posterior de prompt/modo só via API ou arquivo do repo.

@@ -15,6 +15,7 @@ const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
 const { createSkill, linkSkill } = await import('../db/repositories/skills.js')
+const { createChatMode } = await import('../db/repositories/prompt-library.js')
 const { createSubagent, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const {
   dispatchNewThread,
@@ -1814,6 +1815,122 @@ describe('anexos de contexto do composer', () => {
 
     expect(finalState).toBe('idle')
     expect(capturedPrompt).toBe('siga')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('modo de chat (F28 §3.4)', () => {
+  it('injeta as instruções do modo salvo no system prompt e guarda o nome na thread', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    createChatMode({
+      projectId: project.id,
+      name: 'revisor',
+      instructions: 'Só revise, nunca edite arquivo.',
+    })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'revisor',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(getThread(thread.id)?.chatMode).toBe('revisor')
+    expect(capturedSystemPrompt).toContain('## Modo de chat: revisor')
+    expect(capturedSystemPrompt).toContain('Só revise, nunca edite arquivo.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('modo versionado no repo vale igual ao salvo no banco', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    mkdirSync(join(dir, '.engrena', 'modes'), { recursive: true })
+    writeFileSync(join(dir, '.engrena', 'modes', 'do-repo.chatmode.md'), 'Fale como arquiteto.')
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'do-repo',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('Fale como arquiteto.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('follow-up retomado leva o bloco do modo no prompt do turno (--resume ignora system prompt novo)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    createChatMode({
+      projectId: project.id,
+      name: 'conciso',
+      instructions: 'Responda em uma linha.',
+    })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      state: 'idle',
+    })
+    updateThread(thread.id, { cliSessionId: 'sessao-antiga' })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    dispatchFollowUp({ threadId: thread.id, prompt: 'e agora?', chatMode: 'conciso' })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPrompt).toContain('## Modo de chat: conciso')
+    expect(capturedPrompt).toContain('Responda em uma linha.')
+    expect(capturedPrompt.endsWith('e agora?')).toBe(true)
+    clearAllLeases()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('turno sem modo não ganha bloco nenhum e nome desconhecido é ignorado', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'inexistente',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).not.toContain('## Modo de chat')
     rmSync(dir, { recursive: true, force: true })
   })
 })

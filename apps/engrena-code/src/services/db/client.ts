@@ -22,6 +22,7 @@ import * as migration013CliSession from './migrations/013_cli_session.js'
 import * as migration014MessageFeedback from './migrations/014_message_feedback.js'
 import * as migration015ToolAllowlist from './migrations/015_tool_allowlist.js'
 import * as migration016CodeChunks from './migrations/016_code_chunks.js'
+import * as migration017PromptLibrary from './migrations/017_prompt_library.js'
 
 const MIGRATIONS: Migration[] = [
   { id: migration001Subagents.id, sql: migration001Subagents.sql },
@@ -41,6 +42,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration014MessageFeedback.id, sql: migration014MessageFeedback.sql },
   { id: migration015ToolAllowlist.id, sql: migration015ToolAllowlist.sql },
   { id: migration016CodeChunks.id, sql: migration016CodeChunks.sql },
+  { id: migration017PromptLibrary.id, sql: migration017PromptLibrary.sql },
 ]
 
 const { openDb, getDb, closeDb } = createDb({

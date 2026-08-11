@@ -17,6 +17,11 @@ import {
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
+import {
+  promptLibraryService,
+  type ChatModeItem,
+  type SavedPromptItem,
+} from '../services/prompt-library-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
@@ -30,6 +35,7 @@ import {
   withImplicitContext,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
+import { slugifyPromptName } from '../../services/prompts/prompt-spec.js'
 import {
   reconcilePendingMessages,
   type PendingMessage,
@@ -38,6 +44,26 @@ import {
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
+
+const PROVIDERS: readonly ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax', 'glm', 'grok']
+const ACCESS_LEVELS: readonly ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
+const EXECUTION_MODES: readonly ThreadExecutionMode[] = ['main', 'worktree']
+
+function asProvider(value: string | null): ThreadProvider | null {
+  return value !== null && (PROVIDERS as readonly string[]).includes(value) ? (value as ThreadProvider) : null
+}
+
+function asAccessLevel(value: string | null): ThreadAccessLevel | null {
+  return value !== null && (ACCESS_LEVELS as readonly string[]).includes(value)
+    ? (value as ThreadAccessLevel)
+    : null
+}
+
+function asExecutionMode(value: string | null): ThreadExecutionMode | null {
+  return value !== null && (EXECUTION_MODES as readonly string[]).includes(value)
+    ? (value as ThreadExecutionMode)
+    : null
+}
 
 export type ThreadTab = 'history' | 'diff'
 
@@ -68,6 +94,8 @@ export interface ComposerDraft {
   text: string
   images: ComposerImage[]
   attachments: ComposerAttachment[]
+  /** Nome do modo de chat aplicado (F28 §3.4); null = sem modo. */
+  chatMode: string | null
 }
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
@@ -145,6 +173,7 @@ export function usePrincipalWorkspace() {
     text: '',
     images: [],
     attachments: [],
+    chatMode: null,
   })
   const [queue, setQueue] = useState<QueueItem[]>([])
   // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
@@ -394,6 +423,7 @@ export function usePrincipalWorkspace() {
       reasoningLevel: selectedThread.reasoningLevel,
       accessLevel: selectedThread.accessLevel,
       executionMode: selectedThread.executionMode,
+      chatMode: selectedThread.chatMode ?? null,
     }))
   }, [
     selectedThread?.id,
@@ -402,6 +432,7 @@ export function usePrincipalWorkspace() {
     selectedThread?.provider,
     selectedThread?.accessLevel,
     selectedThread?.executionMode,
+    selectedThread?.chatMode,
   ])
 
   useEffect(() => {
@@ -652,6 +683,147 @@ export function usePrincipalWorkspace() {
     [selectedProjectId]
   )
 
+  // ── Prompts salvos e modos de chat (F28 §3.4) ────────────────────────────
+
+  const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>([])
+  const [chatModes, setChatModes] = useState<ChatModeItem[]>([])
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+
+  const loadPromptLibrary = useCallback(async (projectId: string) => {
+    const [prompts, modes] = await Promise.all([
+      promptLibraryService.listPrompts(projectId),
+      promptLibraryService.listModes(projectId),
+    ])
+    if (!mountedRef.current) return
+    if (!prompts.error) setSavedPrompts(prompts.prompts)
+    if (!modes.error) setChatModes(modes.modes)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setSavedPrompts([])
+      setChatModes([])
+      return
+    }
+    void loadPromptLibrary(selectedProjectId)
+  }, [selectedProjectId, loadPromptLibrary])
+
+  /**
+   * Aplica o preset do modo no rascunho. Provider e execution só mudam em thread nova: na thread
+   * existente os dois são imutáveis (mesma regra das pills do composer).
+   */
+  const applyChatMode = useCallback(
+    (name: string | null) => {
+      setLibraryError(null)
+      if (name === null) {
+        setComposer((prev) => ({ ...prev, chatMode: null }))
+        return
+      }
+      const mode = chatModes.find((m) => m.name === name)
+      if (mode === undefined) return
+      const provider = asProvider(mode.provider)
+      const accessLevel = asAccessLevel(mode.accessLevel)
+      const executionMode = asExecutionMode(mode.executionMode)
+      const isNewThread = selectedThreadId === null
+      setComposer((prev) => ({
+        ...prev,
+        chatMode: mode.name,
+        provider: isNewThread && provider !== null ? provider : prev.provider,
+        model: mode.model ?? prev.model,
+        reasoningLevel: mode.reasoningLevel ?? prev.reasoningLevel,
+        accessLevel: accessLevel ?? prev.accessLevel,
+        executionMode: isNewThread && executionMode !== null ? executionMode : prev.executionMode,
+      }))
+    },
+    [chatModes, selectedThreadId]
+  )
+
+  const savePromptFromComposer = useCallback(
+    async (rawName: string): Promise<boolean> => {
+      if (!selectedProjectId) return false
+      const name = slugifyPromptName(rawName)
+      const body = composer.text.trim()
+      if (name === '' || body === '') {
+        setLibraryError('Dê um nome ao prompt e escreva o texto antes de salvar.')
+        return false
+      }
+      const res = await promptLibraryService.createPrompt(selectedProjectId, { name, body })
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      await loadPromptLibrary(selectedProjectId)
+      return true
+    },
+    [selectedProjectId, composer.text, loadPromptLibrary]
+  )
+
+  /** O modo nasce do que já está no composer — é o preset que o usuário acabou de montar na mão. */
+  const saveChatModeFromComposer = useCallback(
+    async (rawName: string, instructions = ''): Promise<boolean> => {
+      if (!selectedProjectId) return false
+      const name = slugifyPromptName(rawName)
+      if (name === '') {
+        setLibraryError('Dê um nome ao modo antes de salvar.')
+        return false
+      }
+      const res = await promptLibraryService.createMode(selectedProjectId, {
+        name,
+        provider: composer.provider,
+        model: composer.model,
+        reasoningLevel: composer.reasoningLevel,
+        accessLevel: composer.accessLevel,
+        executionMode: composer.executionMode,
+        instructions,
+      })
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      // Marca o modo direto: `applyChatMode` leria a lista do render anterior, ainda sem o modo
+      // recém-criado, e a pill ficaria no modo antigo. O preset já é o estado atual do composer.
+      setComposer((prev) => ({ ...prev, chatMode: name }))
+      await loadPromptLibrary(selectedProjectId)
+      return true
+    },
+    [
+      selectedProjectId,
+      composer.provider,
+      composer.model,
+      composer.reasoningLevel,
+      composer.accessLevel,
+      composer.executionMode,
+      loadPromptLibrary,
+    ]
+  )
+
+  const deleteSavedPrompt = useCallback(
+    async (id: string) => {
+      const res = await promptLibraryService.deletePrompt(id)
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return
+      }
+      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
+    },
+    [selectedProjectId, loadPromptLibrary]
+  )
+
+  const deleteChatMode = useCallback(
+    async (id: string, name: string) => {
+      const res = await promptLibraryService.deleteMode(id)
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return
+      }
+      setComposer((prev) => (prev.chatMode === name ? { ...prev, chatMode: null } : prev))
+      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
+    },
+    [selectedProjectId, loadPromptLibrary]
+  )
+
   const gitInitProject = useCallback(async (projectId: string) => {
     const res = await projectsService.gitInit(projectId)
     if (!res.error) void loadVcsStatus(projectId)
@@ -783,6 +955,7 @@ export function usePrincipalWorkspace() {
           accessLevel: composer.accessLevel,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
           contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
+          chatMode: composer.chatMode,
         })
         if (res.error) {
           removePending(pendingId)
@@ -802,6 +975,7 @@ export function usePrincipalWorkspace() {
       selectedThreadId,
       selectedProjectId,
       composer.accessLevel,
+      composer.chatMode,
       upsertThreadLocal,
       addPending,
       setPendingStatus,
@@ -885,6 +1059,7 @@ export function usePrincipalWorkspace() {
           executionMode: composer.executionMode,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
           contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
+          chatMode: composer.chatMode,
         })
         if (res.error) {
           removePending(pendingId)
@@ -1138,6 +1313,14 @@ export function usePrincipalWorkspace() {
     setImplicitContextEnabled,
     updateComposer,
     setAccessLevel,
+    savedPrompts,
+    chatModes,
+    libraryError,
+    applyChatMode,
+    savePromptFromComposer,
+    saveChatModeFromComposer,
+    deleteSavedPrompt,
+    deleteChatMode,
     queue,
     dequeue,
     updateQueueItem,

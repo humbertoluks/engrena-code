@@ -1,4 +1,5 @@
 import { SLASH_COMMAND_NAMES, type SlashCommandName } from '../../../services/runner/slash-commands.js'
+import { renderPromptForComposer } from '../../../services/prompts/prompt-spec.js'
 
 export interface SlashTrigger {
   query: string
@@ -31,4 +32,31 @@ export function insertSlashCommand(text: string, name: SlashCommandName, cursor:
   const after = text.slice(cursor)
   const inserted = `/${name} `
   return { text: inserted + after, cursor: inserted.length }
+}
+
+/** Prompts salvos casam pelo mesmo prefixo dos comandos — o `/` é um menu só (F28 §3.4). */
+export function matchSavedPromptNames(query: string, names: readonly string[]): string[] {
+  const q = query.toLowerCase()
+  return names.filter((name) => name.toLowerCase().startsWith(q))
+}
+
+export interface PromptInsertion {
+  text: string
+  cursor: number
+  /** Faixa da primeira variável `${input:...}` — o composer seleciona para digitar por cima. */
+  selection: { start: number; end: number } | null
+}
+
+/**
+ * Troca o token `/query` pelo corpo do prompt. Diferente do comando, o prompt vira o texto do
+ * pedido: quem envia é o usuário, depois de editar.
+ */
+export function insertSavedPrompt(text: string, body: string, cursor: number): PromptInsertion {
+  const after = text.slice(cursor)
+  const rendered = renderPromptForComposer(body)
+  return {
+    text: rendered.text + after,
+    cursor: rendered.text.length,
+    selection: rendered.selection,
+  }
 }

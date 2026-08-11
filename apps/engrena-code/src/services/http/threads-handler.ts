@@ -27,6 +27,7 @@ import {
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
+import { isValidPromptName } from '../prompts/prompt-spec.js'
 import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from '../threads/thread-export.js'
 import { generateFollowups } from '../threads/followups.js'
 import { resolveProviderApiKey } from '../runner/provider-resolution.js'
@@ -113,6 +114,7 @@ interface CreateThreadBody {
   executionMode?: string
   images?: unknown[]
   contextAttachments?: unknown
+  chatMode?: string | null
 }
 
 async function handleCreateThread(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -162,6 +164,10 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     contextAttachments = data.contextAttachments as ContextAttachmentInput[]
   }
 
+  if (data.chatMode !== undefined && data.chatMode !== null && !isValidPromptName(data.chatMode)) {
+    return sendError(res, 400, 'validation_error', 'chatMode inválido.')
+  }
+
   try {
     const thread = await dispatchNewThread({
       projectId,
@@ -173,6 +179,7 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
       executionMode: data.executionMode as DispatchNewThreadInput['executionMode'],
       images,
       contextAttachments,
+      chatMode: data.chatMode ?? null,
     })
     sendJson(res, 201, { thread, stream: streamPathFor(thread.id) })
   } catch (err) {
@@ -189,6 +196,7 @@ interface FollowUpBody {
   executionMode?: string
   images?: unknown[]
   contextAttachments?: unknown
+  chatMode?: string | null
 }
 
 async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -242,7 +250,12 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
     if (attErr) return sendError(res, 400, attErr.code, attErr.message)
   }
 
+  if (data.chatMode !== undefined && data.chatMode !== null && !isValidPromptName(data.chatMode)) {
+    return sendError(res, 400, 'validation_error', 'chatMode inválido.')
+  }
+
   const input: DispatchFollowUpInput = { threadId, prompt: data.prompt }
+  if (data.chatMode !== undefined) input.chatMode = data.chatMode
   if (data.contextAttachments !== undefined) {
     input.contextAttachments = data.contextAttachments as ContextAttachmentInput[]
   }

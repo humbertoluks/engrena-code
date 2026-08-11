@@ -24,7 +24,9 @@ import {
   validateImageFile,
   type MentionQuery,
 } from './composer.logic'
-import { extractSlashTrigger, insertSlashCommand, type SlashTrigger } from './commandTrigger'
+import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, type SlashTrigger } from './commandTrigger'
+import { ComposerModePicker } from './ComposerModePicker'
+import type { ChatModeItem, SavedPromptItem } from '../../services/prompt-library-service'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
 import { VoiceMicButton } from './VoiceMicButton'
 import { insertAtCursor } from './voiceInput.logic'
@@ -62,6 +64,11 @@ const COPY = {
   queuePromote: 'Priorizar (próxima)',
   queueRemove: 'Remover da fila',
   dropHint: 'Solte para anexar ao contexto',
+  savePrompt: '+ prompt',
+  savePromptTitle: 'Salvar o texto do composer como prompt reutilizável (aparece no menu /)',
+  savePromptPlaceholder: 'Nome do prompt…',
+  savePromptConfirm: 'Salvar',
+  savePromptCancel: 'Cancelar',
   codebase: '#codebase',
   codebaseTitle: 'Buscar trechos do projeto para o pedido escrito no composer e anexar como contexto',
   codebaseBusy: 'Buscando…',
@@ -90,6 +97,15 @@ export interface TaskComposerProps {
   attachError: string | null
   onAttachCodebase?: () => void
   codebaseBusy?: boolean
+  /** Prompts salvos e modos de chat do projeto (F28 §3.4). */
+  savedPrompts?: readonly SavedPromptItem[]
+  chatModes?: readonly ChatModeItem[]
+  libraryError?: string | null
+  onApplyChatMode?: (name: string | null) => void
+  onSavePrompt?: (name: string) => Promise<boolean>
+  onSaveChatMode?: (name: string, instructions: string) => Promise<boolean>
+  onDeleteSavedPrompt?: (id: string) => void
+  onDeleteChatMode?: (id: string, name: string) => void
   updateComposer: (patch: Partial<ComposerDraft>) => void
   onAccessLevelChange: (accessLevel: ThreadAccessLevel) => void
   composerCatalog: ComposerCatalog | null
@@ -117,6 +133,14 @@ export function TaskComposer({
   attachError,
   onAttachCodebase,
   codebaseBusy = false,
+  savedPrompts = [],
+  chatModes = [],
+  libraryError = null,
+  onApplyChatMode,
+  onSavePrompt,
+  onSaveChatMode,
+  onDeleteSavedPrompt,
+  onDeleteChatMode,
   updateComposer,
   onAccessLevelChange,
   composerCatalog,
@@ -140,6 +164,7 @@ export function TaskComposer({
   const [slashTrigger, setSlashTrigger] = useState<SlashTrigger | null>(null)
   const [slashError, setSlashError] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [promptNameDraft, setPromptNameDraft] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   function handleVoiceTranscript(text: string): void {
@@ -208,6 +233,28 @@ export function TaskComposer({
       textareaRef.current?.focus()
       textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
     })
+  }
+
+  /** Prompt salvo entra como texto editável, com a primeira variável já selecionada. */
+  function handleSelectSavedPrompt(prompt: SavedPromptItem): void {
+    if (!textareaRef.current) return
+    const cursor = textareaRef.current.selectionStart ?? composer.text.length
+    const result = insertSavedPrompt(composer.text, prompt.body, cursor)
+    updateComposer({ text: result.text })
+    setSlashTrigger(null)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      const range = result.selection
+      if (range) textareaRef.current?.setSelectionRange(range.start, range.end)
+      else textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+    })
+  }
+
+  async function handleSavePrompt(): Promise<void> {
+    if (promptNameDraft === null || onSavePrompt === undefined) return
+    const name = promptNameDraft.trim()
+    if (name === '') return
+    if (await onSavePrompt(name)) setPromptNameDraft(null)
   }
 
   function handleSelectSlashCommand(name: SlashCommandName): void {
@@ -403,7 +450,13 @@ export function TaskComposer({
 
         <div className="relative">
           {slashTrigger !== null ? (
-            <CommandMenu query={slashTrigger.query} onSelect={handleSelectSlashCommand} />
+            <CommandMenu
+              query={slashTrigger.query}
+              onSelect={handleSelectSlashCommand}
+              prompts={savedPrompts}
+              onSelectPrompt={handleSelectSavedPrompt}
+              onDeletePrompt={onDeleteSavedPrompt}
+            />
           ) : mention !== null && projectId ? (
             <FileMentionMenu projectId={projectId} query={mention.query} onSelect={handleSelectMention} />
           ) : null}
@@ -432,6 +485,12 @@ export function TaskComposer({
         {imageError !== null ? (
           <p role="alert" className="mt-sm text-xs text-amber">
             {imageError}
+          </p>
+        ) : null}
+
+        {libraryError !== null ? (
+          <p role="alert" className="mt-sm text-xs text-amber">
+            {libraryError}
           </p>
         ) : null}
 
@@ -470,6 +529,16 @@ export function TaskComposer({
               disabled={disabled || isStopping}
               onChange={(v) => void onAccessLevelChange(v)}
             />
+            {onApplyChatMode && onSaveChatMode && onDeleteChatMode ? (
+              <ComposerModePicker
+                modes={chatModes}
+                value={composer.chatMode}
+                disabled={disabled}
+                onApply={onApplyChatMode}
+                onSave={onSaveChatMode}
+                onDelete={onDeleteChatMode}
+              />
+            ) : null}
             <PillGroup
               label={COPY.executionGroup}
               value={composer.executionMode}
@@ -498,6 +567,56 @@ export function TaskComposer({
               >
                 {codebaseBusy ? COPY.codebaseBusy : COPY.codebase}
               </button>
+            ) : null}
+            {onSavePrompt ? (
+              promptNameDraft === null ? (
+                <button
+                  type="button"
+                  onClick={() => setPromptNameDraft('')}
+                  disabled={disabled || composer.text.trim() === ''}
+                  title={COPY.savePromptTitle}
+                  className="rounded-md border border-border bg-surface px-xs py-[3px] font-mono text-[11.5px] text-muted hover:bg-surface-2 disabled:opacity-40"
+                >
+                  {COPY.savePrompt}
+                </button>
+              ) : (
+                <span className="flex items-center gap-xs">
+                  <input
+                    // biome-ignore lint/a11y/noAutofocus: campo nasce de um clique explícito no "+ prompt"
+                    autoFocus
+                    value={promptNameDraft}
+                    onChange={(e) => setPromptNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void handleSavePrompt()
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setPromptNameDraft(null)
+                      }
+                    }}
+                    placeholder={COPY.savePromptPlaceholder}
+                    aria-label={COPY.savePromptPlaceholder}
+                    className="w-[150px] rounded-md border border-border bg-surface px-xs py-[3px] text-[11.5px] text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePrompt()}
+                    disabled={promptNameDraft.trim() === ''}
+                    className="rounded-md bg-accent px-xs py-[3px] text-[11px] font-medium text-white disabled:opacity-50"
+                  >
+                    {COPY.savePromptConfirm}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromptNameDraft(null)}
+                    className="rounded-md px-xs py-[3px] text-[11px] text-muted hover:text-fg"
+                  >
+                    {COPY.savePromptCancel}
+                  </button>
+                </span>
+              )
             ) : null}
             <ComposerImageAttachments
               currentCount={composer.images.length}

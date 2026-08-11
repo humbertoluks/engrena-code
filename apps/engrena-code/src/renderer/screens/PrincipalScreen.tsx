@@ -189,6 +189,14 @@ export function PrincipalScreen(): ReactElement {
               attachError={ws.attachError}
               onAttachCodebase={() => void ws.attachCodebase()}
               codebaseBusy={ws.codebaseBusy}
+              savedPrompts={ws.savedPrompts}
+              chatModes={ws.chatModes}
+              libraryError={ws.libraryError}
+              onApplyChatMode={ws.applyChatMode}
+              onSavePrompt={ws.savePromptFromComposer}
+              onSaveChatMode={ws.saveChatModeFromComposer}
+              onDeleteSavedPrompt={(id) => void ws.deleteSavedPrompt(id)}
+              onDeleteChatMode={(id, name) => void ws.deleteChatMode(id, name)}
               updateComposer={ws.updateComposer}
               onAccessLevelChange={(level) => void ws.setAccessLevel(level)}
               composerCatalog={ws.composerCatalog}
