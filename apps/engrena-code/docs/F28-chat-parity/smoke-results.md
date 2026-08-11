@@ -150,3 +150,15 @@ mesmo comportamento dos botões de decisão do fallback. Verificado ao vivo: car
 dica "o clique já envia", um clique em `Não` fechou o card em 4,3 s, turno retomou e o agente
 respondeu "Não cria. Diz." sem criar arquivo. Múltipla escolha e texto livre em andamento continuam
 enviando pelo botão (o texto se perderia).
+
+**Correções a partir de print do usuário (2026-08-11, mesma rodada):**
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Turno gerando sugestões | estado de carregamento legível, não pílulas vazias | **pass** — linha "Sugerindo próximos passos…"; o esqueleto anterior tinha a forma dos chips e era lido como botão quebrado |
+| 2 | Resposta pedindo aprovação **sem** interrogação ("Espero aprovação pra rodar npm install. Manda ok pra prosseguir.") | botões de decisão mesmo assim | **pass** — `Sim, pode prosseguir` / `Não, aguarde` em 12,8 s (o próprio turno) |
+
+**Coberto por unitário:** pedido de aprovação em pt e en (`Aguardo sua confirmação.`, `Me avise quando
+puder.`, `Waiting for your approval.`, `Let me know.`), afirmação comum sem pedido (`Instalei as
+dependências…`, `Aguardo o build terminar…`) não vira decisão, pedido no meio do texto com relato
+depois não conta.

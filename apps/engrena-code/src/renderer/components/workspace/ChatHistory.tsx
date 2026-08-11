@@ -37,7 +37,7 @@ const COPY = {
   voteDown: 'Resposta ruim',
   followupsLabel: 'Sugestões de próximo passo',
   decisionLabel: 'Respostas para a pergunta do agente',
-  followupsLoadingLabel: 'Gerando sugestões de próximo passo',
+  followupsLoading: 'Sugerindo próximos passos…',
 } as const
 
 interface ImageBlock {
@@ -614,16 +614,12 @@ export function ChatHistory({
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
+      {/* Texto, não pílulas vazias: o esqueleto anterior tinha a forma dos chips e era lido como
+          botão quebrado — o usuário via três retângulos sem rótulo e achava que era defeito. */}
       {followupsPending && followups.length === 0 && queued.length === 0 ? (
-        <ul aria-label={COPY.followupsLoadingLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
-          {[0, 1, 2].map((slot) => (
-            <li
-              key={slot}
-              aria-hidden="true"
-              className="h-[24px] w-[140px] animate-pulse rounded-full border border-border bg-surface-2"
-            />
-          ))}
-        </ul>
+        <p role="status" className="mb-md text-[11.5px] text-muted">
+          <span className="animate-pulse">{COPY.followupsLoading}</span>
+        </p>
       ) : null}
 
       {followups.length > 0 && onPickFollowup && queued.length === 0 && followupsAnchored ? (

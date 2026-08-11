@@ -70,12 +70,23 @@ function looksYesNo(question: string): boolean {
 }
 
 /**
+ * Pedido de aprovação em forma de afirmação: o agente diz que está esperando, sem interrogação.
+ * Só conta na última frase da resposta — no meio do texto é narração do que ele vai fazer.
+ */
+const APPROVAL_REQUEST =
+  /\b(espero|esperando|aguardo|aguardando)\b.{0,30}\b(aprova(ção|r)|confirma(ção|r)|ok|sinal|luz verde|resposta|autoriza(ção|r))\b|\b(manda|mande|me manda|me mande|me avisa|me avise|avisa|avise|diga|confirma|confirme|autoriza|autorize)\b.{0,30}\b(ok|sim|sinal|quando|se|para|pra|prosseguir|continuar|seguir|avançar)\b|\b(waiting for|awaiting)\b.{0,20}\b(approval|confirmation|go[- ]?ahead|green light)\b|\b(let me know|say the word|give me the go[- ]?ahead)\b/i
+
+function looksApprovalRequest(sentence: string): boolean {
+  return APPROVAL_REQUEST.test(sentence)
+}
+
+/**
  * Última frase da resposta, quando ela é uma pergunta ao usuário. Pergunta no meio do texto não
  * conta: o agente que segue explicando depois dela não está esperando resposta.
  */
 export function detectDecisionQuestion(text: string): DecisionQuestion | null {
   const trimmed = text.trim()
-  if (trimmed === '' || !trimmed.endsWith('?')) return null
+  if (trimmed === '') return null
 
   const lines = trimmed.split(/\r?\n/)
   let questionIndex = lines.length - 1
@@ -83,14 +94,21 @@ export function detectDecisionQuestion(text: string): DecisionQuestion | null {
   if (questionIndex < 0) return null
 
   const lastLine = lines[questionIndex].trim()
-  // A pergunta é a última frase da última linha, não a linha inteira.
+  // A decisão é a última frase da última linha, não a linha inteira.
   const sentences = lastLine.split(/(?<=[.!?])\s+/)
-  const question = (sentences[sentences.length - 1] ?? lastLine).trim()
-  if (question.length > MAX_QUESTION_CHARS || !question.endsWith('?')) return null
+  const last = (sentences[sentences.length - 1] ?? lastLine).trim()
+  if (last.length > MAX_QUESTION_CHARS) return null
 
-  const listed = optionsFromList(lines, questionIndex)
-  if (listed.length >= 2) return { question, options: listed }
-  if (looksYesNo(question)) return { question, options: [AFFIRMATIVE, NEGATIVE] }
+  if (last.endsWith('?')) {
+    const listed = optionsFromList(lines, questionIndex)
+    if (listed.length >= 2) return { question: last, options: listed }
+    if (looksYesNo(last)) return { question: last, options: [AFFIRMATIVE, NEGATIVE] }
+    return null
+  }
+
+  // Pedido de aprovação sem ponto de interrogação ("Manda ok pra prosseguir.") — é a forma mais
+  // comum do agente pedir autorização, e sem isto ela ficava sem botão nenhum.
+  if (looksApprovalRequest(last)) return { question: last, options: [AFFIRMATIVE, NEGATIVE] }
   return null
 }
 

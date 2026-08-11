@@ -32,6 +32,35 @@ describe('detectDecisionQuestion — pedido de autorização', () => {
   })
 })
 
+describe('detectDecisionQuestion — pedido de aprovação sem interrogação', () => {
+  it('reconhece a frase do print do usuário', () => {
+    const result = detectDecisionQuestion('Espero aprovação pra rodar `npm install`. Manda ok pra prosseguir.')
+    expect(result).toEqual({
+      question: 'Manda ok pra prosseguir.',
+      options: ['Sim, pode prosseguir', 'Não, aguarde'],
+    })
+  })
+
+  it.each([
+    'Aguardo sua confirmação.',
+    'Espero seu ok para seguir.',
+    'Me avise quando puder.',
+    'Waiting for your approval.',
+    'Let me know.',
+  ])('reconhece "%s"', (text) => {
+    expect(detectDecisionQuestion(text)?.options).toEqual(['Sim, pode prosseguir', 'Não, aguarde'])
+  })
+
+  it('afirmação comum não vira decisão', () => {
+    expect(detectDecisionQuestion('Instalei as dependências e subi o servidor.')).toBeNull()
+    expect(detectDecisionQuestion('Aguardo o build terminar para medir o tempo total.')).toBeNull()
+  })
+
+  it('pedido no meio do texto, com relato depois, não conta', () => {
+    expect(detectDecisionQuestion('Manda ok pra prosseguir. Enquanto isso, já criei o package.json.')).toBeNull()
+  })
+})
+
 describe('detectDecisionQuestion — alternativas enumeradas', () => {
   it('usa a lista que antecede a pergunta', () => {
     const text = [
