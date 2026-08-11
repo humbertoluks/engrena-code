@@ -121,6 +121,6 @@ Também verificado ao vivo:
 
 ---
 
-## Achado fora de escopo (não corrigido)
+## Achado fora de escopo (corrigido em seguida)
 
-`TaskComposer.tsx:94` lê `composerCatalog.providers.openai` sem guarda. Quando o cofre trava com o workspace aberto (`GET /api/composer/catalog` → 423), o componente lança `TypeError: Cannot read properties of undefined` e derruba a janela do Electron. Reproduzido duas vezes durante este smoke. Pré-existente ao layout responsivo.
+Corrigido em `b2aea83`. `getStatus` devolvia o corpo de erro tipado como sucesso; ele virava `ConfigStatus` no estado e `configStatus.voice.openai` lançava `TypeError` no render, derrubando a janela. Guard `isConfigStatus` em `configuracao-service.ts`.
