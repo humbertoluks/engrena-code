@@ -4,6 +4,7 @@ import { join, relative, resolve } from 'path'
 import { guard, sendError, sendJson } from './_transport.js'
 import { getProject } from '../db/repositories/projects.js'
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { filterIgnoredPaths, IGNORED_MESSAGE, isPathIgnored } from '../ignore/ignore-service.js'
 
 export { resolveProjectFilePath }
 
@@ -81,7 +82,8 @@ async function handleListFiles(req: IncomingMessage, res: ServerResponse, projec
     limit = n
   }
 
-  const all = walkProjectFiles(resolve(project.path))
+  // `.engrenaignore` some da listagem inteira: explorer e menção `@` compartilham esta rota.
+  const all = filterIgnoredPaths(project.path, walkProjectFiles(resolve(project.path)))
   const filtered = q === '' ? all : all.filter((p) => p.toLowerCase().includes(q))
   sendJson(res, 200, {
     files: filtered.slice(0, limit).map((path) => ({ path })),
@@ -98,6 +100,9 @@ async function handleReadFile(req: IncomingMessage, res: ServerResponse, project
   const rawPath = url.searchParams.get('path') ?? ''
   const resolved = resolveProjectFilePath(project.path, rawPath)
   if (!resolved.ok) return sendError(res, 400, resolved.code, resolved.message)
+  if (isPathIgnored(project.path, resolved.relPath)) {
+    return sendError(res, 403, 'file_ignored', IGNORED_MESSAGE)
+  }
 
   let st
   try {

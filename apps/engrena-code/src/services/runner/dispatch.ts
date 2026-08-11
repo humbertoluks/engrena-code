@@ -73,6 +73,7 @@ import {
   type ResolvedAttachment,
 } from './providers/context-attachments.js'
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { isPathIgnored } from '../ignore/ignore-service.js'
 
 export class DispatchValidationError extends Error {
   code: string
@@ -336,6 +337,8 @@ function resolveContextAttachments(project: Project, attachments?: ContextAttach
     }
     const safe = resolveProjectFilePath(project.path, attachment.path)
     if (!safe.ok) continue
+    // Exclusão de conteúdo vale também para anexo: o chip pode ter sido criado antes da regra.
+    if (isPathIgnored(project.path, safe.relPath)) continue
     try {
       resolved.push({ label, content: truncateAttachmentContent(readFileSync(safe.absPath, 'utf8')) })
     } catch {

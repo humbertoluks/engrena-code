@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import http from 'http'
 import { getThread } from '../db/repositories/threads.js'
+import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
 
 interface PendingPermission {
   threadId: string
@@ -40,7 +41,10 @@ function waitForDecision(requestId: string, threadId: string, toolName: string):
 }
 
 export function isToolAllowedForThread(threadId: string, toolName: string): boolean {
-  return allowedToolsByThread.get(threadId)?.has(toolName) === true
+  if (allowedToolsByThread.get(threadId)?.has(toolName) === true) return true
+  const thread = getThread(threadId)
+  // Allowlist do projeto sobrevive ao restart; a da thread cobre só esta sessão.
+  return thread !== null && isToolAllowedForProject(thread.projectId, toolName)
 }
 
 /** Claude Code "don't ask again" para a ferramenta — vale até o fim do processo / clear da thread. */
@@ -140,16 +144,23 @@ export function createPermissionServer(
  * (Claude Code "Yes, don't ask again").
  * Retorna false se o requestId não existe; `{ toolName }` quando resolveu.
  */
+export type PermissionScope = 'thread' | 'project'
+
 export function resolvePermissionRequest(
   requestId: string,
   allow: boolean,
-  always = false
+  always = false,
+  scope: PermissionScope = 'thread'
 ): { ok: true; toolName: string } | { ok: false } {
   const entry = pending.get(requestId)
   if (!entry) return { ok: false }
   pending.delete(requestId)
   if (allow && always) {
     rememberAllowedTool(entry.threadId, entry.toolName)
+    if (scope === 'project') {
+      const thread = getThread(entry.threadId)
+      if (thread !== null) allowToolForProject(thread.projectId, entry.toolName)
+    }
   }
   entry.resolve(allow)
   return { ok: true, toolName: entry.toolName }

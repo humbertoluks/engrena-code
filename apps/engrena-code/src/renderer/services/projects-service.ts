@@ -30,7 +30,19 @@ export interface VcsStatus {
 
 // ── API ──────────────────────────────────────────────────────────────────────
 
+export interface CodeSearchHit {
+  path: string
+  startLine: number
+  endLine: number
+  snippet: string
+  score: number
+}
+
 export const projectsService = {
+  /** `#codebase`: trechos do projeto mais próximos do texto do composer. */
+  codesearch: (projectId: string, query: string, limit = 3): Promise<{ hits: CodeSearchHit[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/projects/${projectId}/codesearch?q=${encodeURIComponent(query)}&limit=${limit}`),
+
   list: (): Promise<{ projects: Project[] } & ApiErrorBody> => apiRequest('GET', '/api/projects'),
 
   create: (input: { path: string; name?: string }): Promise<{ project: Project } & ApiErrorBody> =>

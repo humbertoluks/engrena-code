@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'fs'
+import { filterIgnoredPaths } from '../ignore/ignore-service.js'
 import { join, relative, resolve } from 'path'
 import ts from 'typescript'
 import {
@@ -247,7 +248,7 @@ export function buildIndex(projectId: string, root: string): BuildIndexResult {
   const absRoot = resolve(root)
   writeIndexingMeta(projectId, absRoot)
 
-  const relFiles = walkProjectFiles(absRoot)
+  const relFiles = filterIgnoredPaths(absRoot, walkProjectFiles(absRoot))
   const files: Record<string, FileEntry> = {}
   const allNamed: NamedHit[] = []
   let hasTsJs = false

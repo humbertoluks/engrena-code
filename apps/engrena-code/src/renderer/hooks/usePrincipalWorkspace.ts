@@ -24,6 +24,7 @@ import { findPendingAskUserQuestion, answerErrorMessage } from '../components/wo
 import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
 import {
   addAttachment,
+  makeSelectionAttachment,
   removeAttachment as removeAttachmentFromList,
   toWirePayload,
   withImplicitContext,
@@ -545,6 +546,8 @@ export function usePrincipalWorkspace() {
     [composer.attachments, activeFile, implicitContextEnabled]
   )
 
+  const [codebaseBusy, setCodebaseBusy] = useState(false)
+
   const attach = useCallback((attachment: ComposerAttachment) => {
     setComposer((prev) => {
       const result = addAttachment(prev.attachments, attachment)
@@ -567,6 +570,41 @@ export function usePrincipalWorkspace() {
       return prev
     })
   }, [])
+
+  /**
+   * `#codebase`: busca trechos pelo texto que já está no composer e anexa os melhores como chips
+   * de seleção — o usuário vê exatamente o que vai junto e pode remover.
+   */
+  const attachCodebase = useCallback(async () => {
+    if (!selectedProjectId || codebaseBusy) return
+    const query = composer.text.trim()
+    if (query === '') {
+      setAttachError('Escreva o pedido antes de buscar no codebase.')
+      return
+    }
+    setCodebaseBusy(true)
+    setAttachError(null)
+    try {
+      const res = await projectsService.codesearch(selectedProjectId, query, 3)
+      if (res.error) {
+        setAttachError(res.error.message)
+        return
+      }
+      if (res.hits.length === 0) {
+        setAttachError('Nenhum trecho do projeto casou com esse pedido.')
+        return
+      }
+      for (const hit of res.hits) {
+        attach(
+          makeSelectionAttachment(hit.path, hit.snippet, { startLine: hit.startLine, endLine: hit.endLine })
+        )
+      }
+    } catch {
+      setAttachError('Não foi possível buscar no codebase.')
+    } finally {
+      if (mountedRef.current) setCodebaseBusy(false)
+    }
+  }, [selectedProjectId, composer.text, codebaseBusy, attach])
 
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
@@ -778,12 +816,20 @@ export function usePrincipalWorkspace() {
     sendFollowUpRef.current = sendFollowUp
   }, [sendFollowUp])
 
-  const resolvePermission = useCallback(async (requestId: string, allow: boolean, always = false) => {
+  const resolvePermission = useCallback(
+    async (requestId: string, allow: boolean, always = false, scope: 'thread' | 'project' = 'thread') => {
     const entry = permissionQueue.find((p) => p.requestId === requestId)
     if (!entry) return
-    await threadsService.permission(entry.threadId, { requestId, allow, always: always || undefined })
+    await threadsService.permission(entry.threadId, {
+      requestId,
+      allow,
+      always: always || undefined,
+      scope: scope === 'project' ? 'project' : undefined,
+    })
     setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
-  }, [permissionQueue])
+    },
+    [permissionQueue]
+  )
 
   const send = useCallback(async () => {
     const text = composer.text.trim()
@@ -1082,6 +1128,8 @@ export function usePrincipalWorkspace() {
     composer,
     composerAttachments,
     attach,
+    attachCodebase,
+    codebaseBusy,
     detach,
     attachError,
     activeFile,

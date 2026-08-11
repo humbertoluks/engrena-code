@@ -8,6 +8,8 @@ const COPY = {
   deny: 'Negar',
   allow: 'Permitir',
   allowAll: 'Permitir todos',
+  allowProject: 'Sempre neste projeto',
+  allowProjectTitle: 'Não perguntar mais por esta ferramenta neste projeto, mesmo depois de reiniciar',
   allowAllHint: 'Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code).',
 } as const
 
@@ -17,6 +19,7 @@ export interface PermissionPromptProps {
   queuedCount: number
   onAllow: () => void
   onAllowAll: () => void
+  onAllowProject?: () => void
   onDeny: () => void
 }
 
@@ -26,6 +29,7 @@ export function PermissionPrompt({
   queuedCount,
   onAllow,
   onAllowAll,
+  onAllowProject,
   onDeny,
 }: Readonly<PermissionPromptProps>): ReactElement {
   return (
@@ -76,6 +80,16 @@ export function PermissionPrompt({
           >
             {COPY.allowAll}
           </button>
+          {onAllowProject ? (
+            <button
+              type="button"
+              onClick={onAllowProject}
+              title={COPY.allowProjectTitle}
+              className="rounded-md border border-border px-sm py-[5px] text-[12.5px] text-muted hover:text-fg"
+            >
+              {COPY.allowProject}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

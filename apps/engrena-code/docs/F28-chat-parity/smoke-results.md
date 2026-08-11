@@ -50,3 +50,26 @@ trabalho, não houve remoção por esta sessão.
 **Coberto por unitário:** título > 120 chars rejeitado, título vazio volta ao automático, `format` inválido
 no export → 400, voto em mensagem de usuário → 400, voto inválido → 400, toggle do voto (mesmo voto limpa),
 parsing de follow-up (bloco de código, duplicata, teto de 3, lixo → lista vazia).
+
+---
+
+## Onda 3 — contexto profundo e governança (2026-08-11)
+
+**Ambiente:** mesmo das ondas anteriores, `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_onda3_smoke`.
+Fixtures no `TodolistV1`: `frete.ts` (indexável), `segredo.ts` (com `CHAVE_SECRETA`) e
+`.engrenaignore` com `segredo.ts`.
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Arquivo em `.engrenaignore` | some do explorer e da menção `@` | **pass** — `segredo.ts` 0 ocorrências, `frete.ts` presente |
+| 2 | Leitura direta pela API do arquivo excluído | 403 explicando o motivo | **pass** — `403 file_ignored` |
+| 3 | `#codebase` com o pedido "como o projeto calcula o frete?" | anexa o trecho certo como chip | **pass** — `✂ frete.ts:1-2` |
+| 4 | Busca no índice por termo que só existe no arquivo excluído | nenhum resultado | **pass** — 0 hits para `CHAVE_SECRETA` |
+
+**Coberto por unitário:** parser do `.engrenaignore` (negação, `**`, âncora `/`, diretório, precedência do
+último padrão), cache por mtime, indexação incremental por mtime, remoção do arquivo apagado, isolamento
+entre projetos, um trecho por arquivo no resultado, allowlist de ferramenta por projeto (grava, não duplica,
+não vaza entre projetos, revoga, cascade ao apagar o projeto).
+
+**Não exercitado ao vivo:** "Sempre neste projeto" sobrevivendo ao restart do app — exigiria um turno
+supervised extra mais reinício; o caminho está coberto por unitário no repositório e no broker.

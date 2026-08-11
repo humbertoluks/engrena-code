@@ -234,7 +234,7 @@ export const threadsService = {
 
   permission: (
     threadId: string,
-    input: { requestId: string; allow: boolean; always?: boolean }
+    input: { requestId: string; allow: boolean; always?: boolean; scope?: 'thread' | 'project' }
   ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/permission`, input),
 

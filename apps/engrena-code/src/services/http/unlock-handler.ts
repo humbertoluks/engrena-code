@@ -20,6 +20,7 @@ import { handleMcpsRequest } from './mcps-handler.js'
 import { handleLogsRequest } from './logs-handler.js'
 import { handleConsumoRequest } from './consumo-handler.js'
 import { handleCodegraphRequest } from './codegraph-handler.js'
+import { handleCodesearchRequest } from './codesearch-handler.js'
 import { handleMemoryRequest } from './memory-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
@@ -198,6 +199,12 @@ async function routeDomainHandlers(
   // Project files routes — menu `@file` (F16) + FileExplorer list/read
   if (req.url?.startsWith('/api/projects/') && req.url.includes('/file')) {
     const handled = await handleProjectFilesRequest(req, res)
+    if (handled) return true
+  }
+
+  // Busca de trechos para o `#codebase` (F28) — antes dos handlers amplos de /api/projects/
+  if (req.url?.startsWith('/api/projects/') && req.url.includes('/codesearch')) {
+    const handled = await handleCodesearchRequest(req, res)
     if (handled) return true
   }
 

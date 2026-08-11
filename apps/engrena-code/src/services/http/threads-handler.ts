@@ -437,6 +437,7 @@ function handleCancel(_req: IncomingMessage, res: ServerResponse, threadId: stri
 }
 
 interface PermissionBody {
+  scope?: unknown
   requestId?: string
   allow?: boolean
   /** Claude Code "don't ask again" — não perguntar de novo por esta ferramenta nesta thread. */
@@ -458,7 +459,8 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
     return sendError(res, 400, 'validation_error', 'always exige allow=true.')
   }
 
-  const resolved = resolvePermissionRequest(data.requestId, data.allow, data.always === true)
+  const scope = data.scope === 'project' ? 'project' : 'thread'
+  const resolved = resolvePermissionRequest(data.requestId, data.allow, data.always === true, scope)
   if (!resolved.ok) {
     return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
   }

@@ -62,6 +62,9 @@ const COPY = {
   queuePromote: 'Priorizar (próxima)',
   queueRemove: 'Remover da fila',
   dropHint: 'Solte para anexar ao contexto',
+  codebase: '#codebase',
+  codebaseTitle: 'Buscar trechos do projeto para o pedido escrito no composer e anexar como contexto',
+  codebaseBusy: 'Buscando…',
 } as const
 
 const ACCESS_LEVELS: ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
@@ -85,6 +88,8 @@ export interface TaskComposerProps {
   onAttach: (attachment: ComposerAttachment) => void
   onDetach: (id: string) => void
   attachError: string | null
+  onAttachCodebase?: () => void
+  codebaseBusy?: boolean
   updateComposer: (patch: Partial<ComposerDraft>) => void
   onAccessLevelChange: (accessLevel: ThreadAccessLevel) => void
   composerCatalog: ComposerCatalog | null
@@ -110,6 +115,8 @@ export function TaskComposer({
   onAttach,
   onDetach,
   attachError,
+  onAttachCodebase,
+  codebaseBusy = false,
   updateComposer,
   onAccessLevelChange,
   composerCatalog,
@@ -367,6 +374,9 @@ export function TaskComposer({
         </p>
       ) : null}
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: área de soltar do composer; o alvo é o
+          retângulo inteiro (mesma escolha do chatDragAndDrop do VS Code) e o mesmo anexo já é
+          alcançável pelo botão 📎 e pelo menu `@`. */}
       <div
         onDragOver={(e) => {
           if (disabled) return
@@ -478,6 +488,17 @@ export function TaskComposer({
               disabled={disabled || runtimeLocked}
               onClick={voice.toggle}
             />
+            {onAttachCodebase ? (
+              <button
+                type="button"
+                onClick={onAttachCodebase}
+                disabled={disabled || runtimeLocked || codebaseBusy}
+                title={COPY.codebaseTitle}
+                className="rounded-md border border-border bg-surface px-xs py-[3px] font-mono text-[11.5px] text-muted hover:bg-surface-2 disabled:opacity-40"
+              >
+                {codebaseBusy ? COPY.codebaseBusy : COPY.codebase}
+              </button>
+            ) : null}
             <ComposerImageAttachments
               currentCount={composer.images.length}
               multimodal={multimodal}

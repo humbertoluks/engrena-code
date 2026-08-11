@@ -187,6 +187,8 @@ export function PrincipalScreen(): ReactElement {
               onAttach={ws.attach}
               onDetach={ws.detach}
               attachError={ws.attachError}
+              onAttachCodebase={() => void ws.attachCodebase()}
+              codebaseBusy={ws.codebaseBusy}
               updateComposer={ws.updateComposer}
               onAccessLevelChange={(level) => void ws.setAccessLevel(level)}
               composerCatalog={ws.composerCatalog}
@@ -252,6 +254,7 @@ export function PrincipalScreen(): ReactElement {
           queuedCount={ws.permissionQueue.length - 1}
           onAllow={() => void ws.resolvePermission(currentPermission.requestId, true)}
           onAllowAll={() => void ws.resolvePermission(currentPermission.requestId, true, true)}
+          onAllowProject={() => void ws.resolvePermission(currentPermission.requestId, true, true, 'project')}
           onDeny={() => void ws.resolvePermission(currentPermission.requestId, false)}
         />
       ) : null}
