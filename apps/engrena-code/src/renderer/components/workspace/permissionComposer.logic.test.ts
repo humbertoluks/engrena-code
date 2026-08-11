@@ -20,10 +20,35 @@ describe('interpretPermissionChatReply', () => {
     }
   })
 
-  it('blocks free-form text so it is not queued as a context-free follow-up', () => {
-    expect(interpretPermissionChatReply('Crie o package.json')).toEqual({
+  it('decides on a natural affirmative sentence starting with an allow word', () => {
+    for (const text of ['Sim, pode prosseguir', 'sim pode prosseguir', 'Ok!', 'Pode prosseguir.', 'Permitir, por favor']) {
+      expect(interpretPermissionChatReply(text)).toEqual({ kind: 'allow' })
+    }
+  })
+
+  it('decides on a natural negative sentence starting with a deny word', () => {
+    for (const text of ['Não, cancele isso', 'nao pare', 'Negar, por favor']) {
+      expect(interpretPermissionChatReply(text)).toEqual({ kind: 'deny' })
+    }
+  })
+
+  it('still reads allow-all when the phrase carries punctuation', () => {
+    expect(interpretPermissionChatReply('Permitir todos, por favor')).toEqual({ kind: 'allow_always' })
+  })
+
+  it('blocks a mixed sentence with words from both sides', () => {
+    expect(interpretPermissionChatReply('Sim, mas não use npm')).toEqual({
       kind: 'blocked',
       message: PERMISSION_PENDING_HINT,
     })
+  })
+
+  it('blocks free-form text so it is not queued as a context-free follow-up', () => {
+    for (const text of ['Crie o package.json', '', '   ']) {
+      expect(interpretPermissionChatReply(text)).toEqual({
+        kind: 'blocked',
+        message: PERMISSION_PENDING_HINT,
+      })
+    }
   })
 })
