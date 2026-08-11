@@ -6,6 +6,7 @@ import {
   ButtonSecondary,
   Card,
   CardHeader,
+  ConfirmDialog,
   Field,
   InlineFeedback,
   SegmentedControl,
@@ -88,6 +89,9 @@ const COPY = {
   githubSaveCta: 'Salvar token',
   githubSaveLoading: 'Salvando...',
   githubSaveConfirm: 'Salvar este token do GitHub no cofre local?',
+  githubSaveConfirmTitle: 'Salvar token',
+  githubSaveConfirmCta: 'Salvar',
+  githubSaveConfirmCancel: 'Cancelar',
   githubReveal: 'Revelar token',
   githubHide: 'Ocultar token',
   vcsGitlabTitle: 'GitLab',
@@ -664,6 +668,7 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
   const [tokenDraft, setTokenDraft] = useState('')
   const [revealed, setRevealed] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const handleSave = useCallback((): void => {
     const err = validateGithubTokenLocal(tokenDraft)
@@ -672,7 +677,15 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
       return
     }
     setLocalError(null)
-    if (tokenDraft !== '' && !window.confirm(COPY.githubSaveConfirm)) return
+    if (tokenDraft !== '') {
+      setConfirmOpen(true)
+      return
+    }
+    void onSave(tokenDraft)
+  }, [tokenDraft, onSave])
+
+  const handleConfirmSave = useCallback((): void => {
+    setConfirmOpen(false)
     void onSave(tokenDraft)
   }, [tokenDraft, onSave])
 
@@ -687,6 +700,16 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
 
   return (
     <Card>
+      {confirmOpen ? (
+        <ConfirmDialog
+          title={COPY.githubSaveConfirmTitle}
+          message={COPY.githubSaveConfirm}
+          confirmLabel={COPY.githubSaveConfirmCta}
+          cancelLabel={COPY.githubSaveConfirmCancel}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={handleConfirmSave}
+        />
+      ) : null}
       <CardHeader title={COPY.githubTitle} subtitle={COPY.githubSubtitle} />
       <div className="flex flex-col gap-md">
         <div className="flex flex-col gap-xs">

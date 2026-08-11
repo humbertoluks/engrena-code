@@ -43,6 +43,8 @@ export { Input, inputBaseClassName } from './components/Input'
 export type { InputProps } from './components/Input'
 export { Modal } from './components/Modal'
 export type { ModalProps } from './components/Modal'
+export { ConfirmDialog } from './components/ConfirmDialog'
+export type { ConfirmDialogProps, ConfirmDialogTone } from './components/ConfirmDialog'
 
 export { LoginScreen } from './screens/LoginScreen'
 export {

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
+import { ConfirmDialog } from '@engrena/ui'
 import type { Project } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
 
@@ -7,8 +8,11 @@ const COPY = {
   empty: 'Nenhum projeto ainda. Adicione um repositório git local para começar.',
   add: 'Adicionar projeto',
   remove: 'Remover projeto',
+  removeTitle: 'Remover projeto',
   removeConfirm: (name: string) =>
-    `Remover o projeto "${name}"? As threads dele serao apagadas (os arquivos no disco permanecem).`,
+    `Remover o projeto "${name}"? As threads dele serão apagadas (os arquivos no disco permanecem).`,
+  removeCta: 'Remover',
+  cancel: 'Cancelar',
   threadsEmpty: 'Nenhuma thread ainda.',
   threadsNew: 'Nova thread',
   threadsLoading: 'Carregando…',
@@ -170,6 +174,7 @@ export function ProjectTree({
   onExportThread,
 }: Readonly<ProjectTreeProps>): ReactElement {
   const [threadQuery, setThreadQuery] = useState('')
+  const [pendingRemove, setPendingRemove] = useState<{ id: string; name: string } | null>(null)
 
   // Debounce: cada tecla dispararia um GET com JOIN em messages.
   useEffect(() => {
@@ -186,6 +191,21 @@ export function ProjectTree({
 
   return (
     <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-sm">
+      {pendingRemove ? (
+        <ConfirmDialog
+          title={COPY.removeTitle}
+          message={COPY.removeConfirm(pendingRemove.name)}
+          confirmLabel={COPY.removeCta}
+          cancelLabel={COPY.cancel}
+          tone="danger"
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            const id = pendingRemove.id
+            setPendingRemove(null)
+            onRemoveProject(id)
+          }}
+        />
+      ) : null}
       <div className="mb-sm flex items-center justify-between px-xs">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.header}</h2>
         <button
@@ -220,9 +240,7 @@ export function ProjectTree({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(COPY.removeConfirm(project.name))) onRemoveProject(project.id)
-                      }}
+                      onClick={() => setPendingRemove({ id: project.id, name: project.name })}
                       aria-label={COPY.remove}
                       className="hidden shrink-0 px-xs text-[12px] text-muted hover:text-red group-hover:block"
                     >
