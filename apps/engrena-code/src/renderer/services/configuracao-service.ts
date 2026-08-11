@@ -1,4 +1,4 @@
-import { apiRequest } from './api-client'
+import { apiRequest, type ApiErrorBody } from './api-client'
 
 // ── Response types ───────────────────────────────────────────────────────────
 
@@ -110,10 +110,26 @@ export interface VcsOauthMutationResult {
   error?: { code: string; message: string }
 }
 
+/**
+ * `apiRequest` devolve o corpo de erro (423 cofre travado, 401 sessão inválida) tipado como
+ * sucesso, então cabe a cada serviço checar antes de guardar. Sem esta checagem o corpo de erro
+ * virava `ConfigStatus` no estado, e o primeiro acesso a `.voice`/`.providers` derrubava a janela
+ * inteira do Electron: o composer lê `configStatus.voice.openai` durante o render, e não há error
+ * boundary acima dele.
+ *
+ * `getStatus` devolve união (não interseção como os outros serviços) justamente para que o ramo
+ * negativo deste guard continue tipado como erro em vez de colapsar para `never`.
+ */
+export function isConfigStatus(payload: unknown): payload is ConfigStatus {
+  if (typeof payload !== 'object' || payload === null) return false
+  const candidate = payload as Partial<ConfigStatus> & ApiErrorBody
+  return candidate.error === undefined && candidate.voice !== undefined && candidate.providers !== undefined
+}
+
 // ── API ──────────────────────────────────────────────────────────────────────
 
 export const configuracaoService = {
-  getStatus: (): Promise<ConfigStatus> => apiRequest('GET', '/api/config/status'),
+  getStatus: (): Promise<ConfigStatus | ApiErrorBody> => apiRequest('GET', '/api/config/status'),
 
   setClaudeMode: (mode: 'subscription' | 'api-key'): Promise<{ mode: string; subscriptionOk: boolean | null }> =>
     apiRequest('POST', '/api/config/claude/mode', { mode }),

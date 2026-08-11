@@ -16,7 +16,7 @@ import {
   type MessageFeedback,
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
-import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
+import { configuracaoService, isConfigStatus, type ConfigStatus } from '../services/configuracao-service'
 import {
   promptLibraryService,
   type ChatModeItem,
@@ -393,7 +393,12 @@ export function usePrincipalWorkspace() {
     configuracaoService
       .getStatus()
       .then((status) => {
-        if (mountedRef.current) setConfigStatus(status)
+        if (!mountedRef.current) return
+        if (!isConfigStatus(status)) {
+          console.error('[workspace] config status:', status.error?.message ?? 'resposta inesperada')
+          return
+        }
+        setConfigStatus(status)
       })
       .catch((err: unknown) => {
         console.error('[workspace] config status:', err)
