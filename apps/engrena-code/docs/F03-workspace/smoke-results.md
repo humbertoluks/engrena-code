@@ -132,3 +132,38 @@ O hook `PreToolUse` emitia `hookSpecificOutput` **sem** `hookEventName`. O CLI d
 ## Nota
 
 Refetch em background que falha não derruba mais a conversa: erro vai para o console e o histórico em tela permanece (antes, `Falha ao carregar o histórico da thread.` substituía o chat inteiro).
+
+---
+
+# Smoke — Indicador de atividade no chat (2026-08-11)
+
+**Data:** 2026-08-11 (~07:31–07:38 BRT)
+**Ambiente:** `pnpm dev` (Electron real, `dangerouslyDisableSandbox`) com `ENGRENACODE_USER_DATA=%TEMP%\engrena-smoke-shimmer`, `ANTHROPIC_API_KEY`/`CLAUDE_API_KEY` unsetadas antes do boot; Playwright em `http://localhost:5173`
+**Credenciais smoke:** workspace `~/smoke-shimmer` · password `smoke-shimmer-pass`
+**Projeto:** `%TEMP%\engrena-smoke-shimmer-proj` (git init + commit seed, fora do repo)
+**Provider:** `claude` · access `Auto-accept edits` · execution `Main`
+**Artefatos:** `.playwright-cli/shimmer-during-text.png`, `.playwright-cli/shimmer-executando.png`, `.playwright-cli/shimmer-tool-{7,8}.png`
+
+## Gap original
+
+Com resposta parcial do agente já em tela, o rodapé do chat ficava vazio durante o resto do turno: `showThinking` exigia `streamingText === ''`, então o indicador sumia na primeira frase e o chat parecia congelado. O work log continuava marcando `trabalhando…`, mas sem sinal de vida abaixo do texto.
+
+## Fluxo real (4 turnos reais na mesma thread)
+
+| # | Passo | Esperado | Resultado |
+|---|-------|----------|-----------|
+| 1 | Unlock via UI (vault novo isolado) | `#dashboard` | pass |
+| 2 | `POST /api/projects` (header `x-engrenacode-session`) + abrir `#principal` | projeto listado | pass |
+| 3 | Turno 1 (glob/read/grep) | indicador visível durante todo o `running` | pass — `Pensando… 6s` → `Executando… 1s` → `Pensando… 14s` |
+| 4 | Turno 2 (follow-up passo a passo) | indicador junto do texto já renderizado | pass — `shimmer-tool-8.png`: passos 1–6 em tela **e** `● Pensando… 25s` abaixo |
+| 5 | Turno 3 (`sleep 12 && ls`) | rótulo troca para a tool em execução | pass — `.text-shimmer` = `["sleep 12 && ls", "Executando… 1s"]` |
+| 6 | Turno 4 (`sleep 25`) | screenshot com rótulo de tool | pass — `shimmer-executando.png`: `● Executando… 1s` |
+| 7 | Fim do turno | indicador some com `state !== running` | pass — `.text-shimmer` vazio, `Pensou por 33s` no lugar |
+
+## Achado corrigido durante o smoke
+
+Turno 2 nasceu com `Pensando… 31s`: `thinkingStartMs` só olhava o histórico persistido, e no follow-up a mensagem nova ainda é bolha otimista (`pending`), então o cronômetro herdava o horário do turno anterior. `currentActivity` passou a considerar as pendings já despachadas (`queued`/`permission` não contam). Reverificado ao vivo: follow-up seguinte nasceu em `Pensando… 1s`.
+
+## Cobertura de rótulo
+
+`Pensando` (sem tool) · `Executando` (Bash) confirmados ao vivo. Demais rótulos (`Lendo`, `Buscando`, `Procurando arquivos`, `Editando`, `Delegando`, `Carregando skill`, `Planejando`, `Pesquisando na web`) e o fallback `Trabalhando` para tool desconhecida/`mcp__*` cobertos por unitário em `chatHistory.logic.test.ts`.
