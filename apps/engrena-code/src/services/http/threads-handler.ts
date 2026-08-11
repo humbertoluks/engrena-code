@@ -1,6 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { guard, parseBody, readBody, sendError, sendJson, sendTransportError } from './_transport.js'
-import { getThread, deleteThread, listThreadsForProject, updateThread } from '../db/repositories/threads.js'
+import {
+  getThread,
+  deleteThread,
+  listThreadsForProject,
+  searchThreadsForProject,
+  updateThread,
+} from '../db/repositories/threads.js'
 import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
 import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
 import { getProject } from '../db/repositories/projects.js'
@@ -21,6 +27,10 @@ import {
 } from '../runner/dispatch.js'
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
+import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from '../threads/thread-export.js'
+import { generateFollowups } from '../threads/followups.js'
+import { resolveProviderApiKey } from '../runner/provider-resolution.js'
+import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
 import { resolvePermissionRequest, allowPendingPermissionsForThread, clearAllowedToolsForThread } from '../runner/permission-broker.js'
@@ -249,8 +259,149 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
   }
 }
 
-function handleListThreads(_req: IncomingMessage, res: ServerResponse, projectId: string): void {
-  sendJson(res, 200, { threads: listThreadsForProject(projectId) })
+/** `?q=` filtra por título ou conteúdo de mensagem (busca de conversas, F28 Onda 2). */
+function handleListThreads(req: IncomingMessage, res: ServerResponse, projectId: string): void {
+  const query = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('q')
+  const threads = query === null || query.trim() === ''
+    ? listThreadsForProject(projectId)
+    : searchThreadsForProject(projectId, query)
+  sendJson(res, 200, { threads })
+}
+
+interface RenameThreadBody {
+  title?: unknown
+}
+
+const MAX_THREAD_TITLE = 120
+
+/** Renomear conversa — título vazio volta ao automático (null). */
+async function handleRenameThread(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const data = parseBody<RenameThreadBody>(await readBody(req))
+  if (data === null || data.title === undefined) {
+    return sendError(res, 400, 'validation_error', 'Informe title.')
+  }
+  if (data.title !== null && typeof data.title !== 'string') {
+    return sendError(res, 400, 'validation_error', 'title deve ser texto ou null.')
+  }
+  const raw = typeof data.title === 'string' ? data.title.trim() : ''
+  if (raw.length > MAX_THREAD_TITLE) {
+    return sendError(res, 400, 'validation_error', `title excede ${MAX_THREAD_TITLE} caracteres.`)
+  }
+
+  const updated = updateThread(threadId, { title: raw === '' ? null : raw })
+  if (updated === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  sendJson(res, 200, { thread: updated })
+}
+
+/** Exporta a conversa em markdown (leitura) ou json (histórico cru). */
+function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const format = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('format') ?? 'md'
+  if (format !== 'md' && format !== 'json') {
+    return sendError(res, 400, 'validation_error', 'format deve ser md ou json.')
+  }
+
+  const input = {
+    thread,
+    messages: listMessagesForThread(threadId),
+    toolCalls: listToolCallsForThread(threadId),
+  }
+  sendJson(res, 200, {
+    fileName: exportFileName(thread, format),
+    format,
+    content: format === 'md' ? exportThreadAsMarkdown(input) : exportThreadAsJson(input),
+  })
+}
+
+/** Cache por turno: a mesma última resposta não gera duas vezes (a UI pode remontar). */
+const followupCache = new Map<string, { messageId: string; followups: string[] }>()
+
+/**
+ * Sugestões de próximo passo. Só com a thread assentada — durante o turno a resposta ainda muda,
+ * e gerar ali competiria com o agente pelo provider.
+ */
+async function handleFollowups(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  if (thread.state === 'running' || thread.state === 'stopping' || thread.state === 'waiting_user') {
+    return sendJson(res, 200, { followups: [] })
+  }
+
+  const messages = listMessagesForThread(threadId)
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+  if (lastAssistant === undefined || (lastAssistant.content ?? '').trim() === '') {
+    return sendJson(res, 200, { followups: [] })
+  }
+
+  const cached = followupCache.get(threadId)
+  if (cached && cached.messageId === lastAssistant.id) {
+    return sendJson(res, 200, { followups: cached.followups })
+  }
+
+  const project = getProject(thread.projectId)
+  if (project === null) return sendError(res, 404, 'project_not_found', 'Projeto não encontrado.')
+
+  const followups = await generateFollowups({
+    provider: thread.provider,
+    model: thread.model,
+    apiKey: resolveProviderApiKey(thread.provider),
+    cwd: resolveThreadCwd(thread, project),
+    lastUserMessage: lastUser?.content ?? '',
+    lastAssistantMessage: lastAssistant.content ?? '',
+  })
+
+  followupCache.set(threadId, { messageId: lastAssistant.id, followups })
+  sendJson(res, 200, { followups })
+}
+
+interface FeedbackBody {
+  vote?: unknown
+  note?: unknown
+}
+
+/** Voto por resposta: `up`/`down` grava, `null` limpa (toggle vindo da UI). */
+async function handleMessageFeedback(
+  req: IncomingMessage,
+  res: ServerResponse,
+  threadId: string,
+  messageId: string
+): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const message = listMessagesForThread(threadId).find((m) => m.id === messageId)
+  if (message === undefined) return sendError(res, 404, 'message_not_found', 'Mensagem não encontrada nesta thread.')
+  if (message.role !== 'assistant') {
+    return sendError(res, 400, 'validation_error', 'Só respostas do agente recebem voto.')
+  }
+
+  const data = parseBody<FeedbackBody>(await readBody(req))
+  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+
+  if (data.vote === null) {
+    clearMessageFeedback(messageId)
+    return sendJson(res, 200, { feedback: null })
+  }
+  if (data.vote !== 'up' && data.vote !== 'down') {
+    return sendError(res, 400, 'validation_error', 'vote deve ser up, down ou null.')
+  }
+  if (data.note !== undefined && data.note !== null && typeof data.note !== 'string') {
+    return sendError(res, 400, 'validation_error', 'note deve ser texto.')
+  }
+
+  const feedback = setMessageFeedback({
+    messageId,
+    threadId,
+    vote: data.vote,
+    note: typeof data.note === 'string' ? data.note.slice(0, 2000) : null,
+  })
+  sendJson(res, 200, { feedback })
 }
 
 /** Pipeline mais recente da thread (rodando ou já encerrado) + estágios — rehydrate de UI (spec F22 §4). */
@@ -265,6 +416,7 @@ function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: str
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
   sendJson(res, 200, {
     messages: listMessagesForThread(threadId),
+    feedback: listFeedbackForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
     subagentRuns: listSubagentRunsForParentThread(threadId),
     pipeline: resolveHistoryPipeline(threadId),
@@ -533,6 +685,10 @@ const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
 const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
 const RESOLVE_CONFLICT_RE = /^\/api\/threads\/([^/]+)\/diffs\/([^/]+)\/resolve-conflict$/
 const COMPOSER_CATALOG_RE = /^\/api\/composer\/catalog$/
+const RENAME_RE = /^\/api\/threads\/([^/]+)\/title$/
+const EXPORT_RE = /^\/api\/threads\/([^/]+)\/export$/
+const FEEDBACK_RE = /^\/api\/threads\/([^/]+)\/messages\/([^/]+)\/feedback$/
+const FOLLOWUPS_RE = /^\/api\/threads\/([^/]+)\/followups$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = (req.url ?? '').split('?')[0]
@@ -549,6 +705,10 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     ACCEPT_RE.test(url) ||
     ANSWER_RE.test(url) ||
     RESOLVE_CONFLICT_RE.test(url) ||
+    RENAME_RE.test(url) ||
+    EXPORT_RE.test(url) ||
+    FEEDBACK_RE.test(url) ||
+    FOLLOWUPS_RE.test(url) ||
     COMPOSER_CATALOG_RE.test(url)
 
   if (!matchesThreadsRoute) return false
@@ -568,6 +728,30 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     }
     if (createMatch && method === 'GET') {
       handleListThreads(req, res, createMatch[1])
+      return true
+    }
+
+    const renameMatch = RENAME_RE.exec(url)
+    if (renameMatch && method === 'PATCH') {
+      await handleRenameThread(req, res, renameMatch[1])
+      return true
+    }
+
+    const exportMatch = EXPORT_RE.exec(url)
+    if (exportMatch && method === 'GET') {
+      handleExportThread(req, res, exportMatch[1])
+      return true
+    }
+
+    const feedbackMatch = FEEDBACK_RE.exec(url)
+    if (feedbackMatch && method === 'POST') {
+      await handleMessageFeedback(req, res, feedbackMatch[1], feedbackMatch[2])
+      return true
+    }
+
+    const followupsMatch = FOLLOWUPS_RE.exec(url)
+    if (followupsMatch && method === 'GET') {
+      await handleFollowups(req, res, followupsMatch[1])
       return true
     }
 

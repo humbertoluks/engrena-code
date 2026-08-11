@@ -28,3 +28,25 @@ ou arquivo inexistente ignorado sem derrubar o turno.
 **Nota de ambiente:** a pasta `TodolistV1` foi encontrada no início desta rodada apenas com `.git` e sem os
 arquivos gerados na sessão anterior (`index.js`, `package.json`, `node_modules`) — reset externo a este
 trabalho, não houve remoção por esta sessão.
+
+---
+
+## Onda 2 — gestão da conversa (2026-08-11)
+
+**Ambiente:** mesmo da Onda 1, `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_onda2_smoke`.
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Fim de turno real | 3 sugestões de follow-up abaixo da resposta | **pass** — ex.: "Localize onde MARCADOR_SMOKE é usado no projeto" |
+| 2 | Clicar numa sugestão | preenche o composer sem enviar | **pass** |
+| 3 | 👍 numa resposta | fica marcado (`aria-pressed=true`) | **pass** |
+| 4 | Recarregar o app e reabrir a thread | voto continua marcado | **pass** — veio do histórico persistido |
+| 5 | Renomear conversa (✎, Enter) | título novo na sidebar | **pass** — "Conversa renomeada no smoke" |
+| 6 | Buscar por conteúdo de mensagem (`marcador.ts`) | acha a conversa | **pass** (1 resultado) |
+| 7 | Buscar por título (`renomeada`) | acha a conversa | **pass** (1 resultado) |
+| 8 | Buscar termo inexistente | lista vazia | **pass** (0 resultados) |
+| 9 | Exportar (⤓) | baixa markdown com nome derivado do título | **pass** — `conversa-renomeada-no-smoke-d67ae528.md` |
+
+**Coberto por unitário:** título > 120 chars rejeitado, título vazio volta ao automático, `format` inválido
+no export → 400, voto em mensagem de usuário → 400, voto inválido → 400, toggle do voto (mesmo voto limpa),
+parsing de follow-up (bloco de código, duplicata, teto de 3, lixo → lista vazia).

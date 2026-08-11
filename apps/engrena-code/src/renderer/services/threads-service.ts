@@ -46,6 +46,17 @@ export interface ComposerCatalog {
   providers: Record<ThreadProvider, ComposerCatalogProviderEntry>
 }
 
+export type FeedbackVote = 'up' | 'down'
+
+export interface MessageFeedback {
+  messageId: string
+  threadId: string
+  vote: FeedbackVote
+  note: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 export interface Message {
   id: string
   threadId: string
@@ -184,11 +195,39 @@ export const threadsService = {
   history: (
     threadId: string
   ): Promise<
-    { messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[]; pipeline: PipelineHistory | null } & ApiErrorBody
+    {
+      messages: Message[]
+      feedback: MessageFeedback[]
+      toolCalls: ToolCall[]
+      subagentRuns: SubagentRun[]
+      pipeline: PipelineHistory | null
+    } & ApiErrorBody
   > => apiRequest('GET', `/api/threads/${threadId}/history`),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),
+
+  search: (projectId: string, query: string): Promise<{ threads: Thread[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/projects/${projectId}/threads?q=${encodeURIComponent(query)}`),
+
+  rename: (threadId: string, title: string | null): Promise<{ thread: Thread } & ApiErrorBody> =>
+    apiRequest('PATCH', `/api/threads/${threadId}/title`, { title }),
+
+  exportThread: (
+    threadId: string,
+    format: 'md' | 'json'
+  ): Promise<{ fileName: string; format: string; content: string } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/export?format=${format}`),
+
+  feedback: (
+    threadId: string,
+    messageId: string,
+    vote: FeedbackVote | null
+  ): Promise<{ feedback: MessageFeedback | null } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/messages/${messageId}/feedback`, { vote }),
+
+  followups: (threadId: string): Promise<{ followups: string[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/followups`),
 
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/cancel`),

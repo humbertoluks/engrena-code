@@ -76,6 +76,9 @@ export function PrincipalScreen(): ReactElement {
           }}
           onAddProjectClick={() => ws.setAddProjectModalOpen(true)}
           onRemoveProject={(id) => void ws.removeProject(id)}
+          onSearchThreads={(projectId, query) => void ws.searchThreads(projectId, query)}
+          onRenameThread={(threadId, title) => void ws.renameThread(threadId, title)}
+          onExportThread={(threadId, format) => void ws.exportThread(threadId, format)}
         />
 
         <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
@@ -143,6 +146,10 @@ export function PrincipalScreen(): ReactElement {
                 onAnswerQuestion={ws.answerQuestion}
                 answerBusy={ws.answerBusy}
                 answerError={ws.answerError}
+                feedback={ws.feedback}
+                onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
+                followups={ws.followups}
+                onPickFollowup={(text) => ws.updateComposer({ text })}
               />
             ) : (
               <DiffViewer

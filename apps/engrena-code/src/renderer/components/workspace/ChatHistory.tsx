@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import type { Message, ThreadState, ToolCall } from '../../services/threads-service'
+import type { FeedbackVote, Message, ThreadState, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import {
@@ -33,6 +33,9 @@ const COPY = {
   toolInterrupted: 'interrompida',
   toolError: 'erro',
   toolRunning: 'trabalhando…',
+  voteUp: 'Resposta útil',
+  voteDown: 'Resposta ruim',
+  followupsLabel: 'Sugestões de próximo passo',
 } as const
 
 interface ImageBlock {
@@ -335,22 +338,58 @@ function PendingUserMessage({ pending }: Readonly<{ pending: PendingMessage }>):
   )
 }
 
+function VoteButtons({
+  vote,
+  onVote,
+}: Readonly<{ vote: FeedbackVote | undefined; onVote: (vote: FeedbackVote) => void }>): ReactElement {
+  return (
+    <span className="flex items-center gap-[2px]">
+      <button
+        type="button"
+        onClick={() => onVote('up')}
+        aria-label={COPY.voteUp}
+        aria-pressed={vote === 'up'}
+        title={COPY.voteUp}
+        className={`rounded-sm px-[3px] text-[11px] ${vote === 'up' ? 'text-green' : 'text-muted hover:text-fg'}`}
+      >
+        👍
+      </button>
+      <button
+        type="button"
+        onClick={() => onVote('down')}
+        aria-label={COPY.voteDown}
+        aria-pressed={vote === 'down'}
+        title={COPY.voteDown}
+        className={`rounded-sm px-[3px] text-[11px] ${vote === 'down' ? 'text-red' : 'text-muted hover:text-fg'}`}
+      >
+        👎
+      </button>
+    </span>
+  )
+}
+
 function AssistantMessage({
   message,
   turnDurationMs,
-}: Readonly<{ message: Message; turnDurationMs: number | null }>): ReactElement {
+  vote,
+  onVote,
+}: Readonly<{
+  message: Message
+  turnDurationMs: number | null
+  vote: FeedbackVote | undefined
+  onVote?: (messageId: string, vote: FeedbackVote) => void
+}>): ReactElement {
   const clock = formatClock(message.createdAt)
   const showDuration = turnDurationMs != null && turnDurationMs > 0
   const text = message.content ?? ''
   return (
     <div className="mb-md pr-[48px]">
       {text ? <ChatMarkdown content={text} /> : null}
-      {clock || showDuration ? (
-        <div className="mt-[3px] flex items-center gap-sm text-[11px] text-muted">
-          {clock ? <span>{clock}</span> : null}
-          {showDuration ? <span>{COPY.thought(formatDurationSeconds(turnDurationMs))}</span> : null}
-        </div>
-      ) : null}
+      <div className="mt-[3px] flex items-center gap-sm text-[11px] text-muted">
+        {clock ? <span>{clock}</span> : null}
+        {showDuration ? <span>{COPY.thought(formatDurationSeconds(turnDurationMs))}</span> : null}
+        {onVote ? <VoteButtons vote={vote} onVote={(next) => onVote(message.id, next)} /> : null}
+      </div>
     </div>
   )
 }
@@ -373,6 +412,12 @@ export interface ChatHistoryProps {
   onAnswerQuestion?: (input: { selectedOptions: string[]; freeText: string | null }) => void
   answerBusy?: boolean
   answerError?: string | null
+  /** Voto por id de mensagem (👍/👎), vindo do histórico persistido. */
+  feedback?: Record<string, FeedbackVote>
+  onVote?: (messageId: string, vote: FeedbackVote) => void
+  /** Sugestões geradas ao fim do turno; clicar preenche o composer (não envia). */
+  followups?: string[]
+  onPickFollowup?: (text: string) => void
 }
 
 export function ChatHistory({
@@ -391,6 +436,10 @@ export function ChatHistory({
   onAnswerQuestion,
   answerBusy = false,
   answerError = null,
+  feedback = {},
+  onVote,
+  followups = [],
+  onPickFollowup,
 }: Readonly<ChatHistoryProps>): ReactElement {
   // Estado de expansão vive aqui (e não no DOM do <details>): o refetch do turno reconstrói a
   // lista e qualquer remontagem fecharia o Work log aberto no meio da leitura.
@@ -459,6 +508,8 @@ export function ChatHistory({
                 key={group.message.id}
                 message={group.message}
                 turnDurationMs={turnDurationForAssistant(messages, group.message)}
+                vote={feedback[group.message.id]}
+                onVote={onVote}
               />
             )
           }
@@ -512,6 +563,22 @@ export function ChatHistory({
       ) : null}
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
+
+      {followups.length > 0 && onPickFollowup && queued.length === 0 ? (
+        <ul aria-label={COPY.followupsLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
+          {followups.map((text) => (
+            <li key={text}>
+            <button
+              type="button"
+              onClick={() => onPickFollowup(text)}
+              className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[12px] text-muted transition-colors hover:border-accent hover:text-fg"
+            >
+              {text}
+            </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {queued.map((pending) => (
         <PendingUserMessage key={pending.id} pending={pending} />

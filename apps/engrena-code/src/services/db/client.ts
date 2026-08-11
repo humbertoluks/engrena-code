@@ -19,6 +19,7 @@ import * as migration010SlashPipeline from './migrations/010_slash_pipeline.js'
 import * as migration011UsageLimits from './migrations/011_usage_limits.js'
 import * as migration012Skills from './migrations/012_skills.js'
 import * as migration013CliSession from './migrations/013_cli_session.js'
+import * as migration014MessageFeedback from './migrations/014_message_feedback.js'
 
 const MIGRATIONS: Migration[] = [
   { id: migration001Subagents.id, sql: migration001Subagents.sql },
@@ -35,6 +36,7 @@ const MIGRATIONS: Migration[] = [
   { id: migration011UsageLimits.id, sql: migration011UsageLimits.sql },
   { id: migration012Skills.id, sql: migration012Skills.sql },
   { id: migration013CliSession.id, sql: migration013CliSession.sql },
+  { id: migration014MessageFeedback.id, sql: migration014MessageFeedback.sql },
 ]
 
 const { openDb, getDb, closeDb } = createDb({

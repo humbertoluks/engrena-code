@@ -12,6 +12,8 @@ import {
   type ThreadProvider,
   type Thread,
   type ToolCall,
+  type FeedbackVote,
+  type MessageFeedback,
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
@@ -113,6 +115,8 @@ export function usePrincipalWorkspace() {
   const [usageLimitStatus, setUsageLimitStatus] = useState<UsageLimitStatusResponse | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
+  const [feedback, setFeedback] = useState<Record<string, FeedbackVote>>({})
+  const [followups, setFollowups] = useState<string[]>([])
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
   const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
@@ -304,6 +308,7 @@ export function usePrincipalWorkspace() {
         return
       }
       setMessages(res.messages)
+      setFeedback(Object.fromEntries((res.feedback ?? []).map((f: MessageFeedback) => [f.messageId, f.vote])))
       setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
       setToolCalls(res.toolCalls)
       setSubagentRuns(res.subagentRuns)
@@ -314,6 +319,17 @@ export function usePrincipalWorkspace() {
       else setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
       if (mountedRef.current && !background) setHistoryLoading(false)
+    }
+  }, [])
+
+  /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
+  const loadFollowups = useCallback(async (threadId: string) => {
+    try {
+      const res = await threadsService.followups(threadId)
+      if (!mountedRef.current || res.error) return
+      setFollowups(res.followups)
+    } catch {
+      // sugestão é conforto — silêncio é melhor que ruído
     }
   }, [])
 
@@ -389,6 +405,7 @@ export function usePrincipalWorkspace() {
 
   useEffect(() => {
     setStreamingText('')
+    setFollowups([])
     setMcpNotices([])
     if (selectedThreadId) {
       void loadHistory(selectedThreadId)
@@ -423,6 +440,7 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'state.change') {
+      if (event.state === 'running') setFollowups([])
       setThreadsByProject((prev) => {
         const projectId = selectedProjectId
         if (!projectId) return prev
@@ -443,6 +461,7 @@ export function usePrincipalWorkspace() {
         setStreamingText('')
         void loadHistory(event.threadId, { background: true })
         void loadDiffs(event.threadId)
+        void loadFollowups(event.threadId)
         processQueueIfIdle()
         // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
         if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
@@ -945,6 +964,73 @@ export function usePrincipalWorkspace() {
     [pendingMessages, queue]
   )
 
+  /** Voto otimista: clicar no mesmo voto desfaz (toggle), igual ao chat do VS Code. */
+  const voteMessage = useCallback(
+    async (messageId: string, vote: FeedbackVote) => {
+      if (!selectedThreadId) return
+      const current = feedback[messageId]
+      const next = current === vote ? null : vote
+      setFeedback((prev) => {
+        const copy = { ...prev }
+        if (next === null) delete copy[messageId]
+        else copy[messageId] = next
+        return copy
+      })
+      const res = await threadsService.feedback(selectedThreadId, messageId, next)
+      if (res.error) {
+        setFeedback((prev) => {
+          const copy = { ...prev }
+          if (current === undefined) delete copy[messageId]
+          else copy[messageId] = current
+          return copy
+        })
+      }
+    },
+    [selectedThreadId, feedback]
+  )
+
+  const renameThread = useCallback(
+    async (threadId: string, title: string | null) => {
+      const res = await threadsService.rename(threadId, title)
+      if (res.error) {
+        setSendError(res.error.message)
+        return
+      }
+      if (selectedProjectId && res.thread) upsertThreadLocal(selectedProjectId, res.thread)
+    },
+    [selectedProjectId, upsertThreadLocal]
+  )
+
+  /** Exporta baixando pelo próprio renderer — sem IPC novo nem diálogo nativo. */
+  const exportThread = useCallback(async (threadId: string, format: 'md' | 'json') => {
+    const res = await threadsService.exportThread(threadId, format)
+    if (res.error) {
+      setSendError(res.error.message)
+      return
+    }
+    const blob = new Blob([res.content], { type: format === 'md' ? 'text/markdown' : 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchorEl = document.createElement('a')
+    anchorEl.href = url
+    anchorEl.download = res.fileName
+    anchorEl.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  /** Busca de conversas (título + conteúdo). Termo vazio recarrega a lista completa. */
+  const searchThreads = useCallback(
+    async (projectId: string, query: string) => {
+      if (query.trim() === '') {
+        await loadThreads(projectId)
+        return
+      }
+      const res = await threadsService.search(projectId, query)
+      if (res.error || !mountedRef.current) return
+      setThreadsByProject((prev) => ({ ...prev, [projectId]: res.threads }))
+    },
+    [loadThreads]
+  )
+
   const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
   const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
@@ -972,6 +1058,12 @@ export function usePrincipalWorkspace() {
     refreshMemoryStatus,
     usageLimitStatus,
     messages,
+    feedback,
+    followups,
+    voteMessage,
+    renameThread,
+    exportThread,
+    searchThreads,
     chatPendingMessages,
     toolCalls,
     subagentRuns,

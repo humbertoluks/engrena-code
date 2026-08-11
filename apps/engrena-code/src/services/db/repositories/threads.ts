@@ -121,6 +121,26 @@ export function listThreadsForProject(projectId: string): Thread[] {
   return rows.map(toThread)
 }
 
+/**
+ * Busca por título ou por conteúdo de mensagem da thread (equivalente à busca de sessões do chat
+ * do VS Code). O termo é escapado com `#` para `%` e `_` digitados não virarem curinga.
+ */
+export function searchThreadsForProject(projectId: string, query: string): Thread[] {
+  const term = query.trim()
+  if (term === '') return listThreadsForProject(projectId)
+  const like = `%${term.replace(/[#%_]/g, (c) => `#${c}`)}%`
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT t.* FROM threads t
+       LEFT JOIN messages m ON m.thread_id = t.id
+       WHERE t.project_id = ?
+         AND (t.title LIKE ? ESCAPE '#' OR m.content LIKE ? ESCAPE '#')
+       ORDER BY t.created_at DESC`
+    )
+    .all(projectId, like, like) as unknown as ThreadRow[]
+  return rows.map(toThread)
+}
+
 export interface UpdateThreadInput {
   state?: ThreadState
   model?: string | null

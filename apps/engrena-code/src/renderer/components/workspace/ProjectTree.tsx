@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import type { Project } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
 
@@ -14,6 +14,11 @@ const COPY = {
   threadsLoading: 'Carregando…',
   threadsError: 'Falha ao carregar as threads.',
   badgeWorktree: 'Worktree',
+  searchPlaceholder: 'Buscar nas conversas…',
+  searchAria: 'Buscar nas conversas do projeto',
+  threadRename: 'Renomear conversa',
+  threadRenameAria: 'Novo nome da conversa',
+  threadExport: 'Exportar conversa (markdown)',
 } as const
 
 function threadLabel(thread: Thread): string {
@@ -33,6 +38,104 @@ const STATE_DOT: Record<Thread['state'], string> = {
   cancelled: 'bg-muted',
 }
 
+/** Linha da conversa com ações de renomear e exportar (F28 Onda 2). */
+function ThreadRow({
+  thread,
+  selected,
+  onSelect,
+  onRename,
+  onExport,
+}: Readonly<{
+  thread: Thread
+  selected: boolean
+  onSelect: () => void
+  onRename?: (threadId: string, title: string | null) => void
+  onExport?: (threadId: string, format: 'md' | 'json') => void
+}>): ReactElement {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  function startEdit(): void {
+    setDraft(thread.title ?? '')
+    setEditing(true)
+  }
+
+  function commit(): void {
+    onRename?.(thread.id, draft.trim() === '' ? null : draft.trim())
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        // biome-ignore lint/a11y/noAutofocus: edição inline abre já no campo, como o rename de arquivo do explorer
+        autoFocus
+        value={draft}
+        aria-label={COPY.threadRenameAria}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            setEditing(false)
+          }
+        }}
+        className="w-full rounded-md border border-accent bg-surface-2 px-xs py-[3px] text-[12px] text-fg focus:outline-none"
+      />
+    )
+  }
+
+  return (
+    <div className="group/thread flex items-center gap-[2px]">
+      <button
+        type="button"
+        onClick={onSelect}
+        onDoubleClick={startEdit}
+        title={threadLabel(thread)}
+        className={`flex min-w-0 flex-1 items-center gap-xs truncate rounded-md px-xs py-[3px] text-left text-[12px] ${
+          selected ? 'bg-surface-2 font-medium text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'
+        }`}
+      >
+        <span className={`h-[6px] w-[6px] shrink-0 rounded-full ${STATE_DOT[thread.state]}`} />
+        <span className="truncate">{threadLabel(thread)}</span>
+        {thread.executionMode === 'worktree' ? (
+          <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-[4px] py-[1px] font-mono text-[9.5px] text-accent-2">
+            {COPY.badgeWorktree}
+          </span>
+        ) : null}
+      </button>
+      <span className="flex shrink-0 items-center opacity-0 transition-opacity group-focus-within/thread:opacity-100 group-hover/thread:opacity-100">
+        {onRename ? (
+          <button
+            type="button"
+            onClick={startEdit}
+            aria-label={COPY.threadRename}
+            title={COPY.threadRename}
+            className="px-[3px] text-[11px] text-muted hover:text-fg"
+          >
+            ✎
+          </button>
+        ) : null}
+        {onExport ? (
+          <button
+            type="button"
+            onClick={() => onExport(thread.id, 'md')}
+            aria-label={COPY.threadExport}
+            title={COPY.threadExport}
+            className="px-[3px] text-[11px] text-muted hover:text-fg"
+          >
+            ⤓
+          </button>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
 export interface ProjectTreeProps {
   projects: Project[] | null
   selectedProjectId: string | null
@@ -45,6 +148,9 @@ export interface ProjectTreeProps {
   onNewThread: (projectId: string) => void
   onAddProjectClick: () => void
   onRemoveProject: (projectId: string) => void
+  onSearchThreads?: (projectId: string, query: string) => void
+  onRenameThread?: (threadId: string, title: string | null) => void
+  onExportThread?: (threadId: string, format: 'md' | 'json') => void
 }
 
 export function ProjectTree({
@@ -59,7 +165,25 @@ export function ProjectTree({
   onNewThread,
   onAddProjectClick,
   onRemoveProject,
+  onSearchThreads,
+  onRenameThread,
+  onExportThread,
 }: Readonly<ProjectTreeProps>): ReactElement {
+  const [threadQuery, setThreadQuery] = useState('')
+
+  // Debounce: cada tecla dispararia um GET com JOIN em messages.
+  useEffect(() => {
+    if (!selectedProjectId || !onSearchThreads) return
+    const id = window.setTimeout(() => onSearchThreads(selectedProjectId, threadQuery), 250)
+    return () => window.clearTimeout(id)
+  }, [threadQuery, selectedProjectId, onSearchThreads])
+
+  // Trocar de projeto zera o filtro — senão a lista do novo projeto abre filtrada por engano.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedProjectId é o gatilho do reset, não um valor lido.
+  useEffect(() => {
+    setThreadQuery('')
+  }, [selectedProjectId])
+
   return (
     <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-sm">
       <div className="mb-sm flex items-center justify-between px-xs">
@@ -116,6 +240,17 @@ export function ProjectTree({
                         + {COPY.threadsNew}
                       </button>
 
+                      {onSearchThreads ? (
+                        <input
+                          type="search"
+                          value={threadQuery}
+                          onChange={(e) => setThreadQuery(e.target.value)}
+                          placeholder={COPY.searchPlaceholder}
+                          aria-label={COPY.searchAria}
+                          className="mb-[2px] w-full rounded-md border border-border bg-surface-2 px-xs py-[3px] text-[12px] text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+                        />
+                      ) : null}
+
                       {threadsLoading[project.id] ? (
                         <p className="px-xs py-xs text-[12px] text-muted">{COPY.threadsLoading}</p>
                       ) : threadsError[project.id] ? (
@@ -126,22 +261,14 @@ export function ProjectTree({
                         <p className="px-xs py-xs text-[12px] text-muted">{COPY.threadsEmpty}</p>
                       ) : (
                         threads.map((thread) => (
-                          <button
+                          <ThreadRow
                             key={thread.id}
-                            type="button"
-                            onClick={() => onSelectThread(thread.id)}
-                            className={`flex items-center gap-xs truncate rounded-md px-xs py-[3px] text-left text-[12px] ${
-                              thread.id === selectedThreadId ? 'bg-surface-2 font-medium text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'
-                            }`}
-                          >
-                            <span className={`h-[6px] w-[6px] shrink-0 rounded-full ${STATE_DOT[thread.state]}`} />
-                            <span className="truncate">{threadLabel(thread)}</span>
-                            {thread.executionMode === 'worktree' ? (
-                              <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-[4px] py-[1px] font-mono text-[9.5px] text-accent-2">
-                                {COPY.badgeWorktree}
-                              </span>
-                            ) : null}
-                          </button>
+                            thread={thread}
+                            selected={thread.id === selectedThreadId}
+                            onSelect={() => onSelectThread(thread.id)}
+                            onRename={onRenameThread}
+                            onExport={onExportThread}
+                          />
                         ))
                       )}
                     </div>
