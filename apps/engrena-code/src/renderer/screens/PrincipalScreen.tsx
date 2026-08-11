@@ -149,6 +149,8 @@ export function PrincipalScreen(): ReactElement {
                 feedback={ws.feedback}
                 onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
                 followups={ws.followups}
+                followupsMessageId={ws.followupsMessageId}
+                followupsPending={ws.followupsPending}
                 onPickFollowup={(text) => ws.updateComposer({ text })}
               />
             ) : (

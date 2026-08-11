@@ -207,6 +207,11 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
   }
   args.push('--permission-mode', permissionModeFlag(input.accessLevel, permissionSettingsPath !== undefined))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
+  // Sem isto, `acceptEdits` (auto-accept-edits) libera edição de arquivo mas nega tool MCP: o agente
+  // não consegue nem perguntar ao usuário e cai para pedir aprovação em prosa, sem botão nenhum.
+  if (input.alwaysAllowedTools && input.alwaysAllowedTools.length > 0) {
+    args.push('--allowedTools', ...input.alwaysAllowedTools)
+  }
   if (permissionSettingsPath) args.push('--settings', permissionSettingsPath)
   return args
 }

@@ -19,6 +19,11 @@ const { createPermissionServer, hasPendingPermission } = await import('../runner
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
 const {
+  setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
+} = await import('../threads/followups.js')
+const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
+const {
   setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
 } = await import('../runner/delegate.js')
@@ -95,6 +100,10 @@ function fakeRes(): ServerResponse & { result: () => Promise<FakeResult> } {
 let session: string
 
 beforeEach(() => {
+  // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
+  // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
+  setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
+  clearAllFollowupsForTesting()
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
   getDb().exec('DELETE FROM messages')

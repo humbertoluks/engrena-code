@@ -36,6 +36,7 @@ const COPY = {
   voteUp: 'Resposta útil',
   voteDown: 'Resposta ruim',
   followupsLabel: 'Sugestões de próximo passo',
+  followupsLoadingLabel: 'Gerando sugestões de próximo passo',
 } as const
 
 interface ImageBlock {
@@ -417,6 +418,9 @@ export interface ChatHistoryProps {
   onVote?: (messageId: string, vote: FeedbackVote) => void
   /** Sugestões geradas ao fim do turno; clicar preenche o composer (não envia). */
   followups?: string[]
+  /** Mensagem que gerou as sugestões — chegando tarde, elas não colam sob uma resposta mais nova. */
+  followupsMessageId?: string | null
+  followupsPending?: boolean
   onPickFollowup?: (text: string) => void
 }
 
@@ -439,6 +443,8 @@ export function ChatHistory({
   feedback = {},
   onVote,
   followups = [],
+  followupsMessageId = null,
+  followupsPending = false,
   onPickFollowup,
 }: Readonly<ChatHistoryProps>): ReactElement {
   // Estado de expansão vive aqui (e não no DOM do <details>): o refetch do turno reconstrói a
@@ -493,6 +499,9 @@ export function ChatHistory({
   // Enquanto o turno roda o indicador fica sempre visível (mesmo com texto já em tela): sumir
   // depois da primeira frase do agente fazia o chat parecer travado no meio do trabalho.
   const showActivity = threadState === 'running' && !pendingQuestion
+  // Sugestão nasce de uma resposta específica: se outra chegou no meio, a lista velha não vale.
+  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? null
+  const followupsAnchored = followupsMessageId !== null && followupsMessageId === lastAssistantId
   const activity = currentActivity(messages, toolCalls, Date.now(), pendingMessages)
 
   return (
@@ -564,7 +573,19 @@ export function ChatHistory({
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
-      {followups.length > 0 && onPickFollowup && queued.length === 0 ? (
+      {followupsPending && followups.length === 0 && queued.length === 0 ? (
+        <ul aria-label={COPY.followupsLoadingLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
+          {[0, 1, 2].map((slot) => (
+            <li
+              key={slot}
+              aria-hidden="true"
+              className="h-[24px] w-[140px] animate-pulse rounded-full border border-border bg-surface-2"
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      {followups.length > 0 && onPickFollowup && queued.length === 0 && followupsAnchored ? (
         <ul aria-label={COPY.followupsLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
           {followups.map((text) => (
             <li key={text}>

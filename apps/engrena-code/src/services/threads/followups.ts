@@ -1,5 +1,6 @@
 import type { ThreadProvider } from '../db/repositories/threads.js'
 import { runCliTurn as defaultRunCliTurn } from '../runner/providers/cli-driver.js'
+import { FAST_SIDE_MODEL } from '../runner/providers/provider-catalog.js'
 
 /**
  * Sugestões de follow-up ao fim do turno — equivalente ao `IChatFollowup` do chat do VS Code
@@ -79,7 +80,8 @@ export async function generateFollowups(input: FollowupInput): Promise<string[]>
       provider: input.provider,
       cwd: input.cwd,
       prompt: buildFollowupPrompt(input.lastUserMessage, input.lastAssistantMessage),
-      model: input.model ?? undefined,
+      // Modelo rápido, não o da thread: a sugestão só serve se chegar antes do usuário digitar.
+      model: FAST_SIDE_MODEL[input.provider] ?? input.model ?? undefined,
       accessLevel: 'supervised',
       apiKey: input.apiKey,
       onEvent: () => {},

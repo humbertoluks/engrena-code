@@ -20,7 +20,7 @@ import { diffWorkingTree } from '../git/git-client.js'
 import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, getLease, releaseLease } from './project-execution.js'
-import { emit } from './ws-hub.js'
+import { emit, subscriberCount } from './ws-hub.js'
 import {
   consumeThreadCancelled,
   getActiveController,
@@ -73,6 +73,7 @@ import {
   type ResolvedAttachment,
 } from './providers/context-attachments.js'
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { resolveChatMode } from '../prompts/chat-mode-resolver.js'
 import { composeModeBlock } from '../prompts/prompt-spec.js'
 import { isPathIgnored } from '../ignore/ignore-service.js'
@@ -197,7 +198,8 @@ function buildSystemPrompt(
   project: Project,
   threadId: string,
   skillSnapshot: SkillSnapshot,
-  chatMode: string | null
+  chatMode: string | null,
+  provider: ThreadProvider
 ): string {
   const parts: string[] = []
 
@@ -223,6 +225,19 @@ function buildSystemPrompt(
         `## Skills disponíveis (EngrenaCode)`,
         `Carregue o conteúdo sob demanda com a tool \`${LOAD_SKILL_TOOL_NAME}\` (argumento \`name\`).`,
         skillSnapshot.catalog.map((s) => `- ${s.name}: ${s.description}`).join('\n'),
+      ].join('\n')
+    )
+  }
+
+  // Pergunta em prosa deixa o usuário sem opção nenhuma na tela: as alternativas só viram botão
+  // quando o agente chama a tool. Sem esta instrução o modelo pergunta no texto e a UI só consegue
+  // oferecer sugestões geradas depois do turno, que chegam tarde.
+  if (!MCP_UNSUPPORTED_PROVIDERS.has(provider)) {
+    parts.push(
+      [
+        '## Decisões do usuário',
+        `Quando precisar de uma decisão, autorização ou escolha entre caminhos, chame a tool \`${ASK_USER_QUESTION_TOOL_NAME}\` com a pergunta e até 4 opções curtas.`,
+        'A UI mostra as opções como botões no mesmo instante da pergunta; perguntar só no texto da resposta deixa o usuário sem nenhuma opção para clicar.',
       ].join('\n')
     )
   }
@@ -407,7 +422,7 @@ async function runTurn(
     const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)
-    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, thread.chatMode)
+    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, thread.chatMode, thread.provider)
     // Turno retomado (`--resume`) reaproveita o system prompt gravado na sessão do CLI e ignora o
     // `--append-system-prompt` novo — sem isto, trocar de modo no meio da thread não valia nada.
     // Então o bloco do modo viaja no prompt do turno, como os anexos de contexto.
@@ -519,6 +534,11 @@ async function runTurn(
       accessLevel: thread.accessLevel,
       apiKey: resolveProviderApiKey(thread.provider),
       mcpServers: mcpsPrepared.resolved,
+      // Tools internas nossas: perguntar ao usuário, ler skill e gravar memória não podem depender
+      // do modo de permissão do CLI — sob `acceptEdits` elas eram negadas em silêncio.
+      alwaysAllowedTools: providerSupportsMcp
+        ? [ASK_USER_QUESTION_TOOL_NAME, LOAD_SKILL_TOOL_NAME, CALL_SUBAGENT_TOOL_NAME]
+        : undefined,
       permissionPort: permissionServer?.port,
       permissionToken: permissionServer?.token,
       resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,
@@ -609,7 +629,20 @@ async function runTurn(
     }
 
     if (finalText) {
-      appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
+      const assistantMessage = appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
+      // Adianta as sugestões enquanto os diffs são coletados: quando a UI perguntar, já estão
+      // prontas. Sem lease e sem bloquear o turno — falha aqui não pode virar erro de turno.
+      // Só com alguém assinando o stream: turno headless (teste, pipeline) não paga um processo
+      // de provider por uma sugestão que ninguém vai ler.
+      if (subscriberCount(thread.id) > 0) {
+        void primeFollowupsForTurn({
+          thread,
+          project,
+          messageId: assistantMessage.id,
+          lastUserMessage: prompt,
+          lastAssistantMessage: finalText,
+        }).catch(() => {})
+      }
     }
 
     const diffs = await diffWorkingTree(cwd)

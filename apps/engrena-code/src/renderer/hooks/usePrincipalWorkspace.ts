@@ -146,6 +146,10 @@ export function usePrincipalWorkspace() {
   const [messages, setMessages] = useState<Message[]>([])
   const [feedback, setFeedback] = useState<Record<string, FeedbackVote>>({})
   const [followups, setFollowups] = useState<string[]>([])
+  // Âncora + estado de espera: o turno adianta a geração no servidor, mas quando ela demora a UI
+  // precisa dizer "vem sugestão aí" em vez de deixar o espaço vazio até depois da resposta.
+  const [followupsMessageId, setFollowupsMessageId] = useState<string | null>(null)
+  const [followupsPending, setFollowupsPending] = useState(false)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
   const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
@@ -354,12 +358,16 @@ export function usePrincipalWorkspace() {
 
   /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
   const loadFollowups = useCallback(async (threadId: string) => {
+    setFollowupsPending(true)
     try {
       const res = await threadsService.followups(threadId)
       if (!mountedRef.current || res.error) return
       setFollowups(res.followups)
+      setFollowupsMessageId(res.messageId ?? null)
     } catch {
       // sugestão é conforto — silêncio é melhor que ruído
+    } finally {
+      if (mountedRef.current) setFollowupsPending(false)
     }
   }, [])
 
@@ -438,6 +446,8 @@ export function usePrincipalWorkspace() {
   useEffect(() => {
     setStreamingText('')
     setFollowups([])
+    setFollowupsMessageId(null)
+    setFollowupsPending(false)
     setMcpNotices([])
     if (selectedThreadId) {
       void loadHistory(selectedThreadId)
@@ -472,7 +482,11 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'state.change') {
-      if (event.state === 'running') setFollowups([])
+      if (event.state === 'running') {
+        setFollowups([])
+        setFollowupsMessageId(null)
+        setFollowupsPending(false)
+      }
       setThreadsByProject((prev) => {
         const projectId = selectedProjectId
         if (!projectId) return prev
@@ -1281,6 +1295,8 @@ export function usePrincipalWorkspace() {
     messages,
     feedback,
     followups,
+    followupsMessageId,
+    followupsPending,
     voteMessage,
     renameThread,
     exportThread,

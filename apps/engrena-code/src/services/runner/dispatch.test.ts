@@ -26,10 +26,16 @@ const {
   resetRunCliTurnForTesting,
 } = await import('./dispatch.js')
 const { clearAllLeases, isLeased, acquireLease } = await import('./project-execution.js')
+const { ASK_USER_QUESTION_TOOL_NAME } = await import('./ask-user-question.js')
 const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
+const {
+  setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
+} = await import('../threads/followups.js')
+const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
 const { resolvePermissionRequest, hasPendingPermission } = await import('./permission-broker.js')
 const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
 const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
@@ -57,6 +63,10 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
+  // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
+  setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
+  clearAllFollowupsForTesting()
   getDb().exec('DELETE FROM log_entries')
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
@@ -1815,6 +1825,80 @@ describe('anexos de contexto do composer', () => {
 
     expect(finalState).toBe('idle')
     expect(capturedPrompt).toBe('siga')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('pergunta ao usuário', () => {
+  it('manda o agente usar a tool ask_user_question em vez de perguntar em prosa', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('## Decisões do usuário')
+    expect(capturedSystemPrompt).toContain(ASK_USER_QUESTION_TOOL_NAME)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('provider sem MCP não recebe a instrução (a tool não existe lá)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'grok',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).not.toContain('## Decisões do usuário')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('tools internas sempre liberadas', () => {
+  it('passa ask_user_question/load_skill/call_subagent em alwaysAllowedTools sob auto-accept-edits', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let captured: string[] | undefined
+    setRunCliTurnForTesting(async (input) => {
+      captured = input.alwaysAllowedTools
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(captured).toContain(ASK_USER_QUESTION_TOOL_NAME)
     rmSync(dir, { recursive: true, force: true })
   })
 })

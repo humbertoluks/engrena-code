@@ -29,8 +29,7 @@ import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from 
 import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
 import { isValidPromptName } from '../prompts/prompt-spec.js'
 import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from '../threads/thread-export.js'
-import { generateFollowups } from '../threads/followups.js'
-import { resolveProviderApiKey } from '../runner/provider-resolution.js'
+import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
@@ -332,7 +331,6 @@ function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId:
 }
 
 /** Cache por turno: a mesma última resposta não gera duas vezes (a UI pode remontar). */
-const followupCache = new Map<string, { messageId: string; followups: string[] }>()
 
 /**
  * Sugestões de próximo passo. Só com a thread assentada — durante o turno a resposta ainda muda,
@@ -342,35 +340,29 @@ async function handleFollowups(_req: IncomingMessage, res: ServerResponse, threa
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
   if (thread.state === 'running' || thread.state === 'stopping' || thread.state === 'waiting_user') {
-    return sendJson(res, 200, { followups: [] })
+    return sendJson(res, 200, { followups: [], messageId: null })
   }
 
   const messages = listMessagesForThread(threadId)
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')
   if (lastAssistant === undefined || (lastAssistant.content ?? '').trim() === '') {
-    return sendJson(res, 200, { followups: [] })
-  }
-
-  const cached = followupCache.get(threadId)
-  if (cached && cached.messageId === lastAssistant.id) {
-    return sendJson(res, 200, { followups: cached.followups })
+    return sendJson(res, 200, { followups: [], messageId: null })
   }
 
   const project = getProject(thread.projectId)
   if (project === null) return sendError(res, 404, 'project_not_found', 'Projeto não encontrado.')
 
-  const followups = await generateFollowups({
-    provider: thread.provider,
-    model: thread.model,
-    apiKey: resolveProviderApiKey(thread.provider),
-    cwd: resolveThreadCwd(thread, project),
+  // Normalmente já resolvido: o fim do turno adianta a geração (`primeFollowupsForTurn`).
+  const followups = await primeFollowupsForTurn({
+    thread,
+    project,
+    messageId: lastAssistant.id,
     lastUserMessage: lastUser?.content ?? '',
     lastAssistantMessage: lastAssistant.content ?? '',
   })
 
-  followupCache.set(threadId, { messageId: lastAssistant.id, followups })
-  sendJson(res, 200, { followups })
+  sendJson(res, 200, { followups, messageId: lastAssistant.id })
 }
 
 interface FeedbackBody {

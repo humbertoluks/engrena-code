@@ -229,7 +229,9 @@ export const threadsService = {
   ): Promise<{ feedback: MessageFeedback | null } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/messages/${messageId}/feedback`, { vote }),
 
-  followups: (threadId: string): Promise<{ followups: string[] } & ApiErrorBody> =>
+  followups: (
+    threadId: string
+  ): Promise<{ followups: string[]; messageId?: string | null } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/followups`),
 
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
