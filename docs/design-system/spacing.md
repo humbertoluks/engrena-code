@@ -45,6 +45,18 @@ Padrões observados 🟡:
 
 App Electron desktop-first; breakpoints mobile pouco usados.
 
+### Breakpoints de layout do Workspace 🟢
+
+Não são media queries: o Workspace observa a largura do próprio container e recolhe os painéis laterais. Os valores são derivados de um piso de conteúdo, não escolhidos — ver `apps/engrena-code/docs/F03-workspace/responsive-layout.md`.
+
+| Constante | Valor | Efeito |
+| --------- | ----- | ------ |
+| `CHAT_MIN_WIDTH` | 640px | piso da conversa; os dois limites abaixo existem para protegê-lo |
+| `RIGHT_RAIL_BREAKPOINT` | 1232px | abaixo disso a sidebar direita vira trilho de 40px |
+| `LEFT_RAIL_BREAKPOINT` | 992px | abaixo disso Projetos também vira trilho de 40px |
+
+Fonte: `apps/engrena-code/src/renderer/hooks/responsiveLayout.logic.ts`.
+
 ## Z-index
 
 Sem escala tokenizada. Valores ad-hoc 🟡:

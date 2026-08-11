@@ -25,6 +25,39 @@
   }
 }
 
+/* Workspace: painel lateral em sobreposição quando a janela é estreita demais para a coluna.
+   Aplicados via motion-safe:animate-[...] — sem movimento com prefers-reduced-motion. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Chat status: Cursor-like L→R highlight while agent is working */
 @keyframes text-shimmer {
   0% {
