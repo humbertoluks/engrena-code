@@ -60,6 +60,7 @@ Leia apenas os arquivos relevantes para a tarefa em andamento:
 | `apps/engrena-code/docs/DEVELOPMENT.md` | Setup inicial, deps, vite/biome/tsconfig, correções aplicadas, dev/build |
 | `apps/engrena-code/docs/F01-vault-e-sessao-local/spec.md` | Spec de Vault: encryption, unlock gate, IPC, erro handling |
 | `apps/engrena-code/docs/F01.1-design-system/spec.md` | Tokens, tema tri-modo, Shiki/xterm, superfícies |
+| `apps/engrena-code/docs/F28-chat-parity/smoke-results.md` | Paridade de chat com o Copilot Chat (contexto/anexos, histórico, `#codebase`, exclusions): o que já foi validado ao vivo e o que ficou só em unitário |
 | `apps/engrena-plan/docs/PRD.md` | Escopo mínimo Plan (stub) |
 | `docs/design-system/` | Design Lock Engrena (raiz): hexes, spacing, tipografia |
 | `docs/architecture/monorepo.md` | Contratos packages, portas, env, isolamento |
@@ -142,3 +143,7 @@ Tarefa concluída quando:
 - `Workspace · Chat · Nunca deixar refetch de histórico disparado pelo stream ligar historyLoading/historyError (loadHistory(id,{background:true})) e nunca guardar expansão de Work log só no DOM do <details> porque trocar a árvore por "Carregando…" joga o scroll ao topo e fecha o work log no meio da análise; scroll do chat é programático via useChatScroll + [overflow-anchor:none], com CTA "Ver mensagem" quando a resposta chega fora de vista`
 - `Workspace · Permission · Permitir todos grava toolName na allowlist da thread (sessão do processo) e auto-allow no broker sem UI — equivalente Claude Code “don’t ask again”; limpar allowlist no DELETE da thread`
 - `Workspace · Chat · Sempre manter o indicador de atividade visível enquanto state === running (nunca condicionar a streamingText vazio) e derivar o rótulo shimmer da tool running mais recente via currentActivity (fallback Trabalhando, nunca o nome cru da tool); o cronômetro de Pensando conta a partir da bolha otimista despachada, senão o follow-up nasce com o tempo do turno anterior`
+- `Gate · TypeScript · Sempre validar tipos com pnpm --filter engrena-code exec tsc -b (ou pnpm build) porque tsconfig.json da raiz do app só tem "references" e files:[]; tsc --noEmit -p tsconfig.json passa sem checar nada e dá falso verde`
+- `HTTP · threads-handler · Sempre registrar rota nova nas DUAS listas (regex + matchesThreadsRoute) porque o guarda de prefixo devolve false antes do dispatch e o request fica pendurado até o teste estourar em 5 s sem erro nenhum`
+- `Build · electron-builder · Sempre encerrar o app de smoke antes de pnpm build porque o rename de release/win-unpacked falha com EPERM enquanto o Electron do dev está aberto (tsc/vite já passaram; o erro é só empacotamento)`
+- `Ferramenta · Arquivo com backslash · Nunca escrever via heredoc/Bash conteúdo com backslash (regex \n, split('\'), ESCAPE '\') porque o shell colapsa e gera string não terminada; usar a ferramenta Write ou trocar por String.fromCharCode/escape alternativo (LIKE ... ESCAPE '#')`
