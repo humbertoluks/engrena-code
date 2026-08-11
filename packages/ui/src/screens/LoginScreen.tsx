@@ -11,6 +11,7 @@ import {
   LOGIN_PRODUCT_CONFIG,
   classifyUnlockFailure,
   messageForError,
+  persistUnlockedWorkspace,
   type LoginProduct,
   type UnlockErrorKind,
   type VaultUnlockResponse,
@@ -208,6 +209,7 @@ export function LoginScreen({
         if (!mountedRef.current) return
 
         if (response.ok && data.unlocked) {
+          persistUnlockedWorkspace(config.workspaceStorageKey, trimmedWorkspace)
           if (typeof data.sessionToken === 'string' && data.sessionToken) {
             localStorage.setItem('sessionToken', data.sessionToken)
             window.location.hash = config.successHash
@@ -230,7 +232,15 @@ export function LoginScreen({
         if (mountedRef.current) setSubmitting(false)
       }
     },
-    [config.successHash, config.unlockOrigin, onUnlock, password, submitDisabled, trimmedWorkspace],
+    [
+      config.successHash,
+      config.unlockOrigin,
+      config.workspaceStorageKey,
+      onUnlock,
+      password,
+      submitDisabled,
+      trimmedWorkspace,
+    ],
   )
 
   return (
@@ -240,7 +250,7 @@ export function LoginScreen({
       style={{ backgroundImage: GATE_BACKGROUND }}
     >
       <div className="absolute right-md top-md">
-        <ThemeControl />
+        <ThemeControl variant="icon" />
       </div>
 
       <form

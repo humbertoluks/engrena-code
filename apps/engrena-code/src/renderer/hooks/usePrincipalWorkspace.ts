@@ -137,6 +137,8 @@ export function usePrincipalWorkspace() {
   const [threadsByProject, setThreadsByProject] = useState<Record<string, Thread[]>>({})
   const [threadsLoading, setThreadsLoading] = useState<Record<string, boolean>>({})
   const [threadsError, setThreadsError] = useState<Record<string, boolean>>({})
+  const threadsByProjectRef = useRef(threadsByProject)
+  threadsByProjectRef.current = threadsByProject
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [vcsStatus, setVcsStatus] = useState<VcsStatus | null>(null)
@@ -274,7 +276,12 @@ export function usePrincipalWorkspace() {
   }, [])
 
   const loadThreads = useCallback(async (projectId: string) => {
-    setThreadsLoading((prev) => ({ ...prev, [projectId]: true }))
+    // Só mostra "Carregando…" na 1ª carga. Reload com cache (busca vazia / refetch)
+    // não pode desmontar ThreadRow — isso fechava o rename no meio da edição.
+    const hasCache = Object.hasOwn(threadsByProjectRef.current, projectId)
+    if (!hasCache) {
+      setThreadsLoading((prev) => ({ ...prev, [projectId]: true }))
+    }
     setThreadsError((prev) => ({ ...prev, [projectId]: false }))
     try {
       const res = await threadsService.listForProject(projectId)

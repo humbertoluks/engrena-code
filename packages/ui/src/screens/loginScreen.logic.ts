@@ -15,6 +15,8 @@ export interface LoginProductConfig {
   brand: 'EngrenaCode' | 'EngrenaPlan'
   unlockOrigin: string
   defaultWorkspace: string
+  /** localStorage key for the unlocked workspace label shown in chrome. */
+  workspaceStorageKey: string
   successHash: string
   instruction: string
   hintWorkspace: string
@@ -45,6 +47,7 @@ export const LOGIN_PRODUCT_CONFIG: Record<LoginProduct, LoginProductConfig> = {
     brand: CODE_BRAND,
     unlockOrigin: CODE_UNLOCK_ORIGIN,
     defaultWorkspace: '~/dev',
+    workspaceStorageKey: 'engrenacode:workspace',
     successHash: '#dashboard',
     instruction: 'Desbloqueie o workspace local para abrir seus projetos e threads.',
     hintWorkspace: 'Diretório raiz onde o EngrenaCode indexa seus repositórios.',
@@ -56,12 +59,42 @@ export const LOGIN_PRODUCT_CONFIG: Record<LoginProduct, LoginProductConfig> = {
     brand: PLAN_BRAND,
     unlockOrigin: PLAN_UNLOCK_ORIGIN,
     defaultWorkspace: '~/plan',
+    workspaceStorageKey: 'engrenaplan:workspace',
     successHash: '#shell',
     instruction:
       'Desbloqueie o workspace local para planejar Discovery, PRD, Spec e Plano.',
     hintWorkspace: 'Diretório raiz onde o EngrenaPlan guarda artefatos de planejamento.',
     footer: 'Segredos e sessão ficam apenas no filesystem local deste dispositivo.',
   },
+}
+
+/** Persiste o rótulo do workspace no chrome pós-unlock (fail-soft). */
+export function persistUnlockedWorkspace(storageKey: string, workspace: string): void {
+  try {
+    localStorage.setItem(storageKey, workspace)
+  } catch {
+    // fail-soft: chrome cai no defaultWorkspace
+  }
+}
+
+/** Lê o rótulo do workspace para o chrome; fallback no default do produto. */
+export function readUnlockedWorkspace(storageKey: string, fallback: string): string {
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (raw && raw.trim() !== '') return raw.trim()
+  } catch {
+    // fail-soft
+  }
+  return fallback
+}
+
+/** Limpa o rótulo do workspace no lock. */
+export function clearUnlockedWorkspace(storageKey: string): void {
+  try {
+    localStorage.removeItem(storageKey)
+  } catch {
+    // fail-soft
+  }
 }
 
 /** Mensagem visível no gate de unlock a partir do kind + backoff + marca do produto. */

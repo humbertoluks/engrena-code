@@ -18,6 +18,7 @@ import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { PendingAskUserQuestion } from './askUserQuestion.logic'
 import { ChatMarkdown } from './ChatMarkdown'
 import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
+import { EmptyChatIcon } from './sidebarIcons'
 
 const COPY = {
   loading: 'Carregando histórico…',
@@ -521,11 +522,11 @@ export function ChatHistory({
   }
 
   if (!hasThread && !hasContent) {
-    return <p className="p-md text-[13px] text-muted">{COPY.emptyNoThread}</p>
+    return <EmptyChatState message={COPY.emptyNoThread} />
   }
 
   if (!hasContent) {
-    return <p className="p-md text-[13px] text-muted">{COPY.emptyThread}</p>
+    return <EmptyChatState message={COPY.emptyThread} />
   }
 
   // `queued` só roda depois do turno atual — fica no rodapé, abaixo do streaming e do "Pensando…".
@@ -641,6 +642,18 @@ export function ChatHistory({
       {queued.map((pending) => (
         <PendingUserMessage key={pending.id} pending={pending} />
       ))}
+    </div>
+  )
+}
+
+/** Empty thread / no-thread — centered icon + copy (legacy chat empty state). */
+function EmptyChatState({ message }: Readonly<{ message: string }>): ReactElement {
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-md px-lg py-xl text-center">
+      <span className="text-muted">
+        <EmptyChatIcon />
+      </span>
+      <p className="max-w-[22rem] text-[13px] leading-relaxed text-muted">{message}</p>
     </div>
   )
 }

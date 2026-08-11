@@ -7,6 +7,7 @@ import {
   nextHeightFromDrag,
   tabLabel,
 } from './terminalDock.logic'
+import { ChevronIcon, CloseIcon, PlusIcon, TerminalIcon } from './sidebarIcons'
 
 const COPY = {
   title: 'Terminal',
@@ -119,10 +120,10 @@ export function TerminalDock({
           aria-expanded={dock.open}
           aria-controls="terminal-dock-panel"
           title={COPY.toggleTitle}
-          className="inline-flex items-center gap-sm rounded-sm px-sm py-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="inline-flex items-center gap-[6px] rounded-sm px-sm py-xs text-[11px] font-bold uppercase tracking-[0.07em] text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Chevron open={dock.open} />
-          <TerminalGlyph />
+          <ChevronIcon open={dock.open} />
+          <TerminalIcon />
           {COPY.title}
         </button>
 
@@ -134,7 +135,7 @@ export function TerminalDock({
               return (
                 <span
                   key={tab.tabId}
-                  className={`inline-flex flex-none items-center rounded-sm transition-colors ${
+                  className={`inline-flex flex-none items-center rounded-md transition-colors ${
                     isActive ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'
                   }`}
                 >
@@ -251,71 +252,6 @@ function DockBody({
         </div>
       ))}
     </>
-  )
-}
-
-function Chevron({ open }: Readonly<{ open: boolean }>): ReactElement {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={`h-[13px] w-[13px] transition-transform ${open ? 'rotate-90' : ''}`}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  )
-}
-
-function TerminalGlyph(): ReactElement {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      className="h-[14px] w-[14px]"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m5 8 4 4-4 4M13 16h6" />
-      <rect x="2" y="3" width="20" height="18" rx="2" />
-    </svg>
-  )
-}
-
-function PlusIcon(): ReactElement {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[13px] w-[13px]"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
-}
-
-function CloseIcon(): ReactElement {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      className="h-[11px] w-[11px]"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M6 6l12 12M18 6 6 18" />
-    </svg>
   )
 }
 

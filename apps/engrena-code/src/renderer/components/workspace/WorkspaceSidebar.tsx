@@ -24,6 +24,7 @@ import {
   AmbienteIcon,
   HarnessIcon,
   LimitesIcon,
+  PanelRightIcon,
   PlusIcon,
   RepoIcon,
   ThreadIcon,
@@ -33,6 +34,8 @@ const COPY = {
   newThread: 'Nova Thread',
   newThreadTitle: 'Nova thread no projeto',
   noProject: 'Selecione um projeto para ver o ambiente, os vínculos e as ações do repositório.',
+  collapse: 'Recolher painel',
+  expand: 'Expandir painel',
   limites: 'Limites',
   limitesEmpty: 'Sem limite configurado.',
   limitesAdjust: 'Ajustar em Consumo',
@@ -121,6 +124,7 @@ export interface WorkspaceSidebarProps {
   onPush: () => Promise<{ ok: boolean; error?: string }>
   onOpenPr: (input?: { title?: string; body?: string }) => Promise<{ ok: boolean; error?: string; url?: string }>
   onTextgen: (mode: 'commit' | 'pr') => Promise<{ ok: boolean; error?: string; subject?: string; body?: string; title?: string }>
+  onCollapse?: () => void
 }
 
 export function WorkspaceSidebar({
@@ -143,6 +147,7 @@ export function WorkspaceSidebar({
   onPush,
   onOpenPr,
   onTextgen,
+  onCollapse,
 }: Readonly<WorkspaceSidebarProps>): ReactElement {
   const [rulesCount, setRulesCount] = useState<number | null>(null)
   const [skillsCount, setSkillsCount] = useState<number | null>(null)
@@ -219,6 +224,17 @@ export function WorkspaceSidebar({
           <PlusIcon />
           {COPY.newThread}
         </button>
+        {onCollapse ? (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label={COPY.collapse}
+            title={COPY.collapse}
+            className="grid h-[36px] w-[36px] shrink-0 place-items-center rounded-md border border-border bg-surface-2 text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <PanelRightIcon />
+          </button>
+        ) : null}
       </div>
 
       <SidebarSection title={COPY.limites} icon={<LimitesIcon />} collapsible>
@@ -409,6 +425,23 @@ export function WorkspaceSidebar({
         />
       ) : null}
     </aside>
+  )
+}
+
+/** Thin rail when the right workspace panel is collapsed. */
+export function WorkspaceSidebarCollapsedRail({ onExpand }: Readonly<{ onExpand: () => void }>): ReactElement {
+  return (
+    <div className="flex h-full flex-col items-center rounded-xl border border-border bg-surface py-sm">
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label={COPY.expand}
+        title={COPY.expand}
+        className="grid h-[24px] w-[24px] place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <PanelRightIcon />
+      </button>
+    </div>
   )
 }
 
