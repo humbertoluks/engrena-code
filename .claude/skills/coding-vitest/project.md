@@ -30,12 +30,16 @@ Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-cod
 
 ## Achados abertos
 
-Nenhum (passagem 2026-08-10 remediada — C51/C52).
+Passagem 2026-08-11 — Workspace CHAT:
+
+- `D04` — `composerDrop.logic.ts`: cobrir `readDroppedFiles` / clipboard no irmão antes de fechar WIP de anexos
+- Ao fechar `R01` (permission resolve): teste de regressão no mesmo diff (bugfix sem caso que reproduza)
 
 ## Já corrigidos — não regrida
 
-- `RC-missing-sibling-coverage` — D02 fechado; módulo novo nasce com irmão
-- `RC-missing-smoke-evidence` — D07 fechado; feature UI nova escreve smoke antes de marcar Feito (F19 smoke live segue opcional no PROGRESS)
+- `RC-missing-sibling-coverage` — D02 fechado; módulo novo nasce com irmão (residual drop: D04)
+- `RC-missing-smoke-evidence` — D07 fechado; feature UI nova escreve smoke antes de marcar Feito (F19 smoke live segue opcional no PROGRESS; WIP context chips ainda sem smoke)
 - `process-error.test.ts` — um caso por scheme (`oauth2:`, `x-token-auth:`, azure `https://:<token>@`) e prefixo (`xai-`, `gsk_`)
 - `RC-missing-link-body-regression` — PUT 400 skills/rules (C51); R01/R02/R03 também com teste no mesmo diff do fix
 - `RC-flaky-process-timeout` — `testTimeout` explícito em casos git/spawn reais (C52)
+- Chat subset 2026-08-11: evidência unitária dos `*.logic.ts` principais + smoke F03/F16/F21/F22/F27 — não tratar como gate global da suíte

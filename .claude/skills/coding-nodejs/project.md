@@ -37,19 +37,24 @@ Fonte de verdade: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/
 
 ## Achados abertos
 
-Nenhum (passagem 2026-08-10 remediada — C46–C57).
+Passagem 2026-08-11 — Workspace CHAT:
+
+- `R02` — `cli-driver.ts` ramo `is_error` / `provider_turn_error`: passar `payload.result` por `sanitizeProcessError` + teste
+- `R03` — `threads-handler` PATCH/follow-up: `typeof accessLevel === 'string'` antes do includes
+- `R06` — `dispatch.ts` emit `error`: sanitize `err.message` genérico
+- `R08` — `permission-hook.ts`: se `!res.ok`, deny com razão explícita
 
 ## Já corrigidos — não regrida
 
 - `RC-guard-423`, `RC-route-claim`, `RC-unlock-validate`, `RC-oauth-https`, `RC-vault-corrupted`, `RC-cors-local`, `RC-shared-transport`, `RC-sanitize-stderr`, `RC-artifacts-userdata`, `RC-atomic-vault`, `RC-http-body-type-trust`, `RC-error-message-path-leak`, `RC-http-unhandled-hang`, `RC-ws-auth-status-collapse`, `RC-error-code-vocabulary-drift`, `RC-http-body-size-unbounded`, `RC-partial-destructive-effect`, `RC-error-message-locale`, `RC-layer-inversion`, `RC-export-should-be-local`
 - `RC-error-message-locale-residual` — `cors_denied` + messages `Subagente` em `repositories/subagents.ts` (C40/C56)
 - `RC-ws-query-token-legacy` — sem fallback `?token=`
-- `RC-http-body-narrowing-gap` — create/link skills/rules/subagents/mcps; git `body` string; consumo `approximate` boolean (C42/C46)
+- `RC-http-body-narrowing-gap` — create/link skills/rules/subagents/mcps; git `body` string; consumo `approximate` boolean (C42/C46). Residual chat: R03 accessLevel PATCH/follow-up.
 - `RC-dead-export` — `injectTokenIntoHttpsUrl` / `vcs/oauth.getTokens` / `mcps/oauth.getTokens` locais; `parseOauthMetadata` em `oauth-metadata.ts` (C39/C57)
 - `RC-vcs-url-redaction` — userinfo HTTPS genérico + `xai-`/`gsk_`
 - `RC-cors-methods-allowlist-gap` — `PATCH` no allowlist
 - `RC-http-status-code-collision` — voice auth → `422` (não `401`)
-- `RC-spawn-failed-unsanitized` — `provider_spawn_failed` sanitizado (C47)
+- `RC-spawn-failed-unsanitized` — `provider_spawn_failed` sanitizado (C47). Residual: R02 `provider_turn_error`.
 - `RC-unlock-body-unbounded` — unlock via `readBody` (C53)
 - `RC-cli-env-inheritance` — CLI spawn `buildPtyEnv` (C54)
 - `RC-spawn-cleanup-gap` — `cleanupPermissionSettings` no catch síncrono (C55)

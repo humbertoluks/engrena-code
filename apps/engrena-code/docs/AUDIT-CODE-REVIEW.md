@@ -5,11 +5,11 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | Campo | Valor |
 |-------|--------|
-| **Passagem atual** | 2026-08-10 (remediação working tree — abertos zerados) |
-| **Escopo** | `src/` (base completa) |
-| **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura); remediação em sessão separada |
-| **Correção de código nesta passagem** | Remediação dos 8 🔴 + 14 🟡: narrowing PUT link; sanitize/`cleanupPermissionSettings` no spawn; catch visível harness/catálogo/OAuth; extract Codegraph/Login logic; dead exports DB/MCP; testes skills/rules + timeout delegate; unlock `readBody`; CLI env allowlist; locale Subagente |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — remediação C18–C30; 2026-08-09 — C31–C45 (base zerada); 2026-08-10 — reauditoria full-base + remediação C46–C57 (este documento) |
+| **Passagem atual** | 2026-08-11 — Workspace CHAT (auditoria; sem remediação de `src/`) |
+| **Escopo** | Workspace CHAT: `components/workspace` (chat/composer/permission/ask-user/markdown/voice), `usePrincipalWorkspace` / `useChatScroll`, `threads-service` / `ws-client`, `threads-handler`, repos `threads`/`messages`, `permission-broker`/`permission-hook`, `cli-driver`/`dispatch` (stream de erro do turno) |
+| **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura); coordenador confirmou 🔴 no código |
+| **Correção de código nesta passagem** | Nenhuma (`src/` intocado) |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — C18–C30; 2026-08-09 — C31–C45; 2026-08-10 — full-base + remediação C46–C57 (abertos zerados); 2026-08-11 — escopo Workspace CHAT (este documento) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -23,12 +23,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | `TypeScript` | tipagem pura (raro; prefira Stack do arquivo) |
 | `Vitest` | testes, smoke, gates de entrega |
 
-### Contagem (passagem 2026-08-10 + remediação)
+### Contagem (passagem 2026-08-11 — Workspace CHAT)
 
 | | 🔴 | 🟡 | Tipos de regra |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 0 | 0 |
-| Problemas corrigidos (tipos / linhas C) | — | — | 45 → 57 |
+| Achados abertos | 4 | 12 | 15 |
+| Problemas corrigidos (tipos / linhas C) | — | — | 57 (C01–C57 intactos) |
 
 ---
 
@@ -77,24 +77,22 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** base **liberada** — 🔴0 / 🟡0 após remediação working tree (C46–C57). Fronteiras Electron/HTTP permanecem íntegras; C01–C45 **permanecem válidos**. Fechados nesta remediação: narrowing PUT link (R01/R02/R08/R09); sanitize + cleanup de spawn (R03/R11); catch visível (R04/R05/R10); extract logic Codegraph/Login (D01/D02); dead exports DB/MCP (A01–A06/A02/A03); regressões de teste (D03/D04); unlock body + CLI env allowlist + locale Subagente (R06/R07/R12).
+**Veredito:** Workspace CHAT **bloqueado** — 🔴4 / 🟡12. Fronteiras Electron/HTTP/WS do chat permanecem íntegras (sem `fetch` cru na UI, domínio via `threads-service` + WS loopback 5174, sem IPC de thread/dispatch). C01–C57 **permanecem válidos**. Top bloqueadores: (1) `resolvePermission` some o PermissionPrompt sem checar erro da API; (2) `provider_turn_error` do CLI sem `sanitizeProcessError`; (3) `shouldShowActivity` ainda no TSX; (4) `isToolRunning` export órfão.
 
-**Confirmado nesta remediação**
+**Confirmado nesta passagem (chat)**
 
-- PUT link subagents/mcps/skills/rules rejeitam `enabled`/`sortOrder` com tipo inválido (400).
-- `provider_spawn_failed` passa por `sanitizeProcessError`; catch síncrono limpa permission settings; CLI spawn usa `buildPtyEnv`.
-- Harness/catálogo/OAuth poll: erro visível + `console.error` (AbortError silencioso).
-- `badgeLabel`/`badgeTitle` e unlock classify em `*.logic.ts` com testes irmãos.
-- `pnpm test` **2×** — **1066/1066** verde. Gates `tsc`/`vite`/`biome`/`electron-builder` não reexecutados.
+- Isolamento renderer OK; `composer.logic` importa só constantes puras de `composer-images` / `slash-commands`.
+- Smoke F03/F16/F21/F22/F27 com evidência escrita; subset Vitest do chat **218/218** verde (delivery).
+- Gaps: permission resolve silencioso; sanitize residual em `is_error` do CLI; regra de ActivityIndicator no TSX; literais de tool/accessLevel espelhados.
 
 ### Por Stack (abertos)
 
 | Stack | 🔴 | 🟡 |
 |-------|----|----|
-| `Node.js` | 0 | 0 |
-| `React` | 0 | 0 |
+| `React` | 3 | 7 |
+| `Node.js` | 1 | 4 |
+| `Vitest` | 0 | 1 |
 | `SQLite` | 0 | 0 |
-| `Vitest` | 0 | 0 |
 | `Electron` | 0 | 0 |
 | `TypeScript` | 0 | 0 |
 
@@ -102,13 +100,330 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 2. Achados abertos
 
-Nenhum. Todos os IDs da passagem 2026-08-10 foram movidos para §4 (C46–C57).
+| ID | Stack | Sev | Frente | Local | Problema | Regra |
+|----|--------|-----|--------|-------|----------|-------|
+| R01 | `React` | 🔴 | rob | `usePrincipalWorkspace.ts:762` | `resolvePermission` remove da fila sem checar `res.error`/`catch`; broker fica à espera | [R-silent-permission-resolve](#r-silent-permission-resolve) |
+| R02 | `Node.js` | 🔴 | rob | `cli-driver.ts:393` | `provider_turn_error` usa `String(payload.result)` sem `sanitizeProcessError` → UI `sendError` | [R-provider-turn-error-unsanitized](#r-provider-turn-error-unsanitized) |
+| D01 | `React` | 🔴 | del | `ChatHistory.tsx:414` | `showActivity = threadState === 'running' && !pendingQuestion` no TSX (suíte não alcança) | [R-business-rule-in-tsx-chat](#r-business-rule-in-tsx-chat) |
+| A01 | `React` | 🔴 | arch | `chatHistory.logic.ts:179` | `isToolRunning` exportado sem consumidor (`anyToolRunning` não delega) | [R-dead-export-chat](#r-dead-export-chat) |
+| R03 | `Node.js` | 🟡 | rob | `threads-handler.ts:197` / `:339` | PATCH/follow-up `accessLevel` sem `typeof === 'string'` (create já tem) | [R-access-level-typeof-gap](#r-access-level-typeof-gap) |
+| R04 | `React` | 🟡 | rob | `ws-client.ts:46` | `JSON.parse as StreamEvent` sem narrowing de `type` | [R-ws-frame-untyped](#r-ws-frame-untyped) |
+| R05 | `React` | 🟡 | rob | `usePrincipalWorkspace.ts:422` | `event.state as Thread['state']` sem allowlist | [R-ws-state-cast](#r-ws-state-cast) |
+| R06 | `Node.js` | 🟡 | rob | `dispatch.ts:615` | `err.message` genérico vai ao WS sem sanitize | [R-dispatch-error-unsanitized](#r-dispatch-error-unsanitized) |
+| R07 | `React` | 🟡 | rob | `usePrincipalWorkspace.ts:859` | `cancel` ignora `res.error`/exceção | [R-silent-cancel](#r-silent-cancel) |
+| R08 | `Node.js` | 🟡 | rob | `permission-hook.ts:73` | `res.json()` sem checar `res.ok` (fail-closed mitiga) | [R-permission-hook-status](#r-permission-hook-status) |
+| R09 | `React` | 🟡 | rob/arch | `askUserQuestion.logic.ts:4` (+ `chatHistory.logic` tool names) | Literais de tool name duplicados vs runner sem módulo puro | [R-duplicated-tool-literal](#r-duplicated-tool-literal) |
+| R10 | `React` | 🟡 | rob | `TaskComposer.tsx:52` vs `threads-handler.ts:41` | `ACCESS_LEVELS` literal espelhado | [R-duplicated-access-levels](#r-duplicated-access-levels) |
+| A02 | `React` | 🟡 | arch | `composer.logic.ts:42` / `:47` | `clampCatalog*` só consumido em teste | [R-test-only-export](#r-test-only-export) |
+| D02 | `React` | 🟡 | del | `ChatHistory.tsx:406` | Partição `dispatched`/`queued` no TSX | [R-business-rule-in-tsx-chat](#r-business-rule-in-tsx-chat) |
+| D03 | `React` | 🟡 | del | `usePrincipalWorkspace.ts` (fila) | Serialize/drenagem de fila misturada com `localStorage` no hook | [R-queue-logic-in-hook](#r-queue-logic-in-hook) |
+| D04 | `Vitest` | 🟡 | del | `composerDrop.logic.ts` | `readDroppedFiles` / clipboard sem casos no irmão | [R-incomplete-sibling-drop](#r-incomplete-sibling-drop) |
 
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
 
-Nenhuma. Tipos da passagem 2026-08-10 foram fechados; contratos estão em §4 como RC-* (novos: spawn-failed-unsanitized, silent-catch-regression, unlock-body-unbounded, cli-env-inheritance, spawn-cleanup-gap, missing-link-body-regression, flaky-process-timeout; reuso: dead-export, http-body-narrowing-gap, business-rule-in-tsx, error-message-locale-residual, no-silent-catch).
+<a id="r-silent-permission-resolve"></a>
+
+### Permission resolve silencioso
+Esforço: baixo  
+Classificação: Crítico  
+Stack: `React`  
+Tipo: `silent-permission-resolve`
+
+#### Por que isso é um problema?
+Falha de POST (409/`no_pending_permission`, rede) some o PermissionPrompt enquanto o broker do CLI continua à espera — o usuário acha que resolveu e o turno trava.
+
+Não conforme:
+
+```
+await threadsService.permission(...)
+setPermissionQueue((prev) => prev.filter(...)) // sempre
+```
+
+Correção: ler `res.error`; só dropar da fila se `resolved`; em erro `setSendError` e manter o prompt.
+
+Conforme:
+
+```
+const res = await threadsService.permission(...)
+if (res.error) { setSendError(res.error.message); return }
+setPermissionQueue((prev) => prev.filter(...))
+```
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="r-provider-turn-error-unsanitized"></a>
+
+### provider_turn_error sem sanitize
+Esforço: baixo  
+Classificação: Crítico  
+Stack: `Node.js`  
+Tipo: `provider-turn-error-unsanitized`
+
+#### Por que isso é um problema?
+`payload.result` do CLI pode carregar path/segredo; vai para `ProviderError` → WS `error` → `sendError` na UI. Spawn já sanitiza; o ramo `is_error` não.
+
+Não conforme:
+
+```
+new ProviderError('provider_turn_error', String(payload.result ?? '...'))
+```
+
+Correção: `sanitizeProcessError(String(payload.result ?? '...'))` + teste de regressão.
+
+Conforme:
+
+```
+new ProviderError('provider_turn_error', sanitizeProcessError(String(payload.result ?? 'Erro no provider.')))
+```
+
+#### Exceções
+Nenhuma quando a mensagem chega à UI.
+
+---
+
+<a id="r-business-rule-in-tsx-chat"></a>
+
+### Regra de chat ainda no TSX
+Esforço: baixo  
+Classificação: Alto  
+Stack: `React`  
+Tipo: `business-rule-in-tsx` (reuso C29/C49)
+
+#### Por que isso é um problema?
+Vitest não cobre `.tsx`. Gate do ActivityIndicator e partição pending nascem sem teste possível.
+
+Não conforme:
+
+```
+const showActivity = threadState === 'running' && !pendingQuestion
+const dispatched = pendingMessages.filter((p) => p.status !== 'queued')
+```
+
+Correção: `shouldShowActivity` + `partitionPendingMessages` em `*.logic.ts` + casos nos irmãos.
+
+#### Exceções
+Wiring puro de props/eventos no TSX.
+
+---
+
+<a id="r-dead-export-chat"></a>
+
+### Export órfão no chat logic
+Esforço: mínimo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `dead-export` (reuso C39/C50/C57)
+
+#### Por que isso é um problema?
+`isToolRunning` exportado sem consumidor; `anyToolRunning` reimplementa o predicado inline.
+
+Correção: remover o export, ou fazer `anyToolRunning` delegar nela (e cobrir no teste se mantiver).
+
+#### Exceções
+Nenhuma para export de produção sem uso.
+
+---
+
+<a id="r-access-level-typeof-gap"></a>
+
+### accessLevel sem typeof no PATCH/follow-up
+Esforço: mínimo  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo: `http-body-narrowing-gap` (reuso C42/C46)
+
+#### Por que isso é um problema?
+`.includes` em valor não-string pode aceitar/comportar-se de forma estranha; create já estreita com `typeof`.
+
+Correção: espelhar `typeof data.accessLevel === 'string' && ACCESS_LEVELS.includes(...)`.
+
+#### Exceções
+Nenhuma em body JSON.
+
+---
+
+<a id="r-ws-frame-untyped"></a>
+
+### Frame WS sem narrowing
+Esforço: baixo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `ws-frame-untyped`
+
+#### Por que isso é um problema?
+Frame malformado entra no handler de stream e pode corromper estado do workspace.
+
+Correção: guard por `type` string conhecida antes de `onEvent`.
+
+#### Exceções
+Nenhuma no cliente de produção.
+
+---
+
+<a id="r-ws-state-cast"></a>
+
+### Cast de state do WS
+Esforço: mínimo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `ws-state-cast`
+
+#### Por que isso é um problema?
+Estado inválido contamina a sidebar/thread list.
+
+Correção: allowlist (`running|idle|error|cancelled|…`) ou ignorar valor fora do conjunto.
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="r-dispatch-error-unsanitized"></a>
+
+### Erro genérico do dispatch sem sanitize
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo: `dispatch-error-unsanitized`
+
+#### Por que isso é um problema?
+`err.message` de Error não-`ProviderError` pode vazar path absoluto no evento WS `error`.
+
+Correção: `sanitizeProcessError` antes do `emit`.
+
+#### Exceções
+Mensagens já sanitizadas na origem (`ProviderError` com sanitize).
+
+---
+
+<a id="r-silent-cancel"></a>
+
+### Cancel silencioso
+Esforço: mínimo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `silent-cancel`
+
+#### Por que isso é um problema?
+Falha de cancel fica invisível; usuário clica de novo sem feedback.
+
+Correção: `setSendError` com a `message` da API / catch.
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="r-permission-hook-status"></a>
+
+### Permission hook ignora status HTTP
+Esforço: baixo  
+Classificação: Baixo  
+Stack: `Node.js`  
+Tipo: `permission-hook-status`
+
+#### Por que isso é um problema?
+Resposta não-2xx ainda tenta `json()`; fail-closed em deny mitiga, mas a razão fica opaca.
+
+Correção: se `!res.ok`, deny com razão explícita.
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="r-duplicated-tool-literal"></a>
+
+### Literal de tool name duplicado
+Esforço: baixo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `duplicated-tool-literal`
+
+#### Por que isso é um problema?
+`ASK_USER_QUESTION_TOOL_NAME` / `CALL_SUBAGENT` / `LOAD_SKILL` espelhados renderer vs runner; drift quebra detecção de UI.
+
+Correção: constante em módulo puro compartilhado (padrão `composer-images.ts` / `slash-commands.ts`).
+
+#### Exceções
+Nenhuma quando os dois lados comparam o mesmo nome de wire.
+
+---
+
+<a id="r-duplicated-access-levels"></a>
+
+### ACCESS_LEVELS duplicado
+Esforço: baixo  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `duplicated-access-levels`
+
+#### Por que isso é um problema?
+Pill do composer e handler HTTP podem divergir de allowlist.
+
+Correção: exportar allowlist canônica (módulo puro) e importar nos dois lados.
+
+#### Exceções
+Nenhuma.
+
+---
+
+<a id="r-test-only-export"></a>
+
+### Export só usado em teste
+Esforço: mínimo  
+Classificação: Baixo  
+Stack: `React`  
+Tipo: `test-only-export`
+
+#### Por que isso é um problema?
+`clampCatalogModel` / `clampCatalogReasoningLevel` não ligam na UI — falsa cobertura de comportamento de produto.
+
+Correção: ligar no composer ao escolher provider/model, ou tornar local / remover até haver uso.
+
+#### Exceções
+Helpers de teste em `*.test.ts` (não export de produção).
+
+---
+
+<a id="r-queue-logic-in-hook"></a>
+
+### Fila de follow-up no hook
+Esforço: médio  
+Classificação: Médio  
+Stack: `React`  
+Tipo: `queue-logic-in-hook`
+
+#### Por que isso é um problema?
+Serialize/deserialize/`processQueueIfIdle` misturados com `localStorage` no hook — extração pela metade, difícil de testar puro.
+
+Correção: extrair regras puras (serialize/dequeue head) para `*.logic.ts`; hook só wiring.
+
+#### Exceções
+Efeito colateral de storage permanece no hook.
+
+---
+
+<a id="r-incomplete-sibling-drop"></a>
+
+### Cobertura incompleta de drop/clipboard
+Esforço: baixo  
+Classificação: Médio  
+Stack: `Vitest`  
+Tipo: `incomplete-sibling-coverage`
+
+#### Por que isso é um problema?
+`classify*` coberto; `readDroppedFiles` / `imagesFromClipboard` sem casos — regressão de anexos passa despercebida.
+
+Correção: ramos no `composerDrop.logic.test.ts` no mesmo diff do WIP de anexos.
+
+#### Exceções
+WIP explícito sem claim de Feito no PROGRESS — ainda assim feche antes de marcar AC.
 
 ---
 
@@ -1577,21 +1892,26 @@ Falha determinística nas duas execuções = bug de produto.
 
 ## 5. Fora de escopo / dívida consciente
 
-| Item | Estado 2026-08-10 |
+| Item | Estado 2026-08-11 |
 |------|-------------------|
-| Remediação C01–C57 | **Confirmada** no código para C46–C57 (working tree); C01–C45 permanecem válidos |
-| F19 smoke “opcional” | Mantido: ACs tool-only + PROGRESS declara smoke live opcional; há UI (`CodegraphSection`) mas sem `smoke-results.md` — só reabrir se produto exigir DOM fechado |
-| PRD cross-feature F18 `[ ]` | Docs de produto; F18 Feito com smoke real — marcar `[x]` só se o usuário pedir sync PRD |
-| Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag de arquitetura |
+| C01–C57 | **Intactos** — não reabertos nesta passagem |
+| Escopo desta passagem | Só Workspace CHAT — resto de `src/` não reauditado |
+| WIP anexos de contexto (`ComposerContextChips` / drop) | Sem `smoke-results` ainda; fechar com smoke ao marcar Feito |
+| Commits históricos de chat em PT (`c4ce03d`, `47b9900`) | Dívida de mensagem; não reescrever histórico sem pedido |
+| F19 smoke “opcional” | Mantido (fora do escopo chat) |
+| Polling Dashboard / OAuth pending vs hub WS | Justificado |
 | PTY via IPC nomeado (F26) | Capacidade nativa aceita |
-| Servidores `listen(0)` por turno | Por design |
-| `AUDIT-PRD-S9-MIGRATION.md` | Encerrada; não reabrir como matriz de código |
-| Gates `tsc`/`vite`/`biome`/`electron-builder` | Não reexecutados nesta passagem (só `pnpm test` 2× — 1066/1066) |
-| Suíte flaky sob carga | D04 mitigado com `testTimeout` no parallel batch; ainda rode duas vezes antes de chamar regressão |
+| Servidores `listen(0)` por turno (permission/ask-user) | Por design |
+| Gates `tsc`/`vite`/`biome`/`electron-builder` | Não reexecutados (subset chat Vitest 218/218) |
+| `import type` de tipos do hook monólito | 🟢 opcional (architecture) |
 
 ### Fatiamento sugerido
 
-Remediação 2026-08-10 **concluída** (lotes 1–9). Sem abertos restantes nesta passagem.
+1. **🔴 R01** — `fix(chat): check permission API before dropping prompt` (+ teste de regressão no mesmo diff)
+2. **🔴 R02** (+ R06) — `fix(runner): sanitize provider_turn_error and dispatch messages`
+3. **🔴 D01** (+ D02) — `refactor(chat): extract shouldShowActivity + partitionPending`
+4. **🔴 A01** — `refactor(chat): remove or wire isToolRunning`
+5. **🟡 R03–R05, R07–R10, A02, D03–D04** — narrowing/WS/cancel/constantes/fila/drop tests em fatias por Stack
 
 ---
 

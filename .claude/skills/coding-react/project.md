@@ -39,12 +39,23 @@ Fonte de verdade de achados: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../
 
 ## Achados abertos
 
-Nenhum (passagem 2026-08-10 remediada — C48/C49).
+Passagem 2026-08-11 — Workspace CHAT:
+
+- `R01` — `usePrincipalWorkspace.ts` `resolvePermission`: só dropar da fila se API `resolved`; senão `setSendError` e manter prompt
+- `D01`/`D02` — `ChatHistory.tsx`: extrair `shouldShowActivity` + `partitionPendingMessages` para `*.logic.ts` + teste
+- `A01` — `chatHistory.logic.ts`: remover ou ligar `isToolRunning` (export órfão)
+- `R04` — `ws-client.ts`: narrowing de frame WS antes de `onEvent`
+- `R05` — `usePrincipalWorkspace.ts`: allowlist de `event.state` (sem cast cego)
+- `R07` — `cancel`: checar `res.error` e exibir
+- `R09` — tool name literals: módulo puro compartilhado com runner
+- `R10` — `ACCESS_LEVELS`: allowlist canônica compartilhada com `threads-handler`
+- `A02` — `clampCatalog*`: ligar na UI ou deixar de exportar
+- `D03` — fila de follow-up: regras puras fora do hook (`localStorage` fica no wiring)
 
 ## Já corrigidos — não regrida
 
 - `RC-shared-validation` — `configuracaoScreen.logic.ts` importa `validate*Key` / `validateGithubToken`; não re-declare prefixo/comprimento no renderer.
-- `RC-business-rule-in-tsx` — regras em `*.logic.ts` com teste irmão (inclui Codegraph/Login — C49).
-- `RC-no-silent-catch` / `RC-silent-catch-regression` — não reintroduza `.catch(() => {})` mudo (harness/catálogo/OAuth poll — C48).
+- `RC-business-rule-in-tsx` — regras em `*.logic.ts` com teste irmão (inclui Codegraph/Login — C49). Não regrida ActivityIndicator/pending no TSX (D01/D02 abertos).
+- `RC-no-silent-catch` / `RC-silent-catch-regression` — não reintroduza `.catch(() => {})` mudo (harness/catálogo/OAuth poll — C48). Mesmo padrão para permission/cancel (R01/R07).
 - `RC-shared-api-request` — services usam `api-client.ts`; não duplique `fetch` com headers próprios.
 - `RC-harness-count-stale-after-modal-close` — `refreshHarnessCounts` no `onClose` dos modais de vínculo do Repo Harness.
