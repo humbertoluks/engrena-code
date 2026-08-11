@@ -20,6 +20,11 @@ import { consumoService, type UsageLimitStatusResponse } from '../services/consu
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
 import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
+import {
+  reconcilePendingMessages,
+  type PendingMessage,
+  type PendingMessageStatus,
+} from '../components/workspace/pendingMessages.logic'
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
@@ -126,6 +131,9 @@ export function usePrincipalWorkspace() {
     images: [],
   })
   const [queue, setQueue] = useState<QueueItem[]>([])
+  // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
+  // `GET /history` chega (ver pendingMessages.logic.ts).
+  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
   const [sendError, setSendError] = useState<string | null>(null)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
 
@@ -177,8 +185,17 @@ export function usePrincipalWorkspace() {
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
 
+  // A fila é lida pelo handler de WS, que roda com o closure do render em que a conexão subiu —
+  // o ref mantém o valor corrente sem reconectar o stream a cada mudança de fila.
+  const queueRef = useRef<QueueItem[]>([])
   useEffect(() => {
-    setQueue(loadQueue(queueKey))
+    queueRef.current = queue
+  }, [queue])
+
+  useEffect(() => {
+    const restored = loadQueue(queueKey)
+    queueRef.current = restored
+    setQueue(restored)
   }, [queueKey])
 
   const upsertThreadLocal = useCallback((projectId: string, thread: Thread) => {
@@ -255,24 +272,37 @@ export function usePrincipalWorkspace() {
     }
   }, [])
 
-  const loadHistory = useCallback(async (threadId: string) => {
-    setHistoryLoading(true)
-    setHistoryError(null)
+  /**
+   * `background: true` (todo refetch disparado pelo stream) nunca liga `historyLoading` nem
+   * grava `historyError`: trocar a árvore do chat por "Carregando…"/erro desmonta a conversa,
+   * o container volta ao topo e todo `<details>` de Work log fecha no meio da leitura. Só a
+   * abertura da thread — quando não há nada em tela — mostra estado de carregamento.
+   */
+  const loadHistory = useCallback(async (threadId: string, options?: { background?: boolean }) => {
+    const background = options?.background === true
+    if (!background) {
+      setHistoryLoading(true)
+      setHistoryError(null)
+    }
     try {
       const res = await threadsService.history(threadId)
       if (!mountedRef.current) return
       if (res.error) {
-        setHistoryError(res.error.message)
+        if (background) console.error('[workspace] history refetch:', res.error.message)
+        else setHistoryError(res.error.message)
         return
       }
       setMessages(res.messages)
+      setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
       setToolCalls(res.toolCalls)
       setSubagentRuns(res.subagentRuns)
       setPipeline(res.pipeline)
-    } catch {
-      if (mountedRef.current) setHistoryError('Falha ao carregar o histórico da thread.')
+    } catch (err: unknown) {
+      if (!mountedRef.current) return
+      if (background) console.error('[workspace] history refetch:', err)
+      else setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
-      if (mountedRef.current) setHistoryLoading(false)
+      if (mountedRef.current && !background) setHistoryLoading(false)
     }
   }, [])
 
@@ -400,9 +430,9 @@ export function usePrincipalWorkspace() {
       }
       if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
         setStreamingText('')
-        void loadHistory(event.threadId)
+        void loadHistory(event.threadId, { background: true })
         void loadDiffs(event.threadId)
-        void processQueueIfIdle()
+        processQueueIfIdle()
         // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
         if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
       }
@@ -417,17 +447,17 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
-      void loadHistory(event.threadId)
+      void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
       // Refetch traz `subagentRuns` (e `toolCalls` correlacionados) sem exigir refresh manual (spec F15 §5.3).
-      void loadHistory(event.threadId)
+      void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
       // Mesmo padrão de F15 — refetch traz `pipeline` (estado + estágios) sem refresh manual (spec F22 §5.3).
-      void loadHistory(event.threadId)
+      void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'permission.request') {
@@ -449,20 +479,48 @@ export function usePrincipalWorkspace() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
+  // Bolha otimista pertence à thread onde foi digitada — trocar de thread/projeto descarta as
+  // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha).
+  const addPending = useCallback((text: string, images: ComposerImage[], status: PendingMessageStatus): string => {
+    const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    setPendingMessages((prev) => [
+      ...prev,
+      {
+        id,
+        text,
+        images: images.map((img) => ({ id: img.id, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 })),
+        status,
+        createdAt: Date.now(),
+      },
+    ])
+    return id
+  }, [])
+
+  const setPendingStatus = useCallback((id: string, status: PendingMessageStatus) => {
+    setPendingMessages((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
+  }, [])
+
+  const removePending = useCallback((id: string) => {
+    setPendingMessages((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
+    setPendingMessages([])
     setSendError(null)
   }, [])
 
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
+    setPendingMessages([])
     setSendError(null)
     setActiveTab('history')
   }, [])
 
   const newThread = useCallback(() => {
     setSelectedThreadId(null)
+    setPendingMessages([])
     setSendError(null)
     setComposer((prev) => ({ ...prev, text: '', images: [] }))
   }, [])
@@ -570,34 +628,75 @@ export function usePrincipalWorkspace() {
     [queueKey]
   )
 
-  async function processQueueIfIdle(): Promise<void> {
-    setQueue((prev) => {
-      if (prev.length === 0 || !selectedThreadId) return prev
-      const [head, ...rest] = prev
-      void sendFollowUp(head.text, head.images, head.model, head.reasoningLevel)
-      saveQueue(queueKey, rest)
-      return rest
+  // O despacho da fila roda fora do updater do `setQueue`: updater com efeito colateral é
+  // chamado duas vezes sob StrictMode e mandava o mesmo follow-up em dobro.
+  function processQueueIfIdle(): void {
+    const current = queueRef.current
+    const [head, ...rest] = current
+    if (!head || !selectedThreadId) return
+    queueRef.current = rest
+    setQueue(rest)
+    saveQueue(queueKey, rest)
+    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel).then((ok) => {
+      // O item sai da fila antes do POST (evita despacho duplo se outro `state.change` chegar
+      // no meio). Falhou — ex.: outra thread do projeto pegou a lease primeiro —, volta para a
+      // frente da fila; sem isso a mensagem enfileirada some sem nunca ter rodado.
+      if (ok) return
+      const restored = [head, ...queueRef.current]
+      queueRef.current = restored
+      setQueue(restored)
+      saveQueue(queueKey, restored)
     })
   }
 
   const sendFollowUp = useCallback(
-    async (text: string, images: ComposerImage[] = [], model: string | null = null, reasoningLevel: string | null = null) => {
-      if (!selectedThreadId) return
-      const res = await threadsService.followUp(selectedThreadId, {
-        prompt: text,
-        model,
-        reasoningLevel,
-        accessLevel: composer.accessLevel,
-        images: images.length > 0 ? toImagePayloads(images) : undefined,
-      })
-      if (res.error) {
-        setSendError(res.error.message)
-        return
+    async (
+      text: string,
+      images: ComposerImage[] = [],
+      model: string | null = null,
+      reasoningLevel: string | null = null
+    ): Promise<boolean> => {
+      if (!selectedThreadId) return false
+      const pendingId = addPending(text, images, 'sending')
+      try {
+        const res = await threadsService.followUp(selectedThreadId, {
+          prompt: text,
+          model,
+          reasoningLevel,
+          accessLevel: composer.accessLevel,
+          images: images.length > 0 ? toImagePayloads(images) : undefined,
+        })
+        if (res.error) {
+          removePending(pendingId)
+          setSendError(res.error.message)
+          return false
+        }
+        setPendingStatus(pendingId, 'sent')
+        if (selectedProjectId) upsertThreadLocal(selectedProjectId, res.thread)
+        return true
+      } catch {
+        removePending(pendingId)
+        setSendError('Falha ao enviar a mensagem.')
+        return false
       }
-      if (selectedProjectId) upsertThreadLocal(selectedProjectId, res.thread)
     },
-    [selectedThreadId, selectedProjectId, composer.accessLevel, upsertThreadLocal]
+    [
+      selectedThreadId,
+      selectedProjectId,
+      composer.accessLevel,
+      upsertThreadLocal,
+      addPending,
+      setPendingStatus,
+      removePending,
+    ]
   )
+
+  // Mesma razão do `queueRef`: o handler de WS chamaria uma versão antiga de `sendFollowUp`
+  // (com `composer.accessLevel` congelado no render da conexão).
+  const sendFollowUpRef = useRef(sendFollowUp)
+  useEffect(() => {
+    sendFollowUpRef.current = sendFollowUp
+  }, [sendFollowUp])
 
   const resolvePermission = useCallback(async (requestId: string, allow: boolean, always = false) => {
     const entry = permissionQueue.find((p) => p.requestId === requestId)
@@ -623,12 +722,15 @@ export function usePrincipalWorkspace() {
         setSendError(reply.message)
         return
       }
+      // Eco local: a resposta resolve o PreToolUse e nunca vira mensagem no banco — sem a bolha
+      // o usuário não vê que o "sim" foi registrado e responde de novo.
+      addPending(text, [], 'permission')
+      setComposer((prev) => ({ ...prev, text: '', images: [] }))
       await resolvePermission(
         pendingPermission.requestId,
         reply.kind === 'allow' || reply.kind === 'allow_always',
         reply.kind === 'allow_always'
       )
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
       return
     }
 
@@ -643,27 +745,37 @@ export function usePrincipalWorkspace() {
     if (!selectedProjectId) return
 
     if (!selectedThreadId) {
-      const res = await threadsService.create(selectedProjectId, {
-        prompt: text,
-        provider: composer.provider,
-        model: composer.model,
-        reasoningLevel: composer.reasoningLevel,
-        accessLevel: composer.accessLevel,
-        executionMode: composer.executionMode,
-        images: composer.images.length > 0 ? toImagePayloads(composer.images) : undefined,
-      })
-      if (res.error) {
-        setSendError(res.error.message)
-        return
-      }
-      upsertThreadLocal(selectedProjectId, res.thread)
-      setSelectedThreadId(res.thread.id)
+      const images = composer.images
+      const pendingId = addPending(text, images, 'sending')
       setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      try {
+        const res = await threadsService.create(selectedProjectId, {
+          prompt: text,
+          provider: composer.provider,
+          model: composer.model,
+          reasoningLevel: composer.reasoningLevel,
+          accessLevel: composer.accessLevel,
+          executionMode: composer.executionMode,
+          images: images.length > 0 ? toImagePayloads(images) : undefined,
+        })
+        if (res.error) {
+          removePending(pendingId)
+          setSendError(res.error.message)
+          return
+        }
+        setPendingStatus(pendingId, 'sent')
+        upsertThreadLocal(selectedProjectId, res.thread)
+        setSelectedThreadId(res.thread.id)
+      } catch {
+        removePending(pendingId)
+        setSendError('Falha ao enviar a mensagem.')
+      }
       return
     }
 
-    await sendFollowUp(text, composer.images, composer.model, composer.reasoningLevel)
+    const images = composer.images
     setComposer((prev) => ({ ...prev, text: '', images: [] }))
+    await sendFollowUp(text, images, composer.model, composer.reasoningLevel)
   }, [
     composer,
     selectedThread,
@@ -674,6 +786,9 @@ export function usePrincipalWorkspace() {
     sendFollowUp,
     resolvePermission,
     upsertThreadLocal,
+    addPending,
+    setPendingStatus,
+    removePending,
   ])
 
   const cancel = useCallback(async () => {
@@ -747,6 +862,24 @@ export function usePrincipalWorkspace() {
     [selectedThreadId]
   )
 
+  /**
+   * O que o chat mostra abaixo do histórico: primeiro o que já foi despachado (`sending`/`sent`
+   * /`permission`), depois a fila na ordem em que será executada.
+   */
+  const chatPendingMessages = useMemo<PendingMessage[]>(
+    () => [
+      ...pendingMessages,
+      ...queue.map((item) => ({
+        id: item.id,
+        text: item.text,
+        images: item.images.map((img) => ({ id: img.id, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 })),
+        status: 'queued' as const,
+        createdAt: 0,
+      })),
+    ],
+    [pendingMessages, queue]
+  )
+
   const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
   const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
@@ -774,6 +907,7 @@ export function usePrincipalWorkspace() {
     refreshMemoryStatus,
     usageLimitStatus,
     messages,
+    chatPendingMessages,
     toolCalls,
     subagentRuns,
     pipeline,

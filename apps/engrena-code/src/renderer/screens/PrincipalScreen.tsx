@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { usePrincipalWorkspace } from '../hooks/usePrincipalWorkspace'
+import { useChatScroll } from '../hooks/useChatScroll'
 import { ProjectTree } from '../components/workspace/ProjectTree'
 import { AddProjectModal } from '../components/workspace/AddProjectModal'
 import { TaskComposer } from '../components/workspace/TaskComposer'
@@ -15,11 +16,25 @@ const COPY = {
   tabHistory: 'Histórico',
   tabDiff: 'Diff',
   mcpNoticeDismiss: 'Dispensar avisos',
+  jumpToLatest: 'Ir para o final (ctrl+End)',
+  jumpNotice: 'O agente respondeu.',
 } as const
 
 export function PrincipalScreen(): ReactElement {
   const ws = usePrincipalWorkspace()
   const [terminalMaximized, setTerminalMaximized] = useState(false)
+
+  // Cola no fim só enquanto o usuário já estava perto do fim; longe dele a resposta nova vira
+  // CTA em vez de salto (ver useChatScroll).
+  const lastAssistant = [...ws.messages].reverse().find((m) => m.role === 'assistant') ?? null
+  const chatScroll = useChatScroll<HTMLDivElement>({
+    signal: `${ws.selectedThreadId ?? ''}|${ws.messages.length}|${ws.toolCalls.length}|${ws.streamingText.length}|${ws.chatPendingMessages.length}`,
+    enabled: ws.activeTab === 'history' && !terminalMaximized,
+    active: ws.selectedThread?.state === 'running',
+    latestKey: `${lastAssistant?.id ?? ''}|${lastAssistant?.content?.length ?? 0}`,
+    resetKey: ws.selectedThreadId ?? '',
+  })
+  const showJump = chatScroll.showJump && ws.activeTab === 'history' && !terminalMaximized
 
   const pendingDiffCount = ws.diffs.filter((d) => d.status === 'pending').length
   const currentPermission = ws.permissionQueue[0] ?? null
@@ -104,10 +119,18 @@ export function PrincipalScreen(): ReactElement {
             </div>
           ) : null}
 
-          <div className={terminalMaximized ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto'}>
+          {/* [overflow-anchor:none]: a rolagem deste container é programática (useChatScroll);
+              o scroll anchoring nativo do Chromium seria um segundo escritor de scrollTop,
+              brigando com o stick a cada reflow do turno. */}
+          <div
+            ref={chatScroll.ref}
+            className={terminalMaximized ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]'}
+          >
             {ws.activeTab === 'history' ? (
               <ChatHistory
                 messages={ws.messages}
+                pendingMessages={ws.chatPendingMessages}
+                threadId={ws.selectedThreadId}
                 toolCalls={ws.toolCalls}
                 subagentRuns={ws.subagentRuns}
                 onOpenSubagentRun={ws.openSubagentRun}
@@ -132,6 +155,23 @@ export function PrincipalScreen(): ReactElement {
               />
             )}
           </div>
+
+          {/* Faixa entre a conversa e o composer: só aparece com resposta nova fora de vista. */}
+          {showJump ? (
+            <div className="flex items-center justify-end gap-sm border-t border-border px-md py-xs">
+              <span role="status" className="text-[12px] text-muted">
+                {COPY.jumpNotice}
+              </span>
+              <button
+                type="button"
+                onClick={chatScroll.jumpToLatest}
+                title={COPY.jumpToLatest}
+                className="rounded-full bg-accent px-sm py-[3px] text-[12px] font-medium text-white hover:opacity-90"
+              >
+                {COPY.jumpToLatest}
+              </button>
+            </div>
+          ) : null}
 
           <div className="border-t border-border p-sm">
             <TaskComposer

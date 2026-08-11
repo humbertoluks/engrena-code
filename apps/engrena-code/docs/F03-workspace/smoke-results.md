@@ -81,3 +81,54 @@ O hook `PreToolUse` emitia `hookSpecificOutput` **sem** `hookEventName`. O CLI d
 
 - `Negar` no modal durante o fluxo do app (deny validado no experimento isolado + unitario `permission-hook.test.ts`).
 - Worktree, Auto-accept edits e Full access nesta rodada.
+
+---
+
+# Smoke: latência da mensagem do usuário no chat (2026-08-11)
+
+**Contexto:** responder no chat (ex.: "Sim, pode prosseguir") não mostrava a mensagem na conversa por ~1 min — tempo suficiente para o usuário responder duas vezes por engano. Causa: o renderer só pintava mensagem de usuário quando o próximo `GET /history` chegava (disparado por `tool_call.start` / `state.change`); com o agente pensando 52 s, a mensagem ficava invisível esse tempo todo.
+
+**Método:** `pnpm dev` (Electron real, `dangerouslyDisableSandbox`) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_todolist_gapfix`; `ANTHROPIC_API_KEY` unset (assinatura); vault/userData reais do usuário intocados. Projeto `TodolistV1` em `C:\Users\Me\Code\EngrenaCode\TodolistV1`, provider Claude, modelo `claude-haiku-4-5`, prompt real da todolist (Express + Scalar, memória, 4 rotas REST).
+
+## Medido ao vivo (clique → bolha na conversa)
+
+| # | Caminho | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Primeiro envio (cria thread) | bolha imediata + rótulo de estado | **pass — 91 ms**, rótulo `Executando…` |
+| 2 | Resposta ao PermissionPrompt pelo chat | bolha imediata de eco | **pass — 22 ms**, rótulo `Resposta enviada ao pedido de permissão` |
+| 3 | Envio com agente trabalhando | bolha imediata em estado de fila | **pass — 33 ms**, rótulo `Na fila — aguarde o turno atual terminar` |
+| 4 | Reconciliação com o histórico | bolha otimista some quando a persistida chega (sem duplicar) | pass — bolha real às 04:33 + `Pensando… 14s` |
+| 5 | Drenagem da fila no fim do turno | follow-up despacha sozinho | pass — mensagem enfileirada virou turno real ao thread sair de `running` |
+| 6 | Frase afirmativa natural no modal | "Sim, pode prosseguir" resolve o allow | **pass** — antes caía no aviso "Há uma permissão pendente…" |
+
+## Turno real (efeito colateral do cenário)
+
+- `Write package.json` e `Write index.js` aprovados pelo modal; `npm install` real; API respondeu em `http://localhost:3000/todos` com as 4 rotas + `/docs` (Scalar).
+
+## Achados não corrigidos nesta rodada
+
+- **Aba Diff com 2334 arquivos** após `npm install` no projeto sem `.gitignore`: o coletor de diff varre `node_modules` inteiro no fim do turno. É o que faz o turno demorar minutos para assentar (e alimentava o gap percebido). Correção fica fora deste diff.
+- **Turno preso em `running`** quando o CLI filho é morto com pedido de permissão pendente: o `PermissionBroker` não tem timeout, então a thread só assentou (para `error`) bem depois.
+- Follow-up enfileirado que falha no POST (ex.: lease do projeto tomada por outra thread) agora volta para a frente da fila — antes sumia sem rodar. Verificado por código/tsc, não reexercitado ao vivo.
+
+---
+
+# Smoke: navegar na conversa durante o turno (2026-08-11)
+
+**Contexto:** com o agente trabalhando, cada `tool_call`/`state.change` refazia `GET /history` e o renderer trocava a árvore do chat por "Carregando histórico…". Resultado: scroll voltava ao topo e todo `<details>` de Work log fechava no meio da análise. Comportamento alvo: o do sistema legado (`LionCodeLabs`, `useStickToBottom` + container com `[overflow-anchor:none]`), sem refresh visível.
+
+**Método:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_chatscroll_smoke`; `ANTHROPIC_API_KEY` unset. Projeto `TodolistV1`, Claude `claude-haiku-4-5`, access `Full access`. Medições no container real do chat (`div[class*="overflow-anchor"]`) e no `<details>` cujo summary contém "Work log".
+
+## Medido ao vivo
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Work log aberto + usuário no topo, turno rodando com 3 refetches de histórico | continua aberto | **pass** — `worklogCollapsedDuranteTurno: false` |
+| 2 | Mesma condição | scroll não é jogado para o topo nem arrastado ao fim | **pass** — `scrollTop` fixo em 0 durante todo o turno |
+| 3 | Resposta do agente com usuário longe do fim | CTA "Ver mensagem" acima do composer, à direita | **pass** — apareceu em 14 s |
+| 4 | Clique no CTA | leva à última resposta | **pass** — `scrollTop` 0 → 550 (= máximo) |
+| 5 | Usuário no fim, turno novo | sem CTA e colado no fim | **pass** — `ctaApareceu: false`, `ficouColadoNoFim: true` |
+
+## Nota
+
+Refetch em background que falha não derruba mais a conversa: erro vai para o console e o histórico em tela permanece (antes, `Falha ao carregar o histórico da thread.` substituía o chat inteiro).

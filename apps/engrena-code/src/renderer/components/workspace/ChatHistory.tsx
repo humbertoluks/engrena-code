@@ -17,6 +17,7 @@ import {
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { PendingAskUserQuestion } from './askUserQuestion.logic'
 import { ChatMarkdown } from './ChatMarkdown'
+import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
 
 const COPY = {
   loading: 'Carregando histórico…',
@@ -106,13 +107,17 @@ function ToolStatusMark({ status }: Readonly<{ status: ToolCall['status'] }>): R
   return <span className="ml-auto flex-none text-[10px] text-red/80">{TOOL_STATUS_LABEL[status]}</span>
 }
 
-function ToolCallRow({ tool }: Readonly<{ tool: ToolCall }>): ReactElement {
+function ToolCallRow({
+  tool,
+  open,
+  onToggle,
+}: Readonly<{ tool: ToolCall; open: boolean; onToggle: (open: boolean) => void }>): ReactElement {
   const params = formatToolPayload(tool.params, 2000)
   const result = formatToolPayload(tool.result, 6000)
   const hasDetail = Boolean(params || result)
 
   return (
-    <details className="group/tool">
+    <details open={open} onToggle={(event) => onToggle(event.currentTarget.open)} className="group/tool">
       <summary className="flex cursor-pointer list-none items-center gap-[7px] rounded-sm px-[6px] py-[3px] text-[12px] text-muted transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
         <span
           className={`min-w-0 flex-1 truncate font-mono text-[12px] ${tool.status === 'running' ? 'text-shimmer' : 'text-muted'}`}
@@ -139,10 +144,26 @@ function ToolCallRow({ tool }: Readonly<{ tool: ToolCall }>): ReactElement {
   )
 }
 
-function WorkLog({ tools }: Readonly<{ tools: ToolCall[] }>): ReactElement {
+function WorkLog({
+  tools,
+  open,
+  onToggle,
+  openTools,
+  onToggleTool,
+}: Readonly<{
+  tools: ToolCall[]
+  open: boolean
+  onToggle: (open: boolean) => void
+  openTools: Record<string, boolean>
+  onToggleTool: (toolId: string, open: boolean) => void
+}>): ReactElement {
   const running = anyToolRunning(tools)
   return (
-    <details className="group/worklog my-sm overflow-hidden rounded-lg border border-border bg-surface-2/30">
+    <details
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+      className="group/worklog my-sm overflow-hidden rounded-lg border border-border bg-surface-2/30"
+    >
       <summary className="flex cursor-pointer list-none items-center gap-sm px-md py-[6px] text-[10.5px] font-bold uppercase tracking-[0.09em] text-muted transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
         <span className="rounded-md bg-accent px-sm py-px text-[10px] font-bold uppercase tracking-[0.09em] text-white">
           {COPY.workLog(tools.length)}
@@ -156,7 +177,12 @@ function WorkLog({ tools }: Readonly<{ tools: ToolCall[] }>): ReactElement {
       </summary>
       <div className="px-[6px] pb-[5px] pt-[2px]">
         {tools.map((tool) => (
-          <ToolCallRow key={tool.id} tool={tool} />
+          <ToolCallRow
+            key={tool.id}
+            tool={tool}
+            open={openTools[tool.id] === true}
+            onToggle={(next) => onToggleTool(tool.id, next)}
+          />
         ))}
       </div>
     </details>
@@ -239,6 +265,39 @@ function UserMessage({ message }: Readonly<{ message: Message }>): ReactElement 
   )
 }
 
+/**
+ * Bolha do usuário enviada nesta sessão e ainda não confirmada pelo histórico. Mesma forma da
+ * bolha real (nenhum salto quando o servidor confirma) com rótulo de estado embaixo.
+ */
+function PendingUserMessage({ pending }: Readonly<{ pending: PendingMessage }>): ReactElement {
+  const active = isPendingActive(pending.status)
+  return (
+    <div className="mb-md flex flex-col items-end">
+      {pending.images.length > 0 ? (
+        <div className="mb-xs flex flex-wrap justify-end gap-xs">
+          {pending.images.map((img) => (
+            <img
+              key={img.id}
+              src={`data:${img.mimeType};base64,${img.dataBase64}`}
+              alt="Imagem anexada"
+              className="max-h-[120px] max-w-[200px] rounded-lg border border-border opacity-70"
+            />
+          ))}
+        </div>
+      ) : null}
+      <div className="max-w-[85%] rounded-lg border border-dashed border-border bg-surface-2/60 px-md py-sm">
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-fg/80">{pending.text}</div>
+      </div>
+      <div className="mt-[3px] flex items-center gap-[5px] text-[11px] text-muted" aria-live="polite">
+        {active ? (
+          <span className="h-[5px] w-[5px] flex-none animate-pulse rounded-full bg-accent" aria-hidden="true" />
+        ) : null}
+        <span>{pendingStatusLabel(pending.status)}</span>
+      </div>
+    </div>
+  )
+}
+
 function AssistantMessage({
   message,
   turnDurationMs,
@@ -261,6 +320,10 @@ function AssistantMessage({
 
 export interface ChatHistoryProps {
   messages: Message[]
+  /** Bolhas otimistas (enviando/executando/fila) que ainda não estão no histórico persistido. */
+  pendingMessages?: PendingMessage[]
+  /** Trocar de thread zera o que estava expandido; refetch da mesma thread preserva. */
+  threadId?: string | null
   toolCalls: ToolCall[]
   subagentRuns: SubagentRun[]
   onOpenSubagentRun: (run: SubagentRun) => void
@@ -277,6 +340,8 @@ export interface ChatHistoryProps {
 
 export function ChatHistory({
   messages,
+  pendingMessages = [],
+  threadId = null,
   toolCalls,
   subagentRuns,
   onOpenSubagentRun,
@@ -290,11 +355,33 @@ export function ChatHistory({
   answerBusy = false,
   answerError = null,
 }: Readonly<ChatHistoryProps>): ReactElement {
-  if (loading) {
+  // Estado de expansão vive aqui (e não no DOM do <details>): o refetch do turno reconstrói a
+  // lista e qualquer remontagem fecharia o Work log aberto no meio da leitura.
+  const [openWorkLogs, setOpenWorkLogs] = useState<Record<string, boolean>>({})
+  const [openTools, setOpenTools] = useState<Record<string, boolean>>({})
+  // biome-ignore lint/correctness/useExhaustiveDependencies: threadId é o gatilho do reset, não um valor lido no efeito.
+  useEffect(() => {
+    setOpenWorkLogs({})
+    setOpenTools({})
+  }, [threadId])
+
+  const toggleWorkLog = (key: string, open: boolean): void => {
+    setOpenWorkLogs((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }))
+  }
+  const toggleTool = (toolId: string, open: boolean): void => {
+    setOpenTools((prev) => (prev[toolId] === open ? prev : { ...prev, [toolId]: open }))
+  }
+
+  const hasContent =
+    messages.length > 0 || streamingText !== '' || toolCalls.length > 0 || pendingMessages.length > 0
+
+  // Loading/erro só tomam a tela quando não há nada para preservar. Com conversa em tela o
+  // refetch é silencioso — trocar a árvore por "Carregando…" jogaria o scroll para o topo.
+  if (loading && !hasContent) {
     return <p className="p-md text-[13px] text-muted">{COPY.loading}</p>
   }
 
-  if (error !== null) {
+  if (error !== null && !hasContent) {
     return (
       <p role="alert" className="p-md text-[13px] text-red">
         {error}
@@ -302,13 +389,17 @@ export function ChatHistory({
     )
   }
 
-  if (!hasThread) {
+  if (!hasThread && !hasContent) {
     return <p className="p-md text-[13px] text-muted">{COPY.emptyNoThread}</p>
   }
 
-  if (messages.length === 0 && streamingText === '' && toolCalls.length === 0) {
+  if (!hasContent) {
     return <p className="p-md text-[13px] text-muted">{COPY.emptyThread}</p>
   }
+
+  // `queued` só roda depois do turno atual — fica no rodapé, abaixo do streaming e do "Pensando…".
+  const dispatched = pendingMessages.filter((p) => p.status !== 'queued')
+  const queued = pendingMessages.filter((p) => p.status === 'queued')
 
   const runByToolCallId = correlateSubagentRuns(toolCalls, subagentRuns)
   const groups = groupTimelineItems(messages, toolCalls, runByToolCallId)
@@ -353,8 +444,21 @@ export function ChatHistory({
           )
         }
 
-        return <WorkLog key={group.key} tools={group.tools} />
+        return (
+          <WorkLog
+            key={group.key}
+            tools={group.tools}
+            open={openWorkLogs[group.key] === true}
+            onToggle={(next) => toggleWorkLog(group.key, next)}
+            openTools={openTools}
+            onToggleTool={toggleTool}
+          />
+        )
       })}
+
+      {dispatched.map((pending) => (
+        <PendingUserMessage key={pending.id} pending={pending} />
+      ))}
 
       {pendingQuestion && onAnswerQuestion ? (
         <AskUserQuestionCard
@@ -375,6 +479,10 @@ export function ChatHistory({
       ) : null}
 
       {showThinking ? <ThinkingTimer startMs={thinkStart} /> : null}
+
+      {queued.map((pending) => (
+        <PendingUserMessage key={pending.id} pending={pending} />
+      ))}
     </div>
   )
 }
