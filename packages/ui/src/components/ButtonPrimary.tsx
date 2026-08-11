@@ -28,7 +28,7 @@ function Spinner(): ReactElement {
     <svg
       viewBox="0 0 24 24"
       fill="none"
-      className="animate-spin"
+      className="h-[15px] w-[15px] animate-spin"
       aria-hidden="true"
       focusable="false"
     >

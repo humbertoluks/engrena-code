@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LoginScreen } from './screens/LoginScreen'
+import { LoginScreen } from '@engrena/ui'
 import { ShellScreen } from './screens/ShellScreen'
 
 function App(): React.ReactElement {
@@ -42,7 +42,7 @@ function App(): React.ReactElement {
   return isAuthenticated ? (
     <ShellScreen />
   ) : (
-    <LoginScreen onUnlock={() => setIsAuthenticated(true)} />
+    <LoginScreen product="plan" onUnlock={() => setIsAuthenticated(true)} />
   )
 }
 

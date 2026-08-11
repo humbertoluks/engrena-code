@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ThemeControl } from '@engrena/ui'
-import { LoginScreen } from './screens/LoginScreen'
+import { LoginScreen, ThemeControl } from '@engrena/ui'
 import { ConfiguracaoScreen } from './screens/ConfiguracaoScreen'
 import { SubagentsScreen } from './screens/SubagentsScreen'
 import { SkillsScreen } from './screens/SkillsScreen'
@@ -143,7 +142,7 @@ function App(): React.ReactElement {
   return isAuthenticated ? (
     <AuthenticatedApp />
   ) : (
-    <LoginScreen onUnlock={() => setIsAuthenticated(true)} />
+    <LoginScreen product="code" onUnlock={() => setIsAuthenticated(true)} />
   )
 }
 

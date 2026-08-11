@@ -43,3 +43,21 @@ export { Input, inputBaseClassName } from './components/Input'
 export type { InputProps } from './components/Input'
 export { Modal } from './components/Modal'
 export type { ModalProps } from './components/Modal'
+
+export { LoginScreen } from './screens/LoginScreen'
+export {
+  CODE_BRAND,
+  CODE_UNLOCK_ORIGIN,
+  LOGIN_COPY_SHARED,
+  LOGIN_PRODUCT_CONFIG,
+  PLAN_BRAND,
+  PLAN_UNLOCK_ORIGIN,
+  classifyUnlockFailure,
+  messageForError,
+} from './screens/loginScreen.logic'
+export type {
+  LoginProduct,
+  LoginProductConfig,
+  UnlockErrorKind,
+  VaultUnlockResponse,
+} from './screens/loginScreen.logic'

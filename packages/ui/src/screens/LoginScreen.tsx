@@ -1,32 +1,25 @@
 /**
- * Tela #login — gate de cofre local do EngrenaPlan (scaffold S4).
+ * Tela #login — gate de cofre local compartilhado (EngrenaCode + EngrenaPlan).
+ * Seta do CTA é parte integrante desta tela (não exportada como ícone isolado).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement, SyntheticEvent } from 'react'
-import { BrandMark, BrandWordmark } from '../components/BrandMark'
-import { ButtonPrimary, ThemeControl } from '@engrena/ui'
+import { ButtonPrimary } from '../components/ButtonPrimary'
+import { ThemeControl } from '../components/ThemeControl'
 import {
+  LOGIN_COPY_SHARED,
+  LOGIN_PRODUCT_CONFIG,
   classifyUnlockFailure,
   messageForError,
-  PLAN_UNLOCK_ORIGIN,
+  type LoginProduct,
   type UnlockErrorKind,
   type VaultUnlockResponse,
 } from './loginScreen.logic'
 
 interface LoginScreenProps {
+  product: LoginProduct
   onUnlock?: () => void
 }
-
-const COPY = {
-  instruction: 'Desbloqueie o workspace local para planejar Discovery, PRD, Spec e Plano.',
-  labelWorkspace: 'Workspace',
-  hintWorkspace: 'Diretório raiz onde o EngrenaPlan guarda artefatos de planejamento.',
-  labelPassword: 'Senha do cofre local',
-  placeholderPassword: '••••••••',
-  ctaPrimary: 'Desbloquear workspace',
-  ctaLoading: 'Desbloqueando...',
-  footer: 'Segredos e sessão ficam apenas no filesystem local deste dispositivo.',
-} as const
 
 const GATE_BACKGROUND =
   'radial-gradient(900px 500px at 50% -10%, rgba(255,107,0,0.08), transparent 60%)'
@@ -34,18 +27,120 @@ const GATE_BACKGROUND =
 const INPUT_BASE =
   'w-full rounded-sm border bg-surface-2 px-md py-sm text-sm text-fg transition-colors placeholder:text-muted focus:outline-none focus:ring-2'
 
-async function completeSessionUnlock(onUnlock?: () => void): Promise<UnlockErrorKind> {
-  if (!window.electronAPI?.vault?.getSessionToken) return 'network'
-  const token = await window.electronAPI.vault.getSessionToken()
+type VaultSessionApi = {
+  getSessionToken?: () => Promise<unknown>
+}
+
+function getVaultApi(): VaultSessionApi | undefined {
+  const api = (window as Window & { electronAPI?: { vault?: VaultSessionApi } }).electronAPI
+  return api?.vault
+}
+
+/** Seta 15px do CTA — tamanho explícito evita SVG intrínseco estourar o botão. */
+function CtaArrowIcon(): ReactElement {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      className="h-[15px] w-[15px] shrink-0"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function LoginBrandMark({ product }: Readonly<{ product: LoginProduct }>): ReactElement {
+  if (product === 'plan') {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width={30}
+        height={30}
+        fill="none"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path
+          d="M7 3.5h7.5L19 8v12.5H7V3.5Z"
+          className="stroke-accent"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M14.5 3.5V8H19"
+          className="stroke-accent"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M10 12h6M10 15.5h6M10 9h2.5"
+          className="stroke-fg"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
+
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={30}
+      height={30}
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M12 2.5 20 7v10l-8 4.5L4 17V7l8-4.5Z"
+        className="stroke-accent"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 7.5v9M8.5 10.25 12 12.25l3.5-2M8.5 13.75 12 15.75l3.5-2"
+        className="stroke-fg"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function LoginBrandWordmark({ product }: Readonly<{ product: LoginProduct }>): ReactElement {
+  const suffix = product === 'plan' ? 'Plan' : 'Code'
+  return (
+    <span className="text-lg font-semibold tracking-tight">
+      Engrena<b className="text-accent">{suffix}</b>
+    </span>
+  )
+}
+
+async function completeSessionUnlock(
+  successHash: string,
+  onUnlock?: () => void,
+): Promise<UnlockErrorKind> {
+  const vault = getVaultApi()
+  if (!vault?.getSessionToken) return 'network'
+  const token = await vault.getSessionToken()
   if (typeof token !== 'string' || !token) return 'network'
   localStorage.setItem('sessionToken', token)
-  window.location.hash = '#shell'
+  window.location.hash = successHash
   onUnlock?.()
   return null
 }
 
-export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElement {
-  const [workspace, setWorkspace] = useState('~/plan')
+export function LoginScreen({
+  product,
+  onUnlock,
+}: Readonly<LoginScreenProps>): ReactElement {
+  const config = LOGIN_PRODUCT_CONFIG[product]
+  const [workspace, setWorkspace] = useState(config.defaultWorkspace)
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [errorKind, setErrorKind] = useState<UnlockErrorKind>(null)
@@ -81,7 +176,7 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
   const trimmedWorkspace = workspace.trim()
   const filled = trimmedWorkspace.length > 0 && password.length > 0
   const submitDisabled = !filled || submitting || inBackoff
-  const errorMessage = messageForError(errorKind, remainingMs)
+  const errorMessage = messageForError(errorKind, remainingMs, config.brand)
   const passwordInvalid = errorKind !== null && errorKind !== 'backoff'
 
   const handleSubmit = useCallback(
@@ -93,7 +188,7 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
       setErrorKind(null)
 
       try {
-        const response = await fetch(`${PLAN_UNLOCK_ORIGIN}/api/vault/unlock`, {
+        const response = await fetch(`${config.unlockOrigin}/api/vault/unlock`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -115,11 +210,11 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
         if (response.ok && data.unlocked) {
           if (typeof data.sessionToken === 'string' && data.sessionToken) {
             localStorage.setItem('sessionToken', data.sessionToken)
-            window.location.hash = '#shell'
+            window.location.hash = config.successHash
             onUnlock?.()
             return
           }
-          const sessionError = await completeSessionUnlock(onUnlock)
+          const sessionError = await completeSessionUnlock(config.successHash, onUnlock)
           if (mountedRef.current && sessionError) setErrorKind(sessionError)
           return
         }
@@ -135,7 +230,7 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
         if (mountedRef.current) setSubmitting(false)
       }
     },
-    [onUnlock, password, submitDisabled, trimmedWorkspace],
+    [config.successHash, config.unlockOrigin, onUnlock, password, submitDisabled, trimmedWorkspace],
   )
 
   return (
@@ -154,15 +249,15 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
         noValidate
       >
         <div className="mb-xs flex items-center gap-sm">
-          <BrandMark size={30} />
-          <BrandWordmark className="text-lg font-semibold tracking-tight" />
+          <LoginBrandMark product={product} />
+          <LoginBrandWordmark product={product} />
         </div>
 
-        <p className="mb-lg text-sm text-muted">{COPY.instruction}</p>
+        <p className="mb-lg text-sm text-muted">{config.instruction}</p>
 
         <div className="mb-md flex flex-col gap-xs">
           <label htmlFor="login-workspace" className="text-sm font-medium text-fg">
-            {COPY.labelWorkspace}
+            {LOGIN_COPY_SHARED.labelWorkspace}
           </label>
           <input
             id="login-workspace"
@@ -174,19 +269,19 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
             onChange={(e) => setWorkspace(e.target.value)}
             className={`${INPUT_BASE} border-border font-mono focus:border-accent focus:ring-accent/40`}
           />
-          <span className="text-xs text-muted">{COPY.hintWorkspace}</span>
+          <span className="text-xs text-muted">{config.hintWorkspace}</span>
         </div>
 
         <div className="mb-md flex flex-col gap-xs">
           <label htmlFor="login-password" className="text-sm font-medium text-fg">
-            {COPY.labelPassword}
+            {LOGIN_COPY_SHARED.labelPassword}
           </label>
           <input
             id="login-password"
             name="password"
             type="password"
             autoComplete="current-password"
-            placeholder={COPY.placeholderPassword}
+            placeholder={LOGIN_COPY_SHARED.placeholderPassword}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={passwordInvalid || undefined}
@@ -209,13 +304,14 @@ export function LoginScreen({ onUnlock }: Readonly<LoginScreenProps>): ReactElem
           type="submit"
           block
           loading={submitting}
-          loadingLabel={COPY.ctaLoading}
+          loadingLabel={LOGIN_COPY_SHARED.ctaLoading}
           disabled={submitDisabled}
         >
-          {COPY.ctaPrimary}
+          <CtaArrowIcon />
+          {LOGIN_COPY_SHARED.ctaPrimary}
         </ButtonPrimary>
 
-        <p className="mt-md text-center text-xs leading-relaxed text-muted">{COPY.footer}</p>
+        <p className="mt-md text-center text-xs leading-relaxed text-muted">{config.footer}</p>
       </form>
     </section>
   )
