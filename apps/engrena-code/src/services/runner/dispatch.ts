@@ -74,6 +74,7 @@ import {
 } from './providers/context-attachments.js'
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
+import { decisionBlock, detectDecisionQuestion } from '../threads/decision-question.js'
 import { resolveChatMode } from '../prompts/chat-mode-resolver.js'
 import { composeModeBlock } from '../prompts/prompt-spec.js'
 import { isPathIgnored } from '../ignore/ignore-service.js'
@@ -629,7 +630,15 @@ async function runTurn(
     }
 
     if (finalText) {
-      const assistantMessage = appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
+      // Pergunta em prosa no fim da resposta vira decisão clicável no chat: o agente nem sempre
+      // chama `ask_user_question`, e sem isto o usuário fica sem opção nenhuma para responder.
+      const decision = detectDecisionQuestion(finalText)
+      const assistantMessage = appendMessage({
+        threadId: thread.id,
+        role: 'assistant',
+        content: finalText,
+        blocks: decision === null ? null : [decisionBlock(decision)],
+      })
       // Adianta as sugestões enquanto os diffs são coletados: quando a UI perguntar, já estão
       // prontas. Sem lease e sem bloquear o turno — falha aqui não pode virar erro de turno.
       // Só com alguém assinando o stream: turno headless (teste, pipeline) não paga um processo

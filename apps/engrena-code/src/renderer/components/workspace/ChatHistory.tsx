@@ -36,6 +36,7 @@ const COPY = {
   voteUp: 'Resposta útil',
   voteDown: 'Resposta ruim',
   followupsLabel: 'Sugestões de próximo passo',
+  decisionLabel: 'Respostas para a pergunta do agente',
   followupsLoadingLabel: 'Gerando sugestões de próximo passo',
 } as const
 
@@ -51,6 +52,20 @@ interface ContextBlock {
   kind: 'file' | 'selection'
   path: string
   label: string
+}
+
+interface DecisionBlock {
+  type: 'decision'
+  question: string
+  options: string[]
+}
+
+function decisionOf(blocks: unknown[] | null): DecisionBlock | null {
+  const found = (blocks ?? []).find(
+    (block): block is DecisionBlock =>
+      typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'decision'
+  )
+  return found ?? null
 }
 
 function isContextBlock(block: unknown): block is ContextBlock {
@@ -374,15 +389,21 @@ function AssistantMessage({
   turnDurationMs,
   vote,
   onVote,
+  decisionEnabled = false,
+  onDecide,
 }: Readonly<{
   message: Message
   turnDurationMs: number | null
   vote: FeedbackVote | undefined
   onVote?: (messageId: string, vote: FeedbackVote) => void
+  /** Só a última resposta, com a thread parada, ainda espera decisão. */
+  decisionEnabled?: boolean
+  onDecide?: (text: string) => void
 }>): ReactElement {
   const clock = formatClock(message.createdAt)
   const showDuration = turnDurationMs != null && turnDurationMs > 0
   const text = message.content ?? ''
+  const decision = decisionEnabled ? decisionOf(message.blocks) : null
   return (
     <div className="mb-md pr-[48px]">
       {text ? <ChatMarkdown content={text} /> : null}
@@ -391,6 +412,21 @@ function AssistantMessage({
         {showDuration ? <span>{COPY.thought(formatDurationSeconds(turnDurationMs))}</span> : null}
         {onVote ? <VoteButtons vote={vote} onVote={(next) => onVote(message.id, next)} /> : null}
       </div>
+      {decision !== null && onDecide ? (
+        <ul aria-label={COPY.decisionLabel} className="mt-xs flex list-none flex-wrap gap-xs p-0">
+          {decision.options.map((option) => (
+            <li key={option}>
+              <button
+                type="button"
+                onClick={() => onDecide(option)}
+                className="rounded-full border border-accent/60 bg-accent/10 px-sm py-[3px] text-[12px] text-fg transition-colors hover:bg-accent/20"
+              >
+                {option}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -422,6 +458,8 @@ export interface ChatHistoryProps {
   followupsMessageId?: string | null
   followupsPending?: boolean
   onPickFollowup?: (text: string) => void
+  /** Clique numa resposta da pergunta do agente: envia na hora (decisão, não rascunho). */
+  onDecide?: (text: string) => void
 }
 
 export function ChatHistory({
@@ -446,6 +484,7 @@ export function ChatHistory({
   followupsMessageId = null,
   followupsPending = false,
   onPickFollowup,
+  onDecide,
 }: Readonly<ChatHistoryProps>): ReactElement {
   // Estado de expansão vive aqui (e não no DOM do <details>): o refetch do turno reconstrói a
   // lista e qualquer remontagem fecharia o Work log aberto no meio da leitura.
@@ -519,6 +558,8 @@ export function ChatHistory({
                 turnDurationMs={turnDurationForAssistant(messages, group.message)}
                 vote={feedback[group.message.id]}
                 onVote={onVote}
+                decisionEnabled={group.message.id === lastAssistantId && threadState !== 'running' && !pendingQuestion}
+                onDecide={onDecide}
               />
             )
           }

@@ -114,3 +114,35 @@ desconhecido não vira bloco, turno sem modo não ganha bloco.
 **Não implementado nesta onda:** o plano previa que o modo também ligasse skills/rules do projeto; ficou de
 fora — o modo cobre provider, modelo, reasoning, access, execution e instruções. Instruções pela UI existem
 no formulário de salvar; edição posterior de prompt/modo só via API ou arquivo do repo.
+
+---
+
+## Decisão no momento da pergunta (2026-08-11)
+
+**Origem:** print do usuário — o agente pediu autorização para `npm install` em prosa, ele respondeu
+"sim" no composer, e só depois apareceram opções (que são sugestões de follow-up, geradas por uma
+chamada extra ao provider) embaixo da mensagem seguinte.
+
+**Ambiente:** `pnpm dev` (Electron real), `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_decision_smoke`,
+`ANTHROPIC_API_KEY` unset, projeto `TodolistV1` vazio, Claude Sonnet, access `Auto-accept edits`.
+
+| # | Cenário | Esperado | Resultado |
+|---|---------|----------|-----------|
+| 1 | Pedido que exige decisão, com a tool MCP liberada | card do agente com opções no instante da pergunta | **pass** — "O agente precisa da sua resposta" + 3 opções escritas pelo próprio agente |
+| 2 | Responder pelo card | turno retoma e conclui | **pass** — "Cancelado. Nada criado.", nenhum arquivo criado no projeto |
+| 3 | Resposta que termina em pergunta, sem chamar a tool | botões de decisão sob a resposta, sem chamada extra ao modelo | **pass** — `Sim, pode prosseguir` / `Não, aguarde` junto com a resposta (16,4 s = o próprio turno) |
+| 4 | Clicar num botão de decisão | envia direto, sem passar pelo composer | **pass** — bolha em 9,8 s e resposta "Ok, aguardo." no turno seguinte |
+| 5 | Sugestões de follow-up | esqueleto enquanto gera, chips depois, ancorados na mensagem certa | **pass** — esqueleto no instante em que o turno assenta; GET devolveu cache em 35 ms quando o prefetch teve folga |
+
+**Achado que destravou o caso:** sob `auto-accept-edits` o Claude CLI libera edição de arquivo mas
+**nega tool MCP** — inclusive a `ask_user_question`, que é justamente a que desenha os botões. O agente
+não conseguia perguntar pela tool e caía para pedir aprovação em prosa. Corrigido passando as tools
+internas em `--allowedTools`; nas duas tentativas antes disso o agente respondeu em prosa, e na
+tentativa seguinte à correção usou a tool.
+
+**Coberto por unitário:** detecção da pergunta final (pt e en), alternativas enumeradas viram opções,
+pergunta no meio do texto / pergunta aberta / pergunta longa não viram decisão, bloco gravado na
+mensagem pelo runner, `alwaysAllowedTools` no turno.
+
+**Observação de UX, não corrigida:** o card do agente exige dois cliques (marcar a opção e depois
+`Enviar`); os botões de decisão do fallback resolvem em um clique só.

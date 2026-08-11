@@ -151,6 +151,7 @@ export function PrincipalScreen(): ReactElement {
                 followups={ws.followups}
                 followupsMessageId={ws.followupsMessageId}
                 followupsPending={ws.followupsPending}
+                onDecide={(text) => void ws.sendDecision(text)}
                 onPickFollowup={(text) => ws.updateComposer({ text })}
               />
             ) : (

@@ -1019,6 +1019,24 @@ export function usePrincipalWorkspace() {
     [permissionQueue]
   )
 
+  /**
+   * Clique numa resposta da pergunta do agente: envia direto, sem passar pelo composer — é uma
+   * decisão, não um rascunho. Com o turno ocupado vai para a fila, como qualquer follow-up.
+   */
+  const sendDecision = useCallback(
+    async (text: string) => {
+      const value = text.trim()
+      if (value === '' || !selectedThreadId) return
+      setSendError(null)
+      if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
+        enqueue(value, [], composer.model, composer.reasoningLevel, [])
+        return
+      }
+      await sendFollowUp(value, [], composer.model, composer.reasoningLevel, [])
+    },
+    [selectedThreadId, selectedThread, composer.model, composer.reasoningLevel, enqueue, sendFollowUp]
+  )
+
   const send = useCallback(async () => {
     const text = composer.text.trim()
     if (text === '') return
@@ -1297,6 +1315,7 @@ export function usePrincipalWorkspace() {
     followups,
     followupsMessageId,
     followupsPending,
+    sendDecision,
     voteMessage,
     renameThread,
     exportThread,

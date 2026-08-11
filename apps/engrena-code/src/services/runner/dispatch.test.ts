@@ -1903,6 +1903,52 @@ describe('tools internas sempre liberadas', () => {
   })
 })
 
+describe('decisão detectada na resposta', () => {
+  it('resposta que termina pedindo autorização grava o bloco de decisão na mensagem', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async () => ({
+      text: 'Preciso rodar npm install para baixar as dependências. Posso prosseguir?',
+    }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'suba o servidor',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const assistant = listMessagesForThread(thread.id).find((m) => m.role === 'assistant')
+    expect(assistant?.blocks).toEqual([
+      { type: 'decision', question: 'Posso prosseguir?', options: ['Sim, pode prosseguir', 'Não, aguarde'] },
+    ])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('resposta sem pergunta no fim não ganha bloco', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async () => ({ text: 'Servidor criado em server.js.' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'crie o servidor',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const assistant = listMessagesForThread(thread.id).find((m) => m.role === 'assistant')
+    expect(assistant?.blocks).toBeNull()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
 describe('modo de chat (F28 §3.4)', () => {
   it('injeta as instruções do modo salvo no system prompt e guarda o nome na thread', async () => {
     const dir = makeProjectDir()
