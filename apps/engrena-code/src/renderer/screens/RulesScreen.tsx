@@ -202,12 +202,14 @@ export function RulesScreen(): ReactElement {
 
   return (
     <section className="mx-auto w-full max-w-[1180px] px-lg py-lg text-fg">
-      <div className="flex items-start justify-between gap-md">
-        <div>
+      <div className="flex flex-col items-start gap-md min-[720px]:flex-row min-[720px]:justify-between">
+        <div className="min-w-0">
           <h1 className="font-display text-[26px] font-bold tracking-tight text-fg">{COPY.title}</h1>
           <p className="mt-xs text-[13px] text-muted">{COPY.subtitle}</p>
         </div>
-        <ButtonPrimary onClick={() => setModal({ mode: 'new' })}>{COPY.ctaNew}</ButtonPrimary>
+        <ButtonPrimary className="shrink-0 whitespace-nowrap" onClick={() => setModal({ mode: 'new' })}>
+          {COPY.ctaNew}
+        </ButtonPrimary>
       </div>
 
       <div className="mt-md">

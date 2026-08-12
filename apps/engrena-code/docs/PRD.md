@@ -269,6 +269,11 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero revisar e editar a transcrição antes de enviar
 - Como usuário, quero saber quando a transcrição falhou para não perder o que gravei
 
+### F29. Monitor de execução (grafo)
+- Como usuário, quero ver a execução da thread (agente, subagents, batches e estágios de pipeline) como grafo interativo
+- Como usuário, quero que novos subagents apareçam no grafo sem refresh manual
+- Como usuário, quero inspecionar a mensagem/task de uma aresta ao clicar nela
+
 ## 6. Funcionalidades
 
 ### F01. Vault e Sessão Local
@@ -1032,6 +1037,33 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 - Sem permissão de microfone do SO → CTA desabilitado com `title` explicando como habilitar
 - Falha na transcrição → mensagem "Não foi possível transcrever. Tente novamente." sem perder o áudio gravado (permite nova tentativa)
 
+### F29. Monitor de execução (grafo)
+
+**Consome:**
+- F01.1: tokens de superfície / tema
+- F03: workspace, history HTTP, WebSocket da thread
+- F15: `subagent_runs` + correlação `parentToolCallId`
+- F18: `parallelBatchId` para nó batch
+- F22: `pipelines` / `pipeline_stages` (+ `subagent_run_id` populado)
+
+**Provê:**
+- Aba Grafo no centro do workspace (projeção React Flow da execução da thread)
+
+**Capacidades:**
+- Projeção pura (`buildExecutionGraph` / `layoutExecutionGraph`) a partir de history + overlay live de eventos WS
+- Nós: root (thread), subagent, stage (pipeline), batch (paralelo); tools comuns viram contador no root
+- Arestas animadas SVG enquanto o alvo está `running`; inspector ao clicar na aresta
+- Lazy-load de `@xyflow/react` só ao abrir a aba
+
+**Experiência:**
+- Botão **Grafo** ao lado de Histórico/Diff; canvas com altura fixa (fora do scroll do chat)
+- Empty: "Ainda não há delegações nesta thread." quando só existe o nó root
+- Light/dark via `useTheme().resolvedTheme`
+
+**Tratamento de Erros:**
+- Sem thread selecionada → empty "Selecione uma thread…"
+- Falha de history → estados existentes do workspace (não há fetch dedicado do grafo)
+
 ## 7. Fora de Escopo
 
 ### Pipelines e automação avançada (parcialmente promovido — ver F18, F22)
@@ -1094,6 +1126,7 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 | F26 | Terminal PTY no Dock | 3 | F01.1, F03 |
 | F27 | Ditado por Voz (STT) | 3 | F01.1, F03, F16 |
 | F22 | Automação por Slash Commands (Pipeline) | 1 | F03, F07, F15, F18, F19, F20, F21 |
+| F29 | Monitor de execução (grafo) | 2 | F01.1, F03, F15, F18, F22 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -1112,8 +1145,9 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 - **Onda 4**: F04, F08, F09, F11, F12, F13, F14, F15, F16, F20, F21, F23, F26
 - **Onda 5**: F18, F19, F24, F25, F27
 - **Onda 6**: F22
+- **Onda 7**: F29
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**. Ondas 1–4 com F01–F17 já entregues no repo; o backlog ativo da 1.3 é F18–F27: F20 (Memory), F21 (AskUserQuestion), F23 (GLM/Grok) e F26 (Terminal PTY) caem mecanicamente na Onda 4 (dependem só de fundação + F03/F09-F16, não de features novas entre si); F18 (Write-Parallel), F19 (CodeGraph), F24 (Multi-VCS) e F25 (UsageLimits) e F27 (Voz) na Onda 5 (dependem de F12/F13/F14/F15/F16, já Onda 4); F22 (Pipeline) fecha sozinho na Onda 6, pois orquestra F18/F19/F20/F21. Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 começa com F29** (monitor de execução). Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -1205,6 +1239,11 @@ graph TD
   F19 --> F22
   F20 --> F22
   F21 --> F22
+  F011 --> F29[ExecGraph]
+  F03 --> F29
+  F15 --> F29
+  F18 --> F29
+  F22 --> F29
 ```
 
 ## 9. Critérios de Aceitação
@@ -1393,6 +1432,12 @@ graph TD
 - [x] Sem permissão de microfone, CTA fica desabilitado com explicação
 - [ ] Falha de transcrição preserva o áudio gravado para nova tentativa
 
+### F29. Monitor de execução (grafo)
+- [x] Aba Grafo no workspace projeta root + subagents/stages/batches a partir do history da thread
+- [x] Eventos `subagent.start`/`pipeline.stage` atualizam o grafo sem refresh manual (overlay + refetch)
+- [x] Clique na aresta abre inspector com from/to, status, horário, duração, task e retorno
+- [x] Light/dark via tema resolvido; React Flow lazy-loaded
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
@@ -1424,3 +1469,4 @@ graph TD
 - [x] Limite de consumo (F25) usa os mesmos `usage_events`/`cost_source` de Consumo (F11) sem cálculo paralelo
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [x] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
+- [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace

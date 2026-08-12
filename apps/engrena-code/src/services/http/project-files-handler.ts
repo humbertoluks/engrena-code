@@ -1,8 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readFileSync, readdirSync, statSync } from 'fs'
-import { isAbsolute, join, normalize, relative, resolve, sep } from 'path'
+import { join, relative, resolve } from 'path'
 import { guard, sendError, sendJson } from './_transport.js'
 import { getProject } from '../db/repositories/projects.js'
+import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { filterIgnoredPaths, IGNORED_MESSAGE, isPathIgnored } from '../ignore/ignore-service.js'
+
+export { resolveProjectFilePath }
 
 const FILES_RE = /^\/api\/projects\/([^/]+)\/files$/
 const FILE_RE = /^\/api\/projects\/([^/]+)\/file$/
@@ -54,33 +58,6 @@ export function walkProjectFiles(root: string): string[] {
   return results
 }
 
-/**
- * Resolve um path relativo seguro dentro da raiz do projeto.
- * Retorna null + código de erro quando inválido.
- */
-export function resolveProjectFilePath(
-  root: string,
-  rawPath: string,
-): { ok: true; absPath: string; relPath: string } | { ok: false; code: string; message: string } {
-  const trimmed = rawPath.trim()
-  if (trimmed.length === 0) {
-    return { ok: false, code: 'validation_error', message: 'path é obrigatório.' }
-  }
-  const normalized = normalize(trimmed)
-  if (isAbsolute(trimmed) || normalized === '..' || normalized.startsWith(`..${sep}`)) {
-    return { ok: false, code: 'validation_error', message: 'Caminho de arquivo inseguro.' }
-  }
-  const relPosix = normalized.split('\\').join('/')
-  if (relPosix === '.git' || relPosix.startsWith('.git/')) {
-    return { ok: false, code: 'validation_error', message: 'O diretório .git não é acessível.' }
-  }
-  const absPath = resolve(root, normalized)
-  const rootResolved = resolve(root)
-  if (absPath !== rootResolved && !absPath.startsWith(`${rootResolved}${sep}`)) {
-    return { ok: false, code: 'validation_error', message: 'Caminho fora do projeto.' }
-  }
-  return { ok: true, absPath, relPath: relPosix }
-}
 
 function looksBinary(sample: Buffer): boolean {
   return sample.includes(0)
@@ -105,7 +82,8 @@ async function handleListFiles(req: IncomingMessage, res: ServerResponse, projec
     limit = n
   }
 
-  const all = walkProjectFiles(resolve(project.path))
+  // `.engrenaignore` some da listagem inteira: explorer e menção `@` compartilham esta rota.
+  const all = filterIgnoredPaths(project.path, walkProjectFiles(resolve(project.path)))
   const filtered = q === '' ? all : all.filter((p) => p.toLowerCase().includes(q))
   sendJson(res, 200, {
     files: filtered.slice(0, limit).map((path) => ({ path })),
@@ -122,6 +100,9 @@ async function handleReadFile(req: IncomingMessage, res: ServerResponse, project
   const rawPath = url.searchParams.get('path') ?? ''
   const resolved = resolveProjectFilePath(project.path, rawPath)
   if (!resolved.ok) return sendError(res, 400, resolved.code, resolved.message)
+  if (isPathIgnored(project.path, resolved.relPath)) {
+    return sendError(res, 403, 'file_ignored', IGNORED_MESSAGE)
+  }
 
   let st
   try {

@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
 export default defineConfig({
@@ -41,7 +40,6 @@ export default defineConfig({
         }
       }
     ]),
-    renderer()
   ],
   resolve: {
     alias: {
@@ -50,5 +48,24 @@ export default defineConfig({
   },
   server: {
     port: 5173
-  }
+  },
+  build: {
+    // cpp TextMate grammar is a single ~600 kB module; Rolldown cannot split it.
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'react-vendor', test: /node_modules[\\/](?:react|react-dom)[\\/]/ },
+            {
+              name: 'markdown',
+              test: /node_modules[\\/](?:react-markdown|remark-|rehype-|unified|mdast|micromark|hast-util|unist-util|vfile)[\\/]/,
+            },
+            { name: 'xterm', test: /node_modules[\\/]@xterm[\\/]/ },
+            { name: 'xyflow', test: /node_modules[\\/]@xyflow[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
 })

@@ -34,6 +34,13 @@ export function resolveTheme(preference: ThemePreference): ResolvedTheme {
   return preference === 'system' ? getSystemTheme() : preference
 }
 
+/** Ciclo Claro → Escuro → Sistema (controle por ícone no chrome). */
+export function nextThemePreference(current: ThemePreference): ThemePreference {
+  if (current === 'light') return 'dark'
+  if (current === 'dark') return 'system'
+  return 'light'
+}
+
 function readStoredPreference(): ThemePreference {
   try {
     return normalizePreference(localStorage.getItem(themeStorageKey))

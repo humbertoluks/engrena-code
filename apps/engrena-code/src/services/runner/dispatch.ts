@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { readFileSync } from 'fs'
 import { getProject, type Project } from '../db/repositories/projects.js'
 import {
   createThread,
@@ -19,7 +20,7 @@ import { diffWorkingTree } from '../git/git-client.js'
 import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, getLease, releaseLease } from './project-execution.js'
-import { emit } from './ws-hub.js'
+import { emit, subscriberCount } from './ws-hub.js'
 import {
   consumeThreadCancelled,
   getActiveController,
@@ -64,6 +65,19 @@ import {
   type ProviderUsage,
 } from './providers/cli-driver.js'
 import type { ComposerImageInput } from './providers/composer-images.js'
+import {
+  attachmentLabel,
+  composePromptWithContext,
+  truncateAttachmentContent,
+  type ContextAttachmentInput,
+  type ResolvedAttachment,
+} from './providers/context-attachments.js'
+import { resolveProjectFilePath } from '../project-files/path-guard.js'
+import { primeFollowupsForTurn } from '../threads/followups-runner.js'
+import { decisionBlock, detectDecisionQuestion } from '../threads/decision-question.js'
+import { resolveChatMode } from '../prompts/chat-mode-resolver.js'
+import { composeModeBlock } from '../prompts/prompt-spec.js'
+import { isPathIgnored } from '../ignore/ignore-service.js'
 
 export class DispatchValidationError extends Error {
   code: string
@@ -83,6 +97,9 @@ export interface DispatchNewThreadInput {
   accessLevel: ThreadAccessLevel
   executionMode: ThreadExecutionMode
   images?: ComposerImageInput[]
+  contextAttachments?: ContextAttachmentInput[]
+  /** Nome do modo de chat (F28 §3.4) — fica na thread e reentra no system prompt a cada turno. */
+  chatMode?: string | null
 }
 
 export interface DispatchFollowUpInput {
@@ -92,6 +109,8 @@ export interface DispatchFollowUpInput {
   reasoningLevel?: string | null
   accessLevel?: ThreadAccessLevel
   images?: ComposerImageInput[]
+  contextAttachments?: ContextAttachmentInput[]
+  chatMode?: string | null
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -176,7 +195,13 @@ function persistAgentUsage(params: {
   })
 }
 
-function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: SkillSnapshot): string {
+function buildSystemPrompt(
+  project: Project,
+  threadId: string,
+  skillSnapshot: SkillSnapshot,
+  chatMode: string | null,
+  provider: ThreadProvider
+): string {
   const parts: string[] = []
 
   const promptGlobal = vaultService.getSecret('prompt:global')
@@ -191,12 +216,29 @@ function buildSystemPrompt(project: Project, threadId: string, skillSnapshot: Sk
   const memoryBlock = MemoryRegistry.composeBlockForTurn(project.id, threadId)
   if (memoryBlock) parts.push(memoryBlock)
 
+  // Modo de chat depois das rules: é escolha do turno, então fala por último entre as instruções.
+  const modeBlock = composeModeBlock(resolveChatMode(project, chatMode))
+  if (modeBlock) parts.push(modeBlock)
+
   if (skillSnapshot.catalog.length > 0) {
     parts.push(
       [
         `## Skills disponíveis (EngrenaCode)`,
         `Carregue o conteúdo sob demanda com a tool \`${LOAD_SKILL_TOOL_NAME}\` (argumento \`name\`).`,
         skillSnapshot.catalog.map((s) => `- ${s.name}: ${s.description}`).join('\n'),
+      ].join('\n')
+    )
+  }
+
+  // Pergunta em prosa deixa o usuário sem opção nenhuma na tela: as alternativas só viram botão
+  // quando o agente chama a tool. Sem esta instrução o modelo pergunta no texto e a UI só consegue
+  // oferecer sugestões geradas depois do turno, que chegam tarde.
+  if (!MCP_UNSUPPORTED_PROVIDERS.has(provider)) {
+    parts.push(
+      [
+        '## Decisões do usuário',
+        `Quando precisar de uma decisão, autorização ou escolha entre caminhos, chame a tool \`${ASK_USER_QUESTION_TOOL_NAME}\` com a pergunta e até 4 opções curtas.`,
+        'A UI mostra as opções como botões no mesmo instante da pergunta; perguntar só no texto da resposta deixa o usuário sem nenhuma opção para clicar.',
       ].join('\n')
     )
   }
@@ -238,6 +280,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       executionMode: input.executionMode,
       state: 'running',
       title: deriveThreadTitle(input.prompt),
+      chatMode: input.chatMode ?? null,
     })
   } catch (err) {
     releaseLease(project.id)
@@ -261,7 +304,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
   if (slash.kind === 'command') {
     void runPipelineCommand({ project, thread, command: slash.command, prompt: input.prompt, argsText: slash.args })
   } else {
-    void runTurn(project, thread, input.prompt, input.images)
+    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments)
   }
 
   return thread
@@ -285,11 +328,14 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
     accessLevel?: ThreadAccessLevel
     model?: string | null
     reasoningLevel?: string | null
+    chatMode?: string | null
     state: 'running'
   } = { state: 'running' }
   if (input.accessLevel) patch.accessLevel = input.accessLevel
   if (input.model !== undefined) patch.model = input.model
   if (input.reasoningLevel !== undefined) patch.reasoningLevel = input.reasoningLevel
+  // Trocar de modo no meio da thread vale para os turnos seguintes, como trocar de modelo.
+  if (input.chatMode !== undefined) patch.chatMode = input.chatMode
 
   let updated: Thread
   try {
@@ -303,13 +349,46 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
   if (slash.kind === 'command') {
     void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
   } else {
-    void runTurn(project, updated, input.prompt, input.images)
+    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments)
   }
 
   return updated
 }
 
-async function runTurn(project: Project, thread: Thread, prompt: string, images?: ComposerImageInput[]): Promise<void> {
+/**
+ * Lê o conteúdo de cada anexo agora, no turno: seleção vem pronta do renderer, arquivo é lido do
+ * disco (path checado pela guarda compartilhada). Anexo que sumiu ou é inseguro some do contexto
+ * em silêncio — atrapalhar o turno inteiro por um chip velho seria pior.
+ */
+function resolveContextAttachments(project: Project, attachments?: ContextAttachmentInput[]): ResolvedAttachment[] {
+  if (!attachments || attachments.length === 0) return []
+  const resolved: ResolvedAttachment[] = []
+  for (const attachment of attachments) {
+    const label = attachmentLabel(attachment)
+    if (attachment.kind === 'selection') {
+      resolved.push({ label, content: truncateAttachmentContent(attachment.text) })
+      continue
+    }
+    const safe = resolveProjectFilePath(project.path, attachment.path)
+    if (!safe.ok) continue
+    // Exclusão de conteúdo vale também para anexo: o chip pode ter sido criado antes da regra.
+    if (isPathIgnored(project.path, safe.relPath)) continue
+    try {
+      resolved.push({ label, content: truncateAttachmentContent(readFileSync(safe.absPath, 'utf8')) })
+    } catch {
+      // arquivo removido entre anexar e enviar
+    }
+  }
+  return resolved
+}
+
+async function runTurn(
+  project: Project,
+  thread: Thread,
+  prompt: string,
+  images?: ComposerImageInput[],
+  contextAttachments?: ContextAttachmentInput[]
+): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
   let askUserQuestionServer: AskUserQuestionServerHandle | null = null
@@ -326,10 +405,34 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
             dataBase64: img.dataBase64,
           }))
         : null
-    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks: imageBlocks })
+    const resolvedAttachments = resolveContextAttachments(project, contextAttachments)
+    const contextBlocks =
+      contextAttachments && contextAttachments.length > 0
+        ? contextAttachments.map((att) => ({
+            type: 'context' as const,
+            kind: att.kind,
+            path: att.path,
+            label: attachmentLabel(att),
+          }))
+        : null
+    const blocks =
+      imageBlocks || contextBlocks ? [...(imageBlocks ?? []), ...(contextBlocks ?? [])] : null
+    // O usuário vê no histórico o que digitou (+ chips); o conteúdo dos anexos só vai no prompt
+    // do provider, lido do disco agora — nunca uma cópia velha guardada no banco.
+    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks })
+    const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)
-    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot)
+    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, thread.chatMode, thread.provider)
+    // Turno retomado (`--resume`) reaproveita o system prompt gravado na sessão do CLI e ignora o
+    // `--append-system-prompt` novo — sem isto, trocar de modo no meio da thread não valia nada.
+    // Então o bloco do modo viaja no prompt do turno, como os anexos de contexto.
+    const resumingClaude = thread.provider === 'claude' && thread.cliSessionId !== null
+    const modeBlockForTurn = resumingClaude
+      ? composeModeBlock(resolveChatMode(project, thread.chatMode))
+      : ''
+    const providerPrompt =
+      modeBlockForTurn === '' ? withContext : modeBlockForTurn + '\n\n' + withContext
     const cwd = resolveThreadCwd(thread, project)
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)
@@ -425,13 +528,18 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
       cwd,
-      prompt,
+      prompt: providerPrompt,
       systemPrompt: systemPrompt || undefined,
       model: thread.model,
       reasoningLevel: thread.reasoningLevel,
       accessLevel: thread.accessLevel,
       apiKey: resolveProviderApiKey(thread.provider),
       mcpServers: mcpsPrepared.resolved,
+      // Tools internas nossas: perguntar ao usuário, ler skill e gravar memória não podem depender
+      // do modo de permissão do CLI — sob `acceptEdits` elas eram negadas em silêncio.
+      alwaysAllowedTools: providerSupportsMcp
+        ? [ASK_USER_QUESTION_TOOL_NAME, LOAD_SKILL_TOOL_NAME, CALL_SUBAGENT_TOOL_NAME]
+        : undefined,
       permissionPort: permissionServer?.port,
       permissionToken: permissionServer?.token,
       resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,
@@ -522,7 +630,28 @@ async function runTurn(project: Project, thread: Thread, prompt: string, images?
     }
 
     if (finalText) {
-      appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
+      // Pergunta em prosa no fim da resposta vira decisão clicável no chat: o agente nem sempre
+      // chama `ask_user_question`, e sem isto o usuário fica sem opção nenhuma para responder.
+      const decision = detectDecisionQuestion(finalText)
+      const assistantMessage = appendMessage({
+        threadId: thread.id,
+        role: 'assistant',
+        content: finalText,
+        blocks: decision === null ? null : [decisionBlock(decision)],
+      })
+      // Adianta as sugestões enquanto os diffs são coletados: quando a UI perguntar, já estão
+      // prontas. Sem lease e sem bloquear o turno — falha aqui não pode virar erro de turno.
+      // Só com alguém assinando o stream: turno headless (teste, pipeline) não paga um processo
+      // de provider por uma sugestão que ninguém vai ler.
+      if (subscriberCount(thread.id) > 0) {
+        void primeFollowupsForTurn({
+          thread,
+          project,
+          messageId: assistantMessage.id,
+          lastUserMessage: prompt,
+          lastAssistantMessage: finalText,
+        }).catch(() => {})
+      }
     }
 
     const diffs = await diffWorkingTree(cwd)

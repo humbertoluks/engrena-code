@@ -11,13 +11,18 @@ const { getDb, closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread } = await import('../db/repositories/threads.js')
-const { createToolCall } = await import('../db/repositories/messages.js')
+const { createToolCall, appendMessage } = await import('../db/repositories/messages.js')
 const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
   '../runner/ask-user-question.js'
 )
 const { createPermissionServer, hasPendingPermission } = await import('../runner/permission-broker.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
+const {
+  setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
+} = await import('../threads/followups.js')
+const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
 const {
   setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
@@ -95,6 +100,10 @@ function fakeRes(): ServerResponse & { result: () => Promise<FakeResult> } {
 let session: string
 
 beforeEach(() => {
+  // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
+  // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
+  setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
+  clearAllFollowupsForTesting()
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
   getDb().exec('DELETE FROM messages')
@@ -1093,6 +1102,79 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
 
+    describe('contextAttachments', () => {
+      it('rejeita anexo de contexto malformado no create', async () => {
+        const dir = makeProjectDir()
+        const project = createProject({ path: dir })
+        const req = fakeReq(
+          'POST',
+          `/api/projects/${project.id}/threads`,
+          {
+            prompt: 'oi',
+            provider: 'claude',
+            accessLevel: 'supervised',
+            executionMode: 'main',
+            contextAttachments: [{ kind: 'pasta', path: 'src' }],
+          },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status, body } = await res.result()
+        expect(status).toBe(400)
+        expect((body as { error: { code: string } }).error.code).toBe('attachment_invalid')
+        rmSync(dir, { recursive: true, force: true })
+      })
+
+      it('rejeita anexo de contexto malformado no follow-up', async () => {
+        const dir = makeProjectDir()
+        const project = createProject({ path: dir })
+        const thread = createThread({
+          projectId: project.id,
+          provider: 'claude',
+          accessLevel: 'supervised',
+          executionMode: 'main',
+          state: 'idle',
+        })
+        const req = fakeReq(
+          'POST',
+          `/api/threads/${thread.id}/messages`,
+          { prompt: 'segue', contextAttachments: [{ kind: 'selection', path: 'a.ts', text: '' }] },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status, body } = await res.result()
+        expect(status).toBe(400)
+        expect((body as { error: { code: string } }).error.code).toBe('attachment_invalid')
+        rmSync(dir, { recursive: true, force: true })
+      })
+
+      it('aceita anexo válido no create e persiste os blocks de contexto', async () => {
+        const dir = makeProjectDir()
+        writeFileSync(join(dir, 'alvo.ts'), 'const alvo = 1')
+        const project = createProject({ path: dir })
+        setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+        const req = fakeReq(
+          'POST',
+          `/api/projects/${project.id}/threads`,
+          {
+            prompt: 'explique',
+            provider: 'claude',
+            accessLevel: 'auto-accept-edits',
+            executionMode: 'main',
+            contextAttachments: [{ kind: 'file', path: 'alvo.ts' }],
+          },
+          session
+        )
+        const res = fakeRes()
+        await handleThreadsRequest(req, res)
+        const { status } = await res.result()
+        expect(status).toBe(201)
+        rmSync(dir, { recursive: true, force: true })
+      })
+    })
+
     describe('test_images_rejected_when_not_multimodal', () => {
       it('rejects images on create for a non-multimodal provider (minimax)', async () => {
         const dir = makeProjectDir()
@@ -1369,4 +1451,138 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
   })
+})
+
+describe('F28 Onda 2 — busca, renomear, exportar e voto', () => {
+  it('GET /threads?q= filtra por título e por conteúdo de mensagem', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const alvo = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'Ajustar o composer',
+    })
+    const outra = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'Outro assunto',
+    })
+    appendMessage({ threadId: outra.id, role: 'user', content: 'falar sobre telemetria', blocks: null })
+
+    const byTitle = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', `/api/projects/${project.id}/threads?q=composer`, undefined, session), byTitle)
+    const titleBody = (await byTitle.result()).body as { threads: Array<{ id: string }> }
+    expect(titleBody.threads.map((t) => t.id)).toEqual([alvo.id])
+
+    const byContent = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', `/api/projects/${project.id}/threads?q=telemetria`, undefined, session), byContent)
+    const contentBody = (await byContent.result()).body as { threads: Array<{ id: string }> }
+    expect(contentBody.threads.map((t) => t.id)).toEqual([outra.id])
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
+
+  it('PATCH /threads/:id/title renomeia e volta ao automático com título vazio', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'antigo',
+    })
+
+    const renamed = fakeRes()
+    await handleThreadsRequest(fakeReq('PATCH', `/api/threads/${thread.id}/title`, { title: '  Novo nome  ' }, session), renamed)
+    expect((await renamed.result()).status).toBe(200)
+    expect(getThread(thread.id)?.title).toBe('Novo nome')
+
+    const cleared = fakeRes()
+    await handleThreadsRequest(fakeReq('PATCH', `/api/threads/${thread.id}/title`, { title: '' }, session), cleared)
+    expect(getThread(thread.id)?.title).toBeNull()
+
+    const tooLong = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('PATCH', `/api/threads/${thread.id}/title`, { title: 'x'.repeat(121) }, session),
+      tooLong
+    )
+    expect((await tooLong.result()).status).toBe(400)
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
+
+  it('GET /threads/:id/export devolve markdown com nome de arquivo e recusa formato inválido', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'Conversa exportada',
+    })
+    appendMessage({ threadId: thread.id, role: 'user', content: 'oi', blocks: null })
+
+    const md = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', `/api/threads/${thread.id}/export?format=md`, undefined, session), md)
+    const body = (await md.result()).body as { fileName: string; content: string; format: string }
+    expect(body.format).toBe('md')
+    expect(body.fileName.endsWith('.md')).toBe(true)
+    expect(body.content).toContain('# Conversa exportada')
+
+    const bad = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', `/api/threads/${thread.id}/export?format=pdf`, undefined, session), bad)
+    expect((await bad.result()).status).toBe(400)
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
+
+  it('POST feedback grava voto na resposta e recusa voto em mensagem do usuário', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    const userMessage = appendMessage({ threadId: thread.id, role: 'user', content: 'oi', blocks: null })
+    const answer = appendMessage({ threadId: thread.id, role: 'assistant', content: 'resposta', blocks: null })
+
+    const up = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('POST', `/api/threads/${thread.id}/messages/${answer.id}/feedback`, { vote: 'up' }, session),
+      up
+    )
+    const upBody = (await up.result()).body as { feedback: { vote: string } }
+    expect(upBody.feedback.vote).toBe('up')
+
+    const cleared = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('POST', `/api/threads/${thread.id}/messages/${answer.id}/feedback`, { vote: null }, session),
+      cleared
+    )
+    expect((await cleared.result()).body).toEqual({ feedback: null })
+
+    const onUser = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('POST', `/api/threads/${thread.id}/messages/${userMessage.id}/feedback`, { vote: 'up' }, session),
+      onUser
+    )
+    expect((await onUser.result()).status).toBe(400)
+
+    const invalid = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('POST', `/api/threads/${thread.id}/messages/${answer.id}/feedback`, { vote: 'meh' }, session),
+      invalid
+    )
+    expect((await invalid.result()).status).toBe(400)
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
 })

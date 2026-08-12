@@ -14,6 +14,7 @@ import {
 import type { DotVariant, FeedbackVariant } from '@engrena/ui'
 import {
   configuracaoService,
+  isConfigStatus,
   type CLIStatusData,
   type ConfigStatus,
   type ProviderKeyName,
@@ -871,10 +872,14 @@ export function ConfiguracaoScreen(): ReactElement {
   const loadStatus = useCallback(async (): Promise<void> => {
     try {
       const data = await configuracaoService.getStatus()
-      if (mountedRef.current) {
-        setStatus(data)
-        setLoadError(null)
+      if (!mountedRef.current) return
+      // Cofre travado / sessão inválida chegam como corpo de erro com status 200 no fetch.
+      if (!isConfigStatus(data)) {
+        setLoadError(data.error?.message ?? 'Não foi possível carregar a configuração.')
+        return
       }
+      setStatus(data)
+      setLoadError(null)
     } catch {
       if (mountedRef.current) setLoadError('Não foi possível carregar a configuração.')
     }

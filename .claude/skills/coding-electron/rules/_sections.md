@@ -18,4 +18,4 @@
 
 ## 5. Build (build)
 
-**Impact:** HIGH — Dev URL from env, production loadFile, preload CJS build.
+**Impact:** HIGH — Dev URL from env, production loadFile, preload CJS build, no unused renderer Node polyfill, vendor code-splitting.

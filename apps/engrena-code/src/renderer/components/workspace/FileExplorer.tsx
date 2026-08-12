@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactEl
 import { projectFilesService } from '../../services/project-files-service'
 import { SidebarSection } from './SidebarSection'
 import { FilesIcon } from './sidebarIcons'
+import { DROP_PATH_MIME } from './composerDrop.logic'
 import {
   FILE_EXPLORER_LIST_LIMIT,
   buildFileTree,
@@ -34,10 +35,18 @@ export interface FileExplorerProps {
   projectId: string
   /** Uncommitted paths from git porcelain (orange highlight). */
   changedFiles?: readonly string[]
+  /** Arquivo aberto no viewer — vira contexto implícito do composer (`null` ao fechar). */
+  onActiveFileChange?: (
+    active: { path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null
+  ) => void
 }
 
 /** Collapsible project file tree for the right workspace sidebar (F03 Arquivos). */
-export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerProps>): ReactElement {
+export function FileExplorer({
+  projectId,
+  changedFiles,
+  onActiveFileChange,
+}: Readonly<FileExplorerProps>): ReactElement {
   const [phase, setPhase] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [paths, setPaths] = useState<string[]>([])
   const [total, setTotal] = useState(0)
@@ -45,6 +54,19 @@ export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerP
   const [filter, setFilter] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [openPath, setOpenPath] = useState<string | null>(null)
+
+  const openFile = useCallback(
+    (path: string) => {
+      setOpenPath(path)
+      onActiveFileChange?.({ path })
+    },
+    [onActiveFileChange]
+  )
+
+  const closeFile = useCallback(() => {
+    setOpenPath(null)
+    onActiveFileChange?.(null)
+  }, [onActiveFileChange])
 
   const changedPaths = useMemo(() => new Set(changedFiles ?? []), [changedFiles])
   const changedDirs = useMemo(() => changedAncestorDirs(changedFiles ?? []), [changedFiles])
@@ -135,7 +157,7 @@ export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerP
                   path={path}
                   depth={0}
                   changed={changedPaths.has(path)}
-                  onOpen={setOpenPath}
+                  onOpen={openFile}
                 />
               ))
             ) : (
@@ -157,7 +179,7 @@ export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerP
                     changedPaths={changedPaths}
                     changedDirs={changedDirs}
                     onToggle={toggleDir}
-                    onOpen={setOpenPath}
+                    onOpen={openFile}
                   />
                 ))}
                 {sortedFileTreeFiles(tree).map((file) => (
@@ -167,7 +189,7 @@ export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerP
                     path={file.path}
                     depth={0}
                     changed={changedPaths.has(file.path)}
-                    onOpen={setOpenPath}
+                    onOpen={openFile}
                   />
                 ))}
               </div>
@@ -178,7 +200,14 @@ export function FileExplorer({ projectId, changedFiles }: Readonly<FileExplorerP
 
       {openPath ? (
         <Suspense fallback={null}>
-          <FileViewerModal projectId={projectId} path={openPath} onClose={() => setOpenPath(null)} />
+          <FileViewerModal
+            projectId={projectId}
+            path={openPath}
+            onClose={closeFile}
+            onSelectionChange={(selection) =>
+              onActiveFileChange?.(selection ? { path: openPath, selection } : { path: openPath })
+            }
+          />
         </Suspense>
       ) : null}
     </>
@@ -261,6 +290,12 @@ function FileRow({
   return (
     <button
       type="button"
+      draggable
+      onDragStart={(event) => {
+        // Path relativo confiável para o composer anexar sem ler o arquivo aqui.
+        event.dataTransfer.setData(DROP_PATH_MIME, path)
+        event.dataTransfer.effectAllowed = 'copy'
+      }}
       onClick={() => onOpen(path)}
       title={path}
       className={ROW}

@@ -3,9 +3,8 @@ import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import rehypeSanitize from 'rehype-sanitize'
-import { codeToHtml } from 'shiki'
 import { shikiThemeFromResolved, useTheme } from '@engrena/ui'
-import { normalizeCodeLanguage, parseMarkdownCodeLanguage } from './chatMarkdown.logic'
+import { parseMarkdownCodeLanguage } from './chatMarkdown.logic'
 
 function CodeBlock({ code, language }: Readonly<{ code: string; language: string }>): ReactElement {
   const { resolvedTheme } = useTheme()
@@ -14,19 +13,14 @@ function CodeBlock({ code, language }: Readonly<{ code: string; language: string
 
   useEffect(() => {
     let cancelled = false
-    const lang = normalizeCodeLanguage(language)
 
     void (async () => {
       try {
-        const next = await codeToHtml(code, { lang, theme })
+        const { highlightCode } = await import('./chatHighlight')
+        const next = await highlightCode(code, language, theme)
         if (!cancelled) setHtml(next)
       } catch {
-        try {
-          const next = await codeToHtml(code, { lang: 'text', theme })
-          if (!cancelled) setHtml(next)
-        } catch {
-          if (!cancelled) setHtml(null)
-        }
+        if (!cancelled) setHtml(null)
       }
     })()
 

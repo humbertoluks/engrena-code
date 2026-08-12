@@ -11,6 +11,7 @@ export {
   configureThemeStorageKey,
   getThemeStorageKey,
   resolveTheme,
+  nextThemePreference,
   applyThemeBoot,
   initThemeStore,
   useTheme,
@@ -53,7 +54,10 @@ export {
   PLAN_BRAND,
   PLAN_UNLOCK_ORIGIN,
   classifyUnlockFailure,
+  clearUnlockedWorkspace,
   messageForError,
+  persistUnlockedWorkspace,
+  readUnlockedWorkspace,
 } from './screens/loginScreen.logic'
 export type {
   LoginProduct,

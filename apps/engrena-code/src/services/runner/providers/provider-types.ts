@@ -34,6 +34,11 @@ export interface ProviderTurnInput {
   apiKey?: string
   /** MCP tools resolvidos para este turno (F09) — vira `--mcp-config` para providers CLI. */
   mcpServers?: ResolvedMcpDef[]
+  /**
+   * Tools internas do EngrenaCode liberadas sem passar pelo gate de permissão do CLI (`--allowedTools`).
+   * São nossas, não tocam o repositório e viram UI: perguntar ao usuário nunca pode depender do modo.
+   */
+  alwaysAllowedTools?: string[]
   /** Anexos de imagem (F16 §3.2) — CLI materializa em ficheiros temporários; Minimax rejeita (text-only). */
   images?: ComposerImageInput[]
   onEvent: (event: ProviderStreamEvent) => void

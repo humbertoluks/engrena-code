@@ -20,6 +20,8 @@ export interface Thread {
   systemPrompt: string | null
   /** Session ID do Claude Code CLI (`--resume` no follow-up). Null para providers sem persistência de sessão. */
   cliSessionId: string | null
+  /** Nome do modo de chat aplicado (F28 §3.4); null quando a thread roda sem modo. */
+  chatMode: string | null
   createdAt: number
   updatedAt: number
 }
@@ -46,6 +48,7 @@ interface ThreadRow {
   title: string | null
   system_prompt: string | null
   cli_session_id: string | null
+  chat_mode: string | null
   created_at: number
   updated_at: number
 }
@@ -64,6 +67,7 @@ function toThread(row: ThreadRow): Thread {
     title: row.title,
     systemPrompt: row.system_prompt,
     cliSessionId: row.cli_session_id ?? null,
+    chatMode: row.chat_mode ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -79,6 +83,7 @@ export interface CreateThreadInput {
   worktreePath?: string | null
   state?: ThreadState
   title?: string | null
+  chatMode?: string | null
 }
 
 export function createThread(input: CreateThreadInput): Thread {
@@ -88,8 +93,8 @@ export function createThread(input: CreateThreadInput): Thread {
   getDb()
     .prepare(
       `INSERT INTO threads
-        (id, project_id, provider, model, reasoning_level, access_level, execution_mode, worktree_path, state, title, system_prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+        (id, project_id, provider, model, reasoning_level, access_level, execution_mode, worktree_path, state, title, system_prompt, chat_mode, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
     )
     .run(
       id,
@@ -102,6 +107,7 @@ export function createThread(input: CreateThreadInput): Thread {
       input.worktreePath ?? null,
       input.state ?? 'running',
       input.title ?? null,
+      input.chatMode ?? null,
       now,
       now
     )
@@ -121,6 +127,26 @@ export function listThreadsForProject(projectId: string): Thread[] {
   return rows.map(toThread)
 }
 
+/**
+ * Busca por título ou por conteúdo de mensagem da thread (equivalente à busca de sessões do chat
+ * do VS Code). O termo é escapado com `#` para `%` e `_` digitados não virarem curinga.
+ */
+export function searchThreadsForProject(projectId: string, query: string): Thread[] {
+  const term = query.trim()
+  if (term === '') return listThreadsForProject(projectId)
+  const like = `%${term.replace(/[#%_]/g, (c) => `#${c}`)}%`
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT t.* FROM threads t
+       LEFT JOIN messages m ON m.thread_id = t.id
+       WHERE t.project_id = ?
+         AND (t.title LIKE ? ESCAPE '#' OR m.content LIKE ? ESCAPE '#')
+       ORDER BY t.created_at DESC`
+    )
+    .all(projectId, like, like) as unknown as ThreadRow[]
+  return rows.map(toThread)
+}
+
 export interface UpdateThreadInput {
   state?: ThreadState
   model?: string | null
@@ -130,6 +156,7 @@ export interface UpdateThreadInput {
   title?: string | null
   systemPrompt?: string | null
   cliSessionId?: string | null
+  chatMode?: string | null
 }
 
 export function updateThread(id: string, patch: UpdateThreadInput): Thread | null {
@@ -145,11 +172,12 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
     title: patch.title !== undefined ? patch.title : existing.title,
     systemPrompt: patch.systemPrompt !== undefined ? patch.systemPrompt : existing.systemPrompt,
     cliSessionId: patch.cliSessionId !== undefined ? patch.cliSessionId : existing.cliSessionId,
+    chatMode: patch.chatMode !== undefined ? patch.chatMode : existing.chatMode,
   }
 
   getDb()
     .prepare(
-      `UPDATE threads SET state = ?, model = ?, reasoning_level = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, cli_session_id = ?, updated_at = ?
+      `UPDATE threads SET state = ?, model = ?, reasoning_level = ?, access_level = ?, worktree_path = ?, title = ?, system_prompt = ?, cli_session_id = ?, chat_mode = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(
@@ -161,6 +189,7 @@ export function updateThread(id: string, patch: UpdateThreadInput): Thread | nul
       next.title,
       next.systemPrompt,
       next.cliSessionId,
+      next.chatMode,
       Date.now(),
       id
     )

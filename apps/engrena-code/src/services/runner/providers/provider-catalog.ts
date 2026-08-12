@@ -56,6 +56,15 @@ export const PROVIDER_CATALOG: Record<ThreadProvider, ProviderCatalogEntry> = {
   },
 }
 
+/**
+ * Modelo das chamadas laterais (sugestão de follow-up, textgen de commit): o turno do usuário manda
+ * no modelo dele, mas a lateral compete com a leitura da resposta — modelo grande aqui chega tarde
+ * demais para ajudar. Provider sem alternativa barata fica de fora e usa o modelo da thread.
+ */
+export const FAST_SIDE_MODEL: Partial<Record<ThreadProvider, string>> = {
+  claude: 'claude-haiku-4-5',
+}
+
 export interface ComposerCatalogResponse {
   providers: Record<ThreadProvider, ProviderCatalogEntry>
 }

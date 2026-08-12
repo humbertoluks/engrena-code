@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { projectFilesService } from '../../services/project-files-service'
 import { ButtonSecondary, Modal } from '@engrena/ui'
 
@@ -14,10 +14,17 @@ export interface FileViewerModalProps {
   projectId: string
   path: string
   onClose: () => void
+  /** Seleção corrente do texto — alimenta o contexto implícito do composer. */
+  onSelectionChange?: (selection: { text: string; startLine?: number; endLine?: number } | null) => void
 }
 
 /** Read-only text viewer for a project file (FileExplorer). */
-export function FileViewerModal({ projectId, path, onClose }: Readonly<FileViewerModalProps>): ReactElement {
+export function FileViewerModal({
+  projectId,
+  path,
+  onClose,
+  onSelectionChange,
+}: Readonly<FileViewerModalProps>): ReactElement {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,6 +55,39 @@ export function FileViewerModal({ projectId, path, onClose }: Readonly<FileViewe
     }
   }, [projectId, path])
 
+  const preRef = useRef<HTMLPreElement>(null)
+
+  /**
+   * Espelha o contexto implícito do VS Code (`chatImplicitContext.ts`): a seleção corrente do
+   * arquivo aberto vira contexto do próximo turno. As linhas saem do offset dentro do texto já
+   * carregado — sem editor, é a única fonte de numeração confiável.
+   */
+  const handleSelection = useCallback(() => {
+    if (!onSelectionChange) return
+    const selection = window.getSelection()
+    const container = preRef.current
+    if (!selection || selection.isCollapsed || !container || content === null) {
+      onSelectionChange(null)
+      return
+    }
+    if (!container.contains(selection.anchorNode) || !container.contains(selection.focusNode)) return
+
+    const text = selection.toString()
+    if (text.trim() === '') {
+      onSelectionChange(null)
+      return
+    }
+    const start = content.indexOf(text)
+    if (start === -1) {
+      onSelectionChange({ text })
+      return
+    }
+    const newline = String.fromCharCode(10)
+    const startLine = content.slice(0, start).split(newline).length
+    const endLine = startLine + text.split(newline).length - 1
+    onSelectionChange({ text, startLine, endLine })
+  }, [content, onSelectionChange])
+
   return (
     <Modal
       onClose={onClose}
@@ -73,7 +113,12 @@ export function FileViewerModal({ projectId, path, onClose }: Readonly<FileViewe
           </p>
         ) : null}
         {content !== null ? (
-          <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-fg">
+          <pre
+            ref={preRef}
+            onMouseUp={handleSelection}
+            onKeyUp={handleSelection}
+            className="m-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-fg"
+          >
             {content}
           </pre>
         ) : null}

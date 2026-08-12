@@ -19,6 +19,10 @@ import * as migration010SlashPipeline from './migrations/010_slash_pipeline.js'
 import * as migration011UsageLimits from './migrations/011_usage_limits.js'
 import * as migration012Skills from './migrations/012_skills.js'
 import * as migration013CliSession from './migrations/013_cli_session.js'
+import * as migration014MessageFeedback from './migrations/014_message_feedback.js'
+import * as migration015ToolAllowlist from './migrations/015_tool_allowlist.js'
+import * as migration016CodeChunks from './migrations/016_code_chunks.js'
+import * as migration017PromptLibrary from './migrations/017_prompt_library.js'
 
 const MIGRATIONS: Migration[] = [
   { id: migration001Subagents.id, sql: migration001Subagents.sql },
@@ -35,6 +39,10 @@ const MIGRATIONS: Migration[] = [
   { id: migration011UsageLimits.id, sql: migration011UsageLimits.sql },
   { id: migration012Skills.id, sql: migration012Skills.sql },
   { id: migration013CliSession.id, sql: migration013CliSession.sql },
+  { id: migration014MessageFeedback.id, sql: migration014MessageFeedback.sql },
+  { id: migration015ToolAllowlist.id, sql: migration015ToolAllowlist.sql },
+  { id: migration016CodeChunks.id, sql: migration016CodeChunks.sql },
+  { id: migration017PromptLibrary.id, sql: migration017PromptLibrary.sql },
 ]
 
 const { openDb, getDb, closeDb } = createDb({

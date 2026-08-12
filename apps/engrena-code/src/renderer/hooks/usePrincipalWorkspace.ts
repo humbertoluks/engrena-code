@@ -12,24 +12,65 @@ import {
   type ThreadProvider,
   type Thread,
   type ToolCall,
+  type FeedbackVote,
+  type MessageFeedback,
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
-import { configuracaoService, type ConfigStatus } from '../services/configuracao-service'
+import { configuracaoService, isConfigStatus, type ConfigStatus } from '../services/configuracao-service'
+import {
+  promptLibraryService,
+  type ChatModeItem,
+  type SavedPromptItem,
+} from '../services/prompt-library-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
 import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
 import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
 import {
+  addAttachment,
+  makeSelectionAttachment,
+  removeAttachment as removeAttachmentFromList,
+  toWirePayload,
+  withImplicitContext,
+  type ComposerAttachment,
+} from '../components/workspace/composerAttachments.logic'
+import { slugifyPromptName } from '../../services/prompts/prompt-spec.js'
+import {
   reconcilePendingMessages,
   type PendingMessage,
   type PendingMessageStatus,
 } from '../components/workspace/pendingMessages.logic'
+import {
+  applyLiveEvent,
+  emptyLiveOverlay,
+  type LiveGraphOverlay,
+} from '../components/workspace/graph/executionGraph.logic'
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
-export type ThreadTab = 'history' | 'diff'
+const PROVIDERS: readonly ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax', 'glm', 'grok']
+const ACCESS_LEVELS: readonly ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
+const EXECUTION_MODES: readonly ThreadExecutionMode[] = ['main', 'worktree']
+
+function asProvider(value: string | null): ThreadProvider | null {
+  return value !== null && (PROVIDERS as readonly string[]).includes(value) ? (value as ThreadProvider) : null
+}
+
+function asAccessLevel(value: string | null): ThreadAccessLevel | null {
+  return value !== null && (ACCESS_LEVELS as readonly string[]).includes(value)
+    ? (value as ThreadAccessLevel)
+    : null
+}
+
+function asExecutionMode(value: string | null): ThreadExecutionMode | null {
+  return value !== null && (EXECUTION_MODES as readonly string[]).includes(value)
+    ? (value as ThreadExecutionMode)
+    : null
+}
+
+export type ThreadTab = 'history' | 'diff' | 'graph'
 
 export interface ComposerImage {
   id: string
@@ -43,6 +84,8 @@ export interface QueueItem {
   id: string
   text: string
   images: ComposerImage[]
+  /** Contexto anexado quando a mensagem entrou na fila — sem isto o turno enfileirado perde os chips. */
+  attachments?: ComposerAttachment[]
   model: string | null
   reasoningLevel: string | null
 }
@@ -55,6 +98,9 @@ export interface ComposerDraft {
   executionMode: ThreadExecutionMode
   text: string
   images: ComposerImage[]
+  attachments: ComposerAttachment[]
+  /** Nome do modo de chat aplicado (F28 §3.4); null = sem modo. */
+  chatMode: string | null
 }
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
@@ -96,6 +142,8 @@ export function usePrincipalWorkspace() {
   const [threadsByProject, setThreadsByProject] = useState<Record<string, Thread[]>>({})
   const [threadsLoading, setThreadsLoading] = useState<Record<string, boolean>>({})
   const [threadsError, setThreadsError] = useState<Record<string, boolean>>({})
+  const threadsByProjectRef = useRef(threadsByProject)
+  threadsByProjectRef.current = threadsByProject
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [vcsStatus, setVcsStatus] = useState<VcsStatus | null>(null)
@@ -103,6 +151,12 @@ export function usePrincipalWorkspace() {
   const [usageLimitStatus, setUsageLimitStatus] = useState<UsageLimitStatusResponse | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
+  const [feedback, setFeedback] = useState<Record<string, FeedbackVote>>({})
+  const [followups, setFollowups] = useState<string[]>([])
+  // Âncora + estado de espera: o turno adianta a geração no servidor, mas quando ela demora a UI
+  // precisa dizer "vem sugestão aí" em vez de deixar o espaço vazio até depois da resposta.
+  const [followupsMessageId, setFollowupsMessageId] = useState<string | null>(null)
+  const [followupsPending, setFollowupsPending] = useState(false)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
   const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
@@ -113,6 +167,8 @@ export function usePrincipalWorkspace() {
 
   const [diffs, setDiffs] = useState<Diff[]>([])
   const [activeTab, setActiveTab] = useState<ThreadTab>('history')
+  /** Overlay otimista do grafo (F29) — nós aparecem em subagent.start antes do refetch. */
+  const [liveGraphOverlay, setLiveGraphOverlay] = useState<LiveGraphOverlay>(() => emptyLiveOverlay())
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
@@ -129,6 +185,8 @@ export function usePrincipalWorkspace() {
     executionMode: 'main',
     text: '',
     images: [],
+    attachments: [],
+    chatMode: null,
   })
   const [queue, setQueue] = useState<QueueItem[]>([])
   // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
@@ -225,7 +283,12 @@ export function usePrincipalWorkspace() {
   }, [])
 
   const loadThreads = useCallback(async (projectId: string) => {
-    setThreadsLoading((prev) => ({ ...prev, [projectId]: true }))
+    // Só mostra "Carregando…" na 1ª carga. Reload com cache (busca vazia / refetch)
+    // não pode desmontar ThreadRow — isso fechava o rename no meio da edição.
+    const hasCache = Object.hasOwn(threadsByProjectRef.current, projectId)
+    if (!hasCache) {
+      setThreadsLoading((prev) => ({ ...prev, [projectId]: true }))
+    }
     setThreadsError((prev) => ({ ...prev, [projectId]: false }))
     try {
       const res = await threadsService.listForProject(projectId)
@@ -293,16 +356,34 @@ export function usePrincipalWorkspace() {
         return
       }
       setMessages(res.messages)
+      setFeedback(Object.fromEntries((res.feedback ?? []).map((f: MessageFeedback) => [f.messageId, f.vote])))
       setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
       setToolCalls(res.toolCalls)
       setSubagentRuns(res.subagentRuns)
       setPipeline(res.pipeline)
+      // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
+      setLiveGraphOverlay(emptyLiveOverlay())
     } catch (err: unknown) {
       if (!mountedRef.current) return
       if (background) console.error('[workspace] history refetch:', err)
       else setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
       if (mountedRef.current && !background) setHistoryLoading(false)
+    }
+  }, [])
+
+  /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
+  const loadFollowups = useCallback(async (threadId: string) => {
+    setFollowupsPending(true)
+    try {
+      const res = await threadsService.followups(threadId)
+      if (!mountedRef.current || res.error) return
+      setFollowups(res.followups)
+      setFollowupsMessageId(res.messageId ?? null)
+    } catch {
+      // sugestão é conforto — silêncio é melhor que ruído
+    } finally {
+      if (mountedRef.current) setFollowupsPending(false)
     }
   }, [])
 
@@ -321,7 +402,12 @@ export function usePrincipalWorkspace() {
     configuracaoService
       .getStatus()
       .then((status) => {
-        if (mountedRef.current) setConfigStatus(status)
+        if (!mountedRef.current) return
+        if (!isConfigStatus(status)) {
+          console.error('[workspace] config status:', status.error?.message ?? 'resposta inesperada')
+          return
+        }
+        setConfigStatus(status)
       })
       .catch((err: unknown) => {
         console.error('[workspace] config status:', err)
@@ -366,6 +452,7 @@ export function usePrincipalWorkspace() {
       reasoningLevel: selectedThread.reasoningLevel,
       accessLevel: selectedThread.accessLevel,
       executionMode: selectedThread.executionMode,
+      chatMode: selectedThread.chatMode ?? null,
     }))
   }, [
     selectedThread?.id,
@@ -374,10 +461,14 @@ export function usePrincipalWorkspace() {
     selectedThread?.provider,
     selectedThread?.accessLevel,
     selectedThread?.executionMode,
+    selectedThread?.chatMode,
   ])
 
   useEffect(() => {
     setStreamingText('')
+    setFollowups([])
+    setFollowupsMessageId(null)
+    setFollowupsPending(false)
     setMcpNotices([])
     if (selectedThreadId) {
       void loadHistory(selectedThreadId)
@@ -412,6 +503,12 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'state.change') {
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      if (event.state === 'running') {
+        setFollowups([])
+        setFollowupsMessageId(null)
+        setFollowupsPending(false)
+      }
       setThreadsByProject((prev) => {
         const projectId = selectedProjectId
         if (!projectId) return prev
@@ -432,6 +529,7 @@ export function usePrincipalWorkspace() {
         setStreamingText('')
         void loadHistory(event.threadId, { background: true })
         void loadDiffs(event.threadId)
+        void loadFollowups(event.threadId)
         processQueueIfIdle()
         // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
         if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
@@ -447,16 +545,18 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
-      // Refetch traz `subagentRuns` (e `toolCalls` correlacionados) sem exigir refresh manual (spec F15 §5.3).
+      // Overlay imediato (F29) + refetch F15 que traz subagentRuns canónicos.
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
-      // Mesmo padrão de F15 — refetch traz `pipeline` (estado + estágios) sem refresh manual (spec F22 §5.3).
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
@@ -504,6 +604,77 @@ export function usePrincipalWorkspace() {
     setPendingMessages((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
+  // Contexto implícito: arquivo aberto no viewer (+ seleção), espelhando `chatImplicitContext.ts`
+  // do VS Code. Vira chip removível e pode ser desligado — nunca entra escondido no turno.
+  const [activeFile, setActiveFile] = useState<{ path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null>(null)
+  const [implicitContextEnabled, setImplicitContextEnabled] = useState(true)
+  const [attachError, setAttachError] = useState<string | null>(null)
+
+  const composerAttachments = useMemo(
+    () => withImplicitContext(composer.attachments, activeFile, implicitContextEnabled),
+    [composer.attachments, activeFile, implicitContextEnabled]
+  )
+
+  const [codebaseBusy, setCodebaseBusy] = useState(false)
+
+  const attach = useCallback((attachment: ComposerAttachment) => {
+    setComposer((prev) => {
+      const result = addAttachment(prev.attachments, attachment)
+      if (!result.ok) {
+        setAttachError(result.message)
+        return prev
+      }
+      setAttachError(null)
+      return { ...prev, attachments: result.attachments }
+    })
+  }, [])
+
+  /** Chip implícito não sai da lista explícita — remover significa desligar o implícito. */
+  const detach = useCallback((id: string) => {
+    setAttachError(null)
+    setComposer((prev) => {
+      const next = removeAttachmentFromList(prev.attachments, id)
+      if (next.length !== prev.attachments.length) return { ...prev, attachments: next }
+      setImplicitContextEnabled(false)
+      return prev
+    })
+  }, [])
+
+  /**
+   * `#codebase`: busca trechos pelo texto que já está no composer e anexa os melhores como chips
+   * de seleção — o usuário vê exatamente o que vai junto e pode remover.
+   */
+  const attachCodebase = useCallback(async () => {
+    if (!selectedProjectId || codebaseBusy) return
+    const query = composer.text.trim()
+    if (query === '') {
+      setAttachError('Escreva o pedido antes de buscar no codebase.')
+      return
+    }
+    setCodebaseBusy(true)
+    setAttachError(null)
+    try {
+      const res = await projectsService.codesearch(selectedProjectId, query, 3)
+      if (res.error) {
+        setAttachError(res.error.message)
+        return
+      }
+      if (res.hits.length === 0) {
+        setAttachError('Nenhum trecho do projeto casou com esse pedido.')
+        return
+      }
+      for (const hit of res.hits) {
+        attach(
+          makeSelectionAttachment(hit.path, hit.snippet, { startLine: hit.startLine, endLine: hit.endLine })
+        )
+      }
+    } catch {
+      setAttachError('Não foi possível buscar no codebase.')
+    } finally {
+      if (mountedRef.current) setCodebaseBusy(false)
+    }
+  }, [selectedProjectId, composer.text, codebaseBusy, attach])
+
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
@@ -514,8 +685,10 @@ export function usePrincipalWorkspace() {
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
     setPendingMessages([])
+    setAttachError(null)
     setSendError(null)
     setActiveTab('history')
+    setLiveGraphOverlay(emptyLiveOverlay())
   }, [])
 
   const newThread = useCallback(() => {
@@ -549,6 +722,147 @@ export function usePrincipalWorkspace() {
     [selectedProjectId]
   )
 
+  // ── Prompts salvos e modos de chat (F28 §3.4) ────────────────────────────
+
+  const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>([])
+  const [chatModes, setChatModes] = useState<ChatModeItem[]>([])
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+
+  const loadPromptLibrary = useCallback(async (projectId: string) => {
+    const [prompts, modes] = await Promise.all([
+      promptLibraryService.listPrompts(projectId),
+      promptLibraryService.listModes(projectId),
+    ])
+    if (!mountedRef.current) return
+    if (!prompts.error) setSavedPrompts(prompts.prompts)
+    if (!modes.error) setChatModes(modes.modes)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setSavedPrompts([])
+      setChatModes([])
+      return
+    }
+    void loadPromptLibrary(selectedProjectId)
+  }, [selectedProjectId, loadPromptLibrary])
+
+  /**
+   * Aplica o preset do modo no rascunho. Provider e execution só mudam em thread nova: na thread
+   * existente os dois são imutáveis (mesma regra das pills do composer).
+   */
+  const applyChatMode = useCallback(
+    (name: string | null) => {
+      setLibraryError(null)
+      if (name === null) {
+        setComposer((prev) => ({ ...prev, chatMode: null }))
+        return
+      }
+      const mode = chatModes.find((m) => m.name === name)
+      if (mode === undefined) return
+      const provider = asProvider(mode.provider)
+      const accessLevel = asAccessLevel(mode.accessLevel)
+      const executionMode = asExecutionMode(mode.executionMode)
+      const isNewThread = selectedThreadId === null
+      setComposer((prev) => ({
+        ...prev,
+        chatMode: mode.name,
+        provider: isNewThread && provider !== null ? provider : prev.provider,
+        model: mode.model ?? prev.model,
+        reasoningLevel: mode.reasoningLevel ?? prev.reasoningLevel,
+        accessLevel: accessLevel ?? prev.accessLevel,
+        executionMode: isNewThread && executionMode !== null ? executionMode : prev.executionMode,
+      }))
+    },
+    [chatModes, selectedThreadId]
+  )
+
+  const savePromptFromComposer = useCallback(
+    async (rawName: string): Promise<boolean> => {
+      if (!selectedProjectId) return false
+      const name = slugifyPromptName(rawName)
+      const body = composer.text.trim()
+      if (name === '' || body === '') {
+        setLibraryError('Dê um nome ao prompt e escreva o texto antes de salvar.')
+        return false
+      }
+      const res = await promptLibraryService.createPrompt(selectedProjectId, { name, body })
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      await loadPromptLibrary(selectedProjectId)
+      return true
+    },
+    [selectedProjectId, composer.text, loadPromptLibrary]
+  )
+
+  /** O modo nasce do que já está no composer — é o preset que o usuário acabou de montar na mão. */
+  const saveChatModeFromComposer = useCallback(
+    async (rawName: string, instructions = ''): Promise<boolean> => {
+      if (!selectedProjectId) return false
+      const name = slugifyPromptName(rawName)
+      if (name === '') {
+        setLibraryError('Dê um nome ao modo antes de salvar.')
+        return false
+      }
+      const res = await promptLibraryService.createMode(selectedProjectId, {
+        name,
+        provider: composer.provider,
+        model: composer.model,
+        reasoningLevel: composer.reasoningLevel,
+        accessLevel: composer.accessLevel,
+        executionMode: composer.executionMode,
+        instructions,
+      })
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      // Marca o modo direto: `applyChatMode` leria a lista do render anterior, ainda sem o modo
+      // recém-criado, e a pill ficaria no modo antigo. O preset já é o estado atual do composer.
+      setComposer((prev) => ({ ...prev, chatMode: name }))
+      await loadPromptLibrary(selectedProjectId)
+      return true
+    },
+    [
+      selectedProjectId,
+      composer.provider,
+      composer.model,
+      composer.reasoningLevel,
+      composer.accessLevel,
+      composer.executionMode,
+      loadPromptLibrary,
+    ]
+  )
+
+  const deleteSavedPrompt = useCallback(
+    async (id: string) => {
+      const res = await promptLibraryService.deletePrompt(id)
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return
+      }
+      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
+    },
+    [selectedProjectId, loadPromptLibrary]
+  )
+
+  const deleteChatMode = useCallback(
+    async (id: string, name: string) => {
+      const res = await promptLibraryService.deleteMode(id)
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return
+      }
+      setComposer((prev) => (prev.chatMode === name ? { ...prev, chatMode: null } : prev))
+      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
+    },
+    [selectedProjectId, loadPromptLibrary]
+  )
+
   const gitInitProject = useCallback(async (projectId: string) => {
     const res = await projectsService.gitInit(projectId)
     if (!res.error) void loadVcsStatus(projectId)
@@ -575,11 +889,24 @@ export function usePrincipalWorkspace() {
   )
 
   const enqueue = useCallback(
-    (text: string, images: ComposerImage[], model: string | null, reasoningLevel: string | null) => {
+    (
+      text: string,
+      images: ComposerImage[],
+      model: string | null,
+      reasoningLevel: string | null,
+      attachments: ComposerAttachment[] = []
+    ) => {
       setQueue((prev) => {
         const next = [
           ...prev,
-          { id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, images, model, reasoningLevel },
+          {
+            id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            images,
+            attachments,
+            model,
+            reasoningLevel,
+          },
         ]
         saveQueue(queueKey, next)
         return next
@@ -637,7 +964,7 @@ export function usePrincipalWorkspace() {
     queueRef.current = rest
     setQueue(rest)
     saveQueue(queueKey, rest)
-    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel).then((ok) => {
+    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel, head.attachments ?? []).then((ok) => {
       // O item sai da fila antes do POST (evita despacho duplo se outro `state.change` chegar
       // no meio). Falhou — ex.: outra thread do projeto pegou a lease primeiro —, volta para a
       // frente da fila; sem isso a mensagem enfileirada some sem nunca ter rodado.
@@ -654,7 +981,8 @@ export function usePrincipalWorkspace() {
       text: string,
       images: ComposerImage[] = [],
       model: string | null = null,
-      reasoningLevel: string | null = null
+      reasoningLevel: string | null = null,
+      attachments: ComposerAttachment[] = []
     ): Promise<boolean> => {
       if (!selectedThreadId) return false
       const pendingId = addPending(text, images, 'sending')
@@ -665,6 +993,8 @@ export function usePrincipalWorkspace() {
           reasoningLevel,
           accessLevel: composer.accessLevel,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
+          contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
+          chatMode: composer.chatMode,
         })
         if (res.error) {
           removePending(pendingId)
@@ -684,6 +1014,7 @@ export function usePrincipalWorkspace() {
       selectedThreadId,
       selectedProjectId,
       composer.accessLevel,
+      composer.chatMode,
       upsertThreadLocal,
       addPending,
       setPendingStatus,
@@ -698,12 +1029,38 @@ export function usePrincipalWorkspace() {
     sendFollowUpRef.current = sendFollowUp
   }, [sendFollowUp])
 
-  const resolvePermission = useCallback(async (requestId: string, allow: boolean, always = false) => {
+  const resolvePermission = useCallback(
+    async (requestId: string, allow: boolean, always = false, scope: 'thread' | 'project' = 'thread') => {
     const entry = permissionQueue.find((p) => p.requestId === requestId)
     if (!entry) return
-    await threadsService.permission(entry.threadId, { requestId, allow, always: always || undefined })
+    await threadsService.permission(entry.threadId, {
+      requestId,
+      allow,
+      always: always || undefined,
+      scope: scope === 'project' ? 'project' : undefined,
+    })
     setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
-  }, [permissionQueue])
+    },
+    [permissionQueue]
+  )
+
+  /**
+   * Clique numa resposta da pergunta do agente: envia direto, sem passar pelo composer — é uma
+   * decisão, não um rascunho. Com o turno ocupado vai para a fila, como qualquer follow-up.
+   */
+  const sendDecision = useCallback(
+    async (text: string) => {
+      const value = text.trim()
+      if (value === '' || !selectedThreadId) return
+      setSendError(null)
+      if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
+        enqueue(value, [], composer.model, composer.reasoningLevel, [])
+        return
+      }
+      await sendFollowUp(value, [], composer.model, composer.reasoningLevel, [])
+    },
+    [selectedThreadId, selectedThread, composer.model, composer.reasoningLevel, enqueue, sendFollowUp]
+  )
 
   const send = useCallback(async () => {
     const text = composer.text.trim()
@@ -737,8 +1094,8 @@ export function usePrincipalWorkspace() {
     // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
     // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
     if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
-      enqueue(text, composer.images, composer.model, composer.reasoningLevel)
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      enqueue(text, composer.images, composer.model, composer.reasoningLevel, composerAttachments)
+      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
       return
     }
 
@@ -746,8 +1103,9 @@ export function usePrincipalWorkspace() {
 
     if (!selectedThreadId) {
       const images = composer.images
+      const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
       try {
         const res = await threadsService.create(selectedProjectId, {
           prompt: text,
@@ -757,6 +1115,8 @@ export function usePrincipalWorkspace() {
           accessLevel: composer.accessLevel,
           executionMode: composer.executionMode,
           images: images.length > 0 ? toImagePayloads(images) : undefined,
+          contextAttachments: attachments.length > 0 ? toWirePayload(attachments) : undefined,
+          chatMode: composer.chatMode,
         })
         if (res.error) {
           removePending(pendingId)
@@ -774,8 +1134,9 @@ export function usePrincipalWorkspace() {
     }
 
     const images = composer.images
-    setComposer((prev) => ({ ...prev, text: '', images: [] }))
-    await sendFollowUp(text, images, composer.model, composer.reasoningLevel)
+    const attachments = composerAttachments
+    setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+    await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
   }, [
     composer,
     selectedThread,
@@ -789,6 +1150,7 @@ export function usePrincipalWorkspace() {
     addPending,
     setPendingStatus,
     removePending,
+    composerAttachments,
   ])
 
   const cancel = useCallback(async () => {
@@ -880,6 +1242,73 @@ export function usePrincipalWorkspace() {
     [pendingMessages, queue]
   )
 
+  /** Voto otimista: clicar no mesmo voto desfaz (toggle), igual ao chat do VS Code. */
+  const voteMessage = useCallback(
+    async (messageId: string, vote: FeedbackVote) => {
+      if (!selectedThreadId) return
+      const current = feedback[messageId]
+      const next = current === vote ? null : vote
+      setFeedback((prev) => {
+        const copy = { ...prev }
+        if (next === null) delete copy[messageId]
+        else copy[messageId] = next
+        return copy
+      })
+      const res = await threadsService.feedback(selectedThreadId, messageId, next)
+      if (res.error) {
+        setFeedback((prev) => {
+          const copy = { ...prev }
+          if (current === undefined) delete copy[messageId]
+          else copy[messageId] = current
+          return copy
+        })
+      }
+    },
+    [selectedThreadId, feedback]
+  )
+
+  const renameThread = useCallback(
+    async (threadId: string, title: string | null) => {
+      const res = await threadsService.rename(threadId, title)
+      if (res.error) {
+        setSendError(res.error.message)
+        return
+      }
+      if (selectedProjectId && res.thread) upsertThreadLocal(selectedProjectId, res.thread)
+    },
+    [selectedProjectId, upsertThreadLocal]
+  )
+
+  /** Exporta baixando pelo próprio renderer — sem IPC novo nem diálogo nativo. */
+  const exportThread = useCallback(async (threadId: string, format: 'md' | 'json') => {
+    const res = await threadsService.exportThread(threadId, format)
+    if (res.error) {
+      setSendError(res.error.message)
+      return
+    }
+    const blob = new Blob([res.content], { type: format === 'md' ? 'text/markdown' : 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchorEl = document.createElement('a')
+    anchorEl.href = url
+    anchorEl.download = res.fileName
+    anchorEl.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  /** Busca de conversas (título + conteúdo). Termo vazio recarrega a lista completa. */
+  const searchThreads = useCallback(
+    async (projectId: string, query: string) => {
+      if (query.trim() === '') {
+        await loadThreads(projectId)
+        return
+      }
+      const res = await threadsService.search(projectId, query)
+      if (res.error || !mountedRef.current) return
+      setThreadsByProject((prev) => ({ ...prev, [projectId]: res.threads }))
+    },
+    [loadThreads]
+  )
+
   const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
   const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
@@ -907,10 +1336,20 @@ export function usePrincipalWorkspace() {
     refreshMemoryStatus,
     usageLimitStatus,
     messages,
+    feedback,
+    followups,
+    followupsMessageId,
+    followupsPending,
+    sendDecision,
+    voteMessage,
+    renameThread,
+    exportThread,
+    searchThreads,
     chatPendingMessages,
     toolCalls,
     subagentRuns,
     pipeline,
+    liveGraphOverlay,
     activeSubagentRun,
     openSubagentRun,
     closeSubagentRun,
@@ -923,8 +1362,26 @@ export function usePrincipalWorkspace() {
     configStatus,
     composerCatalog,
     composer,
+    composerAttachments,
+    attach,
+    attachCodebase,
+    codebaseBusy,
+    detach,
+    attachError,
+    activeFile,
+    setActiveFile,
+    implicitContextEnabled,
+    setImplicitContextEnabled,
     updateComposer,
     setAccessLevel,
+    savedPrompts,
+    chatModes,
+    libraryError,
+    applyChatMode,
+    savePromptFromComposer,
+    saveChatModeFromComposer,
+    deleteSavedPrompt,
+    deleteChatMode,
     queue,
     dequeue,
     updateQueueItem,

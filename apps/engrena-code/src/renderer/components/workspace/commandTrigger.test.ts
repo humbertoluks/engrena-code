@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractSlashTrigger, insertSlashCommand, matchSlashCommands } from './commandTrigger.js'
+import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, matchSavedPromptNames, matchSlashCommands } from './commandTrigger.js'
 
 describe('extractSlashTrigger', () => {
   it('opens only when / anchors the very start of the text', () => {
@@ -41,5 +41,39 @@ describe('insertSlashCommand', () => {
   it('replaces the token from the start with /{name} plus a trailing space', () => {
     const result = insertSlashCommand('/sp', 'spec', 3)
     expect(result).toEqual({ text: '/spec ', cursor: 6 })
+  })
+})
+
+describe('matchSavedPromptNames', () => {
+  const names = ['revisao-pr', 'refatora', 'commit']
+
+  it('filtra por prefixo, sem diferenciar maiúscula', () => {
+    expect(matchSavedPromptNames('re', names)).toEqual(['revisao-pr', 'refatora'])
+    expect(matchSavedPromptNames('COM', names)).toEqual(['commit'])
+  })
+
+  it('query vazia devolve todos e query sem casamento devolve nada', () => {
+    expect(matchSavedPromptNames('', names)).toEqual(names)
+    expect(matchSavedPromptNames('zzz', names)).toEqual([])
+  })
+})
+
+describe('insertSavedPrompt', () => {
+  it('troca o token /nome pelo corpo do prompt', () => {
+    const result = insertSavedPrompt('/rev', 'Revise o diff', 4)
+    expect(result.text).toBe('Revise o diff')
+    expect(result.cursor).toBe(13)
+    expect(result.selection).toBeNull()
+  })
+
+  it('preserva o texto depois do cursor', () => {
+    const result = insertSavedPrompt('/rev agora', 'Revise', 4)
+    expect(result.text).toBe('Revise agora')
+  })
+
+  it('devolve a faixa da primeira variável para o composer selecionar', () => {
+    const result = insertSavedPrompt('/rev', 'Revise ${input:arquivo:src/app.ts}', 4)
+    expect(result.text).toBe('Revise src/app.ts')
+    expect(result.selection).toEqual({ start: 7, end: 17 })
   })
 })

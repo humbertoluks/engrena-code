@@ -15,6 +15,7 @@ const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createRule } = await import('../db/repositories/rules.js')
 const { createSkill, linkSkill } = await import('../db/repositories/skills.js')
+const { createChatMode } = await import('../db/repositories/prompt-library.js')
 const { createSubagent, upsertProjectSubagentLink } = await import('../db/repositories/subagents.js')
 const {
   dispatchNewThread,
@@ -25,10 +26,16 @@ const {
   resetRunCliTurnForTesting,
 } = await import('./dispatch.js')
 const { clearAllLeases, isLeased, acquireLease } = await import('./project-execution.js')
+const { ASK_USER_QUESTION_TOOL_NAME } = await import('./ask-user-question.js')
 const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
 const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
+const {
+  setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
+  resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
+} = await import('../threads/followups.js')
+const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
 const { resolvePermissionRequest, hasPendingPermission } = await import('./permission-broker.js')
 const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
 const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
@@ -56,6 +63,10 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
+  // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
+  setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
+  clearAllFollowupsForTesting()
   getDb().exec('DELETE FROM log_entries')
   getDb().exec('DELETE FROM diffs')
   getDb().exec('DELETE FROM tool_calls')
@@ -1728,6 +1739,328 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     await waitForState(thread.id, ['idle', 'error'])
 
     expect(capturedPort).toBeUndefined()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('anexos de contexto do composer', () => {
+  it('lê o arquivo anexado no turno e põe o bloco de contexto antes do pedido', async () => {
+    const dir = makeProjectDir()
+    writeFileSync(join(dir, 'alvo.ts'), 'export const alvo = 42\n')
+    const project = createProject({ path: dir })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'explique este arquivo',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [{ kind: 'file', path: 'alvo.ts' }],
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPrompt).toContain('## Contexto anexado pelo usuário')
+    expect(capturedPrompt).toContain('alvo.ts')
+    expect(capturedPrompt).toContain('export const alvo = 42')
+    expect(capturedPrompt.indexOf('alvo.ts')).toBeLessThan(capturedPrompt.indexOf('explique este arquivo'))
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('persiste só o que o usuário digitou, com os anexos como blocks da mensagem', async () => {
+    const dir = makeProjectDir()
+    writeFileSync(join(dir, 'alvo.ts'), 'export const alvo = 42\n')
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'explique este arquivo',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [
+        { kind: 'file', path: 'alvo.ts' },
+        { kind: 'selection', path: 'alvo.ts', text: 'const alvo = 42', startLine: 1, endLine: 1 },
+      ],
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const userMessage = listMessagesForThread(thread.id).find((m) => m.role === 'user')
+    expect(userMessage?.content).toBe('explique este arquivo')
+    const blocks = (userMessage?.blocks ?? []) as Array<Record<string, unknown>>
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({ type: 'context', kind: 'file', path: 'alvo.ts', label: 'alvo.ts' })
+    expect(blocks[1]).toMatchObject({ type: 'context', kind: 'selection', label: 'alvo.ts:1-1' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('ignora anexo com path inseguro ou arquivo inexistente sem derrubar o turno', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'siga',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      contextAttachments: [
+        { kind: 'file', path: '../fora.ts' },
+        { kind: 'file', path: 'nao-existe.ts' },
+      ],
+    })
+    const finalState = await waitForState(thread.id, ['idle', 'error'])
+
+    expect(finalState).toBe('idle')
+    expect(capturedPrompt).toBe('siga')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('pergunta ao usuário', () => {
+  it('manda o agente usar a tool ask_user_question em vez de perguntar em prosa', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('## Decisões do usuário')
+    expect(capturedSystemPrompt).toContain(ASK_USER_QUESTION_TOOL_NAME)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('provider sem MCP não recebe a instrução (a tool não existe lá)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'grok',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).not.toContain('## Decisões do usuário')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('tools internas sempre liberadas', () => {
+  it('passa ask_user_question/load_skill/call_subagent em alwaysAllowedTools sob auto-accept-edits', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let captured: string[] | undefined
+    setRunCliTurnForTesting(async (input) => {
+      captured = input.alwaysAllowedTools
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(captured).toContain(ASK_USER_QUESTION_TOOL_NAME)
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('decisão detectada na resposta', () => {
+  it('resposta que termina pedindo autorização grava o bloco de decisão na mensagem', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async () => ({
+      text: 'Preciso rodar npm install para baixar as dependências. Posso prosseguir?',
+    }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'suba o servidor',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const assistant = listMessagesForThread(thread.id).find((m) => m.role === 'assistant')
+    expect(assistant?.blocks).toEqual([
+      { type: 'decision', question: 'Posso prosseguir?', options: ['Sim, pode prosseguir', 'Não, aguarde'] },
+    ])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('resposta sem pergunta no fim não ganha bloco', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async () => ({ text: 'Servidor criado em server.js.' }))
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'crie o servidor',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const assistant = listMessagesForThread(thread.id).find((m) => m.role === 'assistant')
+    expect(assistant?.blocks).toBeNull()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('modo de chat (F28 §3.4)', () => {
+  it('injeta as instruções do modo salvo no system prompt e guarda o nome na thread', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    createChatMode({
+      projectId: project.id,
+      name: 'revisor',
+      instructions: 'Só revise, nunca edite arquivo.',
+    })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'revisor',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(getThread(thread.id)?.chatMode).toBe('revisor')
+    expect(capturedSystemPrompt).toContain('## Modo de chat: revisor')
+    expect(capturedSystemPrompt).toContain('Só revise, nunca edite arquivo.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('modo versionado no repo vale igual ao salvo no banco', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    mkdirSync(join(dir, '.engrena', 'modes'), { recursive: true })
+    writeFileSync(join(dir, '.engrena', 'modes', 'do-repo.chatmode.md'), 'Fale como arquiteto.')
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'do-repo',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('Fale como arquiteto.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('follow-up retomado leva o bloco do modo no prompt do turno (--resume ignora system prompt novo)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    createChatMode({
+      projectId: project.id,
+      name: 'conciso',
+      instructions: 'Responda em uma linha.',
+    })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      state: 'idle',
+    })
+    updateThread(thread.id, { cliSessionId: 'sessao-antiga' })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    dispatchFollowUp({ threadId: thread.id, prompt: 'e agora?', chatMode: 'conciso' })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPrompt).toContain('## Modo de chat: conciso')
+    expect(capturedPrompt).toContain('Responda em uma linha.')
+    expect(capturedPrompt.endsWith('e agora?')).toBe(true)
+    clearAllLeases()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('turno sem modo não ganha bloco nenhum e nome desconhecido é ignorado', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'inexistente',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).not.toContain('## Modo de chat')
     rmSync(dir, { recursive: true, force: true })
   })
 })

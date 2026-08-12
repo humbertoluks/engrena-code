@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import type { Message, ThreadState, ToolCall } from '../../services/threads-service'
+import type { FeedbackVote, Message, ThreadState, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import {
@@ -18,6 +18,7 @@ import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { PendingAskUserQuestion } from './askUserQuestion.logic'
 import { ChatMarkdown } from './ChatMarkdown'
 import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
+import { EmptyChatIcon } from './sidebarIcons'
 
 const COPY = {
   loading: 'Carregando histórico…',
@@ -33,6 +34,11 @@ const COPY = {
   toolInterrupted: 'interrompida',
   toolError: 'erro',
   toolRunning: 'trabalhando…',
+  voteUp: 'Resposta útil',
+  voteDown: 'Resposta ruim',
+  followupsLabel: 'Sugestões de próximo passo',
+  decisionLabel: 'Respostas para a pergunta do agente',
+  followupsLoading: 'Sugerindo próximos passos…',
 } as const
 
 interface ImageBlock {
@@ -40,6 +46,51 @@ interface ImageBlock {
   mimeType: string
   name?: string
   dataBase64: string
+}
+
+interface ContextBlock {
+  type: 'context'
+  kind: 'file' | 'selection'
+  path: string
+  label: string
+}
+
+interface DecisionBlock {
+  type: 'decision'
+  question: string
+  options: string[]
+}
+
+function decisionOf(blocks: unknown[] | null): DecisionBlock | null {
+  const found = (blocks ?? []).find(
+    (block): block is DecisionBlock =>
+      typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'decision'
+  )
+  return found ?? null
+}
+
+function isContextBlock(block: unknown): block is ContextBlock {
+  return typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'context'
+}
+
+/** Chips do contexto que foi junto na mensagem — o mesmo rótulo que estava no composer. */
+function MessageContextChips({ blocks }: Readonly<{ blocks: unknown[] | null }>): ReactElement | null {
+  const contexts = (blocks ?? []).filter(isContextBlock)
+  if (contexts.length === 0) return null
+  return (
+    <div className="mb-xs flex flex-wrap justify-end gap-xs">
+      {contexts.map((ctx) => (
+        <span
+          key={`${ctx.kind}-${ctx.label}`}
+          title={ctx.path}
+          className="inline-flex max-w-[14rem] items-center gap-[4px] rounded-md border border-border px-xs py-px text-[10.5px] text-muted"
+        >
+          <span aria-hidden="true">{ctx.kind === 'selection' ? '✂' : '📄'}</span>
+          <span className="min-w-0 truncate font-mono">{ctx.label}</span>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function isImageBlock(block: unknown): block is ImageBlock {
@@ -233,6 +284,7 @@ function UserMessage({ message }: Readonly<{ message: Message }>): ReactElement 
 
   return (
     <div className="mb-md flex flex-col items-end">
+      <MessageContextChips blocks={message.blocks} />
       <MessageImageThumbs blocks={message.blocks} />
       <div
         role={collapsible ? 'button' : undefined}
@@ -303,21 +355,78 @@ function PendingUserMessage({ pending }: Readonly<{ pending: PendingMessage }>):
   )
 }
 
+function VoteButtons({
+  vote,
+  onVote,
+}: Readonly<{ vote: FeedbackVote | undefined; onVote: (vote: FeedbackVote) => void }>): ReactElement {
+  return (
+    <span className="flex items-center gap-[2px]">
+      <button
+        type="button"
+        onClick={() => onVote('up')}
+        aria-label={COPY.voteUp}
+        aria-pressed={vote === 'up'}
+        title={COPY.voteUp}
+        className={`rounded-sm px-[3px] text-[11px] ${vote === 'up' ? 'text-green' : 'text-muted hover:text-fg'}`}
+      >
+        👍
+      </button>
+      <button
+        type="button"
+        onClick={() => onVote('down')}
+        aria-label={COPY.voteDown}
+        aria-pressed={vote === 'down'}
+        title={COPY.voteDown}
+        className={`rounded-sm px-[3px] text-[11px] ${vote === 'down' ? 'text-red' : 'text-muted hover:text-fg'}`}
+      >
+        👎
+      </button>
+    </span>
+  )
+}
+
 function AssistantMessage({
   message,
   turnDurationMs,
-}: Readonly<{ message: Message; turnDurationMs: number | null }>): ReactElement {
+  vote,
+  onVote,
+  decisionEnabled = false,
+  onDecide,
+}: Readonly<{
+  message: Message
+  turnDurationMs: number | null
+  vote: FeedbackVote | undefined
+  onVote?: (messageId: string, vote: FeedbackVote) => void
+  /** Só a última resposta, com a thread parada, ainda espera decisão. */
+  decisionEnabled?: boolean
+  onDecide?: (text: string) => void
+}>): ReactElement {
   const clock = formatClock(message.createdAt)
   const showDuration = turnDurationMs != null && turnDurationMs > 0
   const text = message.content ?? ''
+  const decision = decisionEnabled ? decisionOf(message.blocks) : null
   return (
     <div className="mb-md pr-[48px]">
       {text ? <ChatMarkdown content={text} /> : null}
-      {clock || showDuration ? (
-        <div className="mt-[3px] flex items-center gap-sm text-[11px] text-muted">
-          {clock ? <span>{clock}</span> : null}
-          {showDuration ? <span>{COPY.thought(formatDurationSeconds(turnDurationMs))}</span> : null}
-        </div>
+      <div className="mt-[3px] flex items-center gap-sm text-[11px] text-muted">
+        {clock ? <span>{clock}</span> : null}
+        {showDuration ? <span>{COPY.thought(formatDurationSeconds(turnDurationMs))}</span> : null}
+        {onVote ? <VoteButtons vote={vote} onVote={(next) => onVote(message.id, next)} /> : null}
+      </div>
+      {decision !== null && onDecide ? (
+        <ul aria-label={COPY.decisionLabel} className="mt-xs flex list-none flex-wrap gap-xs p-0">
+          {decision.options.map((option) => (
+            <li key={option}>
+              <button
+                type="button"
+                onClick={() => onDecide(option)}
+                className="rounded-full border border-accent/60 bg-accent/10 px-sm py-[3px] text-[12px] text-fg transition-colors hover:bg-accent/20"
+              >
+                {option}
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   )
@@ -341,6 +450,17 @@ export interface ChatHistoryProps {
   onAnswerQuestion?: (input: { selectedOptions: string[]; freeText: string | null }) => void
   answerBusy?: boolean
   answerError?: string | null
+  /** Voto por id de mensagem (👍/👎), vindo do histórico persistido. */
+  feedback?: Record<string, FeedbackVote>
+  onVote?: (messageId: string, vote: FeedbackVote) => void
+  /** Sugestões geradas ao fim do turno; clicar preenche o composer (não envia). */
+  followups?: string[]
+  /** Mensagem que gerou as sugestões — chegando tarde, elas não colam sob uma resposta mais nova. */
+  followupsMessageId?: string | null
+  followupsPending?: boolean
+  onPickFollowup?: (text: string) => void
+  /** Clique numa resposta da pergunta do agente: envia na hora (decisão, não rascunho). */
+  onDecide?: (text: string) => void
 }
 
 export function ChatHistory({
@@ -359,6 +479,13 @@ export function ChatHistory({
   onAnswerQuestion,
   answerBusy = false,
   answerError = null,
+  feedback = {},
+  onVote,
+  followups = [],
+  followupsMessageId = null,
+  followupsPending = false,
+  onPickFollowup,
+  onDecide,
 }: Readonly<ChatHistoryProps>): ReactElement {
   // Estado de expansão vive aqui (e não no DOM do <details>): o refetch do turno reconstrói a
   // lista e qualquer remontagem fecharia o Work log aberto no meio da leitura.
@@ -395,11 +522,11 @@ export function ChatHistory({
   }
 
   if (!hasThread && !hasContent) {
-    return <p className="p-md text-[13px] text-muted">{COPY.emptyNoThread}</p>
+    return <EmptyChatState message={COPY.emptyNoThread} />
   }
 
   if (!hasContent) {
-    return <p className="p-md text-[13px] text-muted">{COPY.emptyThread}</p>
+    return <EmptyChatState message={COPY.emptyThread} />
   }
 
   // `queued` só roda depois do turno atual — fica no rodapé, abaixo do streaming e do "Pensando…".
@@ -412,6 +539,9 @@ export function ChatHistory({
   // Enquanto o turno roda o indicador fica sempre visível (mesmo com texto já em tela): sumir
   // depois da primeira frase do agente fazia o chat parecer travado no meio do trabalho.
   const showActivity = threadState === 'running' && !pendingQuestion
+  // Sugestão nasce de uma resposta específica: se outra chegou no meio, a lista velha não vale.
+  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? null
+  const followupsAnchored = followupsMessageId !== null && followupsMessageId === lastAssistantId
   const activity = currentActivity(messages, toolCalls, Date.now(), pendingMessages)
 
   return (
@@ -427,6 +557,10 @@ export function ChatHistory({
                 key={group.message.id}
                 message={group.message}
                 turnDurationMs={turnDurationForAssistant(messages, group.message)}
+                vote={feedback[group.message.id]}
+                onVote={onVote}
+                decisionEnabled={group.message.id === lastAssistantId && threadState !== 'running' && !pendingQuestion}
+                onDecide={onDecide}
               />
             )
           }
@@ -481,9 +615,45 @@ export function ChatHistory({
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
+      {/* Texto, não pílulas vazias: o esqueleto anterior tinha a forma dos chips e era lido como
+          botão quebrado — o usuário via três retângulos sem rótulo e achava que era defeito. */}
+      {followupsPending && followups.length === 0 && queued.length === 0 ? (
+        <p role="status" className="mb-md text-[11.5px] text-muted">
+          <span className="animate-pulse">{COPY.followupsLoading}</span>
+        </p>
+      ) : null}
+
+      {followups.length > 0 && onPickFollowup && queued.length === 0 && followupsAnchored ? (
+        <ul aria-label={COPY.followupsLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
+          {followups.map((text) => (
+            <li key={text}>
+            <button
+              type="button"
+              onClick={() => onPickFollowup(text)}
+              className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[12px] text-muted transition-colors hover:border-accent hover:text-fg"
+            >
+              {text}
+            </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {queued.map((pending) => (
         <PendingUserMessage key={pending.id} pending={pending} />
       ))}
+    </div>
+  )
+}
+
+/** Empty thread / no-thread — centered icon + copy (legacy chat empty state). */
+function EmptyChatState({ message }: Readonly<{ message: string }>): ReactElement {
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-md px-lg py-xl text-center">
+      <span className="text-muted">
+        <EmptyChatIcon />
+      </span>
+      <p className="max-w-[22rem] text-[13px] leading-relaxed text-muted">{message}</p>
     </div>
   )
 }

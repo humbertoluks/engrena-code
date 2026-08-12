@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   CODE_BRAND,
+  LOGIN_PRODUCT_CONFIG,
   classifyUnlockFailure,
+  clearUnlockedWorkspace,
   messageForError,
+  nextThemePreference,
+  persistUnlockedWorkspace,
+  readUnlockedWorkspace,
 } from '@engrena/ui'
 
 describe('loginScreen.logic (shared)', () => {
@@ -68,5 +73,43 @@ describe('loginScreen.logic (shared)', () => {
         ),
       ).toEqual({ kind: 'invalid', retryMs: 0 })
     })
+  })
+
+  describe('unlocked workspace chrome label', () => {
+    const key = LOGIN_PRODUCT_CONFIG.code.workspaceStorageKey
+    const store = new Map<string, string>()
+
+    function installLocalStorage(): void {
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        value: {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => {
+            store.set(k, v)
+          },
+          removeItem: (k: string) => {
+            store.delete(k)
+          },
+        },
+      })
+    }
+
+    it('persists, reads and clears the workspace label', () => {
+      installLocalStorage()
+      clearUnlockedWorkspace(key)
+      expect(readUnlockedWorkspace(key, '~/dev')).toBe('~/dev')
+      persistUnlockedWorkspace(key, '~/projects/acme')
+      expect(readUnlockedWorkspace(key, '~/dev')).toBe('~/projects/acme')
+      clearUnlockedWorkspace(key)
+      expect(readUnlockedWorkspace(key, '~/dev')).toBe('~/dev')
+    })
+  })
+})
+
+describe('nextThemePreference', () => {
+  it('cycles light → dark → system → light', () => {
+    expect(nextThemePreference('light')).toBe('dark')
+    expect(nextThemePreference('dark')).toBe('system')
+    expect(nextThemePreference('system')).toBe('light')
   })
 })

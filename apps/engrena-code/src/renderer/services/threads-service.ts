@@ -1,7 +1,8 @@
 import { apiRequest, type ApiErrorBody } from './api-client'
+import type { ContextAttachmentInput } from '../../services/runner/providers/context-attachments.js'
 import type { SubagentRun } from './subagents-service'
 
-export type { ApiErrorBody }
+export type { ApiErrorBody, ContextAttachmentInput }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ export interface Thread {
   title: string | null
   systemPrompt: string | null
   cliSessionId?: string | null
+  chatMode?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -43,6 +45,17 @@ export interface ComposerCatalogProviderEntry {
 
 export interface ComposerCatalog {
   providers: Record<ThreadProvider, ComposerCatalogProviderEntry>
+}
+
+export type FeedbackVote = 'up' | 'down'
+
+export interface MessageFeedback {
+  messageId: string
+  threadId: string
+  vote: FeedbackVote
+  note: string | null
+  createdAt: number
+  updatedAt: number
 }
 
 export interface Message {
@@ -156,6 +169,8 @@ export const threadsService = {
       accessLevel: ThreadAccessLevel
       executionMode: ThreadExecutionMode
       images?: ComposerImagePayload[]
+      contextAttachments?: ContextAttachmentInput[]
+      chatMode?: string | null
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
@@ -167,6 +182,8 @@ export const threadsService = {
       reasoningLevel?: string | null
       accessLevel?: ThreadAccessLevel
       images?: ComposerImagePayload[]
+      contextAttachments?: ContextAttachmentInput[]
+      chatMode?: string | null
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 
@@ -181,18 +198,48 @@ export const threadsService = {
   history: (
     threadId: string
   ): Promise<
-    { messages: Message[]; toolCalls: ToolCall[]; subagentRuns: SubagentRun[]; pipeline: PipelineHistory | null } & ApiErrorBody
+    {
+      messages: Message[]
+      feedback: MessageFeedback[]
+      toolCalls: ToolCall[]
+      subagentRuns: SubagentRun[]
+      pipeline: PipelineHistory | null
+    } & ApiErrorBody
   > => apiRequest('GET', `/api/threads/${threadId}/history`),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),
+
+  search: (projectId: string, query: string): Promise<{ threads: Thread[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/projects/${projectId}/threads?q=${encodeURIComponent(query)}`),
+
+  rename: (threadId: string, title: string | null): Promise<{ thread: Thread } & ApiErrorBody> =>
+    apiRequest('PATCH', `/api/threads/${threadId}/title`, { title }),
+
+  exportThread: (
+    threadId: string,
+    format: 'md' | 'json'
+  ): Promise<{ fileName: string; format: string; content: string } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/export?format=${format}`),
+
+  feedback: (
+    threadId: string,
+    messageId: string,
+    vote: FeedbackVote | null
+  ): Promise<{ feedback: MessageFeedback | null } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/messages/${messageId}/feedback`, { vote }),
+
+  followups: (
+    threadId: string
+  ): Promise<{ followups: string[]; messageId?: string | null } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/followups`),
 
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/cancel`),
 
   permission: (
     threadId: string,
-    input: { requestId: string; allow: boolean; always?: boolean }
+    input: { requestId: string; allow: boolean; always?: boolean; scope?: 'thread' | 'project' }
   ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/permission`, input),
 
