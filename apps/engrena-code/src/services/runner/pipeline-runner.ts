@@ -181,7 +181,12 @@ async function runStage(params: RunStageParams): Promise<DelegationResult> {
       : result.status === 'timeout'
         ? 'timeout'
         : 'failed'
-  updatePipelineStage(stageRow.id, { status: finalStatus, finishedAt: Date.now() })
+  updatePipelineStage(stageRow.id, {
+    status: finalStatus,
+    finishedAt: Date.now(),
+    // F29: liga stage → subagent_runs.child_thread_id (coluna já existia desde F22, nunca populada).
+    ...(result.childThreadId ? { subagentRunId: result.childThreadId } : {}),
+  })
   emit(thread.id, {
     type: 'pipeline.stage',
     threadId: thread.id,

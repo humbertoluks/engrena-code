@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { usePrincipalWorkspace } from '../hooks/usePrincipalWorkspace'
 import { useChatScroll } from '../hooks/useChatScroll'
@@ -14,10 +14,14 @@ import { WorkspaceSidebar, WorkspaceSidebarCollapsedRail } from '../components/w
 import { TerminalDock } from '../components/workspace/TerminalDock'
 import { PermissionPrompt } from '../components/workspace/PermissionPrompt'
 import { SubagentRunAuditModal } from '../components/subagents/SubagentRunAuditModal'
+import { GRAPH_COPY } from '../components/workspace/graph/graphCopy'
+
+const ExecutionGraphPanel = lazy(() => import('../components/workspace/graph/ExecutionGraphPanel'))
 
 const COPY = {
   tabHistory: 'Histórico',
   tabDiff: 'Diff',
+  tabGraph: GRAPH_COPY.tab,
   mcpNoticeDismiss: 'Dispensar avisos',
   jumpToLatest: 'Ir para o final (ctrl+End)',
   jumpNotice: 'O agente respondeu.',
@@ -61,7 +65,7 @@ export function PrincipalScreen(): ReactElement {
 
     if (projectId) ws.selectProject(projectId)
     if (threadId) ws.selectThread(threadId)
-    if (tab === 'diff' || tab === 'history') ws.setActiveTab(tab)
+    if (tab === 'diff' || tab === 'history' || tab === 'graph') ws.setActiveTab(tab)
   }, [ws.projects, ws.selectProject, ws.selectThread, ws.setActiveTab])
 
   const projectTree = (
@@ -154,6 +158,15 @@ export function PrincipalScreen(): ReactElement {
                 <span className="rounded-full bg-amber/[0.14] px-[6px] text-[10px] text-amber">{pendingDiffCount}</span>
               ) : null}
             </button>
+            <button
+              type="button"
+              onClick={() => ws.setActiveTab('graph')}
+              className={`rounded-md px-sm py-[3px] text-[12px] ${
+                ws.activeTab === 'graph' ? 'bg-surface-2 text-fg' : 'text-muted'
+              }`}
+            >
+              {COPY.tabGraph}
+            </button>
 
             {/* O que o painel recolhido deixaria de contar migra para cá — ver ChatContextBar. */}
             <ChatContextBar
@@ -188,49 +201,72 @@ export function PrincipalScreen(): ReactElement {
             </div>
           ) : null}
 
-          {/* [overflow-anchor:none]: a rolagem deste container é programática (useChatScroll);
-              o scroll anchoring nativo do Chromium seria um segundo escritor de scrollTop,
-              brigando com o stick a cada reflow do turno. */}
-          <div
-            ref={chatScroll.ref}
-            className={terminalMaximized ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]'}
-          >
-            {ws.activeTab === 'history' ? (
-              <ChatHistory
-                messages={ws.messages}
-                pendingMessages={ws.chatPendingMessages}
-                threadId={ws.selectedThreadId}
-                toolCalls={ws.toolCalls}
-                subagentRuns={ws.subagentRuns}
-                onOpenSubagentRun={ws.openSubagentRun}
-                loading={ws.historyLoading}
-                error={ws.historyError}
-                streamingText={ws.streamingText}
-                hasThread={ws.selectedThreadId !== null}
-                threadState={ws.selectedThread?.state ?? null}
-                pendingQuestion={ws.pendingQuestion}
-                onAnswerQuestion={ws.answerQuestion}
-                answerBusy={ws.answerBusy}
-                answerError={ws.answerError}
-                feedback={ws.feedback}
-                onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
-                followups={ws.followups}
-                followupsMessageId={ws.followupsMessageId}
-                followupsPending={ws.followupsPending}
-                onDecide={(text) => void ws.sendDecision(text)}
-                onPickFollowup={(text) => ws.updateComposer({ text })}
-              />
-            ) : (
-              <DiffViewer
-                diffs={ws.diffs}
-                onAccept={(ids) => ws.acceptDiffs({ action: 'accept', ids })}
-                onReject={(ids) => ws.acceptDiffs({ action: 'reject', ids })}
-                onResolveConflict={ws.resolveDiffConflict}
-                onOpenPr={ws.openPr}
-                canOpenPr={ws.selectedThread?.state === 'committed'}
-              />
-            )}
-          </div>
+          {/* React Flow exige altura fixa — a aba grafo fica fora do container com overflow-y-auto. */}
+          {ws.activeTab === 'graph' && !terminalMaximized ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center text-[13px] text-muted">
+                    {GRAPH_COPY.loading}
+                  </div>
+                }
+              >
+                <ExecutionGraphPanel
+                  thread={ws.selectedThread}
+                  toolCalls={ws.toolCalls}
+                  subagentRuns={ws.subagentRuns}
+                  pipeline={ws.pipeline}
+                  liveOverlay={ws.liveGraphOverlay}
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <>
+              {/* [overflow-anchor:none]: a rolagem deste container é programática (useChatScroll);
+                  o scroll anchoring nativo do Chromium seria um segundo escritor de scrollTop,
+                  brigando com o stick a cada reflow do turno. */}
+              <div
+                ref={chatScroll.ref}
+                className={terminalMaximized ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]'}
+              >
+                {ws.activeTab === 'history' ? (
+                  <ChatHistory
+                    messages={ws.messages}
+                    pendingMessages={ws.chatPendingMessages}
+                    threadId={ws.selectedThreadId}
+                    toolCalls={ws.toolCalls}
+                    subagentRuns={ws.subagentRuns}
+                    onOpenSubagentRun={ws.openSubagentRun}
+                    loading={ws.historyLoading}
+                    error={ws.historyError}
+                    streamingText={ws.streamingText}
+                    hasThread={ws.selectedThreadId !== null}
+                    threadState={ws.selectedThread?.state ?? null}
+                    pendingQuestion={ws.pendingQuestion}
+                    onAnswerQuestion={ws.answerQuestion}
+                    answerBusy={ws.answerBusy}
+                    answerError={ws.answerError}
+                    feedback={ws.feedback}
+                    onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
+                    followups={ws.followups}
+                    followupsMessageId={ws.followupsMessageId}
+                    followupsPending={ws.followupsPending}
+                    onDecide={(text) => void ws.sendDecision(text)}
+                    onPickFollowup={(text) => ws.updateComposer({ text })}
+                  />
+                ) : (
+                  <DiffViewer
+                    diffs={ws.diffs}
+                    onAccept={(ids) => ws.acceptDiffs({ action: 'accept', ids })}
+                    onReject={(ids) => ws.acceptDiffs({ action: 'reject', ids })}
+                    onResolveConflict={ws.resolveDiffConflict}
+                    onOpenPr={ws.openPr}
+                    canOpenPr={ws.selectedThread?.state === 'committed'}
+                  />
+                )}
+              </div>
+            </>
+          )}
 
           {/* Faixa entre a conversa e o composer: só aparece com resposta nova fora de vista. */}
           {showJump ? (

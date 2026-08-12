@@ -21,6 +21,7 @@
     "@engrena/vault": "workspace:*",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.11.2",
     "axios": "^1.18.1",
     "crypto-js": "^4.2.0",
     "electron-is-dev": "^3.0.1",

@@ -191,6 +191,8 @@ export interface DelegationResult {
    * só o trabalho do filho que não terminou) — só o texto embutia esse sinal até aqui.
    */
   status?: SubagentRunStatus
+  /** `child_thread_id` do `subagent_runs` criado; ausente se o gate bloqueou antes do start. */
+  childThreadId?: string
 }
 
 function resolveChildProvider(subagent: Subagent, parentProvider: ThreadProvider): ThreadProvider {
@@ -331,7 +333,7 @@ export async function runDelegatedSubagentTurn(
       parallelBatchId: options.parallelBatchId ?? null,
     })
 
-    return { text: finalText, status: run.currentStatus() }
+    return { text: finalText, status: run.currentStatus(), childThreadId: run.childThreadId }
   } catch (err) {
     clearInterval(watchdog)
     const message = err instanceof Error ? err.message : 'Erro desconhecido no subagent.'
@@ -350,7 +352,12 @@ export async function runDelegatedSubagentTurn(
     })
 
     const prefix = run.currentStatus() === 'timeout' ? 'interrompido por timeout' : 'falhou'
-    return { text: `[subagent '${subagent.name}' ${prefix}: ${message}]`, isError: false, status: run.currentStatus() }
+    return {
+      text: `[subagent '${subagent.name}' ${prefix}: ${message}]`,
+      isError: false,
+      status: run.currentStatus(),
+      childThreadId: run.childThreadId,
+    }
   }
 }
 

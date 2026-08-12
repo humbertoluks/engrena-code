@@ -7,8 +7,8 @@ export type StreamEvent =
   | { type: 'error'; threadId: string; code: string; message: string }
   | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
-  | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string }
-  | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string }
+  | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
+  | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }
   | { type: 'mcp.notice'; threadId: string; code: string; mcpName: string; reason: string; message: string }
   | { type: 'memory.entry'; threadId: string; projectId: string }
   | {

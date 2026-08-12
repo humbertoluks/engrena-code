@@ -41,6 +41,11 @@ import {
   type PendingMessage,
   type PendingMessageStatus,
 } from '../components/workspace/pendingMessages.logic'
+import {
+  applyLiveEvent,
+  emptyLiveOverlay,
+  type LiveGraphOverlay,
+} from '../components/workspace/graph/executionGraph.logic'
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
@@ -65,7 +70,7 @@ function asExecutionMode(value: string | null): ThreadExecutionMode | null {
     : null
 }
 
-export type ThreadTab = 'history' | 'diff'
+export type ThreadTab = 'history' | 'diff' | 'graph'
 
 export interface ComposerImage {
   id: string
@@ -162,6 +167,8 @@ export function usePrincipalWorkspace() {
 
   const [diffs, setDiffs] = useState<Diff[]>([])
   const [activeTab, setActiveTab] = useState<ThreadTab>('history')
+  /** Overlay otimista do grafo (F29) — nós aparecem em subagent.start antes do refetch. */
+  const [liveGraphOverlay, setLiveGraphOverlay] = useState<LiveGraphOverlay>(() => emptyLiveOverlay())
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
@@ -354,6 +361,8 @@ export function usePrincipalWorkspace() {
       setToolCalls(res.toolCalls)
       setSubagentRuns(res.subagentRuns)
       setPipeline(res.pipeline)
+      // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
+      setLiveGraphOverlay(emptyLiveOverlay())
     } catch (err: unknown) {
       if (!mountedRef.current) return
       if (background) console.error('[workspace] history refetch:', err)
@@ -494,6 +503,7 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'state.change') {
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       if (event.state === 'running') {
         setFollowups([])
         setFollowupsMessageId(null)
@@ -535,16 +545,18 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
-      // Refetch traz `subagentRuns` (e `toolCalls` correlacionados) sem exigir refresh manual (spec F15 §5.3).
+      // Overlay imediato (F29) + refetch F15 que traz subagentRuns canónicos.
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
-      // Mesmo padrão de F15 — refetch traz `pipeline` (estado + estágios) sem refresh manual (spec F22 §5.3).
+      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
       void loadHistory(event.threadId, { background: true })
       return
     }
@@ -676,6 +688,7 @@ export function usePrincipalWorkspace() {
     setAttachError(null)
     setSendError(null)
     setActiveTab('history')
+    setLiveGraphOverlay(emptyLiveOverlay())
   }, [])
 
   const newThread = useCallback(() => {
@@ -1336,6 +1349,7 @@ export function usePrincipalWorkspace() {
     toolCalls,
     subagentRuns,
     pipeline,
+    liveGraphOverlay,
     activeSubagentRun,
     openSubagentRun,
     closeSubagentRun,

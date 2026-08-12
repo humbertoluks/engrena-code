@@ -105,7 +105,11 @@ describe('runPipelineCommand — /spec', () => {
     const pipelines = listPipelinesForThread(thread.id)
     expect(pipelines).toHaveLength(1)
     expect(pipelines[0].status).toBe('completed')
-    expect(listStagesForPipeline(pipelines[0].id)).toHaveLength(1)
+    const stages = listStagesForPipeline(pipelines[0].id)
+    expect(stages).toHaveLength(1)
+    // F29: stage ↔ subagent_runs via child_thread_id (antes ficava sempre null).
+    expect(typeof stages[0].subagentRunId).toBe('string')
+    expect(stages[0].subagentRunId?.length).toBeGreaterThan(0)
     expect(listDiffsForThread(thread.id)).toHaveLength(0)
     expect(getThread(thread.id)?.state).toBe('idle')
   })
