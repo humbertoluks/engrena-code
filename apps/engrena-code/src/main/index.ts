@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
@@ -11,13 +12,25 @@ const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 
+/** Ícone da janela: extraResources em produção, assets/ no disco em dev. */
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    path.join(process.resourcesPath, 'icon.png'),
+    path.join(__dirname, '../assets/icon.png'),
+    path.join(__dirname, '../../assets/icon.png'),
+  ]
+  return candidates.find((p) => fs.existsSync(p))
+}
+
 function createWindow() {
+  const icon = resolveWindowIcon()
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
     backgroundColor: '#0a0a0b',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -50,6 +63,8 @@ function createWindow() {
 }
 
 app.on('ready', () => {
+  // Sem AppUserModelId o Windows agrupa/caches como Electron genérico e ignora o ícone do .exe.
+  app.setAppUserModelId('com.lukse.engrenacode')
   Menu.setApplicationMenu(null)
   createUnlockServer(5174)
   createWindow()
