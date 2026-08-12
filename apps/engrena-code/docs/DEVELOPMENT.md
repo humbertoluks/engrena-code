@@ -255,7 +255,7 @@ Copiar para `.env.local` (não versionado).
 - `"description"` e `"author"` — Obrigatório para Electron Builder
 - Scripts: `dev` sem orquestração extra (Vite + Electron rodam juntos via plugin)
 - `directories.output: "release"` — nunca usar `"dist"` aqui: é a mesma pasta onde o Vite escreve o renderer (`dist/index.html`, `dist/assets/**`), que `files: ["dist/**/*"]` empacota no asar; se coincidir, o `.exe`/`.blockmap` do instalador cai dentro de `dist/` e o próximo build reempacota o instalador anterior dentro do próprio app
-- `assets/icon.svg` — BrandMark da unlock (hexágono accent `#ff6b00` + linhas fg em fundo `#0a0a0b`, `512x512`); electron-builder converte SVG único em `.ico` automaticamente via `buildResources: "assets"`, sem dependência extra
+- `assets/icon.ico` + `assets/icon.png` — BrandMark da unlock (fonte `icon.svg`); o Windows precisa do `.ico` multi-size commitado (`win.icon` + `signAndEditExecutable: true` para o `rcedit` gravar no `.exe`). `extraResources` copia `icon.png` para a janela; `app.setAppUserModelId(appId)` evita cache/agrupamento como Electron genérico na taskbar
 
 ---
 

@@ -75,7 +75,15 @@
       "**/node_modules/node-pty/**/*"
     ],
     "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": "assets/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "win": {
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": true,
       "target": [
         "nsis",
         "portable"
