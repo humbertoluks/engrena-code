@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeCodeLanguage, parseMarkdownCodeLanguage } from './chatMarkdown.logic'
+import {
+  normalizeCodeLanguage,
+  parseMarkdownCodeLanguage,
+  resolveHighlightLanguage,
+} from './chatMarkdown.logic'
 
 describe('parseMarkdownCodeLanguage', () => {
   it('reads language-* from className', () => {
@@ -17,5 +21,17 @@ describe('normalizeCodeLanguage', () => {
     expect(normalizeCodeLanguage('js')).toBe('javascript')
     expect(normalizeCodeLanguage('TS')).toBe('typescript')
     expect(normalizeCodeLanguage('rust')).toBe('rust')
+    expect(normalizeCodeLanguage('c++')).toBe('cpp')
+    expect(normalizeCodeLanguage('c#')).toBe('csharp')
+  })
+})
+
+describe('resolveHighlightLanguage', () => {
+  it('keeps bundled langs and maps unknown grammars to text', () => {
+    expect(resolveHighlightLanguage('ts')).toBe('typescript')
+    expect(resolveHighlightLanguage('c++')).toBe('cpp')
+    expect(resolveHighlightLanguage('emacs-lisp')).toBe('text')
+    expect(resolveHighlightLanguage('wolfram')).toBe('text')
+    expect(resolveHighlightLanguage(null)).toBe('text')
   })
 })

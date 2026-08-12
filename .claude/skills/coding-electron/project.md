@@ -15,6 +15,7 @@ Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-cod
 | PTY env | `apps/engrena-code/src/services/terminal/pty-env.ts` |
 | Dev URL | `VITE_DEV_SERVER_URL` (`.env.local`); unlock Code `5174` / Plan `5184` |
 | Produção | `loadFile(path.join(__dirname, '../dist/index.html'))` |
+| Vite Code | `apps/engrena-code/vite.config.ts` (sem `vite-plugin-electron-renderer`) |
 
 ## Precedentes vivos
 
@@ -23,12 +24,16 @@ Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-cod
 | `ipc-numeric-bounds` | `isValidPtyDimension` em `src/main/index.ts` |
 | `process-pty-env-allowlist` | `pty-env.ts` |
 | `preload-named-methods-only` | `src/preload/index.ts` |
+| `build-no-renderer-node-polyfill` | `apps/engrena-code/vite.config.ts` (sem `renderer()`) |
+| `build-vendor-code-splitting` | `vite.config.ts` → `build.rolldownOptions.output.codeSplitting` |
 
 ## Invariantes de contrato deste repo
 
 - Não existe passthrough genérico (`invoke`/`send`/`on` cru) no preload.
 - CRUD de domínio não entra em IPC — HTTP loopback `:5174`.
 - `session-middleware` foi removido; não reintroduza auth paralelo ao `guard()`.
+- Renderer do Code não usa API Node: não religue `vite-plugin-electron-renderer`.
+- Grupos `react-vendor` / `markdown` / `xterm` / `xyflow` permanecem em `codeSplitting`; não suba `chunkSizeWarningLimit` para esconder o entry.
 
 ## Achados abertos
 

@@ -3,8 +3,9 @@ name: coding-react
 description: >-
   Applies portable React/renderer coding patterns: process isolation, service
   client over raw fetch, business rules extracted to testable modules, shared
-  server validation, visible fetch errors, theme/CSS layers, and brand hygiene.
-  Use when writing or editing React components, hooks, screens, or renderer
+  server validation, visible fetch errors, theme/CSS layers, brand hygiene,
+  lazy route screens, and fine-grained Shiki/feature CSS code-splitting. Use
+  when writing or editing React components, hooks, screens, or renderer
   services. Read rules/*.md for the matched concern; read project.md for this
   repository's path and audit bindings.
 ---
@@ -29,16 +30,18 @@ Carregue também a skill de performance React do ecossistema (ex.: `/vercel-reac
 - Extrair regra de formulário/lista para módulo testável
 - Adicionar service HTTP no renderer
 - Revisar catch de fetch, tema, Tailwind layers ou copy de marca
+- Code-split de tela, highlighter Shiki ou CSS de biblioteca lazy
 
 ## Rule Categories by Priority
 
 | Priority | Category | Impact | Prefix |
 |----------|----------|--------|--------|
 | 1 | Boundary | CRITICAL | `boundary-` |
-| 2 | Logic extraction | HIGH | `logic-` |
-| 3 | Error visibility | HIGH | `error-` |
-| 4 | State freshness | MEDIUM | `state-` |
-| 5 | Style and theme | MEDIUM | `style-` |
+| 2 | Bundle | HIGH | `bundle-` |
+| 3 | Logic extraction | HIGH | `logic-` |
+| 4 | Error visibility | HIGH | `error-` |
+| 5 | State freshness | MEDIUM | `state-` |
+| 6 | Style and theme | MEDIUM | `style-` |
 
 ## Quick Reference
 
@@ -49,21 +52,27 @@ Carregue também a skill de performance React do ecossistema (ex.: `/vercel-reac
 - `boundary-single-api-client` — One shared HTTP client for authenticated requests
 - `boundary-no-secrets-in-storage` — Never store secrets in renderer localStorage
 
-### 2. Logic extraction (HIGH)
+### 2. Bundle (HIGH)
+
+- `bundle-lazy-route-screens` — React.lazy for screens not needed on first paint
+- `bundle-shiki-fine-grained` — Shiki core + explicit langs/themes, never `from 'shiki'`
+- `bundle-colocate-lazy-css` — Feature CSS lives on the lazy module, not global index.css
+
+### 3. Logic extraction (HIGH)
 
 - `logic-extract-from-tsx` — Business rules out of TSX into testable modules
 - `logic-shared-server-validation` — Share validation with the server from one pure module
 - `logic-ui-spec-first` — Write or consult the screen UI spec before implementing
 
-### 3. Error visibility (HIGH)
+### 4. Error visibility (HIGH)
 
 - `error-no-silent-catch` — Never swallow fetch errors with empty catch
 
-### 4. State freshness (MEDIUM)
+### 5. State freshness (MEDIUM)
 
 - `state-refetch-on-modal-close` — Refetch derived link counts when the mutating modal closes
 
-### 5. Style and theme (MEDIUM)
+### 6. Style and theme (MEDIUM)
 
 - `style-theme-persistence` — Persist theme preference in localStorage; hexes only in CSS
 - `style-explicit-sizing` — Explicit sizing when theme spacing overrides container scales

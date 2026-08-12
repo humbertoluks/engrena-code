@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import { useTerminalDock } from '../../hooks/useTerminalDock'
-import { TerminalPane } from './TerminalPane'
 import {
   TERMINAL_DOCK_DEFAULT_HEIGHT,
   canCloseTerminalTab,
@@ -9,11 +8,16 @@ import {
 } from './terminalDock.logic'
 import { ChevronIcon, CloseIcon, PlusIcon, TerminalIcon } from './sidebarIcons'
 
+const TerminalPane = lazy(() =>
+  import('./TerminalPane').then((m) => ({ default: m.TerminalPane })),
+)
+
 const COPY = {
   title: 'Terminal',
   newTabAria: 'Novo terminal',
   closeTabAria: (label: string) => `Fechar ${label}`,
   emptyState: 'Nenhuma aba aberta.',
+  paneLoading: 'Carregando…',
   noProject: 'Selecione um projeto para abrir um terminal.',
   toggleAria: 'Alternar terminal',
   toggleTitle:
@@ -248,7 +252,15 @@ function DockBody({
     <>
       {tabs.map((tab) => (
         <div key={tab.tabId} className={`h-full ${tab.tabId === activeTabId ? '' : 'hidden'}`}>
-          <TerminalPane tab={tab} onReopen={() => onReopen(tab.tabId)} />
+          <Suspense
+            fallback={
+              <div className="grid h-full place-items-center px-lg text-center text-[12.5px] text-muted">
+                {COPY.paneLoading}
+              </div>
+            }
+          >
+            <TerminalPane tab={tab} onReopen={() => onReopen(tab.tabId)} />
+          </Suspense>
         </div>
       ))}
     </>

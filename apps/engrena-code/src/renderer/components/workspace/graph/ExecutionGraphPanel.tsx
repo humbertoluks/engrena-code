@@ -8,6 +8,7 @@ import {
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
 import { useTheme } from '@engrena/ui'
 import type { PipelineHistory, Thread, ToolCall } from '../../../services/threads-service'
 import type { SubagentRun } from '../../../services/subagents-service'

@@ -12,6 +12,7 @@ Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-cod
 | Env de isolamento | `ENGRENACODE_USER_DATA` = `mkdtempSync(join(tmpdir(), 'engrenacode_claude_<slug>_'))` (Plan: `ENGRENAPLAN_USER_DATA`) |
 | Precedente HTTP fake | `apps/engrena-code/src/services/http/rules-handler.test.ts` |
 | Sanitizer tests | `apps/engrena-code/src/services/process-error.test.ts` (um caso por scheme F24) |
+| Highlighter langs | `src/renderer/components/workspace/chatMarkdown.logic.test.ts` (`resolveHighlightLanguage`) |
 | Smoke evidence | `apps/engrena-code/docs/F<ID>-*/smoke-results.md` |
 | Artefatos smoke | `.playwright-cli/` (gitignored) |
 | Comando unit | `pnpm --filter engrena-code test` (raiz: `pnpm test`) |

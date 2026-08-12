@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import {
   LoginScreen,
   LOGIN_PRODUCT_CONFIG,
@@ -6,15 +6,7 @@ import {
   clearUnlockedWorkspace,
   readUnlockedWorkspace,
 } from '@engrena/ui'
-import { ConfiguracaoScreen } from './screens/ConfiguracaoScreen'
-import { SubagentsScreen } from './screens/SubagentsScreen'
-import { SkillsScreen } from './screens/SkillsScreen'
-import { RulesScreen } from './screens/RulesScreen'
-import { McpsScreen } from './screens/McpsScreen'
-import { RegistrosScreen } from './screens/RegistrosScreen'
-import { ConsumoScreen } from './screens/ConsumoScreen'
-import { PrincipalScreen } from './screens/PrincipalScreen'
-import { DashboardScreen } from './screens/DashboardScreen'
+import { BrandMark, BrandWordmark } from './components/BrandMark'
 import {
   NavConfigIcon,
   NavConsumoIcon,
@@ -27,7 +19,47 @@ import {
   NavWorkspaceIcon,
 } from './components/navIcons'
 
+const ConfiguracaoScreen = lazy(() =>
+  import('./screens/ConfiguracaoScreen').then((m) => ({ default: m.ConfiguracaoScreen })),
+)
+const SubagentsScreen = lazy(() =>
+  import('./screens/SubagentsScreen').then((m) => ({ default: m.SubagentsScreen })),
+)
+const SkillsScreen = lazy(() =>
+  import('./screens/SkillsScreen').then((m) => ({ default: m.SkillsScreen })),
+)
+const RulesScreen = lazy(() =>
+  import('./screens/RulesScreen').then((m) => ({ default: m.RulesScreen })),
+)
+const McpsScreen = lazy(() =>
+  import('./screens/McpsScreen').then((m) => ({ default: m.McpsScreen })),
+)
+const RegistrosScreen = lazy(() =>
+  import('./screens/RegistrosScreen').then((m) => ({ default: m.RegistrosScreen })),
+)
+const ConsumoScreen = lazy(() =>
+  import('./screens/ConsumoScreen').then((m) => ({ default: m.ConsumoScreen })),
+)
+const PrincipalScreen = lazy(() =>
+  import('./screens/PrincipalScreen').then((m) => ({ default: m.PrincipalScreen })),
+)
+const DashboardScreen = lazy(() =>
+  import('./screens/DashboardScreen').then((m) => ({ default: m.DashboardScreen })),
+)
+
+const SCREEN_BY_HASH: Record<string, ReturnType<typeof lazy>> = {
+  '#principal': PrincipalScreen,
+  '#configuracao': ConfiguracaoScreen,
+  '#subagents': SubagentsScreen,
+  '#skills': SkillsScreen,
+  '#rules': RulesScreen,
+  '#mcps': McpsScreen,
+  '#registros': RegistrosScreen,
+  '#consumo': ConsumoScreen,
+}
+
 const CODE_LOGIN = LOGIN_PRODUCT_CONFIG.code
+const SCREEN_LOADING = 'Carregando…'
 
 /** Rota sem query string (ex.: "#principal?project=x" → "#principal") — deep-links usam a query. */
 function useHash(): string {
@@ -72,6 +104,11 @@ function NavLink({
   )
 }
 
+function HashScreen({ hash }: Readonly<{ hash: string }>): ReactElement {
+  const Screen = SCREEN_BY_HASH[hash] ?? DashboardScreen
+  return <Screen />
+}
+
 function WorkspaceChromeLabel(): ReactElement {
   const label = readUnlockedWorkspace(CODE_LOGIN.workspaceStorageKey, CODE_LOGIN.defaultWorkspace)
   return (
@@ -91,7 +128,10 @@ function AuthenticatedApp(): ReactElement {
   return (
     <div className="min-h-screen bg-bg text-fg">
       <header className="flex items-center justify-between border-b border-border bg-surface px-lg py-sm">
-        <span className="font-display text-[15px] font-semibold tracking-tight">EngrenaCode</span>
+        <span className="inline-flex items-center gap-sm font-display text-[15px] font-semibold tracking-tight">
+          <BrandMark size={22} />
+          <BrandWordmark />
+        </span>
         <nav className="flex items-center gap-xs" aria-label="Navegação principal">
           <NavLink href="#dashboard" active={hash === '#dashboard' || hash === ''} icon={<NavDashboardIcon />}>
             Dashboard
@@ -128,25 +168,15 @@ function AuthenticatedApp(): ReactElement {
         </div>
       </header>
       <main className="h-[calc(100vh-57px)] overflow-y-auto">
-        {hash === '#principal' ? (
-          <PrincipalScreen />
-        ) : hash === '#configuracao' ? (
-          <ConfiguracaoScreen />
-        ) : hash === '#subagents' ? (
-          <SubagentsScreen />
-        ) : hash === '#skills' ? (
-          <SkillsScreen />
-        ) : hash === '#rules' ? (
-          <RulesScreen />
-        ) : hash === '#mcps' ? (
-          <McpsScreen />
-        ) : hash === '#registros' ? (
-          <RegistrosScreen />
-        ) : hash === '#consumo' ? (
-          <ConsumoScreen />
-        ) : (
-          <DashboardScreen />
-        )}
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center text-[13px] text-muted">
+              {SCREEN_LOADING}
+            </div>
+          }
+        >
+          <HashScreen hash={hash} />
+        </Suspense>
       </main>
     </div>
   )

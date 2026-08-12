@@ -3,10 +3,11 @@ name: coding-electron
 description: >-
   Applies portable Electron coding patterns for main, preload, IPC and PTY:
   secure BrowserWindow flags, named contextBridge methods, CommonJS preload,
-  native-only IPC, PTY env allowlists, and correct Vite/Electron packaging.
-  Use when writing or editing Electron main/preload, IPC channels, or PTY hosts.
-  Read rules/*.md for the matched concern; read project.md for this repository's
-  path and audit bindings.
+  native-only IPC, PTY env allowlists, and correct Vite/Electron packaging
+  (no unused renderer Node polyfill, vendor code-splitting). Use when writing
+  or editing Electron main/preload, IPC channels, PTY hosts, or Vite Electron
+  config. Read rules/*.md for the matched concern; read project.md for this
+  repository's path and audit bindings.
 ---
 
 # Coding — Electron
@@ -19,6 +20,7 @@ Guia proativo para **escrever** código Electron. Não é review: aplique antes 
 
 - Main process, preload, IPC channels, PTY host
 - Mudança em `BrowserWindow` / `webPreferences` / packaging Vite+Electron
+- Ajuste de `vite.config.ts` (plugins Electron, code-splitting, chunk size)
 
 ## Rule Categories by Priority
 
@@ -55,6 +57,8 @@ Guia proativo para **escrever** código Electron. Não é review: aplique antes 
 - `build-production-loadfile` — loadFile in production
 - `build-preload-cjs-entry` — distinct CJS preload entry
 - `build-esm-dirname` — __dirname via fileURLToPath in ESM main
+- `build-no-renderer-node-polyfill` — omit vite-plugin-electron-renderer unless UI uses Node
+- `build-vendor-code-splitting` — named bundler groups for heavy node_modules
 
 ## How to Use
 

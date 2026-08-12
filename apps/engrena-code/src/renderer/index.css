@@ -1,6 +1,5 @@
 @import 'tailwindcss';
 @import '@engrena/ui/styles.css';
-@import '@xyflow/react/dist/style.css';
 
 /* Code-only: Assistant chat GFM — Shiki injects pre/code; keep token colors, tighten chrome */
 @layer base {

@@ -18,6 +18,9 @@ Fonte de verdade de achados: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../
 | Regra extraída | `apps/engrena-code/src/renderer/**/*.logic.ts` + `*.logic.test.ts` |
 | Spec de tela | `apps/engrena-code/docs/F<ID>-*/ui.md` + `copy.md` |
 | Design tokens | `@engrena/ui` (`:root` / `.dark` / `@theme inline`) |
+| Telas lazy | `apps/engrena-code/src/renderer/App.tsx` (`SCREEN_BY_HASH` + `HashScreen`) |
+| Highlighter | `src/renderer/components/workspace/chatHighlight.ts` + `chatMarkdown.logic.ts` |
+| CSS de feature lazy | xyflow em `ExecutionGraphPanel.tsx`; xterm em `TerminalPane.tsx` |
 | Marca atual | `EngrenaCode` / `engrenacode` (+ `EngrenaPlan` no app Plan) |
 | Marca legada (ban) | `LionCode`, `lioncode`, `LionClaw`, `LionLabs`, `LionSprite` |
 
@@ -27,15 +30,21 @@ Fonte de verdade de achados: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../
 |---------------|----------------------|
 | `boundary-single-api-client` | `src/renderer/services/api-client.ts` |
 | `logic-shared-server-validation` | `src/renderer/screens/configuracaoScreen.logic.ts` |
-| `logic-extract-from-tsx` | vários `*.logic.ts` sob `src/renderer/` |
+| `logic-extract-from-tsx` | vários `*.logic.ts` sob `src/renderer/` (inclui `chatMarkdown.logic.ts`) |
 | `state-refetch-on-modal-close` | `src/renderer/components/workspace/WorkspaceSidebar.tsx` (`refreshHarnessCounts`) |
 | `style-theme-persistence` | `src/renderer/hooks/useTheme.ts` |
+| `bundle-lazy-route-screens` | `src/renderer/App.tsx` (`SCREEN_BY_HASH`, `HashScreen`) |
+| `bundle-shiki-fine-grained` | `src/renderer/components/workspace/chatHighlight.ts` |
+| `bundle-colocate-lazy-css` | `ExecutionGraphPanel.tsx` (`@xyflow/react/dist/style.css`) |
 
 ## Invariantes de contrato deste repo
 
 - Não existe `fetch` de domínio em tela/componente além do unlock em `LoginScreen`.
 - `vitest.config.ts` só cobre `src/**/*.test.ts` — por isso regra de UI sai do `.tsx` para `*.logic.ts`.
 - Nunca `max-w-`/`w-`/`h-` com sufixo `xs|sm|md|lg|xl` neste Design Lock (spacing vence container).
+- Telas autenticadas nascem `React.lazy`; `LoginScreen` permanece eager no chunk inicial.
+- Highlighter do chat: `createHighlighterCore` + `@shikijs/langs|themes` + engine JS. Nunca `import { codeToHtml } from 'shiki'`.
+- CSS de xyflow não volta para `src/renderer/index.css`.
 
 ## Achados abertos
 
