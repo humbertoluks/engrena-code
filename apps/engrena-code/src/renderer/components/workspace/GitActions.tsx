@@ -48,7 +48,8 @@ export function GitActions({ vcsStatus, selectedThread, onCommit, onPush, onOpen
   const threadBusy =
     selectedThread?.state === 'running' ||
     selectedThread?.state === 'stopping' ||
-    selectedThread?.state === 'waiting_user'
+    selectedThread?.state === 'waiting_user' ||
+    selectedThread?.state === 'waiting_permission'
   const busy = threadBusy || stage !== null
   const noThread = selectedThread === null
 

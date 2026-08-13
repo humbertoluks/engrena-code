@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   normalizeCodeLanguage,
   parseMarkdownCodeLanguage,
   resolveHighlightLanguage,
+  selectMarkdownRenderPath,
 } from './chatMarkdown.logic'
 
 describe('parseMarkdownCodeLanguage', () => {
@@ -35,3 +37,11 @@ describe('resolveHighlightLanguage', () => {
     expect(resolveHighlightLanguage(null)).toBe('text')
   })
 })
+
+describe('selectMarkdownRenderPath', () => {
+  it('uses light path while streaming and full when settled', () => {
+    expect(selectMarkdownRenderPath(true)).toBe('light')
+    expect(selectMarkdownRenderPath(false)).toBe('full')
+  })
+})
+

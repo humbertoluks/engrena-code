@@ -14,6 +14,12 @@ describe('interpretPermissionChatReply', () => {
     }
   })
 
+  it('maps project-scope allow replies before bare “sempre”', () => {
+    for (const text of ['Sempre neste projeto', 'sempre neste projeto', 'Neste projeto']) {
+      expect(interpretPermissionChatReply(text)).toEqual({ kind: 'allow_project' })
+    }
+  })
+
   it('maps negative replies to deny (including accented não)', () => {
     for (const text of ['Não', 'nao', 'N', 'no', 'Negar', 'deny', 'cancelar']) {
       expect(interpretPermissionChatReply(text)).toEqual({ kind: 'deny' })
@@ -21,7 +27,15 @@ describe('interpretPermissionChatReply', () => {
   })
 
   it('decides on a natural affirmative sentence starting with an allow word', () => {
-    for (const text of ['Sim, pode prosseguir', 'sim pode prosseguir', 'Ok!', 'Pode prosseguir.', 'Permitir, por favor']) {
+    for (const text of [
+      'Sim, pode prosseguir',
+      'sim pode prosseguir',
+      'Ok!',
+      'Pode prosseguir.',
+      'Permitir, por favor',
+      'Aprovado',
+      'Prosseguir',
+    ]) {
       expect(interpretPermissionChatReply(text)).toEqual({ kind: 'allow' })
     }
   })

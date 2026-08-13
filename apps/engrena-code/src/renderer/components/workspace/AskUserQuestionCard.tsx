@@ -1,32 +1,30 @@
 import { useState, type ReactElement } from 'react'
-import { submitsOnOptionClick, validateAnswer } from './askUserQuestion.logic'
 
 const COPY = {
   header: 'O agente precisa da sua resposta',
-  hintSingle: 'Escolha uma opção',
-  hintSingleOneClick: 'Escolha uma opção — o clique já envia',
-  hintMulti: 'Escolha uma ou mais opções',
-  freeTextPlaceholder: 'Outra…',
-  blocked: 'Marque uma opção ou escreva uma resposta.',
-  ctaSend: 'Enviar',
-  ctaSending: 'Enviando…',
+  hint: 'Escolher aqui preenche o composer — digite a resposta ou envie a opção com Enviar.',
+  hintMulti: 'Escolha uma ou mais opções — a seleção vai para o composer; envie com Enviar.',
 } as const
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+const CHIP = `rounded-md border px-sm py-[3px] text-[12px] disabled:opacity-50 ${FOCUS_RING}`
 
 /**
- * Card inline `ask_user_question` (F21) — anatomia, tokens e copy conforme
- * `docs/F21-askuserquestion/ui.md` e `copy.md`. Card inline (não modal como a fonte)
- * porque `waiting_user` deixa o resto do app usável.
+ * Card inline `ask_user_question` (F21) — só pergunta + chips na timeline.
+ *
+ * Sem textarea nem Enviar no card: o contrato é o mesmo do PermissionPrompt (opção → composer
+ * principal → Enviar). Um segundo campo no prompt fazia o usuário achar que o clique já respondia,
+ * e o texto ia parar no composer sem o CTA certo.
  */
 export interface AskUserQuestionCardProps {
   prompt: string
   options: string[]
   multiSelect: boolean
   busy?: boolean
-  /** Mensagem de falha do `POST /answer`; seleções são preservadas para nova tentativa. */
+  /** Mensagem de falha do `POST /answer` (quando o Enviar do composer falha). */
   error?: string | null
-  onAnswer: (input: { selectedOptions: string[]; freeText: string | null }) => void
+  /** Clique numa opção: preenche o composer principal (envio via Enviar). */
+  onPickOption: (option: string) => void
 }
 
 export function AskUserQuestionCard({
@@ -35,59 +33,41 @@ export function AskUserQuestionCard({
   multiSelect,
   busy = false,
   error = null,
-  onAnswer,
+  onPickOption,
 }: Readonly<AskUserQuestionCardProps>): ReactElement {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
-  const [freeText, setFreeText] = useState('')
 
-  function toggleOption(option: string): void {
+  function pickOption(option: string): void {
+    if (busy) return
+    if (!multiSelect) {
+      onPickOption(option)
+      return
+    }
     setSelectedOptions((prev) => {
-      if (!multiSelect) return prev.includes(option) ? [] : [option]
-      return prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
+      const next = prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
+      onPickOption(next.join(', '))
+      return next
     })
   }
 
-  const answerable = validateAnswer(selectedOptions, freeText)
-  const canSubmit = answerable && !busy
-  const oneClick = submitsOnOptionClick(multiSelect, freeText)
-
-  function submit(): void {
-    if (!canSubmit) return
-    onAnswer({ selectedOptions, freeText: freeText.trim() || null })
-  }
-
-  /** Escolha única sem texto livre: o clique é a resposta. Marca antes de enviar para o botão
-   *  ficar aceso enquanto o `busy` do envio chega. */
-  function pickOption(option: string): void {
-    if (busy) return
-    if (!oneClick) {
-      toggleOption(option)
-      return
-    }
-    setSelectedOptions([option])
-    onAnswer({ selectedOptions: [option], freeText: null })
-  }
-
   return (
-    <div className="self-start w-full max-w-[42rem] rounded-lg border border-border bg-surface-2 p-sm text-[13px]">
+    <div className="mb-md w-full max-w-[42rem] self-start rounded-lg border border-border bg-surface-2 p-sm text-[13px]">
       <p className="mb-[2px] text-[10px] uppercase tracking-wide text-muted">{COPY.header}</p>
       <p className="text-fg">{prompt}</p>
 
       {options.length > 0 ? (
         <>
-          <p className="mt-xs text-[11px] text-muted">
-            {multiSelect ? COPY.hintMulti : oneClick ? COPY.hintSingleOneClick : COPY.hintSingle}
-          </p>
-          <div className="mt-xs mb-xs flex flex-wrap gap-xs">
+          <p className="mt-xs text-[11px] text-muted">{multiSelect ? COPY.hintMulti : COPY.hint}</p>
+          <div className="mt-xs flex flex-wrap gap-xs">
             {options.map((option) => (
               <button
                 key={option}
                 type="button"
                 disabled={busy}
                 onClick={() => pickOption(option)}
-                aria-pressed={selectedOptions.includes(option)}
-                className={`rounded-md border px-sm py-[3px] text-[12px] disabled:opacity-50 ${FOCUS_RING} ${
-                  selectedOptions.includes(option)
+                aria-pressed={multiSelect ? selectedOptions.includes(option) : undefined}
+                className={`${CHIP} ${
+                  multiSelect && selectedOptions.includes(option)
                     ? 'border-accent bg-accent/15 text-accent'
                     : 'border-border text-muted hover:text-fg'
                 }`}
@@ -97,28 +77,9 @@ export function AskUserQuestionCard({
             ))}
           </div>
         </>
-      ) : null}
-
-      <textarea
-        value={freeText}
-        disabled={busy}
-        onChange={(e) => setFreeText(e.target.value)}
-        placeholder={COPY.freeTextPlaceholder}
-        rows={2}
-        className={`mt-xs mb-xs w-full resize-none rounded-md border border-border bg-surface px-sm py-xs text-[12px] text-fg disabled:opacity-50 ${FOCUS_RING}`}
-      />
-
-      <div className="flex items-center justify-between gap-sm">
-        <span className="text-[11px] text-muted">{answerable ? '' : COPY.blocked}</span>
-        <button
-          type="button"
-          disabled={!canSubmit}
-          onClick={submit}
-          className={`rounded-md bg-accent px-sm py-xs text-[12px] font-medium text-white disabled:opacity-50 ${FOCUS_RING}`}
-        >
-          {busy ? COPY.ctaSending : COPY.ctaSend}
-        </button>
-      </div>
+      ) : (
+        <p className="mt-xs text-[11px] text-muted">{COPY.hint}</p>
+      )}
 
       {error !== null ? (
         <p role="alert" className="mt-xs text-[11.5px] text-red">

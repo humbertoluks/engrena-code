@@ -147,6 +147,7 @@ function mapThreadState(state: ThreadState | string | null | undefined): Executi
     case 'stopping':
       return 'running'
     case 'waiting_user':
+    case 'waiting_permission':
       return 'waiting_user'
     case 'error':
       return 'error'

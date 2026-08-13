@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dropPermissionDecisionPendings,
+  dropStalePermissionDecisionPendings,
   isPendingActive,
   pendingStatusLabel,
   reconcilePendingMessages,
@@ -77,5 +79,31 @@ describe('pendingStatusLabel', () => {
     expect(isPendingActive('sending')).toBe(true)
     expect(isPendingActive('queued')).toBe(true)
     expect(isPendingActive('permission')).toBe(false)
+  })
+})
+
+describe('dropPermissionDecisionPendings', () => {
+  it('remove só bolhas de decisão de permissão/ask', () => {
+    const result = dropPermissionDecisionPendings([
+      pending({ id: 'p1', text: 'Permitir', status: 'permission' }),
+      pending({ id: 'p2', text: 'follow-up', status: 'sent' }),
+      pending({ id: 'p3', text: 'fila', status: 'queued' }),
+    ])
+    expect(result.map((p) => p.id)).toEqual(['p2', 'p3'])
+  })
+})
+
+describe('dropStalePermissionDecisionPendings', () => {
+  it('também remove sent cujo texto ainda é decisão (resíduo Executando…)', () => {
+    const isDecision = (text: string) => text.trim().toLowerCase() === 'permitir'
+    const result = dropStalePermissionDecisionPendings(
+      [
+        pending({ id: 'ghost', text: 'Permitir', status: 'sent' }),
+        pending({ id: 'real', text: 'cria o readme', status: 'sent' }),
+        pending({ id: 'perm', text: 'sim', status: 'permission' }),
+      ],
+      isDecision
+    )
+    expect(result.map((p) => p.id)).toEqual(['real'])
   })
 })

@@ -86,3 +86,31 @@ export function pendingStatusLabel(status: PendingMessageStatus): string {
 export function isPendingActive(status: PendingMessageStatus): boolean {
   return status !== 'permission'
 }
+
+/**
+ * Resposta a PermissionPrompt / ask_user_question não entra no histórico do servidor.
+ * Nunca promover essas bolhas para `sent`: o rótulo vira "Executando…" e o reconcile
+ * nunca as remove — o próximo card de permissão nascia sob um "Permitir / Executando…"
+ * fantasma (como se o trabalho anterior ainda rodasse).
+ */
+export function dropPermissionDecisionPendings(
+  pending: readonly PendingMessage[]
+): PendingMessage[] {
+  return pending.filter((p) => p.status !== 'permission')
+}
+
+/**
+ * Limpa decisões de permissão (status `permission`) e resíduos já promovidos a `sent`
+ * cujo texto ainda é uma decisão (Permitir/Negar/…). Usado ao chegar um novo
+ * `permission.request` para a timeline não misturar grant antigo com pedido novo.
+ */
+export function dropStalePermissionDecisionPendings(
+  pending: readonly PendingMessage[],
+  isPermissionDecisionText: (text: string) => boolean
+): PendingMessage[] {
+  return pending.filter((p) => {
+    if (p.status === 'permission') return false
+    if (p.status === 'sent' && isPermissionDecisionText(p.text)) return false
+    return true
+  })
+}

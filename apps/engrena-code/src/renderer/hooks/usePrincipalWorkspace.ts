@@ -25,8 +25,14 @@ import {
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
-import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
-import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
+import { findPendingAskUserQuestion, answerErrorMessage, composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
+import { routeComposerSend } from '../components/workspace/composerRoute.logic'
+import {
+  appendWorkspaceNotice,
+  mcpNotice,
+  nativeDenialNotice,
+  type WorkspaceNotice,
+} from './streamNotices.logic'
 import {
   addAttachment,
   makeSelectionAttachment,
@@ -37,15 +43,41 @@ import {
 } from '../components/workspace/composerAttachments.logic'
 import { slugifyPromptName } from '../../services/prompts/prompt-spec.js'
 import {
+  dropStalePermissionDecisionPendings,
   reconcilePendingMessages,
   type PendingMessage,
   type PendingMessageStatus,
 } from '../components/workspace/pendingMessages.logic'
 import {
+  interpretPermissionChatReply,
+  PERMISSION_PENDING_HINT,
+} from '../components/workspace/permissionComposer.logic'
+import {
   applyLiveEvent,
   emptyLiveOverlay,
   type LiveGraphOverlay,
 } from '../components/workspace/graph/executionGraph.logic'
+import {
+  EXPORT_COPY,
+  exportFetchErrorMessage,
+  mimeTypeForExportFormat,
+  triggerBrowserDownload,
+} from '../components/workspace/threadExportDownload.logic'
+import {
+  HistoryRefetchGate,
+  isAbortError,
+  mergeById,
+  mergeSubagentRunsByChildId,
+  sameMessageLike,
+  sameSubagentRunLike,
+  sameToolCallLike,
+} from '../components/workspace/historyMerge.logic'
+import {
+  recordHistoryRefetchAborted,
+  recordHistoryRefetchCoalesced,
+  recordHistoryRefetchCompleted,
+  recordHistoryRefetchStarted,
+} from '../../services/runtime-metrics'
 
 
 const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
@@ -128,10 +160,12 @@ function saveQueue(threadKey: string, queue: QueueItem[]): void {
 
 export function usePrincipalWorkspace() {
   const mountedRef = useRef(true)
+  const historyGateRef = useRef(new HistoryRefetchGate())
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      historyGateRef.current.cancel()
     }
   }, [])
 
@@ -177,10 +211,8 @@ export function usePrincipalWorkspace() {
     provider: 'claude',
     model: null,
     reasoningLevel: null,
-    // 'supervised' manda --permission-mode default pro CLI, que exige aprovação interativa via
-    // stdin — inexistente no spawn headless (-p). Toda tool falha em loop até o PermissionBroker
-    // real ser construído (ver docs/AUDIT-CODE-REVIEW.md). 'auto-accept-edits' é o único nível
-    // funcional por default hoje.
+    // Default cotidiano: edição de arquivo passa direto e Bash/MCP abrem o PermissionPrompt
+    // (permission-policy.ts). 'supervised' pede aprovação até para leitura.
     accessLevel: 'auto-accept-edits',
     executionMode: 'main',
     text: '',
@@ -193,13 +225,17 @@ export function usePrincipalWorkspace() {
   // `GET /history` chega (ver pendingMessages.logic.ts).
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
   const [sendError, setSendError] = useState<string | null>(null)
+  /** Erro/progresso de export ficam fora do composer, ao lado da ação que os dispara. */
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
 
   const [permissionQueue, setPermissionQueue] = useState<
     Array<{ requestId: string; threadId: string; toolName: string; params: unknown }>
   >([])
 
-  const [mcpNotices, setMcpNotices] = useState<Array<{ mcpName: string; reason: string; message: string }>>([])
+  // Faixa âmbar do workspace: MCP degradado + negação nativa do CLI (ver streamNotices.logic).
+  const [mcpNotices, setMcpNotices] = useState<WorkspaceNotice[]>([])
 
   const selectedProject = useMemo(
     () => projects?.find((p) => p.id === selectedProjectId) ?? null,
@@ -340,35 +376,58 @@ export function usePrincipalWorkspace() {
    * grava `historyError`: trocar a árvore do chat por "Carregando…"/erro desmonta a conversa,
    * o container volta ao topo e todo `<details>` de Work log fecha no meio da leitura. Só a
    * abertura da thread — quando não há nada em tela — mostra estado de carregamento.
+   *
+   * Single-flight + coalesce por gate: tool_call.start/result em rajada não abre N GETs;
+   * um follow-up único roda depois do fetch ativo. AbortController cancela stale (troca de
+   * thread / foreground). Merge incremental por id preserva referências de bolhas estáveis.
    */
   const loadHistory = useCallback(async (threadId: string, options?: { background?: boolean }) => {
     const background = options?.background === true
+    const decision = historyGateRef.current.begin({ background })
+    if (decision.kind === 'coalesced') {
+      recordHistoryRefetchCoalesced()
+      return
+    }
+    const { signal } = decision
+    recordHistoryRefetchStarted()
     if (!background) {
       setHistoryLoading(true)
       setHistoryError(null)
     }
     try {
-      const res = await threadsService.history(threadId)
-      if (!mountedRef.current) return
+      const res = await threadsService.history(threadId, { signal })
+      if (signal.aborted || !mountedRef.current) {
+        recordHistoryRefetchAborted()
+        return
+      }
       if (res.error) {
         if (background) console.error('[workspace] history refetch:', res.error.message)
         else setHistoryError(res.error.message)
         return
       }
-      setMessages(res.messages)
+      setMessages((prev) => mergeById(prev, res.messages, sameMessageLike))
       setFeedback(Object.fromEntries((res.feedback ?? []).map((f: MessageFeedback) => [f.messageId, f.vote])))
       setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
-      setToolCalls(res.toolCalls)
-      setSubagentRuns(res.subagentRuns)
+      setToolCalls((prev) => mergeById(prev, res.toolCalls, sameToolCallLike))
+      setSubagentRuns((prev) => mergeSubagentRunsByChildId(prev, res.subagentRuns, sameSubagentRunLike))
       setPipeline(res.pipeline)
       // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
       setLiveGraphOverlay(emptyLiveOverlay())
+      recordHistoryRefetchCompleted()
     } catch (err: unknown) {
+      if (isAbortError(err) || signal.aborted) {
+        recordHistoryRefetchAborted()
+        return
+      }
       if (!mountedRef.current) return
       if (background) console.error('[workspace] history refetch:', err)
       else setHistoryError('Falha ao carregar o histórico da thread.')
     } finally {
       if (mountedRef.current && !background) setHistoryLoading(false)
+      const { coalesced } = historyGateRef.current.finish(signal)
+      if (coalesced && mountedRef.current) {
+        void loadHistory(threadId, { background: true })
+      }
     }
   }, [])
 
@@ -470,6 +529,7 @@ export function usePrincipalWorkspace() {
     setFollowupsMessageId(null)
     setFollowupsPending(false)
     setMcpNotices([])
+    historyGateRef.current.cancel()
     if (selectedThreadId) {
       void loadHistory(selectedThreadId)
       void loadDiffs(selectedThreadId)
@@ -484,6 +544,28 @@ export function usePrincipalWorkspace() {
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
+  const refillPermissionQueue = useCallback(async (threadId: string) => {
+    try {
+      const res = await threadsService.pendingPermissions(threadId)
+      if (res.error || !mountedRef.current) return
+      const permissions = res.permissions ?? []
+      setPermissionQueue((prev) => {
+        const others = prev.filter((p) => p.threadId !== threadId)
+        return [
+          ...others,
+          ...permissions.map((p) => ({
+            requestId: p.requestId,
+            threadId: p.threadId,
+            toolName: p.toolName,
+            params: p.params,
+          })),
+        ]
+      })
+    } catch {
+      // Snapshot é best-effort no reconnect; o próximo envio tenta de novo.
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedThreadId) return
     const threadId = selectedThreadId
@@ -493,9 +575,12 @@ export function usePrincipalWorkspace() {
       handleStreamEvent(event)
     })
 
+    // Reconnect / troca de thread: reenche a fila a partir do broker (além do replay WS).
+    void refillPermissionQueue(threadId)
+
     return () => disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId])
+  }, [selectedThreadId, refillPermissionQueue])
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
@@ -561,7 +646,29 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'permission.request') {
-      setPermissionQueue((prev) => [...prev, { requestId: event.requestId, threadId: event.threadId, toolName: event.toolName, params: event.params }])
+      // O pedido virou card na timeline: fora da aba Histórico ele não seria visto. Como o overlay
+      // antigo flutuava sobre qualquer aba, trazer o usuário de volta ao chat preserva a garantia
+      // de que a permissão pendente é sempre alcançável.
+      setActiveTab('history')
+      // Grant anterior não pode ficar como "Permitir / Executando…" sob o card novo.
+      setPendingMessages((prev) =>
+        dropStalePermissionDecisionPendings(
+          prev,
+          (text) => interpretPermissionChatReply(text).kind !== 'blocked'
+        )
+      )
+      setPermissionQueue((prev) => {
+        if (prev.some((p) => p.requestId === event.requestId)) return prev
+        return [
+          ...prev,
+          {
+            requestId: event.requestId,
+            threadId: event.threadId,
+            toolName: event.toolName,
+            params: event.params,
+          },
+        ]
+      })
       return
     }
     if (event.type === 'permission.resolved') {
@@ -573,7 +680,13 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'mcp.notice') {
-      setMcpNotices((prev) => [...prev, { mcpName: event.mcpName, reason: event.reason, message: event.message }])
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, mcpNotice(event)))
+      return
+    }
+    // Tool negada pelo próprio CLI, sem passar pelo broker: o usuário só via o agente pedindo
+    // aprovação em prosa, sem card nenhum. Vai para a mesma faixa do mcp.notice.
+    if (event.type === 'permission.native_denial') {
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
     }
   }
 
@@ -985,6 +1098,9 @@ export function usePrincipalWorkspace() {
       attachments: ComposerAttachment[] = []
     ): Promise<boolean> => {
       if (!selectedThreadId) return false
+      setFollowups([])
+      setFollowupsMessageId(null)
+      setFollowupsPending(false)
       const pendingId = addPending(text, images, 'sending')
       try {
         const res = await threadsService.followUp(selectedThreadId, {
@@ -1030,70 +1146,165 @@ export function usePrincipalWorkspace() {
   }, [sendFollowUp])
 
   const resolvePermission = useCallback(
-    async (requestId: string, allow: boolean, always = false, scope: 'thread' | 'project' = 'thread') => {
-    const entry = permissionQueue.find((p) => p.requestId === requestId)
-    if (!entry) return
-    await threadsService.permission(entry.threadId, {
-      requestId,
-      allow,
-      always: always || undefined,
-      scope: scope === 'project' ? 'project' : undefined,
-    })
-    setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
+    async (
+      requestId: string,
+      allow: boolean,
+      always = false,
+      scope: 'thread' | 'project' = 'thread',
+      threadIdOverride?: string
+    ): Promise<boolean> => {
+      const entry = permissionQueue.find((p) => p.requestId === requestId)
+      const threadId = entry?.threadId ?? threadIdOverride
+      if (!threadId) return false
+      try {
+        const res = await threadsService.permission(threadId, {
+          requestId,
+          allow,
+          always: always || undefined,
+          scope: scope === 'project' ? 'project' : undefined,
+        })
+        if (res.error) {
+          // Não remove da fila: o broker ainda espera. Card some sem grant era o sintoma
+          // "clique aceito mas permissão não concedida".
+          setSendError(res.error.message)
+          return false
+        }
+        setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
+        return true
+      } catch {
+        setSendError('Falha ao enviar a decisão de permissão.')
+        return false
+      }
     },
     [permissionQueue]
   )
 
   /**
-   * Clique numa resposta da pergunta do agente: envia direto, sem passar pelo composer — é uma
-   * decisão, não um rascunho. Com o turno ocupado vai para a fila, como qualquer follow-up.
+   * Clique numa resposta da pergunta do agente: preenche o composer — o envio é o Enviar
+   * (resolve permissão / ask_user_question / follow-up conforme o estado).
    */
-  const sendDecision = useCallback(
-    async (text: string) => {
-      const value = text.trim()
-      if (value === '' || !selectedThreadId) return
-      setSendError(null)
-      if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
-        enqueue(value, [], composer.model, composer.reasoningLevel, [])
-        return
-      }
-      await sendFollowUp(value, [], composer.model, composer.reasoningLevel, [])
-    },
-    [selectedThreadId, selectedThread, composer.model, composer.reasoningLevel, enqueue, sendFollowUp]
-  )
+  const sendDecision = useCallback((text: string) => {
+    const value = text.trim()
+    if (value === '') return
+    setComposer((prev) => ({ ...prev, text: value }))
+  }, [])
 
   const send = useCallback(async () => {
     const text = composer.text.trim()
     if (text === '') return
     setSendError(null)
 
-    // PermissionPrompt aberto: chat "sim"/"não"/"permitir todos" resolve o PreToolUse;
-    // qualquer outro texto NÃO entra na fila (senão vira follow-up `-p "Sim"` sem contexto).
-    const pendingPermission =
+    let pendingPermission =
       selectedThreadId !== null
         ? permissionQueue.find((p) => p.threadId === selectedThreadId)
         : undefined
-    if (pendingPermission) {
-      const reply = interpretPermissionChatReply(text)
-      if (reply.kind === 'blocked') {
-        setSendError(reply.message)
-        return
+
+    // waiting_permission com fila local vazia (WS perdido): snapshot do broker antes de decidir.
+    if (
+      selectedThreadId &&
+      !pendingPermission &&
+      selectedThread?.state === 'waiting_permission'
+    ) {
+      try {
+        const snap = await threadsService.pendingPermissions(selectedThreadId)
+        const first = snap.permissions?.[0]
+        if (first && !snap.error) {
+          // Const local (não o `let` acima): sem ela o `setPermissionQueue` precisaria de `!`
+          // e mascararia o caso em que o snapshot volta vazio — aí a rota abaixo é que decide.
+          const recovered = {
+            requestId: first.requestId,
+            threadId: first.threadId,
+            toolName: first.toolName,
+            params: first.params,
+          }
+          pendingPermission = recovered
+          setPermissionQueue((prev) => {
+            if (prev.some((p) => p.requestId === recovered.requestId)) return prev
+            return [...prev, recovered]
+          })
+        }
+      } catch {
+        // cai no route blocked abaixo
       }
-      // Eco local: a resposta resolve o PreToolUse e nunca vira mensagem no banco — sem a bolha
-      // o usuário não vê que o "sim" foi registrado e responde de novo.
-      addPending(text, [], 'permission')
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
-      await resolvePermission(
-        pendingPermission.requestId,
-        reply.kind === 'allow' || reply.kind === 'allow_always',
-        reply.kind === 'allow_always'
-      )
+    }
+
+    const route = routeComposerSend({
+      text,
+      threadState: selectedThread?.state,
+      hasPendingPermission: pendingPermission !== undefined,
+      hasPendingQuestion: pendingQuestion !== null,
+      hasSelectedThread: selectedThreadId !== null,
+      hasSelectedProject: selectedProjectId !== null,
+    })
+
+    if (route.action === 'noop') return
+
+    if (route.action === 'permission_blocked') {
+      setSendError(route.message)
       return
     }
 
-    // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
-    // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
-    if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
+    if (route.action === 'resolve_permission') {
+      // Sem a permissão em mãos o `if` antigo caía nos branches de baixo e o texto virava turno
+      // novo em silêncio. Ausência aqui é o mesmo caso do snapshot vazio: erro visível.
+      if (!pendingPermission) {
+        setSendError(PERMISSION_PENDING_HINT)
+        return
+      }
+      // Eco local só enquanto o POST voa: a decisão não vira mensagem no banco. Depois do
+      // grant a bolha some — promover para `sent` deixava "Executando…" fantasma e o próximo
+      // pedido de permissão parecia sobrepor trabalho ainda em curso.
+      const pendingId = addPending(text, [], 'permission')
+      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      const allow =
+        route.decision.kind === 'allow' ||
+        route.decision.kind === 'allow_always' ||
+        route.decision.kind === 'allow_project'
+      const always =
+        route.decision.kind === 'allow_always' || route.decision.kind === 'allow_project'
+      const scope = route.decision.kind === 'allow_project' ? 'project' : 'thread'
+      const ok = await resolvePermission(
+        pendingPermission.requestId,
+        allow,
+        always,
+        scope,
+        pendingPermission.threadId
+      )
+      removePending(pendingId)
+      if (!ok) return
+      return
+    }
+
+    // F21: texto no composer (digitado ou opção clicada) responde a ask_user_question —
+    // antes caía na fila de follow-up e a pergunta ficava presa.
+    if (route.action === 'answer_question') {
+      const answer = composerAnswerForQuestion(
+        text,
+        pendingQuestion!.options,
+        pendingQuestion!.multiSelect
+      )
+      const pendingId = addPending(text, [], 'permission')
+      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      try {
+        const res = await threadsService.answerQuestion(selectedThreadId!, answer)
+        removePending(pendingId)
+        if (res.error) {
+          setSendError(answerErrorMessage(res.error.code))
+          return
+        }
+      } catch {
+        removePending(pendingId)
+        setSendError(answerErrorMessage(undefined))
+      }
+      return
+    }
+
+    // running / waiting_user / waiting_permission (sem gate resolvível) — enfileira.
+    if (route.action === 'enqueue') {
+      // Sugestões do turno anterior somem na hora: senão ficam sobre "Na fila…" / "Executando…".
+      setFollowups([])
+      setFollowupsMessageId(null)
+      setFollowupsPending(false)
       enqueue(text, composer.images, composer.model, composer.reasoningLevel, composerAttachments)
       setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
       return
@@ -1101,7 +1312,7 @@ export function usePrincipalWorkspace() {
 
     if (!selectedProjectId) return
 
-    if (!selectedThreadId) {
+    if (route.action === 'send_new') {
       const images = composer.images
       const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
@@ -1143,6 +1354,7 @@ export function usePrincipalWorkspace() {
     selectedThreadId,
     selectedProjectId,
     permissionQueue,
+    pendingQuestion,
     enqueue,
     sendFollowUp,
     resolvePermission,
@@ -1151,12 +1363,22 @@ export function usePrincipalWorkspace() {
     setPendingStatus,
     removePending,
     composerAttachments,
+    refillPermissionQueue,
   ])
 
   const cancel = useCallback(async () => {
     if (!selectedThreadId) return
-    await threadsService.cancel(selectedThreadId)
-  }, [selectedThreadId])
+    setStreamingText('')
+    setPendingMessages([])
+    setSendError(null)
+    const res = await threadsService.cancel(selectedThreadId)
+    if (res.error) {
+      setSendError(res.error.message)
+    } else if (res.cancelled === false) {
+      setSendError('Não foi possível cancelar a execução.')
+    }
+    void loadHistory(selectedThreadId, { background: true })
+  }, [selectedThreadId, loadHistory])
 
   const dismissMcpNotices = useCallback(() => {
     setMcpNotices([])
@@ -1281,19 +1503,29 @@ export function usePrincipalWorkspace() {
 
   /** Exporta baixando pelo próprio renderer — sem IPC novo nem diálogo nativo. */
   const exportThread = useCallback(async (threadId: string, format: 'md' | 'json') => {
-    const res = await threadsService.exportThread(threadId, format)
-    if (res.error) {
-      setSendError(res.error.message)
-      return
+    setExportError(null)
+    setExporting(true)
+    try {
+      const res = await threadsService.exportThread(threadId, format)
+      if (res.error) {
+        setExportError(exportFetchErrorMessage(res.error.message))
+        return
+      }
+      try {
+        triggerBrowserDownload(res.content, res.fileName, mimeTypeForExportFormat(format))
+      } catch (err) {
+        console.error('[export]', err)
+        setExportError(EXPORT_COPY.downloadFailed)
+      }
+    } catch (err) {
+      console.error('[export]', err)
+      setExportError(EXPORT_COPY.fetchFailed)
+    } finally {
+      setExporting(false)
     }
-    const blob = new Blob([res.content], { type: format === 'md' ? 'text/markdown' : 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const anchorEl = document.createElement('a')
-    anchorEl.href = url
-    anchorEl.download = res.fileName
-    anchorEl.click()
-    URL.revokeObjectURL(url)
   }, [])
+
+  const clearExportError = useCallback(() => setExportError(null), [])
 
   /** Busca de conversas (título + conteúdo). Termo vazio recarrega a lista completa. */
   const searchThreads = useCallback(
@@ -1344,6 +1576,9 @@ export function usePrincipalWorkspace() {
     voteMessage,
     renameThread,
     exportThread,
+    exporting,
+    exportError,
+    clearExportError,
     searchThreads,
     chatPendingMessages,
     toolCalls,

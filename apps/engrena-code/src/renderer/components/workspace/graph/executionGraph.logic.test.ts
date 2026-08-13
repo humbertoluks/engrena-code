@@ -81,6 +81,18 @@ describe('buildExecutionGraph', () => {
     expect(g.nodes[0].label).toContain('claude')
   })
 
+  it('maps thread state waiting_permission to the waiting_user root status', () => {
+    const g = buildExecutionGraph({
+      thread: thread({ state: 'waiting_permission' }),
+      toolCalls: [tool({ id: 't1', name: 'Bash', seq: 1, status: 'running', endedAt: null })],
+      subagentRuns: [],
+      pipeline: null,
+    })
+    expect(g.nodes).toHaveLength(1)
+    expect(g.nodes[0].id).toBe(rootNodeId('thr_1'))
+    expect(g.nodes[0].status).toBe('waiting_user')
+  })
+
   it('links root → subagent via correlateSubagentRuns and task label', () => {
     const g = buildExecutionGraph({
       thread: thread(),
@@ -237,6 +249,24 @@ describe('applyLiveEvent', () => {
       params: {},
     })
     expect(next.rootToolDelta).toBe(1)
+  })
+
+  it('overlays rootState as waiting_user on state.change waiting_permission', () => {
+    const next = applyLiveEvent(emptyLiveOverlay(), {
+      type: 'state.change',
+      threadId: 'thr_1',
+      state: 'waiting_permission',
+    } as StreamEvent)
+    expect(next.rootState).toBe('waiting_user')
+
+    const g = buildExecutionGraph({
+      thread: thread({ state: 'running' }),
+      toolCalls: [],
+      subagentRuns: [],
+      pipeline: null,
+      liveOverlay: next,
+    })
+    expect(g.nodes[0].status).toBe('waiting_user')
   })
 
   it('records optimistic pipeline stage', () => {

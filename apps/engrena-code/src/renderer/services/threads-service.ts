@@ -9,7 +9,15 @@ export type { ApiErrorBody, ContextAttachmentInput }
 export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax' | 'glm' | 'grok'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
-export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping' | 'waiting_user' | 'cancelled'
+export type ThreadState =
+  | 'running'
+  | 'idle'
+  | 'committed'
+  | 'error'
+  | 'stopping'
+  | 'waiting_user'
+  | 'waiting_permission'
+  | 'cancelled'
 
 export interface Thread {
   id: string
@@ -196,7 +204,8 @@ export const threadsService = {
   composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => apiRequest('GET', '/api/composer/catalog'),
 
   history: (
-    threadId: string
+    threadId: string,
+    options?: { signal?: AbortSignal }
   ): Promise<
     {
       messages: Message[]
@@ -205,7 +214,7 @@ export const threadsService = {
       subagentRuns: SubagentRun[]
       pipeline: PipelineHistory | null
     } & ApiErrorBody
-  > => apiRequest('GET', `/api/threads/${threadId}/history`),
+  > => apiRequest('GET', `/api/threads/${threadId}/history`, undefined, options),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),
@@ -242,6 +251,21 @@ export const threadsService = {
     input: { requestId: string; allow: boolean; always?: boolean; scope?: 'thread' | 'project' }
   ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/permission`, input),
+
+  /** Snapshot de PreToolUse pendentes (reconnect / fila vazia com `waiting_permission`). */
+  pendingPermissions: (
+    threadId: string
+  ): Promise<
+    {
+      permissions: Array<{
+        requestId: string
+        threadId: string
+        toolName: string
+        params: unknown
+        createdAt?: number
+      }>
+    } & ApiErrorBody
+  > => apiRequest('GET', `/api/threads/${threadId}/permissions`),
 
   answerQuestion: (
     threadId: string,

@@ -22,12 +22,22 @@ function errorCode(data: unknown): string | undefined {
   return typeof err?.code === 'string' ? err.code : undefined
 }
 
+export interface ApiRequestOptions {
+  signal?: AbortSignal
+}
+
 /** Shared loopback fetch for authenticated renderer services. */
-export async function apiRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function apiRequest<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  options?: ApiRequestOptions
+): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: sessionHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: options?.signal,
   })
 
   if (res.status === 204) {
