@@ -6,7 +6,7 @@ import {
   extractSessionTokenFromSubprotocol,
 } from '@engrena/http-core'
 import { vaultService } from '../vault/vault-service.js'
-import { listPendingPermissions } from '../runner/permission-broker.js'
+import { listOpenPermissionGates } from '../runner/gate.js'
 import { subscribe, unsubscribe } from '../runner/ws-hub.js'
 
 /** Code session subprotocol prefix (package default; Plan can override). */
@@ -39,7 +39,8 @@ export function handleWorkspaceUpgrade(req: IncomingMessage, socket: Duplex, hea
     subscribe(threadId, ws)
 
     const replayPending = (): void => {
-      for (const pending of listPendingPermissions(threadId)) {
+      // Replay do legado `permission.request` — o renderer só migra para `gate.opened` na Fase C.
+      for (const pending of listOpenPermissionGates(threadId)) {
         if (ws.readyState === ws.OPEN) {
           ws.send(
             JSON.stringify({

@@ -36,7 +36,8 @@ const {
   resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
 } = await import('../threads/followups.js')
 const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
-const { resolvePermissionRequest, hasPendingPermission } = await import('./permission-broker.js')
+const { resolvePermissionGate: resolvePermissionRequest, hasOpenPermissionGate: hasPendingPermission } =
+  await import('./gate.js')
 const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
 const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
 const { ProviderError } = await import('./providers/cli-driver.js')

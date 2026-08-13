@@ -10,15 +10,30 @@ const { closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createUnlockServer } = await import('./unlock-handler.js')
 const { emit } = await import('../runner/ws-hub.js')
-const { createPermissionServer, resolvePermissionRequest, clearAllPendingPermissionsForTesting } =
-  await import('../runner/permission-broker.js')
+const { createProject } = await import('../db/repositories/projects.js')
+const { createThread } = await import('../db/repositories/threads.js')
+const { createPermissionServer } = await import('../runner/permission-broker.js')
+const { resolvePermissionGate, clearAllGatesForTesting } = await import('../runner/gate.js')
 
 let port: number
 let server: ReturnType<typeof createUnlockServer>
 
+/** Gate agora é linha em `thread_gates` com FK — replay exige thread de verdade. */
+function seedThread(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f03_ws_proj_'))
+  const project = createProject({ path: dir })
+  return createThread({
+    projectId: project.id,
+    provider: 'claude',
+    accessLevel: 'supervised',
+    executionMode: 'main',
+    state: 'running',
+  }).id
+}
+
 beforeEach(() => {
   vaultService.lock()
-  clearAllPendingPermissionsForTesting()
+  clearAllGatesForTesting()
 })
 
 afterAll(() => {
@@ -93,8 +108,9 @@ describe('workspace WebSocket upgrade', () => {
     vaultService.unlock('workspace-teste', 'senha-forte-123')
     const token = vaultService.getSessionToken() as string
 
+    const threadId = seedThread()
     const seen: Array<{ requestId: string }> = []
-    const permServer = await createPermissionServer('thr_replay', (info) => seen.push(info))
+    const permServer = await createPermissionServer(threadId, (info) => seen.push(info))
     const pendingFetch = fetch(`http://127.0.0.1:${permServer.port}/permission`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-permission-token': permServer.token },
@@ -119,7 +135,7 @@ describe('workspace WebSocket upgrade', () => {
     port = typeof address === 'object' && address !== null ? address.port : 0
 
     // Listener antes do open: o replay pode chegar no mesmo tick da conexão.
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/?threadId=thr_replay`, [
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/?threadId=${threadId}`, [
       `engrenacode-session.${token}`,
     ])
     const eventPromise = new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -141,12 +157,12 @@ describe('workspace WebSocket upgrade', () => {
     const event = await eventPromise
     expect(event).toMatchObject({
       type: 'permission.request',
-      threadId: 'thr_replay',
+      threadId,
       requestId: seen[0].requestId,
       toolName: 'Bash',
     })
 
-    resolvePermissionRequest('thr_replay', seen[0].requestId, false)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
     await pendingFetch
     ws.close()
     permServer.close()

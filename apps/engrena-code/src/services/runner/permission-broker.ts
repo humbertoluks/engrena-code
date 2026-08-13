@@ -1,27 +1,18 @@
-import { randomBytes, randomUUID } from 'crypto'
+import { randomBytes } from 'crypto'
 import http from 'http'
-import { getThread, updateThread, type ThreadAccessLevel } from '../db/repositories/threads.js'
+import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
 import { PERMISSION_BODY_MAX_BYTES } from './buffer-cap.js'
+import { openPermissionGate, PERMISSION_TIMEOUT_MS, type PermissionRequestInfo } from './gate.js'
 import { permissionPolicyDecision } from './permission-policy.js'
-import { emit } from './ws-hub.js'
 
-/** Fail-closed: sem resposta do usuário, a tool é negada e o HTTP do hook não fica preso 10+ min. */
-export const PERMISSION_TIMEOUT_MS = 2 * 60 * 1000
-
-interface PendingPermission {
-  threadId: string
-  toolName: string
-  params: unknown
-  createdAt: number
-  resolve: (allow: boolean) => void
-  timeoutId: ReturnType<typeof setTimeout>
-}
-
-/** Mesmo padrão de `ask-user-question.ts`: mapa em nível de módulo porque o `POST /permission` do
- * hook (dentro do turno) e o `POST /api/threads/:id/permission` (fora, disparado pela UI) só
- * compartilham o `requestId`. */
-const pending = new Map<string, PendingPermission>()
+/**
+ * Transporte do gate de permissão, nada mais: servidor HTTP loopback efêmero por turno + política
+ * de auto-allow + allowlist da thread. O estado "há um gate aberto" (fila, timeout, resolução,
+ * `threads.state`) é do `gate.ts`, dono único desse fato.
+ */
+export { PERMISSION_TIMEOUT_MS }
+export type { PermissionRequestInfo }
 
 /**
  * Allowlist por thread + toolName — equivalente Claude Code "Yes, don't ask again" para aquela
@@ -29,14 +20,6 @@ const pending = new Map<string, PendingPermission>()
  * Bash no CC persiste no repo; aqui a sessão da thread cobre o caso sem settings.local.json.
  */
 const allowedToolsByThread = new Map<string, Set<string>>()
-
-export interface PermissionRequestInfo {
-  requestId: string
-  threadId: string
-  toolName: string
-  params: unknown
-  createdAt?: number
-}
 
 export interface PermissionServerHandle {
   port: number
@@ -47,48 +30,6 @@ export interface PermissionServerHandle {
 export interface PermissionServerOptions {
   /** Override do fail-closed (testes usam ms curtos). Default: `PERMISSION_TIMEOUT_MS`. */
   timeoutMs?: number
-}
-
-function maybeRestoreRunningAfterPermission(threadId: string): void {
-  if (hasPendingPermission(threadId)) return
-  const thread = getThread(threadId)
-  if (thread?.state !== 'waiting_permission') return
-  updateThread(threadId, { state: 'running' })
-  emit(threadId, { type: 'state.change', threadId, state: 'running' })
-}
-
-function clearPendingEntry(requestId: string): PendingPermission | undefined {
-  const entry = pending.get(requestId)
-  if (!entry) return undefined
-  pending.delete(requestId)
-  clearTimeout(entry.timeoutId)
-  return entry
-}
-
-function waitForDecision(
-  requestId: string,
-  threadId: string,
-  toolName: string,
-  params: unknown,
-  timeoutMs: number
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const createdAt = Date.now()
-    const timeoutId = setTimeout(() => {
-      const entry = clearPendingEntry(requestId)
-      if (!entry) return
-      entry.resolve(false)
-      emit(threadId, {
-        type: 'permission.resolved',
-        threadId,
-        requestId,
-        allow: false,
-      })
-      maybeRestoreRunningAfterPermission(threadId)
-    }, timeoutMs)
-
-    pending.set(requestId, { threadId, toolName, params, createdAt, resolve, timeoutId })
-  })
 }
 
 export function isToolAllowedForThread(threadId: string, toolName: string): boolean {
@@ -113,40 +54,24 @@ export function clearAllowedToolsForThread(threadId: string): void {
 }
 
 /**
- * Snapshot consultável das permissões pendentes de uma thread (reconnect / GET /permissions).
- * Sem `resolve` nem handles — só o que a UI precisa para remontar o modal.
- */
-export function listPendingPermissions(threadId: string): PermissionRequestInfo[] {
-  const out: PermissionRequestInfo[] = []
-  for (const [requestId, entry] of pending) {
-    if (entry.threadId !== threadId) continue
-    out.push({
-      requestId,
-      threadId: entry.threadId,
-      toolName: entry.toolName,
-      params: entry.params,
-      createdAt: entry.createdAt,
-    })
-  }
-  return out
-}
-
-/**
  * Servidor HTTP loopback efêmero por turno — recebe o `POST /permission` do hook `PreToolUse`
- * (spawnado pelo CLI via `--settings`, ver `cli-driver.ts`), segura a resposta até
- * `resolvePermissionRequest` ser chamado por um request externo (`threads-handler.ts`), e devolve
- * `{allow}` pro hook decidir `permissionDecision: allow|deny`.
+ * (spawnado pelo CLI via `--settings`, ver `cli-driver.ts`), abre um gate em `gate.ts` e segura a
+ * resposta até o gate ser resolvido/expirado, devolvendo `{allow}` pro hook decidir
+ * `permissionDecision: allow|deny`.
  *
- * Auto-allow quando: (1) `permission-policy.ts` já decide `allow` para (nível, tool) — full-access
- * inteiro, leitura/edição em auto-accept-edits — ou (2) tool já está na allowlist da thread
- * ("Permitir todos" / don't ask again).
+ * Auto-allow sem gate quando: (1) `permission-policy.ts` já decide `allow` para (nível, tool) —
+ * full-access inteiro, leitura/edição em auto-accept-edits — ou (2) tool já está na allowlist da
+ * thread ("Permitir todos" / don't ask again).
  *
- * Fail-closed: sem decisão em `timeoutMs`, auto-deny + `permission.resolved` + volta a `running`
- * se a thread estiver em `waiting_permission`.
+ * Fail-closed em todo caminho de erro: body acima do cap, gate que não persiste (thread apagada
+ * mid-turn) e timeout respondem `allow:false`.
+ *
+ * `onRequest` é só notificação para o chamador; `waiting_permission`, `gate.opened` e
+ * `permission.request` já saem de dentro de `openPermissionGate`.
  */
 export function createPermissionServer(
   threadId: string,
-  onRequest: (info: PermissionRequestInfo) => void,
+  onRequest?: (info: PermissionRequestInfo) => void,
   options?: PermissionServerOptions
 ): Promise<PermissionServerHandle> {
   const token = randomBytes(24).toString('hex')
@@ -211,13 +136,15 @@ export function createPermissionServer(
         return
       }
 
-      const requestId = randomUUID()
-      const params = parsed.toolInput
-      // pending.set roda no executor síncrono de waitForDecision — registrar antes do emit
-      // evita 409 se algum consumidor no mesmo processo resolvesse no callback de onRequest.
-      const decision = waitForDecision(requestId, threadId, toolName, params, timeoutMs)
-      onRequest({ requestId, threadId, toolName, params, createdAt: Date.now() })
-      decision.then((allow) => {
+      const opened = openPermissionGate({ threadId, toolName, params: parsed.toolInput, timeoutMs })
+      if (!opened.ok) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ allow: false }))
+        return
+      }
+
+      onRequest?.(opened.gate)
+      opened.decision.then((allow) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow }))
       })
@@ -239,94 +166,17 @@ export function createPermissionServer(
   })
 }
 
+/** `thread` grava só na sessão da thread; `project` também persiste em `tool_allowlist`. */
 export type PermissionScope = 'thread' | 'project'
 
-/** `not_found`: requestId inexistente. `thread_mismatch`: existe, mas pertence a outra thread. */
-export type PermissionResolveFailureCode = 'not_found' | 'thread_mismatch'
-
-export type PermissionResolveResult =
-  | { ok: true; toolName: string }
-  | { ok: false; code: PermissionResolveFailureCode }
-
 /**
- * Resolve um pedido pendente **da thread informada**. Com `always=true` e allow, grava a ferramenta
- * na allowlist da thread (Claude Code "Yes, don't ask again").
- *
- * `threadId` vem primeiro de propósito: o handler HTTP recebe o id no path e o requestId no corpo,
- * e trocar a ordem em silêncio deixaria um requestId de outra thread resolver a permissão errada.
- * Sem match a entrada **não** é consumida — continua pendente para a thread dona.
+ * "Permitir todos" — efeito do `always=true` no `POST /permission`. Fica aqui, e não no `gate.ts`,
+ * porque allowlist é assunto do broker; o gate só chama isto pelo hook `onGranted` (o que também
+ * evita ciclo de import entre os dois módulos).
  */
-export function resolvePermissionRequest(
-  threadId: string,
-  requestId: string,
-  allow: boolean,
-  always = false,
-  scope: PermissionScope = 'thread'
-): PermissionResolveResult {
-  const candidate = pending.get(requestId)
-  if (!candidate) return { ok: false, code: 'not_found' }
-  if (candidate.threadId !== threadId) return { ok: false, code: 'thread_mismatch' }
-
-  const entry = clearPendingEntry(requestId)
-  if (!entry) return { ok: false, code: 'not_found' }
-  if (allow && always) {
-    rememberAllowedTool(entry.threadId, entry.toolName)
-    if (scope === 'project') {
-      const thread = getThread(entry.threadId)
-      if (thread !== null) allowToolForProject(thread.projectId, entry.toolName)
-    }
-  }
-  entry.resolve(allow)
-  maybeRestoreRunningAfterPermission(entry.threadId)
-  return { ok: true, toolName: entry.toolName }
-}
-
-/** Nega toda permissão pendente de uma thread (cancel/erro/fim de turno) — mesmo contrato do
- * legado: "permission pendente no cancel → deny" (`_reversa_sdd/runner/requirements.md`).
- * Não restaura `running`: o chamador assenta o estado final (cancelled/error/idle). */
-export function denyPendingPermissionsForThread(threadId: string): void {
-  for (const [requestId, entry] of pending) {
-    if (entry.threadId !== threadId) continue
-    clearPendingEntry(requestId)
-    entry.resolve(false)
-  }
-}
-
-/**
- * Libera permissões pendentes com allow (upgrade de nível mid-turn).
- * Com `accessLevel`, libera só o que o novo nível auto-aprova — `auto-accept-edits` solta a edição
- * de arquivo e mantém o modal do `Bash`, senão o upgrade viraria full-access disfarçado.
- * Retorna os `requestId` resolvidos para o handler emitir `permission.resolved`.
- */
-export function allowPendingPermissionsForThread(
-  threadId: string,
-  accessLevel?: ThreadAccessLevel
-): string[] {
-  const resolvedIds: string[] = []
-  for (const [requestId, entry] of pending) {
-    if (entry.threadId !== threadId) continue
-    if (accessLevel !== undefined && permissionPolicyDecision(accessLevel, entry.toolName) !== 'allow') {
-      continue
-    }
-    clearPendingEntry(requestId)
-    entry.resolve(true)
-    resolvedIds.push(requestId)
-  }
-  maybeRestoreRunningAfterPermission(threadId)
-  return resolvedIds
-}
-
-export function hasPendingPermission(threadId: string): boolean {
-  for (const entry of pending.values()) {
-    if (entry.threadId === threadId) return true
-  }
-  return false
-}
-
-/** Apenas para testes: limpa mapa + timers entre specs. */
-export function clearAllPendingPermissionsForTesting(): void {
-  for (const [requestId, entry] of [...pending.entries()]) {
-    clearPendingEntry(requestId)
-    entry.resolve(false)
-  }
+export function grantAlwaysAllowedTool(threadId: string, toolName: string, scope: PermissionScope): void {
+  rememberAllowedTool(threadId, toolName)
+  if (scope !== 'project') return
+  const thread = getThread(threadId)
+  if (thread !== null) allowToolForProject(thread.projectId, toolName)
 }

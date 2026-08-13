@@ -38,12 +38,12 @@ import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
+import { clearAllowedToolsForThread, grantAlwaysAllowedTool } from '../runner/permission-broker.js'
 import {
-  resolvePermissionRequest,
-  allowPendingPermissionsForThread,
-  clearAllowedToolsForThread,
-  listPendingPermissions,
-} from '../runner/permission-broker.js'
+  allowOpenPermissionGates,
+  listOpenPermissionGates,
+  resolvePermissionGate,
+} from '../runner/gate.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -484,7 +484,10 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   }
 
   const scope = data.scope === 'project' ? 'project' : 'thread'
-  const resolved = resolvePermissionRequest(threadId, data.requestId, data.allow, data.always === true, scope)
+  // `permission.resolved` (legado) e `gate.resolved` saem de dentro do gate — dono único do fato.
+  const resolved = resolvePermissionGate(threadId, data.requestId, data.allow, {
+    onGranted: data.always === true ? ({ toolName }) => grantAlwaysAllowedTool(threadId, toolName, scope) : undefined,
+  })
   if (!resolved.ok) {
     if (resolved.code === 'thread_mismatch') {
       return sendError(
@@ -497,12 +500,6 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
     return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
   }
 
-  emit(threadId, {
-    type: 'permission.resolved',
-    threadId,
-    requestId: data.requestId,
-    allow: data.allow,
-  })
   sendJson(res, 200, { resolved: true, always: data.always === true, toolName: resolved.toolName })
 }
 
@@ -510,7 +507,7 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
 function handleListPermissions(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
-  sendJson(res, 200, { permissions: listPendingPermissions(threadId) })
+  sendJson(res, 200, { permissions: listOpenPermissionGates(threadId) })
 }
 
 interface PatchThreadBody {
@@ -540,12 +537,8 @@ async function handlePatchThread(req: IncomingMessage, res: ServerResponse, thre
 
   // Trocar o nível mid-turn libera o que o novo nível auto-aprova (edição em auto-accept-edits,
   // tudo em full-access); o resto continua no modal em vez de passar em silêncio.
-  if (nextAccess !== previousAccess) {
-    const allowedIds = allowPendingPermissionsForThread(threadId, nextAccess)
-    for (const requestId of allowedIds) {
-      emit(threadId, { type: 'permission.resolved', threadId, requestId, allow: true })
-    }
-  }
+  // `permission.resolved` de cada gate liberado sai de dentro de `allowOpenPermissionGates`.
+  if (nextAccess !== previousAccess) allowOpenPermissionGates(threadId, nextAccess)
 
   sendJson(res, 200, { thread: updated })
 }

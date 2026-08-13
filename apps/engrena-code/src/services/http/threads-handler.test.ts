@@ -15,8 +15,12 @@ const { createToolCall, appendMessage } = await import('../db/repositories/messa
 const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
   '../runner/ask-user-question.js'
 )
-const { createPermissionServer, hasPendingPermission, listPendingPermissions, resolvePermissionRequest } =
-  await import('../runner/permission-broker.js')
+const { createPermissionServer } = await import('../runner/permission-broker.js')
+const {
+  hasOpenPermissionGate: hasPendingPermission,
+  listOpenPermissionGates: listPendingPermissions,
+  resolvePermissionGate: resolvePermissionRequest,
+} = await import('../runner/gate.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
 const {
@@ -1004,7 +1008,6 @@ describe('handleThreadsRequest', () => {
       expect(listPendingPermissions(thread.id)).toHaveLength(1)
 
       // limpa para o fetch do hook não ficar pendurado no afterEach
-      const { resolvePermissionRequest } = await import('../runner/permission-broker.js')
       resolvePermissionRequest(thread.id, seen[0].requestId, false)
       await pendingFetch
       server.close()

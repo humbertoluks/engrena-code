@@ -59,7 +59,8 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
-import { createPermissionServer, denyPendingPermissionsForThread, type PermissionServerHandle } from './permission-broker.js'
+import { createPermissionServer, type PermissionServerHandle } from './permission-broker.js'
+import { expireOpenPermissionGates } from './gate.js'
 import { permissionBrokerApplies } from './permission-policy.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
@@ -203,7 +204,7 @@ export function cancelThread(threadId: string): boolean {
   if (controller) {
     markThreadCancelled(threadId)
     // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
-    denyPendingPermissionsForThread(threadId)
+    expireOpenPermissionGates(threadId, 'thread_cancelled')
     rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
     // 2) Fecha servers do turno (permission / ask / delegation / memory).
     closeTurnServers(threadId)
@@ -224,7 +225,7 @@ export function cancelThread(threadId: string): boolean {
   // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
   rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
-  denyPendingPermissionsForThread(threadId)
+  expireOpenPermissionGates(threadId, 'thread_cancelled')
   closeTurnServers(threadId)
   interruptRunningToolCalls(threadId)
 
@@ -594,13 +595,10 @@ async function runTurn(
     // O hook `PreToolUse` (cli-driver.ts) segura cada tool call aqui até a UI responder via
     // `POST /api/threads/:id/permission`. Vale também em `auto-accept-edits`: lá o CLI negava
     // Bash/MCP sozinho, sem modal nem caminho por texto (`permission-policy.ts`).
+    // `waiting_permission`, `gate.opened` e o `permission.request` legado saem de dentro do gate
+    // (`gate.ts`), dono único do fato — o broker aqui é só o transporte do hook.
     if (thread.provider === 'claude' && permissionBrokerApplies(thread.accessLevel)) {
-      permissionServer = await createPermissionServer(thread.id, ({ requestId, toolName, params }) => {
-        // Distinto de `waiting_user` (ask_user_question): aqui o PreToolUse está preso no broker.
-        updateThread(thread.id, { state: 'waiting_permission' })
-        emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_permission' })
-        emit(thread.id, { type: 'permission.request', threadId: thread.id, requestId, toolName, params })
-      })
+      permissionServer = await createPermissionServer(thread.id)
     }
 
     // Cancel fecha estes servers *antes* do abort — senão hook/MCP fica preso e o kill demora.
@@ -827,9 +825,9 @@ async function runTurn(
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
     delegationServer?.close()
-    // Mesmo cuidado do `POST /ask`: nega permissão pendente antes de fechar o server, senão o
+    // Mesmo cuidado do `POST /ask`: expira (nega) gate aberto antes de fechar o server, senão o
     // hook `PreToolUse` do CLI filho fica preso mesmo sem thread pra respondê-lo.
-    denyPendingPermissionsForThread(thread.id)
+    expireOpenPermissionGates(thread.id, 'turn_ended')
     permissionServer?.close()
     unregisterActiveController(thread.id)
     releaseLease(project.id)

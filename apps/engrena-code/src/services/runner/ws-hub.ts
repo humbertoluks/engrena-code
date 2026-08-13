@@ -7,6 +7,29 @@ export type StreamEvent =
   | { type: 'diff.ready'; threadId: string; diffId: string; file: string }
   | { type: 'state.change'; threadId: string; state: string }
   | { type: 'error'; threadId: string; code: string; message: string }
+  /**
+   * `gate.*` é o contrato novo do ThreadGate (`runner/gate.ts`). Os dois `permission.*` abaixo são
+   * o legado que o renderer ainda consome — emitidos em paralelo até a Fase C, quando a UI migra.
+   */
+  | {
+      type: 'gate.opened'
+      threadId: string
+      gateId: string
+      kind: 'permission' | 'question'
+      toolName: string | null
+      payload: unknown
+      createdAt: number
+      expiresAt: number | null
+    }
+  | {
+      type: 'gate.resolved'
+      threadId: string
+      gateId: string
+      kind: 'permission' | 'question'
+      state: 'resolved' | 'expired'
+      allow: boolean
+      reason: string
+    }
   | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
   /** Negação nativa do Claude CLI (sem modal EngrenaCode) — metadata only, sem tool_input. */
