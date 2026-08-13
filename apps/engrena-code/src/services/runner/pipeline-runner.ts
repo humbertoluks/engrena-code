@@ -56,6 +56,8 @@ export interface RunPipelineInput {
   /** Texto exatamente como o usuário digitou (`/comando args…`) — vai pra `messages` como está. */
   prompt: string
   argsText: string
+  /** Id da bolha otimista do renderer — mesmo contrato do turno normal (`dispatch.ts`). */
+  clientMessageId?: string | null
 }
 
 export class PipelineSubagentMissingError extends Error {
@@ -349,7 +351,7 @@ async function runFeatbuild(project: Project, thread: Thread, pipeline: Pipeline
  */
 export async function runPipelineCommand(input: RunPipelineInput): Promise<void> {
   const { project, thread, command, prompt, argsText } = input
-  appendMessage({ threadId: thread.id, role: 'user', content: prompt })
+  appendMessage({ threadId: thread.id, role: 'user', content: prompt, clientId: input.clientMessageId ?? null })
 
   // Mesma sessão do turno normal (`dispatch.ts`): controller de cancelamento, closers do turno e
   // liberação da lease com um dono só. Antes o pipeline registrava apenas o controller, e o que

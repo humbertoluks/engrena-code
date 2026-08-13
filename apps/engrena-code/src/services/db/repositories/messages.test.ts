@@ -47,10 +47,19 @@ describe('appendMessage', () => {
     expect(msg.seq).toBe(0)
   })
 
-  it('defaults content and blocks to null when omitted', () => {
+  it('defaults content, blocks and clientId to null when omitted', () => {
     const msg = appendMessage({ threadId, role: 'user' })
     expect(msg.content).toBeNull()
     expect(msg.blocks).toBeNull()
+    expect(msg.clientId).toBeNull()
+  })
+
+  it('persists clientId and o devolve no histórico (chave da bolha otimista)', () => {
+    appendMessage({ threadId, role: 'user', content: 'oi', clientId: 'bubble-1' })
+    appendMessage({ threadId, role: 'assistant', content: 'resposta' })
+
+    const messages = listMessagesForThread(threadId)
+    expect(messages.map((m) => m.clientId)).toEqual(['bubble-1', null])
   })
 
   it('interleaves seq across messages and tool_calls for the same thread', () => {

@@ -176,6 +176,101 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('carrega clientMessageId até a mensagem persistida e o devolve no histórico', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      {
+        prompt: 'primeiro',
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        clientMessageId: 'bolha-1',
+      },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const followReq = fakeReq(
+      'POST',
+      `/api/threads/${created.thread.id}/messages`,
+      { prompt: 'segundo', clientMessageId: 'bolha-2' },
+      session
+    )
+    await handleThreadsRequest(followReq, fakeRes())
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
+    const historyRes = fakeRes()
+    await handleThreadsRequest(historyReq, historyRes)
+    const { status, body } = await historyRes.result()
+    expect(status).toBe(200)
+    const messages = (body as { messages: Array<{ role: string; content: string; clientId: string | null }> }).messages
+    expect(messages.filter((m) => m.role === 'user').map((m) => m.clientId)).toEqual(['bolha-1', 'bolha-2'])
+    // Resposta do agente nasce no servidor: nunca carrega id de bolha.
+    expect(messages.filter((m) => m.role === 'assistant').every((m) => m.clientId === null)).toBe(true)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('mantém o contrato antigo: sem clientMessageId a mensagem persiste com clientId null', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const req = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(201)
+    const created = body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const historyRes = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session),
+      historyRes
+    )
+    const messages = ((await historyRes.result()).body as { messages: Array<{ role: string; clientId: string | null }> })
+      .messages
+    expect(messages.find((m) => m.role === 'user')?.clientId).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejeita clientMessageId que não seja texto curto não vazio (400 validation_error)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    for (const clientMessageId of [42, '', 'x'.repeat(129)]) {
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main', clientMessageId },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+    }
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('lists threads for a project (GET)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

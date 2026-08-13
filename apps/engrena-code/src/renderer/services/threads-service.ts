@@ -72,6 +72,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string | null
   blocks: unknown[] | null
+  /** Id da bolha otimista que originou a mensagem; `null` no que nasce no servidor. */
+  clientId: string | null
   seq: number
   createdAt: number
 }
@@ -179,6 +181,8 @@ export const threadsService = {
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
       chatMode?: string | null
+      /** Identidade da bolha otimista — volta em `Message.clientId` para o chat reconciliar. */
+      clientMessageId?: string
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
@@ -192,6 +196,7 @@ export const threadsService = {
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
       chatMode?: string | null
+      clientMessageId?: string
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 

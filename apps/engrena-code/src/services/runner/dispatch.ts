@@ -118,6 +118,11 @@ export interface DispatchNewThreadInput {
   contextAttachments?: ContextAttachmentInput[]
   /** Nome do modo de chat (F28 §3.4) — fica na thread e reentra no system prompt a cada turno. */
   chatMode?: string | null
+  /**
+   * Id da bolha otimista gerado no renderer. Viaja até `messages.client_id` para o chat casar a
+   * bolha com a mensagem persistida mesmo quando o prompt gravado difere do digitado.
+   */
+  clientMessageId?: string | null
 }
 
 export interface DispatchFollowUpInput {
@@ -129,6 +134,7 @@ export interface DispatchFollowUpInput {
   images?: ComposerImageInput[]
   contextAttachments?: ContextAttachmentInput[]
   chatMode?: string | null
+  clientMessageId?: string | null
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -377,9 +383,16 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
   }
 
   if (slash.kind === 'command') {
-    void runPipelineCommand({ project, thread, command: slash.command, prompt: input.prompt, argsText: slash.args })
+    void runPipelineCommand({
+      project,
+      thread,
+      command: slash.command,
+      prompt: input.prompt,
+      argsText: slash.args,
+      clientMessageId: input.clientMessageId ?? null,
+    })
   } else {
-    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments)
+    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments, input.clientMessageId ?? null)
   }
 
   return thread
@@ -433,9 +446,16 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
   }
   const updated: Thread = transition.thread
   if (slash.kind === 'command') {
-    void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
+    void runPipelineCommand({
+      project,
+      thread: updated,
+      command: slash.command,
+      prompt: input.prompt,
+      argsText: slash.args,
+      clientMessageId: input.clientMessageId ?? null,
+    })
   } else {
-    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments)
+    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments, input.clientMessageId ?? null)
   }
 
   return updated
@@ -473,7 +493,8 @@ async function runTurn(
   thread: Thread,
   prompt: string,
   images?: ComposerImageInput[],
-  contextAttachments?: ContextAttachmentInput[]
+  contextAttachments?: ContextAttachmentInput[],
+  clientMessageId?: string | null
 ): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
@@ -512,7 +533,13 @@ async function runTurn(
       imageBlocks || contextBlocks ? [...(imageBlocks ?? []), ...(contextBlocks ?? [])] : null
     // O usuário vê no histórico o que digitou (+ chips); o conteúdo dos anexos só vai no prompt
     // do provider, lido do disco agora — nunca uma cópia velha guardada no banco.
-    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks })
+    appendMessage({
+      threadId: thread.id,
+      role: 'user',
+      content: prompt,
+      blocks,
+      clientId: clientMessageId ?? null,
+    })
     const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)

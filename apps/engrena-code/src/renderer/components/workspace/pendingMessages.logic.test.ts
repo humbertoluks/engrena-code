@@ -18,12 +18,29 @@ function pending(overrides: Partial<PendingMessage> & { id: string; text: string
 }
 
 describe('reconcilePendingMessages', () => {
-  it('remove a bolha otimista quando o histórico traz a mensagem persistida', () => {
+  it('remove a bolha otimista quando o histórico traz a mensagem com o mesmo clientId', () => {
     const result = reconcilePendingMessages(
       [pending({ id: 'p1', text: 'Sim, pode prosseguir' })],
       [
-        { role: 'user', content: 'Sim, pode prosseguir' },
-        { role: 'assistant', content: 'ok' },
+        { role: 'user', content: 'Sim, pode prosseguir', clientId: 'p1' },
+        { role: 'assistant', content: 'ok', clientId: null },
+      ]
+    )
+    expect(result).toEqual([])
+  })
+
+  // O ponto desta reconciliação: o servidor reescreve o prompt antes de persistir (prefixo de modo
+  // de chat, blocos de anexo, expansão de slash). Casando por conteúdo a bolha nunca sumia e o
+  // usuário via a própria mensagem duplicada.
+  it('reconcilia mesmo quando o servidor persistiu texto diferente do digitado', () => {
+    const result = reconcilePendingMessages(
+      [pending({ id: 'p1', text: 'arruma o login' })],
+      [
+        {
+          role: 'user',
+          content: '## Modo: Plan\n\n<contexto path="src/login.ts">…</contexto>\n\narruma o login',
+          clientId: 'p1',
+        },
       ]
     )
     expect(result).toEqual([])
@@ -32,26 +49,29 @@ describe('reconcilePendingMessages', () => {
   it('mantém a bolha enquanto o servidor ainda não persistiu a mensagem', () => {
     const result = reconcilePendingMessages(
       [pending({ id: 'p1', text: 'Sim, pode prosseguir', status: 'sending' })],
-      [{ role: 'assistant', content: 'Preciso autorização para rodar npm install' }]
+      [{ role: 'assistant', content: 'Preciso autorização para rodar npm install', clientId: null }]
     )
     expect(result.map((p) => p.id)).toEqual(['p1'])
   })
 
-  it('descarta uma bolha por ocorrência quando o mesmo texto foi enviado duas vezes', () => {
+  it('descarta só a bolha cujo id foi persistido quando o mesmo texto foi enviado duas vezes', () => {
     const result = reconcilePendingMessages(
       [pending({ id: 'p1', text: 'Sim' }), pending({ id: 'p2', text: 'Sim' })],
-      [{ role: 'user', content: 'Sim' }]
+      [{ role: 'user', content: 'Sim', clientId: 'p2' }]
     )
-    expect(result.map((p) => p.id)).toEqual(['p2'])
+    expect(result.map((p) => p.id)).toEqual(['p1'])
   })
 
-  it('ignora espaços em volta ao casar conteúdo', () => {
-    const result = reconcilePendingMessages([pending({ id: 'p1', text: 'Sim' })], [{ role: 'user', content: ' Sim\n' }])
-    expect(result).toEqual([])
+  it('não casa por texto: mensagem persistida sem clientId nunca remove bolha', () => {
+    const result = reconcilePendingMessages([pending({ id: 'p1', text: 'Sim' })], [{ role: 'user', content: 'Sim' }])
+    expect(result.map((p) => p.id)).toEqual(['p1'])
   })
 
   it('nunca casa mensagem de assistant com bolha de usuário', () => {
-    const result = reconcilePendingMessages([pending({ id: 'p1', text: 'ok' })], [{ role: 'assistant', content: 'ok' }])
+    const result = reconcilePendingMessages(
+      [pending({ id: 'p1', text: 'ok' })],
+      [{ role: 'assistant', content: 'ok', clientId: 'p1' }]
+    )
     expect(result.map((p) => p.id)).toEqual(['p1'])
   })
 
@@ -61,7 +81,10 @@ describe('reconcilePendingMessages', () => {
         pending({ id: 'q1', text: 'Sim', status: 'queued' }),
         pending({ id: 'perm1', text: 'Sim', status: 'permission' }),
       ],
-      [{ role: 'user', content: 'Sim' }]
+      [
+        { role: 'user', content: 'Sim', clientId: 'q1' },
+        { role: 'user', content: 'Sim', clientId: 'perm1' },
+      ]
     )
     expect(result.map((p) => p.id)).toEqual(['q1', 'perm1'])
   })

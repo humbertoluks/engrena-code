@@ -116,6 +116,21 @@ function streamPathFor(threadId: string): { ws: string } {
   return { ws: `/?threadId=${threadId}` }
 }
 
+const MAX_CLIENT_MESSAGE_ID = 128
+
+/**
+ * `clientMessageId` (identidade da bolha otimista do chat) é opcional — cliente que não manda
+ * segue exatamente como antes, com `null` em `messages.client_id`. Quando vem, tem que ser texto
+ * curto: é só uma chave de reconciliação, nunca conteúdo.
+ */
+function narrowClientMessageId(value: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (value === undefined || value === null) return { ok: true, value: null }
+  if (typeof value !== 'string') return { ok: false }
+  const trimmed = value.trim()
+  if (trimmed === '' || trimmed.length > MAX_CLIENT_MESSAGE_ID) return { ok: false }
+  return { ok: true, value: trimmed }
+}
+
 // ── Dispatch handlers ────────────────────────────────────────────────────────
 
 interface CreateThreadBody {
@@ -128,6 +143,7 @@ interface CreateThreadBody {
   images?: unknown[]
   contextAttachments?: unknown
   chatMode?: string | null
+  clientMessageId?: unknown
 }
 
 async function handleCreateThread(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -181,10 +197,16 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'validation_error', 'chatMode inválido.')
   }
 
+  const clientMessageId = narrowClientMessageId(data.clientMessageId)
+  if (!clientMessageId.ok) {
+    return sendError(res, 400, 'validation_error', 'clientMessageId deve ser texto curto não vazio.')
+  }
+
   try {
     const thread = await dispatchNewThread({
       projectId,
       prompt: data.prompt,
+      clientMessageId: clientMessageId.value,
       provider,
       model: data.model ?? null,
       reasoningLevel: data.reasoningLevel ?? null,
@@ -210,6 +232,7 @@ interface FollowUpBody {
   images?: unknown[]
   contextAttachments?: unknown
   chatMode?: string | null
+  clientMessageId?: unknown
 }
 
 async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -267,7 +290,16 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
     return sendError(res, 400, 'validation_error', 'chatMode inválido.')
   }
 
-  const input: DispatchFollowUpInput = { threadId, prompt: data.prompt }
+  const clientMessageId = narrowClientMessageId(data.clientMessageId)
+  if (!clientMessageId.ok) {
+    return sendError(res, 400, 'validation_error', 'clientMessageId deve ser texto curto não vazio.')
+  }
+
+  const input: DispatchFollowUpInput = {
+    threadId,
+    prompt: data.prompt,
+    clientMessageId: clientMessageId.value,
+  }
   if (data.chatMode !== undefined) input.chatMode = data.chatMode
   if (data.contextAttachments !== undefined) {
     input.contextAttachments = data.contextAttachments as ContextAttachmentInput[]

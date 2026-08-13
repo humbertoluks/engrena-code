@@ -694,8 +694,10 @@ export function usePrincipalWorkspace() {
 
   // Bolha otimista pertence à thread onde foi digitada — trocar de thread/projeto descarta as
   // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha).
+  // O id da bolha é o `clientMessageId` que viaja no POST e volta em `Message.clientId`: é por ele
+  // que a reconciliação casa, e não pelo texto (o servidor reescreve o prompt antes de persistir).
   const addPending = useCallback((text: string, images: ComposerImage[], status: PendingMessageStatus): string => {
-    const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const id = crypto.randomUUID()
     setPendingMessages((prev) => [
       ...prev,
       {
@@ -1105,6 +1107,7 @@ export function usePrincipalWorkspace() {
       try {
         const res = await threadsService.followUp(selectedThreadId, {
           prompt: text,
+          clientMessageId: pendingId,
           model,
           reasoningLevel,
           accessLevel: composer.accessLevel,
@@ -1320,6 +1323,7 @@ export function usePrincipalWorkspace() {
       try {
         const res = await threadsService.create(selectedProjectId, {
           prompt: text,
+          clientMessageId: pendingId,
           provider: composer.provider,
           model: composer.model,
           reasoningLevel: composer.reasoningLevel,
