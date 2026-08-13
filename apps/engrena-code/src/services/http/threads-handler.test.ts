@@ -12,7 +12,7 @@ const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread, updateThread } = await import('../db/repositories/threads.js')
 const { createToolCall, appendMessage } = await import('../db/repositories/messages.js')
-const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
+const { createAskUserQuestionServer, ASK_USER_QUESTION_TOOL_NAME } = await import(
   '../runner/ask-user-question.js'
 )
 const { createPermissionServer } = await import('../runner/permission-broker.js')
@@ -24,6 +24,7 @@ const {
   expireOpenQuestionGates,
   openPermissionGate,
   openQuestionGate,
+  hasOpenQuestionGate,
 } = await import('../runner/gate.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
@@ -1390,7 +1391,7 @@ describe('handleThreadsRequest', () => {
         headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
         body: JSON.stringify({ prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] }),
       })
-      await waitFor(() => hasPendingQuestion(thread.id))
+      await waitFor(() => hasOpenQuestionGate(thread.id))
 
       const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['Incremental'] }, session)
       const res = fakeRes()
@@ -1514,7 +1515,7 @@ describe('handleThreadsRequest', () => {
         headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
         body: JSON.stringify({ prompt: 'Outra?' }),
       })
-      await waitFor(() => hasPendingQuestion(thread.id))
+      await waitFor(() => hasOpenQuestionGate(thread.id))
 
       const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { freeText: 'texto livre do usuário' }, session)
       const res = fakeRes()

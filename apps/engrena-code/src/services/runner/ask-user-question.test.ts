@@ -10,13 +10,19 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread } = await import('../db/repositories/threads.js')
-const { clearAllGatesForTesting, hasOpenQuestionGate, listOpenQuestionGates } = await import('./gate.js')
 const {
-  createAskUserQuestionServer,
-  resolveAskUserQuestion,
-  rejectAskUserQuestion,
-  hasPendingQuestion,
-} = await import('./ask-user-question.js')
+  answerNewestQuestionGate,
+  clearAllGatesForTesting,
+  expireOpenQuestionGates,
+  hasOpenQuestionGate,
+  listOpenQuestionGates,
+} = await import('./gate.js')
+const { createAskUserQuestionServer } = await import('./ask-user-question.js')
+
+/** O `rejectAskUserQuestion` de compat era exatamente isto — o servidor nunca foi dono do fato. */
+function rejectQuestion(threadId: string, reason: string): boolean {
+  return expireOpenQuestionGates(threadId, 'question_rejected', reason).length > 0
+}
 
 const fixtures: string[] = []
 
@@ -44,7 +50,7 @@ afterAll(() => {
 })
 
 describe('createAskUserQuestionServer', () => {
-  it('holds the /ask response open until resolveAskUserQuestion is called', async () => {
+  it('holds the /ask response open until the question gate is answered', async () => {
     const threadId = seedThread()
     const server = await createAskUserQuestionServer(threadId)
 
@@ -61,10 +67,10 @@ describe('createAskUserQuestionServer', () => {
 
     // Espera o gate existir (em vez de um sleep fixo, que fica flaky sob carga): a partir daí a
     // resposta HTTP só sai quando alguém resolver a pergunta.
-    await waitFor(() => hasPendingQuestion(threadId))
+    await waitFor(() => hasOpenQuestionGate(threadId))
     expect(settled).toBe(false)
 
-    const resolved = resolveAskUserQuestion(threadId, { selectedOptions: ['A'] })
+    const resolved = answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })
     expect(resolved).toBe(true)
 
     const res = await requestPromise
@@ -84,12 +90,12 @@ describe('createAskUserQuestionServer', () => {
       headers: { 'Content-Type': 'application/json', 'x-ask-token': server.token },
       body: JSON.stringify({ prompt: 'Qual caminho seguir?', options: ['A', 'B'], multiSelect: false }),
     })
-    await waitFor(() => hasPendingQuestion(threadId))
+    await waitFor(() => hasOpenQuestionGate(threadId))
 
     const [gate] = listOpenQuestionGates(threadId)
     expect(gate.question).toEqual({ prompt: 'Qual caminho seguir?', options: ['A', 'B'], multiSelect: false })
 
-    rejectAskUserQuestion(threadId, 'fim do teste')
+    rejectQuestion(threadId, 'fim do teste')
     await requestPromise
     server.close()
   })
@@ -118,14 +124,14 @@ describe('createAskUserQuestionServer', () => {
 
     // O wire legado não carrega gateId e responde a pergunta mais recente — é a que o card do chat
     // mostra (`findPendingAskUserQuestion` varre `toolCalls` de trás para frente).
-    expect(resolveAskUserQuestion(threadId, { selectedOptions: ['B'] })).toBe(true)
+    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['B'] })).toBe(true)
     const secondBody = (await (await second).json()) as { content: Array<{ text: string }>; isError: boolean }
     expect(secondBody.isError).toBe(false)
     expect(secondBody.content[0].text).toBe('B')
 
     // A primeira continua pendente — nunca foi sobrescrita, que era o bug do `pending` por thread.
     expect(hasOpenQuestionGate(threadId)).toBe(true)
-    expect(resolveAskUserQuestion(threadId, { selectedOptions: ['A'] })).toBe(true)
+    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })).toBe(true)
     const firstBody = (await (await first).json()) as { content: Array<{ text: string }> }
     expect(firstBody.content[0].text).toBe('A')
 
@@ -155,9 +161,9 @@ describe('createAskUserQuestionServer', () => {
       headers: { 'Content-Type': 'application/json', 'x-ask-token': server.token },
       body: JSON.stringify({ prompt: 'x', options: ['A'] }),
     })
-    await waitFor(() => hasPendingQuestion(threadId))
+    await waitFor(() => hasOpenQuestionGate(threadId))
 
-    resolveAskUserQuestion(threadId, { selectedOptions: ['A'], freeText: 'texto livre' })
+    answerNewestQuestionGate(threadId, { selectedOptions: ['A'], freeText: 'texto livre' })
     const res = await requestPromise
     const body = (await res.json()) as { content: Array<{ type: string; text: string }> }
     expect(body.content[0].text).toBe('texto livre')
@@ -181,14 +187,14 @@ describe('createAskUserQuestionServer', () => {
   })
 })
 
-describe('resolveAskUserQuestion', () => {
+describe('answerNewestQuestionGate', () => {
   it('is a silent no-op for a thread with no pending question', () => {
-    expect(() => resolveAskUserQuestion('thr_desconhecida', { selectedOptions: ['A'] })).not.toThrow()
-    expect(resolveAskUserQuestion('thr_desconhecida', { selectedOptions: ['A'] })).toBe(false)
+    expect(() => answerNewestQuestionGate('thr_desconhecida', { selectedOptions: ['A'] })).not.toThrow()
+    expect(answerNewestQuestionGate('thr_desconhecida', { selectedOptions: ['A'] })).toBe(false)
   })
 })
 
-describe('rejectAskUserQuestion', () => {
+describe('expireOpenQuestionGates (rejeição da pergunta pendente)', () => {
   it('releases the pending /ask request with isError=true', async () => {
     const threadId = seedThread()
     const server = await createAskUserQuestionServer(threadId)
@@ -198,9 +204,9 @@ describe('rejectAskUserQuestion', () => {
       headers: { 'Content-Type': 'application/json', 'x-ask-token': server.token },
       body: JSON.stringify({ prompt: 'x' }),
     })
-    await waitFor(() => hasPendingQuestion(threadId))
+    await waitFor(() => hasOpenQuestionGate(threadId))
 
-    const rejected = rejectAskUserQuestion(threadId, 'Turno cancelado.')
+    const rejected = rejectQuestion(threadId, 'Turno cancelado.')
     expect(rejected).toBe(true)
 
     const res = await requestPromise
@@ -212,7 +218,7 @@ describe('rejectAskUserQuestion', () => {
   })
 
   it('is a silent no-op for a thread with no pending question', () => {
-    expect(rejectAskUserQuestion('thr_desconhecida', 'motivo')).toBe(false)
+    expect(rejectQuestion('thr_desconhecida', 'motivo')).toBe(false)
   })
 })
 

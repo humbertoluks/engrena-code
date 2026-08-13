@@ -11,7 +11,10 @@ export interface RuntimeMetricsSnapshot {
   historyRefetchAborted: number
   stderrAppendBytesPeak: number
   toolResultTruncations: number
-  turnProcessCount: number
+  /** Processos de provider spawnados desde o boot — acumula, nunca é sobrescrito. */
+  providerProcessesSpawned: number
+  /** Spawnados que ainda não emitiram `close` — gauge de processo vivo (órfão aparece aqui). */
+  providerProcessesLive: number
 }
 
 const counters: RuntimeMetricsSnapshot = {
@@ -21,7 +24,8 @@ const counters: RuntimeMetricsSnapshot = {
   historyRefetchAborted: 0,
   stderrAppendBytesPeak: 0,
   toolResultTruncations: 0,
-  turnProcessCount: 0,
+  providerProcessesSpawned: 0,
+  providerProcessesLive: 0,
 }
 
 type LooseEnv = { env?: Record<string, string | undefined> }
@@ -77,9 +81,21 @@ export function recordToolResultTruncation(): void {
   counters.toolResultTruncations += 1
 }
 
-export function recordTurnProcessCount(count: number): void {
+/**
+ * Um processo de provider nasceu (spawn com PID). Conta de verdade: a versão anterior
+ * (`recordTurnProcessCount`) *sobrescrevia* o contador com 0|1 a cada turno, então "contagem de
+ * processos" na prática respondia só "o último turno tinha PID?" — inútil para achar órfão.
+ */
+export function recordProviderProcessSpawned(): void {
   if (!enabled()) return
-  counters.turnProcessCount = count
+  counters.providerProcessesSpawned += 1
+  counters.providerProcessesLive += 1
+}
+
+/** O processo spawnado assentou (`close`). `live > 0` com o app ocioso = processo órfão. */
+export function recordProviderProcessExited(): void {
+  if (!enabled()) return
+  if (counters.providerProcessesLive > 0) counters.providerProcessesLive -= 1
 }
 
 export function getRuntimeMetricsSnapshot(): RuntimeMetricsSnapshot {
@@ -94,5 +110,6 @@ export function resetRuntimeMetricsForTesting(): void {
   counters.historyRefetchAborted = 0
   counters.stderrAppendBytesPeak = 0
   counters.toolResultTruncations = 0
-  counters.turnProcessCount = 0
+  counters.providerProcessesSpawned = 0
+  counters.providerProcessesLive = 0
 }

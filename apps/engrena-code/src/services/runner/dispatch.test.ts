@@ -1855,7 +1855,11 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
   it('cancel durante ask_user_question rejeita a pergunta pendente antes do abort', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const { hasPendingQuestion, waitForAnswer } = await import('./ask-user-question.js')
+    const { hasOpenQuestionGate, openQuestionGate } = await import('./gate.js')
+    const waitForAnswer = (threadId: string): Promise<unknown> => {
+      const opened = openQuestionGate({ threadId })
+      return opened.ok ? opened.answer : Promise.reject(new Error('gate não abriu'))
+    }
 
     let askRejected = false
     setRunCliTurnForTesting(async (input) => {
@@ -1874,7 +1878,7 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
           askRejected = true
         }
       )
-      await waitFor(() => hasPendingQuestion(thr.id))
+      await waitFor(() => hasOpenQuestionGate(thr.id))
       await new Promise<void>((resolve, reject) => {
         if (input.signal?.aborted) {
           reject(new Error('aborted'))
@@ -1901,10 +1905,10 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     })
 
     const [thread] = listThreadsForProject(project.id)
-    await waitFor(() => hasPendingQuestion(thread.id))
+    await waitFor(() => hasOpenQuestionGate(thread.id))
 
     expect(cancelThread(thread.id)).toBe(true)
-    expect(hasPendingQuestion(thread.id)).toBe(false)
+    expect(hasOpenQuestionGate(thread.id)).toBe(false)
 
     await dispatchPromise.catch(() => {})
     await waitForState(thread.id, ['cancelled', 'idle', 'error'])

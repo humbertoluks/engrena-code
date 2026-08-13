@@ -24,7 +24,11 @@ import { permissionBrokerApplies } from '../permission-policy.js'
 import { parseStreamJsonLine } from './stream-json-parse.js'
 import { killProcessTree } from '../process-kill.js'
 import { appendStderrCapped } from '../buffer-cap.js'
-import { recordStderrBufBytes, recordTurnProcessCount } from '../../runtime-metrics.js'
+import {
+  recordProviderProcessExited,
+  recordProviderProcessSpawned,
+  recordStderrBufBytes,
+} from '../../runtime-metrics.js'
 
 /** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
 function resolveUserData(): string {
@@ -351,7 +355,15 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       let resultUsage: ProviderUsage | undefined
       let resultCostUsd: number | null | undefined
       let resultSessionId: string | null = null
-      recordTurnProcessCount(typeof child.pid === 'number' ? 1 : 0)
+      // Só conta quem realmente virou processo no SO; spawn falho não tem PID nem árvore a matar.
+      const hasPid = typeof child.pid === 'number'
+      let countedExit = false
+      if (hasPid) recordProviderProcessSpawned()
+      const noteExit = (): void => {
+        if (!hasPid || countedExit) return
+        countedExit = true
+        recordProviderProcessExited()
+      }
 
       const abortTree = (): void => {
         const pid = child.pid
@@ -412,6 +424,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
 
       child.on('error', (err) => {
+        noteExit()
         cleanupMcpConfig()
         cleanupPermissionSettings()
         cleanupTempImages()
@@ -424,6 +437,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
 
       child.on('close', (code) => {
+        noteExit()
         cleanupMcpConfig()
         cleanupPermissionSettings()
         cleanupTempImages()

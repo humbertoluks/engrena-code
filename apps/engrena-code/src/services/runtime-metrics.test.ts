@@ -6,8 +6,9 @@ import {
   recordHistoryRefetchCompleted,
   recordHistoryRefetchStarted,
   recordStderrBufBytes,
+  recordProviderProcessExited,
+  recordProviderProcessSpawned,
   recordToolResultTruncation,
-  recordTurnProcessCount,
   resetRuntimeMetricsForTesting,
 } from './runtime-metrics.js'
 
@@ -48,7 +49,8 @@ describe('runtime-metrics', () => {
       historyRefetchAborted: 0,
       stderrAppendBytesPeak: 0,
       toolResultTruncations: 0,
-      turnProcessCount: 0,
+      providerProcessesSpawned: 0,
+      providerProcessesLive: 0,
     })
   })
 
@@ -87,12 +89,21 @@ describe('runtime-metrics', () => {
     expect(getRuntimeMetricsSnapshot().stderrAppendBytesPeak).toBe(4_096)
   })
 
-  it('overwrites the turn process count instead of accumulating it', () => {
-    recordTurnProcessCount(1)
-    expect(getRuntimeMetricsSnapshot().turnProcessCount).toBe(1)
+  it('accumulates spawned provider processes and tracks the live gauge (R07)', () => {
+    recordProviderProcessSpawned()
+    recordProviderProcessSpawned()
+    expect(getRuntimeMetricsSnapshot().providerProcessesSpawned).toBe(2)
+    expect(getRuntimeMetricsSnapshot().providerProcessesLive).toBe(2)
 
-    recordTurnProcessCount(0)
-    expect(getRuntimeMetricsSnapshot().turnProcessCount).toBe(0)
+    // Um turno assentou: o total nunca regride, o gauge sim — sobra = processo ainda vivo.
+    recordProviderProcessExited()
+    expect(getRuntimeMetricsSnapshot().providerProcessesSpawned).toBe(2)
+    expect(getRuntimeMetricsSnapshot().providerProcessesLive).toBe(1)
+  })
+
+  it('never drives the live gauge below zero (exit sem spawn contado)', () => {
+    recordProviderProcessExited()
+    expect(getRuntimeMetricsSnapshot().providerProcessesLive).toBe(0)
   })
 
   it('returns a detached snapshot — mutating it does not touch the counters', () => {
@@ -109,7 +120,7 @@ describe('runtime-metrics', () => {
     recordHistoryRefetchAborted()
     recordStderrBufBytes(8_192)
     recordToolResultTruncation()
-    recordTurnProcessCount(3)
+    recordProviderProcessSpawned()
     expect(getRuntimeMetricsSnapshot().stderrAppendBytesPeak).toBe(8_192)
 
     resetRuntimeMetricsForTesting()
@@ -121,7 +132,8 @@ describe('runtime-metrics', () => {
       historyRefetchAborted: 0,
       stderrAppendBytesPeak: 0,
       toolResultTruncations: 0,
-      turnProcessCount: 0,
+      providerProcessesSpawned: 0,
+      providerProcessesLive: 0,
     })
   })
 
@@ -133,7 +145,7 @@ describe('runtime-metrics', () => {
       recordHistoryRefetchAborted()
       recordStderrBufBytes(64_000)
       recordToolResultTruncation()
-      recordTurnProcessCount(7)
+      recordProviderProcessSpawned()
     })
 
     expect(getRuntimeMetricsSnapshot()).toEqual({
@@ -143,7 +155,8 @@ describe('runtime-metrics', () => {
       historyRefetchAborted: 0,
       stderrAppendBytesPeak: 0,
       toolResultTruncations: 0,
-      turnProcessCount: 0,
+      providerProcessesSpawned: 0,
+      providerProcessesLive: 0,
     })
   })
 

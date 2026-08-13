@@ -1,12 +1,6 @@
 import { randomBytes } from 'crypto'
 import http from 'http'
-import {
-  expireOpenQuestionGates,
-  answerNewestQuestionGate,
-  hasOpenQuestionGate,
-  openQuestionGate,
-  type GateAnswer,
-} from './gate.js'
+import { openQuestionGate, type GateAnswer } from './gate.js'
 
 /** Nome qualificado como o provider CLI reporta a tool (mesmo padrão de `CALL_SUBAGENT_TOOL_NAME`/`LOAD_SKILL_TOOL_NAME`). */
 export const ASK_USER_QUESTION_TOOL_NAME = 'mcp__engrenacode__ask_user_question'
@@ -17,7 +11,7 @@ export interface AskUserQuestionRequest {
   multiSelect?: boolean
 }
 
-/** O fato "há pergunta pendente" e a resposta vivem no ThreadGate — aqui só o alias de compat. */
+/** O fato "há pergunta pendente" e a resposta vivem no ThreadGate; aqui é só a forma da resposta. */
 export type AskUserQuestionAnswer = GateAnswer
 
 export interface AskUserQuestionServerHandle {
@@ -111,29 +105,4 @@ export function createAskUserQuestionServer(threadId: string): Promise<AskUserQu
       })
     })
   })
-}
-
-// ── Compat até a Fase B ─────────────────────────────────────────────────────
-// `pipeline-runner.ts` (checkpoint F22) ainda fala esta linguagem; a consolidação do TurnSession é
-// que troca os call sites por `gate.ts` direto. Produção nova deve importar de `gate.ts`.
-
-/** Pausa fora de qualquer tool-call ao vivo (checkpoint do pipeline): abre gate e espera a resposta. */
-export function waitForAnswer(threadId: string): Promise<AskUserQuestionAnswer> {
-  const opened = openQuestionGate({ threadId })
-  if (!opened.ok) return Promise.reject(new Error('Não foi possível registrar a pergunta para o usuário.'))
-  return opened.answer
-}
-
-/** No-op silencioso se não há pergunta pendente para a thread (ex.: resposta duplicada, app reiniciado). */
-export function resolveAskUserQuestion(threadId: string, answer: AskUserQuestionAnswer): boolean {
-  return answerNewestQuestionGate(threadId, answer)
-}
-
-/** Libera o `POST /ask` preso com `isError: true` no cleanup de cancelamento/erro do turno. */
-export function rejectAskUserQuestion(threadId: string, reason: string): boolean {
-  return expireOpenQuestionGates(threadId, 'question_rejected', reason).length > 0
-}
-
-export function hasPendingQuestion(threadId: string): boolean {
-  return hasOpenQuestionGate(threadId)
 }

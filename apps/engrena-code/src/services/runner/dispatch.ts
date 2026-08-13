@@ -29,14 +29,16 @@ import { emit, subscriberCount } from './ws-hub.js'
 import { truncateToolResultPayload } from './buffer-cap.js'
 import { recordToolResultTruncation } from '../runtime-metrics.js'
 import {
+  addTurnCloser,
+  clearStoppingDeadline,
   closeTurnServers,
-  consumeThreadCancelled,
-  getActiveController,
-  markThreadCancelled,
-  registerActiveController,
-  registerTurnServerClosers,
-  unregisterActiveController,
-} from './turn-control.js'
+  endTurnSession,
+  getCancellableTurnSession,
+  markTurnSettled,
+  scheduleStoppingDeadline,
+  startTurnSession,
+  type TurnSession,
+} from './turn-session.js'
 import { parseSlashCommand } from './slash-commands.js'
 import { deriveThreadTitle } from './thread-title.js'
 import { runPipelineCommand } from './pipeline-runner.js'
@@ -151,27 +153,22 @@ const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>([
 
 /** Se o processo não assentar após abort, força `cancelled` (evita UI presa em stopping). */
 const STOPPING_DEADLINE_MS = 8_000
-const stoppingDeadlines = new Map<string, ReturnType<typeof setTimeout>>()
 
-function clearStoppingDeadline(threadId: string): void {
-  const timer = stoppingDeadlines.get(threadId)
-  if (timer === undefined) return
-  clearTimeout(timer)
-  stoppingDeadlines.delete(threadId)
-}
-
-function scheduleStoppingDeadline(threadId: string): void {
-  clearStoppingDeadline(threadId)
-  const timer = setTimeout(() => {
-    stoppingDeadlines.delete(threadId)
+/**
+ * Timer vive na `TurnSession` (morre junto com ela). Ao disparar, assenta o turno e marca a sessão
+ * como `settled`: novo Stop cai no caminho de thread órfã em vez de abortar de novo. A lease
+ * continua com o turno até o `finally` — o processo pode não ter assentado, e soltá-la aqui
+ * deixaria outro turno entrar por cima dele.
+ */
+function armStoppingDeadline(threadId: string): void {
+  scheduleStoppingDeadline(threadId, STOPPING_DEADLINE_MS, () => {
     const thread = getThread(threadId)
     if (thread?.state !== 'stopping') return
     closeTurnServers(threadId)
     interruptRunningToolCalls(threadId)
     applyTransition(threadId, 'cancel_settled')
-    unregisterActiveController(threadId)
-  }, STOPPING_DEADLINE_MS)
-  stoppingDeadlines.set(threadId, timer)
+    markTurnSettled(threadId)
+  })
 }
 
 /** Marca tool calls `running` e notifica o WS (Work log deixa de ficar "trabalhando"). */
@@ -204,9 +201,10 @@ function interruptRunningToolCalls(
  * não há nada a cancelar.
  */
 export function cancelThread(threadId: string): boolean {
-  const controller = getActiveController(threadId)
-  if (controller) {
-    markThreadCancelled(threadId)
+  const session = getCancellableTurnSession(threadId)
+  if (session) {
+    // Marca do cancelamento vive na sessão: some com o turno, mesmo quando ele termina sem lançar.
+    session.cancelRequested = true
     // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
     expireOpenPermissionGates(threadId, 'thread_cancelled')
     expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
@@ -216,8 +214,8 @@ export function cancelThread(threadId: string): boolean {
     interruptRunningToolCalls(threadId)
     // 4) Abort → cli-driver killProcessTree; estado stopping até o finally.
     applyTransition(threadId, 'cancel_requested')
-    controller.abort()
-    scheduleStoppingDeadline(threadId)
+    session.controller.abort()
+    armStoppingDeadline(threadId)
     return true
   }
 
@@ -483,6 +481,13 @@ async function runTurn(
   let memoryWriteServer: MemoryWriteServerHandle | null = null
   let permissionServer: PermissionServerHandle | null = null
   const turnId = randomUUID()
+  // Sessão nasce antes do setup assíncrono (worktree, MCPs, servers): Stop nesse intervalo já tinha
+  // o que abortar, e a lease que o dispatch pegou passa a ter um dono único de liberação.
+  const session: TurnSession = startTurnSession({
+    threadId: thread.id,
+    projectId: project.id,
+    releaseLease: () => releaseLease(project.id),
+  })
   try {
     const imageBlocks =
       images && images.length > 0
@@ -601,8 +606,6 @@ async function runTurn(
 
     let assistantText = ''
     const toolCallIdByProviderId = new Map<string, string>()
-    const controller = new AbortController()
-    registerActiveController(thread.id, controller)
 
     // PermissionBroker — só Claude: aprovação interativa via stdin não existe no spawn headless.
     // O hook `PreToolUse` (cli-driver.ts) segura cada tool call aqui até a UI responder via
@@ -615,7 +618,7 @@ async function runTurn(
     }
 
     // Cancel fecha estes servers *antes* do abort — senão hook/MCP fica preso e o kill demora.
-    registerTurnServerClosers(thread.id, () => {
+    addTurnCloser(thread.id, () => {
       permissionServer?.close()
       askUserQuestionServer?.close()
       delegationServer?.close()
@@ -641,7 +644,7 @@ async function runTurn(
       permissionToken: permissionServer?.token,
       resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,
       images,
-      signal: controller.signal,
+      signal: session.controller.signal,
       onEvent: (event) => {
         if (event.type === 'text-delta') {
           assistantText += event.text
@@ -807,7 +810,7 @@ async function runTurn(
     // `cancelled`, não `idle` — quem decide é o reducer.
     applyTransition(thread.id, 'turn_finished')
   } catch (err) {
-    const wasCancelled = consumeThreadCancelled(thread.id)
+    const wasCancelled = session.cancelRequested
     // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
     // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
     applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_failed')
@@ -825,7 +828,6 @@ async function runTurn(
       interruptRunningToolCalls(thread.id, 'interrupted')
     }
   } finally {
-    clearStoppingDeadline(thread.id)
     mcpsCleanup()
     // Idempotente com cancelThread: deny/reject/close já podem ter rodado.
     closeTurnServers(thread.id)
@@ -839,7 +841,7 @@ async function runTurn(
     // hook `PreToolUse` do CLI filho fica preso mesmo sem thread pra respondê-lo.
     expireOpenPermissionGates(thread.id, 'turn_ended')
     permissionServer?.close()
-    unregisterActiveController(thread.id)
-    releaseLease(project.id)
+    // Ponto único de limpeza: closers, deadline de stopping, lease e o registro da sessão.
+    endTurnSession(thread.id)
   }
 }

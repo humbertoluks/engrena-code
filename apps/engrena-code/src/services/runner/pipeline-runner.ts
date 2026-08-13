@@ -16,8 +16,8 @@ import { resolveThreadCwd } from './thread-cwd.js'
 import { emit } from './ws-hub.js'
 import { findCatalogSubagent } from './subagent-registry.js'
 import { runDelegatedSubagentTurn, type DelegationResult } from './delegate.js'
-import { rejectAskUserQuestion, waitForAnswer } from './ask-user-question.js'
-import { consumeThreadCancelled, registerActiveController, unregisterActiveController } from './turn-control.js'
+import { expireOpenQuestionGates, openQuestionGate } from './gate.js'
+import { addTurnCloser, endTurnSession, startTurnSession } from './turn-session.js'
 import { releaseLease } from './project-execution.js'
 import { applyTransition } from './turn-state.js'
 import type { SlashCommandName } from './slash-commands.js'
@@ -213,8 +213,13 @@ function checkHardCap(pipeline: Pipeline): void {
   }
 }
 
+/** Libera o `POST /ask`/checkpoint preso — mesma semântica do antigo `rejectAskUserQuestion`. */
+function rejectPendingQuestion(threadId: string, reason: string): void {
+  expireOpenQuestionGates(threadId, 'question_rejected', reason)
+}
+
 /**
- * Pausa em `waiting_user` (F21, reaproveitando `waitForAnswer` fora de qualquer tool-call ao vivo)
+ * Pausa em `waiting_user` (F21, abrindo um gate de pergunta fora de qualquer tool-call ao vivo)
  * até a UI responder via `POST /answer`, cancelamento ou hard-cap — o que vier primeiro.
  */
 async function runCheckpoint(
@@ -242,10 +247,16 @@ async function runCheckpoint(
 
   const remaining = currentHardCapMs() - (Date.now() - pipeline.startedAt)
   const { promise: capPromise, cancel: cancelCap } = hardCapRejection(remaining)
+  // Gate direto no `gate.ts` (dono do fato "esta thread espera decisão humana"); sem gate
+  // persistido ninguém consegue responder, então o checkpoint falha em vez de pendurar o pipeline.
+  const opened = openQuestionGate({ threadId: thread.id })
+  const answer: Promise<unknown> = opened.ok
+    ? opened.answer
+    : Promise.reject(new Error('Não foi possível registrar a pergunta para o usuário.'))
   try {
-    await Promise.race([waitForAnswer(thread.id), abortRejection(controller.signal), capPromise])
+    await Promise.race([answer, abortRejection(controller.signal), capPromise])
   } catch (err) {
-    rejectAskUserQuestion(thread.id, 'Checkpoint do pipeline interrompido.')
+    rejectPendingQuestion(thread.id, 'Checkpoint do pipeline interrompido.')
     throw err
   } finally {
     cancelCap()
@@ -340,8 +351,17 @@ export async function runPipelineCommand(input: RunPipelineInput): Promise<void>
   const { project, thread, command, prompt, argsText } = input
   appendMessage({ threadId: thread.id, role: 'user', content: prompt })
 
-  const controller = new AbortController()
-  registerActiveController(thread.id, controller)
+  // Mesma sessão do turno normal (`dispatch.ts`): controller de cancelamento, closers do turno e
+  // liberação da lease com um dono só. Antes o pipeline registrava apenas o controller, e o que
+  // ficasse aberto no checkpoint dependia de cada `finally` lembrar de fechar.
+  const session = startTurnSession({
+    threadId: thread.id,
+    projectId: project.id,
+    releaseLease: () => releaseLease(project.id),
+  })
+  const controller = session.controller
+  // Cancel roda os closers *antes* do abort: o `POST /ask` do checkpoint sai preso do jeito certo.
+  addTurnCloser(thread.id, () => rejectPendingQuestion(thread.id, 'Pipeline encerrado.'))
 
   const pipeline = createPipeline({ threadId: thread.id, projectId: project.id, command, argsText })
   const total = stageTotalFor(command)
@@ -358,7 +378,7 @@ export async function runPipelineCommand(input: RunPipelineInput): Promise<void>
     applyTransition(thread.id, 'turn_finished')
     emitPipelineState(thread, pipeline, 'completed', total, total)
   } catch (err) {
-    const wasCancelled = consumeThreadCancelled(thread.id) || err instanceof PipelineCancelledError
+    const wasCancelled = session.cancelRequested || err instanceof PipelineCancelledError
     const isTimeout = err instanceof PipelineHardCapError
     const code = err instanceof PipelineSubagentMissingError || err instanceof PipelineStageFailedError ? err.code : null
     const message = err instanceof Error ? err.message : 'Erro desconhecido no pipeline.'
@@ -380,8 +400,7 @@ export async function runPipelineCommand(input: RunPipelineInput): Promise<void>
     }
     emitPipelineState(thread, pipeline, status, 0, total)
   } finally {
-    rejectAskUserQuestion(thread.id, 'Pipeline encerrado.')
-    unregisterActiveController(thread.id)
-    releaseLease(project.id)
+    // Fecha o closer do checkpoint, limpa o deadline, solta a lease e descarta a sessão.
+    endTurnSession(thread.id)
   }
 }
