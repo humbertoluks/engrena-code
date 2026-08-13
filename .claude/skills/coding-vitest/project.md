@@ -31,10 +31,15 @@ Fonte: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../../../apps/engrena-cod
 
 ## Achados abertos
 
-Nenhum (passagem 2026-08-10 remediada — C51/C52).
+Passagem 2026-08-12 (uncommitted F03 Permission Recovery) — ver `AUDIT-CODE-REVIEW.md`:
+
+- `D08` — smoke F03: Cancel + export + Bash background ao vivo em `smoke-results.md`
 
 ## Já corrigidos — não regrida
 
+- `RC-missing-sibling-coverage` — D03/D04/D06 fechados na remediação de 2026-08-13: `git-handler.test.ts` cobre `waiting_permission` **e** `stopping`; `runtime-metrics.test.ts` nasceu com o módulo; `executionGraph.logic.test.ts` cobre `waiting_permission` nos dois chamadores de `mapThreadState` (`buildExecutionGraph` e `applyLiveEvent`), não só num
+- `RC-stream-json-content-narrow` — D05 fechado; `stream-json-parse.test.ts` regride `content: [null, 1, "x"]` em `assistant` e `user`, mais casos mistos provando que item inválido não aborta o loop
+- `RC-guard-order-coverage` — D07 fechado; teste de guarda assere a **ordem** (token inválido com cofre trancado ainda responde 423, não 401) e que o handler reivindica a rota, senão o 401 poderia vir de fall-through
 - `RC-missing-sibling-coverage` — D02 fechado; módulo novo nasce com irmão
 - `RC-missing-smoke-evidence` — D07 fechado; feature UI nova escreve smoke antes de marcar Feito (F19 smoke live segue opcional no PROGRESS)
 - `process-error.test.ts` — um caso por scheme (`oauth2:`, `x-token-auth:`, azure `https://:<token>@`) e prefixo (`xai-`, `gsk_`)

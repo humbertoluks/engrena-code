@@ -167,3 +167,180 @@ Turno 2 nasceu com `Pensando… 31s`: `thinkingStartMs` só olhava o histórico 
 ## Cobertura de rótulo
 
 `Pensando` (sem tool) · `Executando` (Bash) confirmados ao vivo. Demais rótulos (`Lendo`, `Buscando`, `Procurando arquivos`, `Editando`, `Delegando`, `Carregando skill`, `Planejando`, `Pesquisando na web`) e o fallback `Trabalhando` para tool desconhecida/`mcp__*` cobertos por unitário em `chatHistory.logic.test.ts`.
+
+---
+
+# Smoke: permissão Supervised TodoV1 (2026-08-12)
+
+**Contexto:** regressão relatada — modal ausente / Allow sem efeito / "Sim" no chat não liberava tool; prompt real da todolist (Express + Scalar).
+
+**Método:** `pnpm dev` + `ELECTRON_EXTRA_LAUNCH_ARGS=--no-sandbox` + `ENGRENACODE_USER_DATA=%TEMP%\engrenacode_claude_perm_smoke_0812` + `playwright-cli` em `http://localhost:5173`; `ANTHROPIC_API_KEY` unset; projeto `D:\temp\TodoV1` (git seed); Claude · Supervised · Main · `claude-sonnet-4-6`.
+
+## Resultado
+
+| # | Critério | Resultado |
+|---|----------|----------|
+| 1 | Modal PreToolUse abre no primeiro Bash | **pass** — `Permitir a ferramenta …` com params `ls D:/temp/TodoV1` |
+| 2 | Clique **Permitir** libera a tool | **pass** — Work log avançou; agente seguiu para `package.json` / install |
+| 3 | **Permitir todos** evita re-prompt da mesma chave | **pass** — tools seguintes sem novo modal (allowlist) |
+| 4 | Artefatos no disco após aprovação | **pass** — `package.json`, `index.js`, `package-lock.json`, `node_modules` (express + @scalar/express-api-reference) |
+| 5 | Nome da tool no modal | **fail parcial** — UI mostrou `unknown` (params ok); fallbacks `tool`/`toolName`/`name` adicionados no hook |
+| 6 | Composer "Sim" + Enviar com modal aberto | **bloqueado na UI** — botão virava Parar e backdrop interceptava clique; corrigido: Enviar sob `permissionPending` + overlay `pointer-events-none` |
+
+## Nota
+
+Turno ficou preso em "test it runs" com servidor Node de longa duração; thread assentou em `error` após cancel. Não é falha do broker de permissão — o gate Supervised já tinha liberado Write/Bash/npm install.
+
+
+## Permission Recovery — Sprint 1 (2026-08-12)
+
+**Escopo:** contrato PreToolUse + eventos recuperáveis de negação nativa.
+**Gate unitário:** 	sc -b + targeted (cli-driver/permission-contract/stream-json-parse/permission-hook/dispatch native-denial) + suite completa 1355×2.
+
+| Critério | Resultado |
+|----------|-----------|
+| supervised → --permission-mode auto + --settings + --include-hook-events | pass (cli-driver.test) |
+| Parser emite hook-started / hook-response / permission-native-denial sem command body | pass (stream-json-parse + fixtures) |
+| permission-native-denial → log + WS permission.native_denial | pass (dispatch.test) |
+| Windows hook embute ELECTRON_RUN_AS_NODE=1 | pass (cli-driver.test) |
+| Background Bash sem PreToolUse ainda pode negar nativo; evento EngrenaCode existe | pass (mínimo Sprint 1; UI modal = Sprint 2) |
+
+Agentes: .claude/agents/sprint-1-permission-contract-dev.md + …-review.md. Loop: 2 ciclos (FAIL wire dispatch → fix → APPROVE).
+
+## Permission Recovery — Sprint 2 (2026-08-12)
+
+**Escopo:** waiting_permission + broker snapshot/timeout/replay + composer routing.
+**Gate:** 	sc -b + targeted + suite 1373 (2ª corrida flake 20ms no broker isolado verde).
+
+| Critério | Resultado |
+|----------|-----------|
+| Estado waiting_permission distinto de running/waiting_user | pass |
+| GET /permissions + replay WS no subscribe | pass |
+| Timeout 2min fail-closed auto-deny | pass |
+| “Sim” resolve; texto inválido não enfileira | pass (composerRoute.logic) |
+| Enviar + Parar com modal; dequeue só após HTTP OK | pass |
+
+Agentes: .claude/agents/sprint-2-permission-state-*.md. Loop: 1 ciclo APPROVE.
+
+## Permission Recovery — Sprint 3 (2026-08-12)
+
+**Escopo:** cancel tree by PID + deny-before-abort + tool calls interrupted.
+**Gate:** 	sc -b + focused 111 + suite 1390.
+
+| Critério | Resultado |
+|----------|-----------|
+| killProcessTree Windows taskkill /T /F; never by name | pass |
+| deny permissions/ask → close servers → interrupt tools → abort | pass |
+| Renderer limpa streaming; erro se cancelled:false | pass |
+| Enviar+Parar preservados | pass |
+
+Agentes: .claude/agents/sprint-3-process-lifecycle-*.md. Loop: 1 ciclo APPROVE.
+
+## Permission Recovery — Sprint 3 (2026-08-12)
+
+**Escopo:** cancel tree by PID + deny-before-abort + tool calls interrupted.
+**Gate:** 	sc -b + focused 111 + suite 1390.
+
+| Critério | Resultado |
+|----------|-----------|
+| killProcessTree Windows taskkill /T /F; never by name | pass |
+| deny permissions/ask → close servers → interrupt tools → abort | pass |
+| Renderer limpa streaming; erro se cancelled:false | pass |
+| Enviar+Parar preservados | pass |
+
+Agentes: .claude/agents/sprint-3-process-lifecycle-*.md. Loop: 1 ciclo APPROVE.
+
+## Permission Recovery — Sprint 4 (2026-08-12)
+
+**Escopo:** export MD/JSON confiável + botão visível + snapshot settled.
+**Gate:** 	sc -b + 20 focused + suite 1403.
+
+| Critério | Resultado |
+|----------|-----------|
+| Botão export sempre visível (não só hover) | pass |
+| try/catch/finally + erro z-60 | pass |
+| Snapshot assenta tools running em cancelled/idle | pass |
+| Export em qualquer estado de thread | pass |
+
+Agentes: .claude/agents/sprint-4-transcript-export-*.md. Loop: 1 ciclo APPROVE.
+
+## Permission Recovery — Sprint 5 (2026-08-12)
+
+**Escopo:** coalesce history + caps stderr/tool + markdown light no stream.
+**Gate:** 	sc -b + 55 targeted + suite 1421 (2ª corrida; 1ª flake tinypool IPC).
+
+| Critério | Resultado |
+|----------|-----------|
+| HistoryRefetchGate single-flight/coalesce + mergeById | pass |
+| stderr ≤256KiB cauda + marcador; tool result ≤64KiB | pass |
+| ChatMarkdown light enquanto streaming | pass |
+| Métricas DEV sem segredos | pass |
+| Sprints 1–4 intactas na regressão da suite | pass |
+
+Agentes: .claude/agents/sprint-5-runtime-performance-*.md. Loop: 1 ciclo APPROVE.
+
+### Fechamento das 5 sprints
+Contrato PreToolUse observável → waiting_permission recuperável → cancel por árvore PID → export confiável → caps/coalesce de memória. Smoke Electron real TodoV1 pós-fix ainda recomendado manualmente (Bash background + Sim + Cancel + export).
+
+## Permission Recovery — correção pós-smoke: broker fora de supervised (2026-08-12)
+
+**Sintoma no smoke real** (thread `thr_c458e61a`, projeto `D:/temp/TodoV1`, nível **Auto-accept edits**):
+`Bash npm install` e as tools MCP falharam com `This command requires approval` /
+`Claude requested permissions to use mcp__…, but you haven't granted it yet`, **sem** `permission.request`
+no WS. Sem permissão pendente, o `Aprovado` do usuário foi roteado como turno novo e o agente respondeu
+"Precisa clicar direto no prompt de permissão do `npm install` (botão)" — botão que não existia.
+
+**Causa:** o broker PreToolUse só era montado em `supervised` (`dispatch.ts` + `cli-driver.ts`), e
+`--permission-mode acceptEdits` nega Bash/MCP nativamente sem consultar hook nenhum.
+
+**Correção:** `permission-policy.ts` — broker em qualquer nível exceto `full-access`, com a semântica do
+nível vindo da política (não do modo do CLI): `auto-accept-edits` auto-aprova leitura/edição
+(`Read/Glob/Grep/LS/NotebookRead/TodoWrite/Write/Edit/MultiEdit/NotebookEdit`) e pergunta em
+`Bash`/`WebFetch`/`mcp__*`; `supervised` pergunta tudo. `PATCH accessLevel` mid-turn passou a liberar só
+o que o novo nível auto-aprova.
+
+| Critério | Resultado |
+|----------|-----------|
+| auto-accept-edits monta broker: Write sem UI, Bash abre `permission.request` | pass (dispatch.test) |
+| `--settings` + `--permission-mode auto` em auto-accept-edits; `acceptEdits` só sem broker | pass (cli-driver.test) |
+| full-access segue sem porta/broker (`bypassPermissions`) | pass |
+| upgrade → auto-accept-edits solta Write e mantém Bash no modal; → full-access solta tudo | pass (threads-handler.test) |
+| Gate `tsc -b` + suite 1434 (delegate.test flake de 5 s verde na 2ª corrida) | pass |
+
+Validado ao vivo (2026-08-12, Luks): smoke TodoV1 em Auto-accept edits — pedido de permissão aparece e
+a aprovação por texto (`Aprovado`) concede, sem o agente pedir clique.
+
+## Permission Recovery — pedido de permissão dentro do chat (2026-08-12)
+
+**Ajuste pedido na validação:** o pedido chegava como caixa flutuante fora do chat; o esperado é ficar
+na própria conversa.
+
+**Mudança:** `PermissionPrompt` deixa de ser overlay (`fixed inset-0 z-50` + `aria-modal`) e passa a ser
+card inline no fim da timeline do `ChatHistory`, do mesmo jeito que o `AskUserQuestionCard`: cabeçalho
+"O agente precisa de permissão", pergunta, `Parâmetros` em `<details>` fechado e as opções como chips
+(Permitir / Permitir todos / Sempre neste projeto / Negar). O clique segue preenchendo o composer —
+concede o Enviar ou o texto digitado. `permissionQueue.length` entrou no sinal do `useChatScroll` porque
+o pedido chega antes do `tool_call` existir e o card nasceria fora de vista.
+
+| Critério | Resultado |
+|----------|-----------|
+| Sem overlay/backdrop no código: nenhum `fixed`/`z-50`/`aria-modal` restante no fluxo de permissão | pass |
+| Gate `tsc -b` + 327 testes de `src/renderer` | pass |
+| Card no fim da timeline, opções → composer, Enviar concede (Electron real) | pass (validação Luks + ajuste AskUser sem campo próprio) |
+
+## Permission UX + Haiku Auto-accept sim (2026-08-12)
+
+**Pedidos do smoke visual:**
+1. Permissão duplicada / sugestões com "Executando…" — followups e decisões agora só em thread idle sem pending ativo.
+2. AskUserQuestion com textarea+Enviar no card — removidos; só chips → composer principal; em `waiting_user` o composer mostra Enviar (não só Parar).
+3. Enquanto a IA trabalha, texto do usuário continua enfileirado (`enqueue`); followups são limpos no envio/fila.
+
+**Simulação API** (`claude-haiku-4-5`, `auto-accept-edits`, `D:\temp\TodoV1`, userData isolado `engrenacode_claude_haiku_sim2_0812`):
+
+| Critério | Resultado |
+|----------|-----------|
+| Broker em waiting_permission; toolName=`Bash` (não `unknown`) | pass |
+| Write auto-aprovado (0 pedidos Write); Write completed ≥4 | pass |
+| Zero `ask_user_question` no turno | pass |
+| Hook `PermissionRequest` + launcher `.cmd` (stdin Windows) | pass (package.json/index.js/README criados; npm install concluiu) |
+| Gates: permission-hook + cli-driver + permission-contract + askUserQuestion | 68 testes pass |
