@@ -15,6 +15,15 @@ import { emit } from './ws-hub.js'
 /** Fail-closed: sem resposta do usuário, a tool é negada e o HTTP do hook não fica preso 10+ min. */
 export const PERMISSION_TIMEOUT_MS = 2 * 60 * 1000
 
+/** Resposta do usuário a um gate de pergunta (`ask_user_question` e checkpoint de pipeline). */
+export interface GateAnswer {
+  selectedOptions?: string[]
+  freeText?: string | null
+}
+
+/** Fallback quando a continuação é abandonada sem motivo próprio (linha já fechada por outro caminho). */
+const GATE_ABANDONED_MESSAGE = 'Gate encerrado sem resposta do usuário.'
+
 /**
  * Dono único do fato "há um gate aberto nesta thread".
  *
@@ -25,13 +34,45 @@ export const PERMISSION_TIMEOUT_MS = 2 * 60 * 1000
  *   o socket HTTP do hook `PreToolUse`, ainda aberto do outro lado. Keyed por `gateId`.
  *
  * `threads.state = 'waiting_permission'` é escrito **só** por `openPermissionGate` e abandonado
- * **só** por resolução/expiração — estado da thread e existência de gate não podem divergir.
+ * **só** por resolução/expiração — estado da thread e existência de gate não podem divergir. O
+ * mesmo vale para `waiting_user` e `openQuestionGate` (`ask_user_question`, F21).
  */
-interface GateContinuation {
+
+/**
+ * O que a continuação entrega a quem está preso do outro lado — **discriminado por `kind`** porque
+ * os dois lados esperam coisas diferentes e nenhum aceita o valor do outro:
+ * - `permission` devolve um booleano ao hook `PreToolUse`, que só sabe allow/deny;
+ * - `question` devolve a **resposta** do usuário ao `tools/call` do MCP, ou `null` + `message` para
+ *   rejeitar (o MCP responde `isError: true` com esse texto, contrato legado de `ask_user_question`).
+ *
+ * A união (em vez de dois mapas paralelos, ou de um genérico `Gate<T>`) mantém **um** `closeGate`
+ * com CAS/emit/restore único: quem sabe o tipo é a closure criada em `open*Gate`, onde o `kind` já
+ * é conhecido, e `releaseContinuation` é o único ponto de narrowing — e ele erra fechado.
+ */
+type GateOutcome =
+  | { kind: 'permission'; allow: boolean }
+  | { kind: 'question'; answer: GateAnswer }
+  | { kind: 'question'; answer: null; message: string }
+
+/** Outcome usado quando não há decisão real a entregar: nega a permissão, rejeita a pergunta. */
+const ABANDONED_OUTCOME: GateOutcome = { kind: 'permission', allow: false }
+
+interface PermissionContinuation {
+  kind: 'permission'
   threadId: string
-  resolve: (allow: boolean) => void
-  timeoutId: ReturnType<typeof setTimeout>
+  release: (outcome: Extract<GateOutcome, { kind: 'permission' }>) => void
+  timeoutId: ReturnType<typeof setTimeout> | null
 }
+
+interface QuestionContinuation {
+  kind: 'question'
+  threadId: string
+  release: (outcome: Extract<GateOutcome, { kind: 'question' }>) => void
+  /** `null` quando a pergunta não tem prazo (default — ver `openQuestionGate`). */
+  timeoutId: ReturnType<typeof setTimeout> | null
+}
+
+type GateContinuation = PermissionContinuation | QuestionContinuation
 
 const continuations = new Map<string, GateContinuation>()
 
@@ -66,20 +107,48 @@ function detachContinuation(gateId: string): GateContinuation | undefined {
   const entry = continuations.get(gateId)
   if (entry === undefined) return undefined
   continuations.delete(gateId)
-  clearTimeout(entry.timeoutId)
+  if (entry.timeoutId !== null) clearTimeout(entry.timeoutId)
   return entry
 }
 
 /**
- * Volta para `running` quando não sobra gate aberto na thread. Não faz nada com outro gate ainda
- * pendente — senão o card seguinte apareceria sobre "Executando…".
+ * Único ponto onde o `kind` do outcome encontra o `kind` da continuação. Divergência (só possível
+ * no caminho de abandono) erra fechado: nega a permissão, rejeita a pergunta.
+ */
+function releaseContinuation(gateId: string, outcome: GateOutcome): void {
+  const entry = detachContinuation(gateId)
+  if (entry === undefined) return
+  if (entry.kind === 'permission') {
+    entry.release(outcome.kind === 'permission' ? outcome : { kind: 'permission', allow: false })
+    return
+  }
+  entry.release(
+    outcome.kind === 'question' ? outcome : { kind: 'question', answer: null, message: GATE_ABANDONED_MESSAGE }
+  )
+}
+
+/** Os dois estados que só existem enquanto há gate aberto — nenhum outro é tocado por este módulo. */
+const GATED_STATES = new Set(['waiting_permission', 'waiting_user'])
+
+/**
+ * Volta para `running` quando não sobra gate aberto na thread — de **qualquer** kind. Não faz nada
+ * com outro gate ainda pendente (senão o card seguinte apareceria sobre "Executando…") nem com
+ * thread já assentada em `stopping`/`cancelled`/`error`, cujo estado final é do chamador.
  */
 function maybeRestoreRunning(threadId: string): void {
   if (countOpenThreadGates(threadId) > 0) return
   const thread = getThread(threadId)
-  if (thread?.state !== 'waiting_permission') return
+  if (thread === null || !GATED_STATES.has(thread.state)) return
   updateThread(threadId, { state: 'running' })
   emit(threadId, { type: 'state.change', threadId, state: 'running' })
+}
+
+/**
+ * Exportada para `dispatch.ts`: no `tool-result` de `ask_user_question` o turno volta a rodar, mas
+ * só se nenhum outro gate continuar aberto e a thread ainda estiver esperando.
+ */
+export function restoreRunningIfNoOpenGates(threadId: string): void {
+  maybeRestoreRunning(threadId)
 }
 
 interface CloseOptions {
@@ -98,19 +167,21 @@ interface CloseOptions {
 function closeGate(
   gateId: string,
   state: 'resolved' | 'expired',
-  allow: boolean,
+  outcome: GateOutcome,
   reason: string,
   options: CloseOptions = {}
 ): ThreadGate | null {
+  // `allow` continua sendo o resumo binário persistido/emitido: para pergunta, "houve resposta".
+  const allow = outcome.kind === 'permission' ? outcome.allow : outcome.answer !== null
   const gate = closeThreadGate(gateId, state, { allow, reason })
   if (gate === null) {
     // Linha já fechada; se por algum motivo sobrou continuação (processo anterior), fail-closed.
-    detachContinuation(gateId)?.resolve(false)
+    releaseContinuation(gateId, ABANDONED_OUTCOME)
     return null
   }
 
   options.beforeRelease?.(gate)
-  detachContinuation(gateId)?.resolve(allow)
+  releaseContinuation(gateId, outcome)
 
   emit(gate.threadId, {
     type: 'gate.resolved',
@@ -121,7 +192,9 @@ function closeGate(
     allow,
     reason,
   })
-  if (options.emitLegacyResolved !== false) {
+  // `permission.resolved` é wire legado de permissão — pergunta nunca teve evento próprio (a UI
+  // legada segue o `state.change` + `tool_call.result`), então não inventamos um aqui.
+  if (gate.kind === 'permission' && options.emitLegacyResolved !== false) {
     emit(gate.threadId, { type: 'permission.resolved', threadId: gate.threadId, requestId: gate.id, allow })
   }
   if (options.restoreRunning !== false) maybeRestoreRunning(gate.threadId)
@@ -169,9 +242,14 @@ export function openPermissionGate(input: OpenPermissionGateInput): OpenPermissi
 
   const decision = new Promise<boolean>((resolve) => {
     const timeoutId = setTimeout(() => {
-      closeGate(gate.id, 'expired', false, 'permission_timeout')
+      closeGate(gate.id, 'expired', { kind: 'permission', allow: false }, 'permission_timeout')
     }, timeoutMs)
-    continuations.set(gate.id, { threadId: gate.threadId, resolve, timeoutId })
+    continuations.set(gate.id, {
+      kind: 'permission',
+      threadId: gate.threadId,
+      release: (outcome) => resolve(outcome.allow),
+      timeoutId,
+    })
   })
 
   // Distinto de `waiting_user` (ask_user_question): aqui o PreToolUse está preso no broker.
@@ -237,7 +315,7 @@ export function resolvePermissionGate(
   if (candidate.threadId !== threadId) return { ok: false, code: 'thread_mismatch' }
 
   const toolName = candidate.toolName ?? 'unknown'
-  const closed = closeGate(gateId, 'resolved', allow, 'user_decision', {
+  const closed = closeGate(gateId, 'resolved', { kind: 'permission', allow }, 'user_decision', {
     beforeRelease: (gate) => {
       if (allow) options.onGranted?.({ threadId: gate.threadId, toolName })
     },
@@ -262,7 +340,11 @@ export function allowOpenPermissionGates(threadId: string, accessLevel?: ThreadA
     ) {
       continue
     }
-    if (closeGate(gate.id, 'resolved', true, 'access_level_upgrade', { restoreRunning: false }) !== null) {
+    if (
+      closeGate(gate.id, 'resolved', { kind: 'permission', allow: true }, 'access_level_upgrade', {
+        restoreRunning: false,
+      }) !== null
+    ) {
       resolvedIds.push(gate.id)
     }
   }
@@ -280,7 +362,10 @@ export function expireOpenPermissionGates(threadId: string, reason = 'turn_ended
   const expiredIds: string[] = []
   for (const gate of listOpenThreadGates(threadId, 'permission')) {
     if (
-      closeGate(gate.id, 'expired', false, reason, { restoreRunning: false, emitLegacyResolved: false }) !== null
+      closeGate(gate.id, 'expired', { kind: 'permission', allow: false }, reason, {
+        restoreRunning: false,
+        emitLegacyResolved: false,
+      }) !== null
     ) {
       expiredIds.push(gate.id)
     }
@@ -298,6 +383,226 @@ export function listOpenPermissionGates(threadId: string): PermissionRequestInfo
 
 export function hasOpenPermissionGate(threadId: string): boolean {
   return countOpenThreadGates(threadId, 'permission') > 0
+}
+
+// ── Gates de pergunta (`ask_user_question`, checkpoint de pipeline) ──────────
+
+/** Shape de wire do gate de pergunta. `question` é o payload como o MCP recebeu (prompt/opções). */
+export interface QuestionGateInfo {
+  gateId: string
+  threadId: string
+  question: unknown
+  createdAt: number
+  expiresAt: number | null
+}
+
+function toQuestionGateInfo(gate: ThreadGate): QuestionGateInfo {
+  return {
+    gateId: gate.id,
+    threadId: gate.threadId,
+    question: gate.payload,
+    createdAt: gate.createdAt,
+    expiresAt: gate.expiresAt,
+  }
+}
+
+/**
+ * Idempotente. Exportada porque `dispatch.ts` precisa **pré-armar** o estado no `tool-start` de
+ * `ask_user_question`: o card já está na timeline (via `tool_call.start`) quando o `POST /ask` do
+ * MCP — quem de fato abre o gate — ainda não chegou, e `POST /answer` responde
+ * `409 thread_not_waiting` fora de `waiting_user`. Sem o pré-arme, um clique rápido perdia a corrida.
+ */
+export function markThreadWaitingUser(threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null || thread.state === 'waiting_user') return
+  updateThread(threadId, { state: 'waiting_user' })
+  emit(threadId, { type: 'state.change', threadId, state: 'waiting_user' })
+}
+
+export interface OpenQuestionGateInput {
+  threadId: string
+  /** Pergunta como chegou do MCP (`prompt`/`options`/`multiSelect`) — vira o payload do gate. */
+  question?: unknown
+  /**
+   * Sem prazo por padrão, ao contrário da permissão. A pergunta não segura nenhuma tool: o turno
+   * fica parado esperando o usuário, e expirar sozinho quebraria tanto o `ask_user_question` real
+   * (usuário demora mais que qualquer prazo curto) quanto o checkpoint de pipeline, que vive sob o
+   * hard-cap de 2h do próprio pipeline. Cancel/fim de turno já rejeitam (ver
+   * `expireOpenQuestionGates`). Testes passam um valor curto para exercitar o caminho.
+   */
+  timeoutMs?: number
+}
+
+export type OpenQuestionGateResult =
+  | { ok: true; gate: QuestionGateInfo; answer: Promise<GateAnswer> }
+  | { ok: false; code: 'gate_not_persisted' }
+
+/**
+ * Abre um gate de pergunta: persiste a linha, põe a thread em `waiting_user` e anuncia
+ * (`gate.opened` novo; o legado que a UI consome hoje é o `state.change` + `tool_call.start` do
+ * dispatch, não há evento `question.*` próprio a manter).
+ *
+ * **Vários gates de pergunta na mesma thread coexistem** — é o ponto da migração. O `pending` antigo
+ * (`ask-user-question.ts`, um por thread) era sobrescrito em silêncio: a segunda pergunta do mesmo
+ * turno deixava o `POST /ask` da primeira preso para sempre.
+ *
+ * Fail-closed igual à permissão: sem linha persistida (thread apagada mid-turn, FK), devolve
+ * `gate_not_persisted` e o chamador responde erro ao MCP em vez de pendurar o `tools/call`.
+ */
+export function openQuestionGate(input: OpenQuestionGateInput): OpenQuestionGateResult {
+  const { timeoutMs } = input
+
+  let gate: ThreadGate
+  try {
+    gate = createThreadGate({
+      threadId: input.threadId,
+      kind: 'question',
+      payload: input.question ?? null,
+      expiresAt: timeoutMs === undefined ? null : Date.now() + timeoutMs,
+    })
+  } catch {
+    // Sem detalhe no erro: o payload da pergunta é texto do turno.
+    return { ok: false, code: 'gate_not_persisted' }
+  }
+
+  const answer = new Promise<GateAnswer>((resolve, reject) => {
+    const timeoutId =
+      timeoutMs === undefined
+        ? null
+        : setTimeout(() => {
+            closeGate(
+              gate.id,
+              'expired',
+              { kind: 'question', answer: null, message: 'Tempo esgotado sem resposta do usuário.' },
+              'question_timeout'
+            )
+          }, timeoutMs)
+    continuations.set(gate.id, {
+      kind: 'question',
+      threadId: gate.threadId,
+      release: (outcome) => {
+        if (outcome.answer === null) reject(new Error(outcome.message))
+        else resolve(outcome.answer)
+      },
+      timeoutId,
+    })
+  })
+
+  // Distinto de `waiting_permission`: aqui nenhuma tool está presa no broker, só o turno.
+  markThreadWaitingUser(gate.threadId)
+
+  emit(gate.threadId, {
+    type: 'gate.opened',
+    threadId: gate.threadId,
+    gateId: gate.id,
+    kind: 'question',
+    toolName: null,
+    payload: gate.payload,
+    createdAt: gate.createdAt,
+    expiresAt: gate.expiresAt,
+  })
+
+  return { ok: true, gate: toQuestionGateInfo(gate), answer }
+}
+
+export type QuestionGateResolveResult = { ok: true } | { ok: false; code: GateResolveFailureCode }
+
+/**
+ * Resolve um gate de pergunta **da thread informada**, com a mesma proteção de vínculo de
+ * `resolvePermissionGate`: sem match o gate não é consumido e continua pendente para a thread dona.
+ */
+export function resolveQuestionGate(
+  threadId: string,
+  gateId: string,
+  answer: GateAnswer
+): QuestionGateResolveResult {
+  const candidate = getThreadGate(gateId)
+  if (candidate === null || candidate.state !== 'open' || candidate.kind !== 'question') {
+    return { ok: false, code: 'not_found' }
+  }
+  if (candidate.threadId !== threadId) return { ok: false, code: 'thread_mismatch' }
+
+  const closed = closeGate(gateId, 'resolved', { kind: 'question', answer }, 'user_answer')
+  // Perdeu a corrida entre o SELECT e o UPDATE: nada a consumir.
+  if (closed === null) return { ok: false, code: 'not_found' }
+  return { ok: true }
+}
+
+/**
+ * Compat do wire legado `POST /api/threads/:id/answer`, que não carrega `gateId`: responde o gate
+ * de pergunta **mais recente** ainda aberto.
+ *
+ * Mais recente, não mais antigo, porque é o que o usuário está vendo: o card sai de
+ * `findPendingAskUserQuestion` (`renderer/components/workspace/askUserQuestion.logic.ts`), que
+ * varre `toolCalls` de trás para frente e devolve a última `ask_user_question` em `running`.
+ * Responder a mais antiga mandaria a resposta para uma pergunta invisível e deixaria o card aberto.
+ *
+ * Também é a paridade com o legado: o `pending` por thread do `ask-user-question.ts` era
+ * sobrescrito pela pergunta nova, então `/answer` resolvia justamente essa. O bug de lá era a
+ * primeira pergunta ficar presa para sempre — não a resposta ir para o alvo errado.
+ *
+ * Só a rota nova `POST /gate/:gateId/resolve` endereça uma pergunta específica. A Fase C migra o
+ * card para `gate.opened`/`gateId` e esta heurística cai junto.
+ * `false` = nenhuma pendente (409 `no_pending_question`), mesmo resultado observável do legado.
+ */
+export function answerNewestQuestionGate(threadId: string, answer: GateAnswer): boolean {
+  const open = listOpenThreadGates(threadId, 'question')
+  const newest = open[open.length - 1]
+  if (newest === undefined) return false
+  return resolveQuestionGate(threadId, newest.id, answer).ok
+}
+
+/**
+ * Rejeita toda pergunta aberta da thread — cancel, erro e fim de turno. `message` chega ao agente
+ * como texto do `tools/call` com `isError: true` (contrato legado de `rejectAskUserQuestion`), por
+ * isso é PT-BR; `reason` é o código que fica persistido na linha. Não restaura `running`: quem
+ * assenta o estado final (cancelled/error/idle) é o chamador.
+ */
+export function expireOpenQuestionGates(threadId: string, reason: string, message: string): string[] {
+  const expiredIds: string[] = []
+  for (const gate of listOpenThreadGates(threadId, 'question')) {
+    if (
+      closeGate(gate.id, 'expired', { kind: 'question', answer: null, message }, reason, {
+        restoreRunning: false,
+      }) !== null
+    ) {
+      expiredIds.push(gate.id)
+    }
+  }
+  return expiredIds
+}
+
+/** Snapshot consultável das perguntas abertas (reconnect WS / `GET /gate`). */
+export function listOpenQuestionGates(threadId: string): QuestionGateInfo[] {
+  return listOpenThreadGates(threadId, 'question').map(toQuestionGateInfo)
+}
+
+export function hasOpenQuestionGate(threadId: string): boolean {
+  return countOpenThreadGates(threadId, 'question') > 0
+}
+
+/** Shape unificado de `GET /api/threads/:id/gate` — os dois kinds na ordem em que foram abertos. */
+export interface OpenGateInfo {
+  gateId: string
+  threadId: string
+  kind: ThreadGate['kind']
+  /** `null` em pergunta. */
+  toolName: string | null
+  payload: unknown
+  createdAt: number
+  expiresAt: number | null
+}
+
+export function listOpenGates(threadId: string): OpenGateInfo[] {
+  return listOpenThreadGates(threadId).map((gate) => ({
+    gateId: gate.id,
+    threadId: gate.threadId,
+    kind: gate.kind,
+    toolName: gate.toolName,
+    payload: gate.payload,
+    createdAt: gate.createdAt,
+    expiresAt: gate.expiresAt,
+  }))
 }
 
 /**
@@ -322,7 +627,7 @@ export function expireOrphanGates(): ThreadGate[] {
 /** Apenas para testes: nega continuações vivas, limpa timers e zera a tabela. */
 export function clearAllGatesForTesting(): void {
   for (const gateId of [...continuations.keys()]) {
-    detachContinuation(gateId)?.resolve(false)
+    releaseContinuation(gateId, ABANDONED_OUTCOME)
   }
   deleteAllThreadGatesForTesting()
 }

@@ -20,6 +20,10 @@ const {
   hasOpenPermissionGate: hasPendingPermission,
   listOpenPermissionGates: listPendingPermissions,
   resolvePermissionGate: resolvePermissionRequest,
+  expireOpenPermissionGates,
+  expireOpenQuestionGates,
+  openPermissionGate,
+  openQuestionGate,
 } = await import('../runner/gate.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
@@ -1067,6 +1071,291 @@ describe('handleThreadsRequest', () => {
 
       // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
       const req2 = fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, 'invalid-token')
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(423)
+      expect((second.body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
+  describe('GET /api/threads/:id/gate', () => {
+    function seedGatedThread(): { dir: string; threadId: string } {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'running',
+      })
+      return { dir, threadId: thread.id }
+    }
+
+    it('devolve os dois kinds abertos na ordem de abertura', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+      const question = openQuestionGate({ threadId, question: { prompt: 'Segue?', options: ['A'] } })
+      if (!permission.ok || !question.ok) throw new Error('gate não abriu')
+      void permission.decision
+      void question.answer.catch(() => {})
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect((body as { gates: Array<{ gateId: string; kind: string; toolName: string | null }> }).gates).toEqual([
+        expect.objectContaining({ gateId: permission.gate.requestId, kind: 'permission', toolName: 'Bash' }),
+        expect.objectContaining({ gateId: question.gate.gateId, kind: 'question', toolName: null }),
+      ])
+
+      expireOpenPermissionGates(threadId, 'turn_ended')
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 404 for an unknown thread', async () => {
+      const req = fakeReq('GET', '/api/threads/thr_missing/gate', undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(404)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+    })
+
+    it('rejects unauthorized requests with 401 unauthorized (vault unlocked, bad session)', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, 'invalid-token')
+      const res = fakeRes()
+      const claimed = await handleThreadsRequest(req, res)
+      expect(claimed).toBe(true)
+      const { status, body } = await res.result()
+      expect(status).toBe(401)
+      expect((body as { error: { code: string } }).error.code).toBe('unauthorized')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 423 vault_locked before 401 when the vault is locked', async () => {
+      const { dir, threadId } = seedGatedThread()
+      vaultService.lock()
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
+      const req2 = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, 'invalid-token')
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(423)
+      expect((second.body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
+  describe('POST /api/threads/:id/gate/:gateId/resolve', () => {
+    function seedGatedThread(state: 'running' | 'waiting_user' = 'running'): { dir: string; threadId: string } {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state,
+      })
+      return { dir, threadId: thread.id }
+    }
+
+    it('resolve um gate de permissão pelo gateId (kind=permission)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const opened = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+      if (!opened.ok) throw new Error('gate não abriu')
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${opened.gate.requestId}/resolve`,
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ resolved: true, kind: 'permission', toolName: 'Bash' })
+      await expect(opened.decision).resolves.toBe(true)
+      expect(hasPendingPermission(threadId)).toBe(false)
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('resolve a segunda pergunta da thread sem tocar na primeira (kind=question)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const first = openQuestionGate({ threadId, question: { prompt: 'Primeira?' } })
+      const second = openQuestionGate({ threadId, question: { prompt: 'Segunda?' } })
+      if (!first.ok || !second.ok) throw new Error('gate não abriu')
+      void first.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${second.gate.gateId}/resolve`,
+        { kind: 'question', selectedOptions: ['B'] },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ resolved: true, kind: 'question' })
+      await expect(second.answer).resolves.toEqual({ selectedOptions: ['B'], freeText: null })
+      // A pergunta mais antiga (a que o wire legado `/answer` alcançaria) continua pendente.
+      expect(getThread(threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('rejeita selectedOptions fora das opções do gate (400 validation_error)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const opened = openQuestionGate({ threadId, question: { prompt: 'Qual?', options: ['A', 'B'] } })
+      if (!opened.ok) throw new Error('gate não abriu')
+      void opened.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${opened.gate.gateId}/resolve`,
+        { kind: 'question', selectedOptions: ['Opção inexistente'] },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      // Gate segue aberto: validação não consome a pergunta.
+      expect(getThread(threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('devolve 409 gate_thread_mismatch e mantém o gate pendente na thread dona', async () => {
+      const owner = seedGatedThread()
+      const intruder = seedGatedThread()
+      const opened = openQuestionGate({ threadId: owner.threadId, question: { prompt: 'x' } })
+      if (!opened.ok) throw new Error('gate não abriu')
+      void opened.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${intruder.threadId}/gate/${opened.gate.gateId}/resolve`,
+        { kind: 'question', freeText: 'oi' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('gate_thread_mismatch')
+      expect(getThread(owner.threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(owner.threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(owner.dir, { recursive: true, force: true })
+      rmSync(intruder.dir, { recursive: true, force: true })
+    })
+
+    it('devolve 409 gate_not_found para gateId inexistente e 400 para kind inválido', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_inexistente/resolve`,
+        { kind: 'permission', allow: false },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('gate_not_found')
+
+      const req2 = fakeReq('POST', `/api/threads/${threadId}/gate/gate_x/resolve`, { kind: 'outro' }, session)
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(400)
+      expect((second.body as { error: { code: string } }).error.code).toBe('validation_error')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 404 for an unknown thread', async () => {
+      const req = fakeReq(
+        'POST',
+        '/api/threads/thr_missing/gate/gate_x/resolve',
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(404)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+    })
+
+    it('rejects unauthorized requests with 401 unauthorized (vault unlocked, bad session)', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        'invalid-token'
+      )
+      const res = fakeRes()
+      const claimed = await handleThreadsRequest(req, res)
+      expect(claimed).toBe(true)
+      const { status, body } = await res.result()
+      expect(status).toBe(401)
+      expect((body as { error: { code: string } }).error.code).toBe('unauthorized')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 423 vault_locked before 401 when the vault is locked', async () => {
+      const { dir, threadId } = seedGatedThread()
+      vaultService.lock()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
+      const req2 = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        'invalid-token'
+      )
       const res2 = fakeRes()
       await handleThreadsRequest(req2, res2)
       const second = await res2.result()

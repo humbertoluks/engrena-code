@@ -55,12 +55,16 @@ import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-regi
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
 import {
   createAskUserQuestionServer,
-  rejectAskUserQuestion,
   ASK_USER_QUESTION_TOOL_NAME,
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
 import { createPermissionServer, type PermissionServerHandle } from './permission-broker.js'
-import { expireOpenPermissionGates } from './gate.js'
+import {
+  expireOpenPermissionGates,
+  expireOpenQuestionGates,
+  markThreadWaitingUser,
+  restoreRunningIfNoOpenGates,
+} from './gate.js'
 import { permissionBrokerApplies } from './permission-policy.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
@@ -205,7 +209,7 @@ export function cancelThread(threadId: string): boolean {
     markThreadCancelled(threadId)
     // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
     expireOpenPermissionGates(threadId, 'thread_cancelled')
-    rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+    expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
     // 2) Fecha servers do turno (permission / ask / delegation / memory).
     closeTurnServers(threadId)
     // 3) Tool calls in-flight deixam de aparecer como "running" no histórico/export.
@@ -224,7 +228,7 @@ export function cancelThread(threadId: string): boolean {
   // A pergunta pendente (se houver) precisa ser rejeitada antes do estado assentar, senão o
   // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
-  rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+  expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
   expireOpenPermissionGates(threadId, 'thread_cancelled')
   closeTurnServers(threadId)
   interruptRunningToolCalls(threadId)
@@ -656,11 +660,10 @@ async function runTurn(
             params: event.params,
           })
           // Pausa o turno (F21 §3.2) — não conta como `running` para lease/thread_busy; a UI
-          // resolve via POST /answer, que libera o `POST /ask` preso em ask-user-question.ts.
-          if (event.name === ASK_USER_QUESTION_TOOL_NAME) {
-            updateThread(thread.id, { state: 'waiting_user' })
-            emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_user' })
-          }
+          // resolve via POST /answer, que consome o gate de pergunta e libera o `POST /ask` preso.
+          // Pré-arme: o gate em si nasce no `POST /ask` do MCP, que chega logo depois deste evento;
+          // o estado é escrito pelo gate (idempotente), nunca aqui.
+          if (event.name === ASK_USER_QUESTION_TOOL_NAME) markThreadWaitingUser(thread.id)
           return
         }
 
@@ -687,12 +690,11 @@ async function runTurn(
                 kind: 'tool',
                 event: `${updated.name} (${updated.status})`,
               })
-              // Resposta do usuário chegou (resolveAskUserQuestion liberou o /ask preso) — retoma
-              // o turno sem reabrir a thread (F21 §3.2).
-              if (updated.name === ASK_USER_QUESTION_TOOL_NAME) {
-                updateThread(thread.id, { state: 'running' })
-                emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
-              }
+              // Resposta do usuário chegou (o gate de pergunta liberou o /ask preso) — retoma o
+              // turno sem reabrir a thread (F21 §3.2). Só volta a `running` se nenhum outro gate
+              // seguir aberto e a thread ainda estiver esperando: em cancel o estado já é
+              // `stopping`, e a versão antiga (write incondicional) o sobrescrevia.
+              if (updated.name === ASK_USER_QUESTION_TOOL_NAME) restoreRunningIfNoOpenGates(thread.id)
             }
           }
           return
@@ -821,7 +823,7 @@ async function runTurn(
     closeTurnServers(thread.id)
     // Libera um `POST /ask` ainda preso (turno cancelado/erro antes da resposta chegar) antes de
     // fechar o servidor — sem isso o `tools/call` do MCP filho ficaria pendurado (F21 §3.2).
-    rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
+    expireOpenQuestionGates(thread.id, 'turn_ended', 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
     delegationServer?.close()

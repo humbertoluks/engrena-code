@@ -80,6 +80,22 @@ describe('recoverRunningThreads', () => {
     expect(recovered.map((t) => t.id)).toEqual([waiting.id])
     expect(getThread(waiting.id)?.state).toBe('error')
   })
+
+  it('moves stopping threads to error and returns them', () => {
+    const project = createProject({ path: makeProjectDir('project-stopping') })
+    const stopping = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'stopping',
+    })
+
+    const recovered = recoverRunningThreads()
+
+    expect(recovered.map((t) => t.id)).toEqual([stopping.id])
+    expect(getThread(stopping.id)?.state).toBe('error')
+  })
 })
 
 describe('setThreadState', () => {

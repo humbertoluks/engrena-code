@@ -14,13 +14,21 @@ const { createThreadGate, getThreadGate, listOpenThreadGates } = await import(
 const { clearAllSubscriptions, subscribe } = await import('./ws-hub.js')
 const {
   allowOpenPermissionGates,
+  answerNewestQuestionGate,
   clearAllGatesForTesting,
   expireOpenPermissionGates,
+  expireOpenQuestionGates,
   expireOrphanGates,
   hasOpenPermissionGate,
+  hasOpenQuestionGate,
+  listOpenGates,
   listOpenPermissionGates,
+  listOpenQuestionGates,
+  markThreadWaitingUser,
   openPermissionGate,
+  openQuestionGate,
   resolvePermissionGate,
+  resolveQuestionGate,
 } = await import('./gate.js')
 
 const fixtures: string[] = []
@@ -340,5 +348,184 @@ describe('expireOrphanGates (boot)', () => {
     expect(getThread(orphanThread)?.state).toBe('waiting_permission')
 
     expireOpenPermissionGates(liveThread)
+  })
+})
+
+describe('openQuestionGate', () => {
+  it('persiste o gate, põe a thread em waiting_user e emite gate.opened', async () => {
+    const threadId = seedThread()
+    const received = listen(threadId)
+
+    const opened = openQuestionGate({ threadId, question: { prompt: 'Qual caminho?', options: ['A', 'B'] } })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+
+    const row = getThreadGate(opened.gate.gateId)
+    expect(row?.state).toBe('open')
+    expect(row?.kind).toBe('question')
+    expect(row?.toolName).toBeNull()
+    expect(row?.payload).toEqual({ prompt: 'Qual caminho?', options: ['A', 'B'] })
+    // Sem prazo por padrão: quem encerra a pergunta é o usuário, o cancel ou o fim do turno.
+    expect(row?.expiresAt).toBeNull()
+
+    expect(getThread(threadId)?.state).toBe('waiting_user')
+    expect(received.map((e) => e.type)).toEqual(['state.change', 'gate.opened'])
+    expect(received[1]).toMatchObject({ type: 'gate.opened', gateId: opened.gate.gateId, kind: 'question' })
+
+    // `permission.resolved` é wire de permissão — pergunta não emite legado nenhum.
+    expect(resolveQuestionGate(threadId, opened.gate.gateId, { selectedOptions: ['A'] })).toEqual({ ok: true })
+    await expect(opened.answer).resolves.toEqual({ selectedOptions: ['A'] })
+    expect(received.some((e) => e.type === 'permission.resolved')).toBe(false)
+    expect(received.some((e) => e.type === 'gate.resolved')).toBe(true)
+    expect(getThread(threadId)?.state).toBe('running')
+  })
+
+  it('fail-closed quando o gate não persiste (thread apagada mid-turn)', () => {
+    expect(openQuestionGate({ threadId: 'thr_inexistente' })).toEqual({ ok: false, code: 'gate_not_persisted' })
+  })
+
+  /** O anti-padrão que a migração existe para matar: `pending` por thread, sobrescrito em silêncio. */
+  it('duas perguntas na mesma thread coexistem e cada uma resolve a sua continuação', async () => {
+    const threadId = seedThread()
+
+    const first = openQuestionGate({ threadId, question: { prompt: 'Primeira?' } })
+    const second = openQuestionGate({ threadId, question: { prompt: 'Segunda?' } })
+    if (!first.ok || !second.ok) throw new Error('gate não abriu')
+    expect(listOpenQuestionGates(threadId)).toHaveLength(2)
+
+    expect(resolveQuestionGate(threadId, second.gate.gateId, { freeText: 'depois' })).toEqual({ ok: true })
+    await expect(second.answer).resolves.toEqual({ freeText: 'depois' })
+
+    // A primeira continua pendente e a thread não volta a running com gate aberto.
+    expect(hasOpenQuestionGate(threadId)).toBe(true)
+    expect(getThread(threadId)?.state).toBe('waiting_user')
+
+    expect(resolveQuestionGate(threadId, first.gate.gateId, { freeText: 'antes' })).toEqual({ ok: true })
+    await expect(first.answer).resolves.toEqual({ freeText: 'antes' })
+    expect(getThread(threadId)?.state).toBe('running')
+  })
+
+  it('expira e rejeita quando timeoutMs é informado', async () => {
+    const threadId = seedThread()
+    const opened = openQuestionGate({ threadId, timeoutMs: 20 })
+    if (!opened.ok) throw new Error('gate não abriu')
+
+    await expect(opened.answer).rejects.toThrow('Tempo esgotado sem resposta do usuário.')
+    expect(getThreadGate(opened.gate.gateId)).toMatchObject({
+      state: 'expired',
+      resolution: { allow: false, reason: 'question_timeout' },
+    })
+  })
+})
+
+describe('resolveQuestionGate', () => {
+  it('não consome gate de outra thread (thread_mismatch) e mantém a pergunta pendente lá', async () => {
+    const owner = seedThread()
+    const intruder = seedThread()
+    const opened = openQuestionGate({ threadId: owner, question: { prompt: 'x' } })
+    if (!opened.ok) throw new Error('gate não abriu')
+
+    expect(resolveQuestionGate(intruder, opened.gate.gateId, { freeText: 'oi' })).toEqual({
+      ok: false,
+      code: 'thread_mismatch',
+    })
+    expect(getThreadGate(opened.gate.gateId)?.state).toBe('open')
+    expect(hasOpenQuestionGate(owner)).toBe(true)
+
+    expect(resolveQuestionGate(owner, opened.gate.gateId, { freeText: 'oi' })).toEqual({ ok: true })
+    await expect(opened.answer).resolves.toEqual({ freeText: 'oi' })
+  })
+
+  it('não aceita gateId de permissão (not_found) nem gate já consumido', async () => {
+    const threadId = seedThread()
+    const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+    if (!permission.ok) throw new Error('gate não abriu')
+
+    expect(resolveQuestionGate(threadId, permission.gate.requestId, { freeText: 'x' })).toEqual({
+      ok: false,
+      code: 'not_found',
+    })
+    expect(hasOpenPermissionGate(threadId)).toBe(true)
+
+    expireOpenPermissionGates(threadId, 'turn_ended')
+    await expect(permission.decision).resolves.toBe(false)
+  })
+})
+
+describe('answerNewestQuestionGate (wire legado POST /answer)', () => {
+  it('devolve false sem pergunta pendente', () => {
+    const threadId = seedThread()
+    expect(answerNewestQuestionGate(threadId, { freeText: 'nada' })).toBe(false)
+  })
+
+  it('responde a pergunta mais recente — é a que o card do chat mostra', async () => {
+    // `findPendingAskUserQuestion` varre `toolCalls` de trás para frente e devolve a última
+    // `ask_user_question` em running. Responder a mais antiga mandaria a resposta para uma
+    // pergunta invisível e deixaria o card aberto na tela.
+    const threadId = seedThread()
+    const first = openQuestionGate({ threadId, question: { prompt: 'Primeira?' } })
+    const second = openQuestionGate({ threadId, question: { prompt: 'Segunda?' } })
+    if (!first.ok || !second.ok) throw new Error('gate não abriu')
+
+    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })).toBe(true)
+    await expect(second.answer).resolves.toEqual({ selectedOptions: ['A'] })
+    expect(getThreadGate(first.gate.gateId)?.state).toBe('open')
+
+    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['B'] })).toBe(true)
+    await expect(first.answer).resolves.toEqual({ selectedOptions: ['B'] })
+  })
+})
+
+describe('expireOpenQuestionGates', () => {
+  it('rejeita a pergunta com a mensagem PT-BR e não assenta o estado da thread', async () => {
+    const threadId = seedThread()
+    const opened = openQuestionGate({ threadId, question: { prompt: 'x' } })
+    if (!opened.ok) throw new Error('gate não abriu')
+    expect(getThread(threadId)?.state).toBe('waiting_user')
+
+    const expired = expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
+    expect(expired).toEqual([opened.gate.gateId])
+    await expect(opened.answer).rejects.toThrow('thread cancelada pelo usuário')
+    expect(getThreadGate(opened.gate.gateId)).toMatchObject({
+      state: 'expired',
+      resolution: { allow: false, reason: 'thread_cancelled' },
+    })
+    // Quem assenta cancelled/error/idle é o chamador — o gate não devolve a thread para running.
+    expect(getThread(threadId)?.state).toBe('waiting_user')
+  })
+})
+
+describe('markThreadWaitingUser', () => {
+  it('é idempotente e ignora thread inexistente', () => {
+    const threadId = seedThread()
+    const received = listen(threadId)
+
+    markThreadWaitingUser(threadId)
+    markThreadWaitingUser(threadId)
+    markThreadWaitingUser('thr_inexistente')
+
+    expect(getThread(threadId)?.state).toBe('waiting_user')
+    expect(received.filter((e) => e.type === 'state.change')).toHaveLength(1)
+  })
+})
+
+describe('listOpenGates', () => {
+  it('traz os dois kinds na ordem de abertura', async () => {
+    const threadId = seedThread()
+    const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+    const question = openQuestionGate({ threadId, question: { prompt: 'Segue?' } })
+    if (!permission.ok || !question.ok) throw new Error('gate não abriu')
+
+    expect(listOpenGates(threadId)).toEqual([
+      expect.objectContaining({ gateId: permission.gate.requestId, kind: 'permission', toolName: 'Bash' }),
+      expect.objectContaining({ gateId: question.gate.gateId, kind: 'question', toolName: null }),
+    ])
+    expect(listOpenPermissionGates(threadId)).toHaveLength(1)
+    expect(listOpenQuestionGates(threadId)).toHaveLength(1)
+
+    expireOpenPermissionGates(threadId, 'turn_ended')
+    expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+    await expect(permission.decision).resolves.toBe(false)
+    await expect(question.answer).rejects.toThrow('Turno encerrado.')
   })
 })

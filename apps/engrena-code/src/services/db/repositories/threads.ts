@@ -217,9 +217,14 @@ export function deleteThread(id: string): boolean {
 
 /**
  * Reconciliação de boot (spec.md F08 §3.2; estendido F21 §3.2): threads presas em `running`,
- * `waiting_user` ou `waiting_permission` de uma execução anterior interrompida viram `error`.
- * O resolver em memória de uma pergunta pendente (F21) ou do PermissionBroker não sobrevive a um
- * restart — a thread nunca seria respondida.
+ * `waiting_user`, `waiting_permission` ou `stopping` de uma execução anterior interrompida viram
+ * `error`. O resolver em memória de uma pergunta pendente (F21) ou do PermissionBroker não sobrevive
+ * a um restart — a thread nunca seria respondida.
+ *
+ * `stopping` entra na lista porque é estado transitório do cancelamento: quem o abandona é o
+ * `finally` do turno, que morre junto com o processo. Sem reconciliar, uma thread que estava sendo
+ * cancelada no crash fica presa em `stopping` para sempre — sem turno vivo para pará-la e sem
+ * caminho de volta para `idle`.
  *
  * `error` (e não `cancelled`) por dois motivos: crash não é cancelamento — o usuário não pediu nada,
  * e herdar `cancelled` mentiria sobre a intenção; e `error` é o que alimenta a métrica `errors` e a
@@ -232,7 +237,7 @@ export function recoverRunningThreads(): Thread[] {
   const rows = getDb()
     .prepare(
       `UPDATE threads SET state = 'error', updated_at = ?
-       WHERE state IN ('running', 'waiting_user', 'waiting_permission')
+       WHERE state IN ('running', 'waiting_user', 'waiting_permission', 'stopping')
        RETURNING *`
     )
     .all(Date.now()) as unknown as ThreadRow[]

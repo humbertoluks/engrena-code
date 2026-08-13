@@ -37,12 +37,16 @@ import {
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
-import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
+import { ASK_USER_QUESTION_TOOL_NAME } from '../runner/ask-user-question.js'
 import { clearAllowedToolsForThread, grantAlwaysAllowedTool } from '../runner/permission-broker.js'
 import {
   allowOpenPermissionGates,
+  answerNewestQuestionGate,
+  listOpenGates,
   listOpenPermissionGates,
   resolvePermissionGate,
+  resolveQuestionGate,
+  type GateAnswer,
 } from '../runner/gate.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
@@ -510,6 +514,104 @@ function handleListPermissions(_req: IncomingMessage, res: ServerResponse, threa
   sendJson(res, 200, { permissions: listOpenPermissionGates(threadId) })
 }
 
+/**
+ * GET /api/threads/:id/gate — snapshot unificado dos gates abertos (permissão **e** pergunta), na
+ * ordem em que foram abertos. Substitui, na Fase C, o `GET /permissions` (que continua intacto até
+ * o renderer migrar) e é o que permite remontar mais de um card depois de um reconnect.
+ */
+function handleListGates(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  sendJson(res, 200, { gates: listOpenGates(threadId) })
+}
+
+interface ResolveGateBody {
+  kind?: unknown
+  /** kind='permission' */
+  allow?: unknown
+  always?: unknown
+  scope?: unknown
+  /** kind='question' */
+  selectedOptions?: unknown
+  freeText?: unknown
+}
+
+/**
+ * POST /api/threads/:id/gate/:gateId/resolve — resolve **um** gate identificado, com corpo
+ * discriminado por `kind`. É o que o wire legado não consegue: `/answer` só alcança a pergunta mais
+ * antiga e `/permission` só resolve permissão.
+ *
+ * O vínculo thread × gate é validado dentro do gate (`thread_mismatch` → o gate continua pendente
+ * para a thread dona), nunca aqui.
+ */
+async function handleResolveGate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  threadId: string,
+  gateId: string
+): Promise<void> {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const data = parseBody<ResolveGateBody>(await readBody(req))
+  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  if (data.kind !== 'permission' && data.kind !== 'question') {
+    return sendError(res, 400, 'validation_error', 'kind deve ser "permission" ou "question".')
+  }
+
+  if (data.kind === 'permission') {
+    if (typeof data.allow !== 'boolean') {
+      return sendError(res, 400, 'validation_error', 'allow deve ser booleano.')
+    }
+    if (data.always !== undefined && typeof data.always !== 'boolean') {
+      return sendError(res, 400, 'validation_error', 'always deve ser booleano.')
+    }
+    if (data.always === true && data.allow !== true) {
+      return sendError(res, 400, 'validation_error', 'always exige allow=true.')
+    }
+
+    const allow = data.allow
+    const scope = data.scope === 'project' ? 'project' : 'thread'
+    const resolved = resolvePermissionGate(threadId, gateId, allow, {
+      onGranted:
+        data.always === true ? ({ toolName }) => grantAlwaysAllowedTool(threadId, toolName, scope) : undefined,
+    })
+    if (!resolved.ok) return sendGateResolveError(res, resolved.code)
+    return sendJson(res, 200, { resolved: true, kind: 'permission', always: data.always === true, toolName: resolved.toolName })
+  }
+
+  const selectedOptions = Array.isArray(data.selectedOptions)
+    ? data.selectedOptions.filter((o): o is string => typeof o === 'string')
+    : []
+  const freeText = typeof data.freeText === 'string' ? data.freeText.trim() : ''
+  if (selectedOptions.length === 0 && freeText === '') {
+    return sendError(res, 400, 'validation_error', 'Envie ao menos uma opção marcada ou um texto livre.')
+  }
+
+  // Defesa em profundidade (spec F21 §3.3), aqui contra o payload do próprio gate — o `/answer`
+  // legado segue validando contra o `params_json` do tool_call aberto, sem mudança observável.
+  // Gate sem `options` (checkpoint de pipeline) não restringe nada, mesma regra do legado.
+  const target = listOpenGates(threadId).find((g) => g.gateId === gateId)
+  const allowedOptions = (target?.payload as { options?: unknown } | null | undefined)?.options
+  if (Array.isArray(allowedOptions) && allowedOptions.length > 0) {
+    if (selectedOptions.some((o) => !allowedOptions.includes(o))) {
+      return sendError(res, 400, 'validation_error', 'selectedOptions fora das opções da pergunta pendente.')
+    }
+  }
+
+  const answer: GateAnswer = { selectedOptions, freeText: freeText || null }
+  const resolved = resolveQuestionGate(threadId, gateId, answer)
+  if (!resolved.ok) return sendGateResolveError(res, resolved.code)
+  sendJson(res, 200, { resolved: true, kind: 'question' })
+}
+
+function sendGateResolveError(res: ServerResponse, code: 'not_found' | 'thread_mismatch'): void {
+  if (code === 'thread_mismatch') {
+    return sendError(res, 409, 'gate_thread_mismatch', 'Este gate pertence a outra thread e continua pendente lá.')
+  }
+  sendError(res, 409, 'gate_not_found', 'Nenhum gate aberto com este id para esta thread.')
+}
+
 interface PatchThreadBody {
   accessLevel?: string
 }
@@ -579,7 +681,9 @@ async function handleAnswerQuestion(req: IncomingMessage, res: ServerResponse, t
     return sendError(res, 400, 'validation_error', 'selectedOptions fora das opções da pergunta pendente.')
   }
 
-  const resolved = resolveAskUserQuestion(threadId, { selectedOptions, freeText: freeText || null })
+  // Wire legado sem `gateId`: responde a pergunta aberta mais antiga. Com duas perguntas na mesma
+  // thread só a rota nova (`POST /gate/:gateId/resolve`) endereça uma específica.
+  const resolved = answerNewestQuestionGate(threadId, { selectedOptions, freeText: freeText || null })
   if (!resolved) {
     return sendError(res, 409, 'no_pending_question', 'Nenhuma pergunta pendente em memória para esta thread.')
   }
@@ -718,6 +822,8 @@ const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
 const PERMISSIONS_LIST_RE = /^\/api\/threads\/([^/]+)\/permissions$/
+const GATES_LIST_RE = /^\/api\/threads\/([^/]+)\/gate$/
+const GATE_RESOLVE_RE = /^\/api\/threads\/([^/]+)\/gate\/([^/]+)\/resolve$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
 const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
 const RESOLVE_CONFLICT_RE = /^\/api\/threads\/([^/]+)\/diffs\/([^/]+)\/resolve-conflict$/
@@ -740,6 +846,10 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     CANCEL_RE.test(url) ||
     PERMISSION_RE.test(url) ||
     PERMISSIONS_LIST_RE.test(url) ||
+    // Rota nova entra nas DUAS listas (esta e o dispatch abaixo): sem o prefixo aqui o guarda
+    // devolve false antes do dispatch e o request fica pendurado sem resposta nenhuma.
+    GATES_LIST_RE.test(url) ||
+    GATE_RESOLVE_RE.test(url) ||
     ACCEPT_RE.test(url) ||
     ANSWER_RE.test(url) ||
     RESOLVE_CONFLICT_RE.test(url) ||
@@ -836,6 +946,18 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const permissionsListMatch = PERMISSIONS_LIST_RE.exec(url)
     if (permissionsListMatch && method === 'GET') {
       handleListPermissions(req, res, permissionsListMatch[1])
+      return true
+    }
+
+    const gatesListMatch = GATES_LIST_RE.exec(url)
+    if (gatesListMatch && method === 'GET') {
+      handleListGates(req, res, gatesListMatch[1])
+      return true
+    }
+
+    const gateResolveMatch = GATE_RESOLVE_RE.exec(url)
+    if (gateResolveMatch && method === 'POST') {
+      await handleResolveGate(req, res, gateResolveMatch[1], gateResolveMatch[2])
       return true
     }
 
