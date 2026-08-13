@@ -11,7 +11,12 @@ import {
   type ThreadProvider,
   type ThreadState,
 } from '../db/repositories/threads.js'
-import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
+import {
+  appendMessage,
+  cancelRunningToolCallsForThread,
+  createToolCall,
+  updateToolCall,
+} from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 import { createUsageEvent } from '../db/repositories/usage-events.js'
@@ -21,11 +26,15 @@ import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, getLease, releaseLease } from './project-execution.js'
 import { emit, subscriberCount } from './ws-hub.js'
+import { truncateToolResultPayload } from './buffer-cap.js'
+import { recordToolResultTruncation } from '../runtime-metrics.js'
 import {
+  closeTurnServers,
   consumeThreadCancelled,
   getActiveController,
   markThreadCancelled,
   registerActiveController,
+  registerTurnServerClosers,
   unregisterActiveController,
 } from './turn-control.js'
 import { parseSlashCommand } from './slash-commands.js'
@@ -51,6 +60,7 @@ import {
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
 import { createPermissionServer, denyPendingPermissionsForThread, type PermissionServerHandle } from './permission-broker.js'
+import { permissionBrokerApplies } from './permission-policy.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
@@ -126,23 +136,84 @@ export function resetRunCliTurnForTesting(): void {
 }
 
 /** Estados de onde um cancelamento manual ainda faz sentido; o resto já assentou. */
-const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>(['running', 'stopping', 'waiting_user'])
+const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>([
+  'running',
+  'stopping',
+  'waiting_user',
+  'waiting_permission',
+])
+
+/** Se o processo não assentar após abort, força `cancelled` (evita UI presa em stopping). */
+const STOPPING_DEADLINE_MS = 8_000
+const stoppingDeadlines = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearStoppingDeadline(threadId: string): void {
+  const timer = stoppingDeadlines.get(threadId)
+  if (timer === undefined) return
+  clearTimeout(timer)
+  stoppingDeadlines.delete(threadId)
+}
+
+function scheduleStoppingDeadline(threadId: string): void {
+  clearStoppingDeadline(threadId)
+  const timer = setTimeout(() => {
+    stoppingDeadlines.delete(threadId)
+    const thread = getThread(threadId)
+    if (thread?.state !== 'stopping') return
+    closeTurnServers(threadId)
+    interruptRunningToolCalls(threadId)
+    updateThread(threadId, { state: 'cancelled' })
+    emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
+    unregisterActiveController(threadId)
+  }, STOPPING_DEADLINE_MS)
+  stoppingDeadlines.set(threadId, timer)
+}
+
+/** Marca tool calls `running` e notifica o WS (Work log deixa de ficar "trabalhando"). */
+function interruptRunningToolCalls(
+  threadId: string,
+  status: 'cancelled' | 'interrupted' = 'cancelled'
+): void {
+  const updated = cancelRunningToolCallsForThread(threadId, status)
+  for (const tc of updated) {
+    emit(threadId, {
+      type: 'tool_call.result',
+      threadId,
+      id: tc.id,
+      status: tc.status,
+      result: tc.result,
+    })
+    createLogEntry({
+      threadId,
+      kind: 'tool',
+      event: `${tc.name} (${tc.status})`,
+    })
+  }
+}
 
 /**
- * Cancelamento manual. Com execução ativa: `stopping` imediato + aborta o processo do provider (o
- * turno assenta em `cancelled` no cleanup). Sem execução ativa: a thread ficou órfã porque o turno
- * morreu sem passar pelo cleanup (ex.: pergunta pendente de F21 cujo processo caiu com o app de pé),
- * então o cancelamento assenta o estado aqui mesmo — antes disso a thread ficava presa
- * indefinidamente, com o endpoint devolvendo `{cancelled:false}` e a UI oferecendo um "Parar
- * execução" que não fazia nada. Retorna false só quando não há nada a cancelar.
+ * Cancelamento manual. Com execução ativa: nega permissões/perguntas e fecha servers do turno
+ * *antes* do abort (senão o hook PreToolUse / MCP fica preso e o processo vira órfão), mata a
+ * árvore via AbortSignal → `killProcessTree`, assenta `stopping` e espera o cleanup em
+ * `cancelled` (com deadline). Sem execução ativa: assenta órfã aqui. Retorna false só quando
+ * não há nada a cancelar.
  */
 export function cancelThread(threadId: string): boolean {
   const controller = getActiveController(threadId)
   if (controller) {
     markThreadCancelled(threadId)
+    // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
+    denyPendingPermissionsForThread(threadId)
+    rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
+    // 2) Fecha servers do turno (permission / ask / delegation / memory).
+    closeTurnServers(threadId)
+    // 3) Tool calls in-flight deixam de aparecer como "running" no histórico/export.
+    interruptRunningToolCalls(threadId)
+    // 4) Abort → cli-driver killProcessTree; estado stopping até o finally.
     updateThread(threadId, { state: 'stopping' })
     emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
     controller.abort()
+    scheduleStoppingDeadline(threadId)
     return true
   }
 
@@ -154,6 +225,8 @@ export function cancelThread(threadId: string): boolean {
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
   rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
   denyPendingPermissionsForThread(threadId)
+  closeTurnServers(threadId)
+  interruptRunningToolCalls(threadId)
 
   // Pipeline órfão (processo caiu sem passar pelo finally de pipeline-runner) — assenta aqui, já
   // que ninguém mais vai fechar aquele registro.
@@ -163,6 +236,7 @@ export function cancelThread(threadId: string): boolean {
   // Lease é por projeto: só libera se for esta thread que a detém, nunca a de outra execução.
   if (getLease(thread.projectId)?.ownerThreadId === threadId) releaseLease(thread.projectId)
 
+  clearStoppingDeadline(threadId)
   updateThread(threadId, { state: 'cancelled' })
   emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
   return true
@@ -516,14 +590,26 @@ async function runTurn(
     const controller = new AbortController()
     registerActiveController(thread.id, controller)
 
-    // PermissionBroker (spec supervised) — só Claude: `--permission-mode default` sozinho exige
-    // stdin interativo, inexistente no spawn headless. O hook `PreToolUse` (cli-driver.ts) segura
-    // cada tool call aqui até a UI responder via `POST /api/threads/:id/permission`.
-    if (thread.provider === 'claude' && thread.accessLevel === 'supervised') {
+    // PermissionBroker — só Claude: aprovação interativa via stdin não existe no spawn headless.
+    // O hook `PreToolUse` (cli-driver.ts) segura cada tool call aqui até a UI responder via
+    // `POST /api/threads/:id/permission`. Vale também em `auto-accept-edits`: lá o CLI negava
+    // Bash/MCP sozinho, sem modal nem caminho por texto (`permission-policy.ts`).
+    if (thread.provider === 'claude' && permissionBrokerApplies(thread.accessLevel)) {
       permissionServer = await createPermissionServer(thread.id, ({ requestId, toolName, params }) => {
+        // Distinto de `waiting_user` (ask_user_question): aqui o PreToolUse está preso no broker.
+        updateThread(thread.id, { state: 'waiting_permission' })
+        emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_permission' })
         emit(thread.id, { type: 'permission.request', threadId: thread.id, requestId, toolName, params })
       })
     }
+
+    // Cancel fecha estes servers *antes* do abort — senão hook/MCP fica preso e o kill demora.
+    registerTurnServerClosers(thread.id, () => {
+      permissionServer?.close()
+      askUserQuestionServer?.close()
+      delegationServer?.close()
+      memoryWriteServer?.close()
+    })
 
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
@@ -583,9 +669,11 @@ async function runTurn(
         if (event.type === 'tool-result') {
           const rowId = toolCallIdByProviderId.get(event.id)
           if (rowId) {
+            const cappedResult = truncateToolResultPayload(event.result)
+            if (cappedResult !== event.result) recordToolResultTruncation()
             const updated = updateToolCall(rowId, {
               status: event.status,
-              result: event.result,
+              result: cappedResult,
               ended: true,
             })
             emit(thread.id, {
@@ -593,7 +681,7 @@ async function runTurn(
               threadId: thread.id,
               id: rowId,
               status: event.status,
-              result: event.result,
+              result: cappedResult,
             })
             if (updated) {
               createLogEntry({
@@ -609,6 +697,44 @@ async function runTurn(
               }
             }
           }
+          return
+        }
+
+        // Sprint 1: negação nativa do CLI (sem modal) vira log + WS observável — sem tool_input/command.
+        if (event.type === 'permission-native-denial') {
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: event.message,
+          })
+          emit(thread.id, {
+            type: 'permission.native_denial',
+            threadId: thread.id,
+            toolName: event.toolName,
+            code: 'permission_native_denial',
+            message: event.message,
+            toolUseId: event.toolUseId,
+            decisionReasonType: event.decisionReasonType,
+          })
+          return
+        }
+
+        if (event.type === 'hook-started') {
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: `hook started: ${event.hookName} (${event.hookEvent})`,
+          })
+          return
+        }
+
+        if (event.type === 'hook-response') {
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: `hook response: ${event.hookName} (${event.outcome})`,
+          })
+          return
         }
       },
     }
@@ -687,15 +813,20 @@ async function runTurn(
       const message = err instanceof Error ? err.message : 'Erro desconhecido no turno.'
       const code = err instanceof ProviderError ? err.code : 'turn_failed'
       emit(thread.id, { type: 'error', threadId: thread.id, code, message })
+      // Crash mid-tool: não deixar Work log em "running" para sempre.
+      interruptRunningToolCalls(thread.id, 'interrupted')
     }
   } finally {
+    clearStoppingDeadline(thread.id)
     mcpsCleanup()
-    delegationServer?.close()
+    // Idempotente com cancelThread: deny/reject/close já podem ter rodado.
+    closeTurnServers(thread.id)
     // Libera um `POST /ask` ainda preso (turno cancelado/erro antes da resposta chegar) antes de
     // fechar o servidor — sem isso o `tools/call` do MCP filho ficaria pendurado (F21 §3.2).
     rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
+    delegationServer?.close()
     // Mesmo cuidado do `POST /ask`: nega permissão pendente antes de fechar o server, senão o
     // hook `PreToolUse` do CLI filho fica preso mesmo sem thread pra respondê-lo.
     denyPendingPermissionsForThread(thread.id)

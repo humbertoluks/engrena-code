@@ -1,0 +1,11 @@
+{
+  "type": "system",
+  "subtype": "permission_denied",
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_bg_bash_001",
+  "decision_reason_type": "mode",
+  "decision_reason": "Permission mode blocked tool without interactive approval",
+  "message": "Claude requested permissions to run a bash command, but you haven't granted it yet",
+  "uuid": "00000000-0000-4000-8000-000000000010",
+  "session_id": "sess_fixture_perm_bg_001"
+}

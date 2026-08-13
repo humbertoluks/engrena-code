@@ -5,7 +5,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
-import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
+import type { ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn as runMinimaxHttpTurn } from './minimax-driver.js'
 import { runHttpTurn as runGlmHttpTurn } from './glm-driver.js'
@@ -13,7 +13,18 @@ import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
 import { buildPtyEnv } from '../../terminal/pty-env.js'
-import { ensurePermissionHookScript } from '../permission-hook.js'
+import { ensurePermissionHookLauncher } from '../permission-hook.js'
+import {
+  HOOK_COMMAND_TIMEOUT_SEC,
+  INCLUDE_HOOK_EVENTS_FLAG,
+  shouldIncludeHookEvents,
+  SUPERVISED_PERMISSION_MODE,
+} from './permission-contract.js'
+import { permissionBrokerApplies } from '../permission-policy.js'
+import { parseStreamJsonLine } from './stream-json-parse.js'
+import { killProcessTree } from '../process-kill.js'
+import { appendStderrCapped } from '../buffer-cap.js'
+import { recordStderrBufBytes, recordTurnProcessCount } from '../../runtime-metrics.js'
 
 /** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
 function resolveUserData(): string {
@@ -138,13 +149,19 @@ function appendImageReferences(prompt: string, paths: string[]): string {
  * é ignorado. `'auto'` é a única combinação onde o hook (`--settings`, ver
  * `buildPermissionSettingsFile`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
  * decoração. `'default'` (valor antigo) nem é choice válido nesta versão do CLI.
+ *
+ * Com hook anexado, `auto-accept-edits` também vai de `'auto'`: sob `'acceptEdits'` o CLI nega
+ * Bash/MCP nativamente sem consultar ninguém, e o usuário não tem como aprovar (nem no modal nem
+ * por texto). A semântica do nível (edição livre, resto pergunta) passa a vir do broker
+ * (`permission-policy.ts`).
  */
 function permissionModeFlag(accessLevel: ThreadAccessLevel, hasPermissionHook: boolean): string {
   if (accessLevel === 'full-access') return 'bypassPermissions'
+  if (hasPermissionHook) return SUPERVISED_PERMISSION_MODE
   if (accessLevel === 'auto-accept-edits') return 'acceptEdits'
   // supervised sem hook disponível (provider sem suporte, broker não montado): sem gate real
   // possível, mas falha fechado — nunca vira 'auto' (permissivo) por omissão.
-  return hasPermissionHook ? 'auto' : 'manual'
+  return 'manual'
 }
 
 /** JSON `mcpServers` (spec §5.6) — schema oficial da Claude Code CLI (`--mcp-config`), assumido também para Codex/Kimi. */
@@ -166,25 +183,46 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
 }
 
 /**
- * `--settings` com hook `PreToolUse` (spec `PermissionBroker`) — só pra Claude em modo
- * `supervised`: `--permission-mode default` sozinho exige aprovação interativa via stdin, que
- * não existe no spawn headless (`-p`). O hook (`permission-hook.ts`) segura cada tool call até a
- * UI decidir, via `POST /permission` no `permission-broker.ts` do dispatch.
+ * `--settings` com hook `PreToolUse` (spec `PermissionBroker`) — pra Claude em qualquer nível
+ * exceto `full-access`: aprovação interativa via stdin não existe no spawn headless (`-p`), então
+ * o hook (`permission-hook.ts`) segura cada tool call até a UI decidir, via `POST /permission` no
+ * `permission-broker.ts` do dispatch. Quanto o nível auto-aprova sem UI é decisão de
+ * `permission-policy.ts`, não do modo do CLI.
  */
+/**
+ * Comando do hook PreToolUse. O CLI Claude pode spawnar o hook sem herdar
+ * `ELECTRON_RUN_AS_NODE` do processo pai — sem a var, `process.execPath` (binário Electron)
+ * abre UI em vez de interpretar o `.mjs`, o broker nunca recebe o POST e a tool cai em deny
+ * sem modal. A var vai no próprio comando; o env do spawn do Claude continua como rede de segurança.
+ */
+/**
+ * Comando do hook. No Windows o launcher é um `.cmd` (stdin preservado); no Unix prefixamos
+ * ELECTRON_RUN_AS_NODE no próprio comando. `cmd /c set VAR=1&& electron …` engolia o JSON do
+ * stdin em alguns hosts — o broker recebia `{}` e o modal virava tool "unknown".
+ */
+export function buildPermissionHookCommand(launcherPath: string, port: number, token: string): string {
+  const args = `--port ${port} --token ${token}`
+  if (process.platform === 'win32') {
+    return `${JSON.stringify(launcherPath)} ${args}`
+  }
+  const exe = JSON.stringify(process.execPath)
+  const script = JSON.stringify(launcherPath)
+  return `ELECTRON_RUN_AS_NODE=1 ${exe} ${script} ${args}`
+}
+
 function buildPermissionSettingsFile(port: number, token: string): string {
-  const hookScriptPath = ensurePermissionHookScript()
-  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScriptPath)} --port ${port} --token ${token}`
-  // `--settings` (formato de settings.json) exige o hooks aninhado sob "hooks" — confirmado ao
-  // vivo contra claude-code 2.1.226; sem esse wrapper o PreToolUse nunca dispara (a doc pública
-  // mostra a forma "direta" sem wrapper, mas essa versão instalada não aceita).
+  const launcherPath = ensurePermissionHookLauncher()
+  const command = buildPermissionHookCommand(launcherPath, port, token)
+  const hookEntry = {
+    matcher: '*',
+    hooks: [{ type: 'command', command, timeout: HOOK_COMMAND_TIMEOUT_SEC }],
+  }
+  // `--settings` exige hooks aninhados sob "hooks". PermissionRequest é o gate real do
+  // "haven't granted it yet" em headless — PreToolUse sozinho não basta (smoke Haiku 2026-08-12).
   const settings = {
     hooks: {
-      PreToolUse: [
-        {
-          matcher: '*',
-          hooks: [{ type: 'command', command, timeout: 600 }],
-        },
-      ],
+      PreToolUse: [hookEntry],
+      PermissionRequest: [hookEntry],
     },
   }
   const path = join(resolveTurnArtifactsDir(), `engrenacode-permission-settings-${randomUUID()}.json`)
@@ -212,79 +250,12 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
   if (input.alwaysAllowedTools && input.alwaysAllowedTools.length > 0) {
     args.push('--allowedTools', ...input.alwaysAllowedTools)
   }
-  if (permissionSettingsPath) args.push('--settings', permissionSettingsPath)
+  if (permissionSettingsPath) {
+    args.push('--settings', permissionSettingsPath)
+    // Visibilidade do lifecycle PreToolUse + permission_denied no stream (Sprint 1).
+    if (shouldIncludeHookEvents(true)) args.push(INCLUDE_HOOK_EVENTS_FLAG)
+  }
   return args
-}
-
-interface ContentBlock {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: unknown
-  tool_use_id?: string
-  content?: unknown
-  is_error?: boolean
-}
-
-function isErrorBlock(block: ContentBlock): boolean {
-  return block.is_error === true
-}
-
-/** Parseia uma linha stream-json (Claude Code CLI / SDK) e traduz para ProviderStreamEvent[]. */
-function parseLine(line: string): ProviderStreamEvent[] {
-  const trimmed = line.trim()
-  if (trimmed === '') return []
-
-  let payload: Record<string, unknown>
-  try {
-    payload = JSON.parse(trimmed) as Record<string, unknown>
-  } catch {
-    return []
-  }
-
-  const events: ProviderStreamEvent[] = []
-  const type = payload.type
-
-  if (type === 'stream_event') {
-    const event = payload.event as Record<string, unknown> | undefined
-    if (event?.type === 'content_block_delta') {
-      const delta = event.delta as Record<string, unknown> | undefined
-      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
-        events.push({ type: 'text-delta', text: delta.text })
-      }
-    }
-    return events
-  }
-
-  if (type === 'assistant') {
-    const message = payload.message as Record<string, unknown> | undefined
-    const content = (message?.content as ContentBlock[] | undefined) ?? []
-    for (const block of content) {
-      if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
-        events.push({ type: 'tool-start', id: block.id, name: block.name, params: block.input ?? null })
-      }
-    }
-    return events
-  }
-
-  if (type === 'user') {
-    const message = payload.message as Record<string, unknown> | undefined
-    const content = (message?.content as ContentBlock[] | undefined) ?? []
-    for (const block of content) {
-      if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-        events.push({
-          type: 'tool-result',
-          id: block.tool_use_id,
-          status: isErrorBlock(block) ? 'error' : 'completed',
-          result: block.content ?? null,
-        })
-      }
-    }
-    return events
-  }
-
-  return events
 }
 
 function extractFinalText(payload: Record<string, unknown>): string | null {
@@ -338,7 +309,10 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
   const permissionSettingsPath =
-    input.provider === 'claude' && input.accessLevel === 'supervised' && input.permissionPort !== undefined && input.permissionToken
+    input.provider === 'claude' &&
+    permissionBrokerApplies(input.accessLevel) &&
+    input.permissionPort !== undefined &&
+    input.permissionToken
       ? buildPermissionSettingsFile(input.permissionPort, input.permissionToken)
       : undefined
   const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
@@ -377,13 +351,36 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       let resultUsage: ProviderUsage | undefined
       let resultCostUsd: number | null | undefined
       let resultSessionId: string | null = null
+      recordTurnProcessCount(typeof child.pid === 'number' ? 1 : 0)
 
-      input.signal?.addEventListener('abort', () => {
+      const abortTree = (): void => {
+        const pid = child.pid
+        if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) {
+          // Windows: taskkill /T; POSIX: group or walk children — never kill by process name.
+          killProcessTree({ pid })
+          return
+        }
         child.kill()
-      })
+      }
+      if (input.signal?.aborted) {
+        abortTree()
+      } else {
+        input.signal?.addEventListener('abort', abortTree, { once: true })
+      }
 
       rl.on('line', (line) => {
-        for (const event of parseLine(line)) input.onEvent(event)
+        // try/catch próprio: um throw aqui subiria pelo handler do readline e derrubaria o turno.
+        // Separado do try abaixo de propósito — lá o catch significa "linha não é JSON de nível
+        // superior"; fundir os dois perderia o sinal de falha real de parse/dispatch.
+        try {
+          for (const event of parseStreamJsonLine(line)) input.onEvent(event)
+        } catch (err) {
+          // Nunca logar a linha crua (pode conter command/secrets do tool_input).
+          console.error(
+            '[cli-driver] Falha ao parsear/despachar linha stream-json:',
+            sanitizeProcessError(err instanceof Error ? err.message : String(err))
+          )
+        }
 
         try {
           const payload = JSON.parse(line.trim()) as Record<string, unknown>
@@ -410,7 +407,8 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
 
       child.stderr.on('data', (chunk) => {
-        stderrBuf += chunk.toString()
+        stderrBuf = appendStderrCapped(stderrBuf, chunk.toString())
+        recordStderrBufBytes(Buffer.byteLength(stderrBuf, 'utf8'))
       })
 
       child.on('error', (err) => {

@@ -10,12 +10,13 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
-const { createThread, getThread } = await import('../db/repositories/threads.js')
+const { createThread, getThread, updateThread } = await import('../db/repositories/threads.js')
 const { createToolCall, appendMessage } = await import('../db/repositories/messages.js')
 const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
   '../runner/ask-user-question.js'
 )
-const { createPermissionServer, hasPendingPermission } = await import('../runner/permission-broker.js')
+const { createPermissionServer, hasPendingPermission, listPendingPermissions, resolvePermissionRequest } =
+  await import('../runner/permission-broker.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
 const {
@@ -548,6 +549,72 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('permission endpoint returns 409 thread_mismatch for a requestId of another thread', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    // Thread vizinha (turno trivial) — só para ter um :id diferente no path.
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+    const otherReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'outra', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const otherRes = fakeRes()
+    await handleThreadsRequest(otherReq, otherRes)
+    const other = (await otherRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(other.thread.id)?.state === 'idle')
+
+    let capturedAllow: boolean | undefined
+    setRunCliTurnForTesting(async (input) => {
+      const permRes = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.txt' } }),
+      })
+      capturedAllow = ((await permRes.json()) as { allow: boolean }).allow
+      return { text: 'ok' }
+    })
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const owner = (await createRes.result()).body as { thread: { id: string } }
+
+    await waitFor(() => listPendingPermissions(owner.thread.id).length === 1)
+    const requestId = listPendingPermissions(owner.thread.id)[0].requestId
+
+    // requestId da thread dona chegando pelo path da vizinha: não resolve.
+    const wrongReq = fakeReq(
+      'POST',
+      `/api/threads/${other.thread.id}/permission`,
+      { requestId, allow: true },
+      session
+    )
+    const wrongRes = fakeRes()
+    await handleThreadsRequest(wrongReq, wrongRes)
+    const wrong = await wrongRes.result()
+    expect(wrong.status).toBe(409)
+    expect((wrong.body as { error: { code: string } }).error.code).toBe('permission_thread_mismatch')
+    expect(listPendingPermissions(owner.thread.id)).toHaveLength(1)
+
+    // A thread dona continua conseguindo resolver depois da tentativa cruzada.
+    const rightReq = fakeReq('POST', `/api/threads/${owner.thread.id}/permission`, { requestId, allow: true }, session)
+    const rightRes = fakeRes()
+    await handleThreadsRequest(rightReq, rightRes)
+    expect((await rightRes.result()).status).toBe(200)
+
+    await waitFor(() => getThread(owner.thread.id)?.state === 'idle')
+    expect(capturedAllow).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('accepts a pending diff via POST /api/threads/:id/accept and moves the thread to committed', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
@@ -823,7 +890,47 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
 
-    it('upgrade from supervised allows pending PreToolUse permissions', async () => {
+    it('upgrade to auto-accept-edits allows a pending Write and keeps a pending Bash no modal', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'running',
+      })
+
+      const server = await createPermissionServer(thread.id, () => {})
+      const ask = (toolName: string, toolInput: unknown): Promise<Response> =>
+        fetch(`http://127.0.0.1:${server.port}/permission`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+          body: JSON.stringify({ toolName, toolInput }),
+        })
+
+      const writeFetch = ask('Write', { file_path: 'a.txt' })
+      const bashFetch = ask('Bash', { command: 'echo hi' })
+      await waitFor(() => listPendingPermissions(thread.id).length === 2)
+
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      expect((await res.result()).status).toBe(200)
+
+      expect(((await (await writeFetch).json()) as { allow: boolean }).allow).toBe(true)
+      const stillPending = listPendingPermissions(thread.id)
+      expect(stillPending).toHaveLength(1)
+      expect(stillPending[0].toolName).toBe('Bash')
+
+      resolvePermissionRequest(thread.id, stillPending[0].requestId, true)
+      expect(((await (await bashFetch).json()) as { allow: boolean }).allow).toBe(true)
+
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('upgrade to full-access allows every pending permission', async () => {
       const dir = makeProjectDir()
       const project = createProject({ path: dir })
       const thread = createThread({
@@ -842,7 +949,7 @@ describe('handleThreadsRequest', () => {
       })
       await waitFor(() => hasPendingPermission(thread.id))
 
-      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'full-access' }, session)
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       expect((await res.result()).status).toBe(200)
@@ -852,6 +959,117 @@ describe('handleThreadsRequest', () => {
       expect(hasPendingPermission(thread.id)).toBe(false)
 
       server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
+  describe('GET /api/threads/:id/permissions (Sprint 2)', () => {
+    it('returns the pending permission snapshot and claims the route', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_permission',
+      })
+
+      const seen: Array<{ requestId: string; toolName: string }> = []
+      const server = await createPermissionServer(thread.id, (info) => seen.push(info))
+      const pendingFetch = fetch(`http://127.0.0.1:${server.port}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.ts' } }),
+      })
+      await waitFor(() => hasPendingPermission(thread.id))
+
+      const claimed = await handleThreadsRequest(
+        fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, session),
+        fakeRes()
+      )
+      expect(claimed).toBe(true)
+
+      const req = fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      const permissions = (body as { permissions: Array<{ requestId: string; toolName: string; params: unknown }> })
+        .permissions
+      expect(permissions).toHaveLength(1)
+      expect(permissions[0].requestId).toBe(seen[0].requestId)
+      expect(permissions[0].toolName).toBe('Write')
+      expect(permissions[0].params).toEqual({ file_path: 'x.ts' })
+      expect(listPendingPermissions(thread.id)).toHaveLength(1)
+
+      // limpa para o fetch do hook não ficar pendurado no afterEach
+      const { resolvePermissionRequest } = await import('../runner/permission-broker.js')
+      resolvePermissionRequest(thread.id, seen[0].requestId, false)
+      await pendingFetch
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 404 for an unknown thread', async () => {
+      const req = fakeReq('GET', '/api/threads/thr_missing/permissions', undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(404)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+    })
+
+    it('rejects unauthorized requests with 401 unauthorized (vault unlocked, bad session)', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_permission',
+      })
+
+      const req = fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, 'invalid-token')
+      const res = fakeRes()
+      const claimed = await handleThreadsRequest(req, res)
+      expect(claimed).toBe(true)
+      const { status, body } = await res.result()
+      expect(status).toBe(401)
+      expect((body as { error: { code: string } }).error.code).toBe('unauthorized')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 423 vault_locked before 401 when the vault is locked', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_permission',
+      })
+      vaultService.lock()
+
+      // token válido de antes do lock → o guarda ainda responde 423
+      const req = fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
+      const req2 = fakeReq('GET', `/api/threads/${thread.id}/permissions`, undefined, 'invalid-token')
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(423)
+      expect((second.body as { error: { code: string } }).error.code).toBe('vault_locked')
+
       rmSync(dir, { recursive: true, force: true })
     })
   })
@@ -1538,6 +1756,66 @@ describe('F28 Onda 2 — busca, renomear, exportar e voto', () => {
     const bad = fakeRes()
     await handleThreadsRequest(fakeReq('GET', `/api/threads/${thread.id}/export?format=pdf`, undefined, session), bad)
     expect((await bad.result()).status).toBe(400)
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
+
+  it('GET /threads/:id/export funciona em running, waiting_permission e cancelled com settlement', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'Export mid-turn',
+    })
+    appendMessage({ threadId: thread.id, role: 'user', content: 'faz algo', blocks: null })
+    createToolCall({
+      threadId: thread.id,
+      name: 'Write',
+      params: { path: 'a.ts' },
+      status: 'running',
+    })
+
+    updateThread(thread.id, { state: 'running' })
+    const running = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=md`, undefined, session),
+      running
+    )
+    const runningResult = await running.result()
+    const runningBody = runningResult.body as { content: string }
+    expect(runningResult.status).toBe(200)
+    expect(runningBody.content).toContain('Estado: running')
+    expect(runningBody.content).toContain('`Write` — running')
+
+    updateThread(thread.id, { state: 'waiting_permission' })
+    const waiting = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=json`, undefined, session),
+      waiting
+    )
+    const waitingBody = (await waiting.result()).body as { content: string; format: string; fileName: string }
+    expect(waitingBody.format).toBe('json')
+    expect(waitingBody.fileName.endsWith('.json')).toBe(true)
+    const waitingParsed = JSON.parse(waitingBody.content) as {
+      thread: { state: string }
+      toolCalls: Array<{ status: string }>
+    }
+    expect(waitingParsed.thread.state).toBe('waiting_permission')
+    expect(waitingParsed.toolCalls[0]?.status).toBe('running')
+
+    updateThread(thread.id, { state: 'cancelled' })
+    const cancelled = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=md`, undefined, session),
+      cancelled
+    )
+    const cancelledBody = (await cancelled.result()).body as { content: string }
+    expect(cancelledBody.content).toContain('Estado: cancelled')
+    expect(cancelledBody.content).toContain('`Write` — cancelled')
+    expect(cancelledBody.content).not.toContain('`Write` — running')
 
     rmSync(dir, { recursive: true, force: true })
   }), 20000

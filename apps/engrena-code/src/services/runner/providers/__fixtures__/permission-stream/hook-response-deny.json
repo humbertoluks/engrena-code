@@ -1,0 +1,14 @@
+{
+  "type": "system",
+  "subtype": "hook_response",
+  "hook_id": "hook_pre_write_deny_001",
+  "hook_name": "PreToolUse:Write",
+  "hook_event": "PreToolUse",
+  "output": "",
+  "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Usuário negou a permissão.\"}}",
+  "stderr": "",
+  "exit_code": 0,
+  "outcome": "success",
+  "uuid": "00000000-0000-4000-8000-000000000003",
+  "session_id": "sess_fixture_perm_001"
+}

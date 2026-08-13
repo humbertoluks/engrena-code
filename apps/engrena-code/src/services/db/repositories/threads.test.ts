@@ -64,6 +64,22 @@ describe('recoverRunningThreads', () => {
     expect(recovered.map((t) => t.id)).toEqual([waiting.id])
     expect(getThread(waiting.id)?.state).toBe('error')
   })
+
+  it('moves waiting_permission threads to error and returns them (Sprint 2)', () => {
+    const project = createProject({ path: makeProjectDir('project-waiting-permission') })
+    const waiting = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'waiting_permission',
+    })
+
+    const recovered = recoverRunningThreads()
+
+    expect(recovered.map((t) => t.id)).toEqual([waiting.id])
+    expect(getThread(waiting.id)?.state).toBe('error')
+  })
 })
 
 describe('setThreadState', () => {
@@ -75,6 +91,22 @@ describe('setThreadState', () => {
 
     expect(updated?.state).toBe('waiting_user')
     expect(getThread(thread.id)?.state).toBe('waiting_user')
+  })
+
+  it('accepts waiting_permission as a valid state (Sprint 2)', () => {
+    const project = createProject({ path: makeProjectDir('project-set-waiting-permission') })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'idle',
+    })
+
+    const updated = setThreadState(thread.id, 'waiting_permission')
+
+    expect(updated?.state).toBe('waiting_permission')
+    expect(getThread(thread.id)?.state).toBe('waiting_permission')
   })
 })
 

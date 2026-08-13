@@ -1,0 +1,9 @@
+{
+  "type": "system",
+  "subtype": "hook_started",
+  "hook_id": "hook_pre_bash_simple_001",
+  "hook_name": "PreToolUse:Bash",
+  "hook_event": "PreToolUse",
+  "uuid": "00000000-0000-4000-8000-000000000001",
+  "session_id": "sess_fixture_perm_001"
+}

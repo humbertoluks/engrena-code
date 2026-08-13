@@ -9,6 +9,16 @@ export type StreamEvent =
   | { type: 'error'; threadId: string; code: string; message: string }
   | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
   | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
+  /** Negação nativa do Claude CLI (sem modal EngrenaCode) — metadata only, sem tool_input. */
+  | {
+      type: 'permission.native_denial'
+      threadId: string
+      toolName: string
+      code: 'permission_native_denial'
+      message: string
+      toolUseId?: string
+      decisionReasonType?: string | null
+    }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }
   | { type: 'memory.entry'; threadId: string; projectId: string }

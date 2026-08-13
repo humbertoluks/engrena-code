@@ -4,6 +4,8 @@
 
 const activeControllers = new Map<string, AbortController>()
 const cancelledThreads = new Set<string>()
+/** Fecha permission/ask/delegation/memory servers do turno — registrado em `runTurn`. */
+const turnServerClosers = new Map<string, () => void>()
 
 export function registerActiveController(threadId: string, controller: AbortController): void {
   activeControllers.set(threadId, controller)
@@ -15,6 +17,22 @@ export function unregisterActiveController(threadId: string): void {
 
 export function getActiveController(threadId: string): AbortController | undefined {
   return activeControllers.get(threadId)
+}
+
+export function registerTurnServerClosers(threadId: string, close: () => void): void {
+  turnServerClosers.set(threadId, close)
+}
+
+/** Fecha servers do turno (idempotente). Chamado no cancel *antes* do abort e de novo no finally. */
+export function closeTurnServers(threadId: string): void {
+  const close = turnServerClosers.get(threadId)
+  if (!close) return
+  turnServerClosers.delete(threadId)
+  try {
+    close()
+  } catch {
+    // best-effort — processo pode já ter morrido
+  }
 }
 
 export function markThreadCancelled(threadId: string): void {

@@ -8,7 +8,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
 const { createThread } = await import('./threads.js')
-const { appendMessage, createToolCall, listMessagesForThread, listToolCallsForThread, updateToolCall } =
+const { appendMessage, cancelRunningToolCallsForThread, createToolCall, listMessagesForThread, listToolCallsForThread, updateToolCall } =
   await import('./messages.js')
 
 let threadId: string
@@ -116,5 +116,32 @@ describe('listToolCallsForThread', () => {
 
     const calls = listToolCallsForThread(threadId)
     expect(calls.map((c) => c.id)).toEqual([a.id, b.id])
+  })
+})
+
+describe('cancelRunningToolCallsForThread', () => {
+  it('marks only running tool calls as cancelled and stamps endedAt', () => {
+    const running = createToolCall({ threadId, name: 'Bash' })
+    const done = createToolCall({ threadId, name: 'Read', status: 'completed' })
+    updateToolCall(done.id, { status: 'completed', ended: true })
+
+    const updated = cancelRunningToolCallsForThread(threadId, 'cancelled')
+    expect(updated).toHaveLength(1)
+    expect(updated[0]?.id).toBe(running.id)
+    expect(updated[0]?.status).toBe('cancelled')
+    expect(updated[0]?.endedAt).not.toBeNull()
+
+    const all = listToolCallsForThread(threadId)
+    expect(all.find((c) => c.id === done.id)?.status).toBe('completed')
+  })
+
+  it('can mark in-flight tools as interrupted (error path)', () => {
+    createToolCall({ threadId, name: 'Write' })
+    const updated = cancelRunningToolCallsForThread(threadId, 'interrupted')
+    expect(updated[0]?.status).toBe('interrupted')
+  })
+
+  it('returns empty when nothing is running', () => {
+    expect(cancelRunningToolCallsForThread(threadId)).toEqual([])
   })
 })

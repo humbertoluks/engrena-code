@@ -191,3 +191,20 @@ export function listToolCallsForThread(threadId: string): ToolCall[] {
     .all(threadId) as unknown as ToolCallRow[]
   return rows.map(toToolCall)
 }
+
+/**
+ * Assenta tool calls ainda `running` (cancel/interrupt do turno).
+ * Retorna as linhas atualizadas para o caller emitir WS/`tool_call.result`.
+ */
+export function cancelRunningToolCallsForThread(
+  threadId: string,
+  status: 'cancelled' | 'interrupted' = 'cancelled'
+): ToolCall[] {
+  const running = listToolCallsForThread(threadId).filter((tc) => tc.status === 'running')
+  const updated: ToolCall[] = []
+  for (const tc of running) {
+    const row = updateToolCall(tc.id, { status, ended: true })
+    if (row) updated.push(row)
+  }
+  return updated
+}

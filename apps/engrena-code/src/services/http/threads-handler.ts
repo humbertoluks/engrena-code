@@ -28,12 +28,22 @@ import {
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
 import { isValidPromptName } from '../prompts/prompt-spec.js'
-import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from '../threads/thread-export.js'
+import {
+  buildExportSnapshot,
+  exportFileName,
+  exportThreadAsJson,
+  exportThreadAsMarkdown,
+} from '../threads/thread-export.js'
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
-import { resolvePermissionRequest, allowPendingPermissionsForThread, clearAllowedToolsForThread } from '../runner/permission-broker.js'
+import {
+  resolvePermissionRequest,
+  allowPendingPermissionsForThread,
+  clearAllowedToolsForThread,
+  listPendingPermissions,
+} from '../runner/permission-broker.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -308,7 +318,11 @@ async function handleRenameThread(req: IncomingMessage, res: ServerResponse, thr
   sendJson(res, 200, { thread: updated })
 }
 
-/** Exporta a conversa em markdown (leitura) ou json (histórico cru). */
+/**
+ * Exporta a conversa em markdown (leitura) ou json (histórico cru).
+ * Permitido em qualquer estado (running / waiting_permission / cancelled / idle / …):
+ * o snapshot usa o histórico persistido; buildExportSnapshot assenta tools órfãs em cancelled.
+ */
 function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
@@ -318,11 +332,11 @@ function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId:
     return sendError(res, 400, 'validation_error', 'format deve ser md ou json.')
   }
 
-  const input = {
+  const input = buildExportSnapshot({
     thread,
     messages: listMessagesForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
-  }
+  })
   sendJson(res, 200, {
     fileName: exportFileName(thread, format),
     format,
@@ -339,7 +353,12 @@ function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId:
 async function handleFollowups(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
-  if (thread.state === 'running' || thread.state === 'stopping' || thread.state === 'waiting_user') {
+  if (
+    thread.state === 'running' ||
+    thread.state === 'stopping' ||
+    thread.state === 'waiting_user' ||
+    thread.state === 'waiting_permission'
+  ) {
     return sendJson(res, 200, { followups: [], messageId: null })
   }
 
@@ -465,8 +484,16 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
   }
 
   const scope = data.scope === 'project' ? 'project' : 'thread'
-  const resolved = resolvePermissionRequest(data.requestId, data.allow, data.always === true, scope)
+  const resolved = resolvePermissionRequest(threadId, data.requestId, data.allow, data.always === true, scope)
   if (!resolved.ok) {
+    if (resolved.code === 'thread_mismatch') {
+      return sendError(
+        res,
+        409,
+        'permission_thread_mismatch',
+        'Esta permissão pertence a outra thread e continua pendente lá.'
+      )
+    }
     return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
   }
 
@@ -477,6 +504,13 @@ async function handlePermission(req: IncomingMessage, res: ServerResponse, threa
     allow: data.allow,
   })
   sendJson(res, 200, { resolved: true, always: data.always === true, toolName: resolved.toolName })
+}
+
+/** GET /api/threads/:id/permissions — snapshot para reconnect / fila vazia com modal perdido. */
+function handleListPermissions(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  sendJson(res, 200, { permissions: listPendingPermissions(threadId) })
 }
 
 interface PatchThreadBody {
@@ -504,8 +538,10 @@ async function handlePatchThread(req: IncomingMessage, res: ServerResponse, thre
   const updated = updateThread(threadId, { accessLevel: nextAccess })
   if (updated === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
 
-  if (previousAccess === 'supervised' && nextAccess !== 'supervised') {
-    const allowedIds = allowPendingPermissionsForThread(threadId)
+  // Trocar o nível mid-turn libera o que o novo nível auto-aprova (edição em auto-accept-edits,
+  // tudo em full-access); o resto continua no modal em vez de passar em silêncio.
+  if (nextAccess !== previousAccess) {
+    const allowedIds = allowPendingPermissionsForThread(threadId, nextAccess)
     for (const requestId of allowedIds) {
       emit(threadId, { type: 'permission.resolved', threadId, requestId, allow: true })
     }
@@ -688,6 +724,7 @@ const HISTORY_RE = /^\/api\/threads\/([^/]+)\/history$/
 const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
+const PERMISSIONS_LIST_RE = /^\/api\/threads\/([^/]+)\/permissions$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
 const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
 const RESOLVE_CONFLICT_RE = /^\/api\/threads\/([^/]+)\/diffs\/([^/]+)\/resolve-conflict$/
@@ -709,6 +746,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     DIFFS_RE.test(url) ||
     CANCEL_RE.test(url) ||
     PERMISSION_RE.test(url) ||
+    PERMISSIONS_LIST_RE.test(url) ||
     ACCEPT_RE.test(url) ||
     ANSWER_RE.test(url) ||
     RESOLVE_CONFLICT_RE.test(url) ||
@@ -799,6 +837,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const permissionMatch = PERMISSION_RE.exec(url)
     if (permissionMatch && method === 'POST') {
       await handlePermission(req, res, permissionMatch[1])
+      return true
+    }
+
+    const permissionsListMatch = PERMISSIONS_LIST_RE.exec(url)
+    if (permissionsListMatch && method === 'GET') {
+      handleListPermissions(req, res, permissionsListMatch[1])
       return true
     }
 

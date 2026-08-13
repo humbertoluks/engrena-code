@@ -6,6 +6,27 @@ export type ProviderStreamEvent =
   | { type: 'tool-start'; id: string; name: string; params: unknown }
   | { type: 'tool-result'; id: string; status: 'completed' | 'error'; result: unknown }
   | { type: 'permission-request'; id: string; toolName: string; params: unknown }
+  /** Lifecycle do hook (`--include-hook-events`): metadata only, sem stdout do hook. */
+  | { type: 'hook-started'; hookId: string; hookEvent: string; hookName: string }
+  | {
+      type: 'hook-response'
+      hookId: string
+      hookEvent: string
+      hookName: string
+      outcome: 'success' | 'error' | 'cancelled'
+      exitCode: number | null
+    }
+  /**
+   * Negação da aprovação nativa do Claude CLI (sem modal EngrenaCode).
+   * Metadata only — nunca inclui command/tool_input (risco de segredo).
+   */
+  | {
+      type: 'permission-native-denial'
+      toolName: string
+      toolUseId?: string
+      decisionReasonType: string | null
+      message: string
+    }
 
 export interface PermissionDecision {
   allow: boolean

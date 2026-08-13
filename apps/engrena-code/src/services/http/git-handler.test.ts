@@ -252,6 +252,40 @@ describe('handleGitRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('rejects git-commit/push/pr with 409 thread_busy when thread.state is waiting_permission (F14 §3.2)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'waiting_permission' })
+
+    for (const path of ['git-commit', 'git-push', 'pr']) {
+      const req = fakeReq('POST', `/api/threads/${thread.id}/${path}`, path === 'git-commit' ? { subject: 'x' } : {}, session)
+      const res = fakeRes()
+      await handleGitRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_busy')
+    }
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejects git-commit/push/pr with 409 thread_busy when thread.state is stopping (F14 §3.2)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'stopping' })
+
+    for (const path of ['git-commit', 'git-push', 'pr']) {
+      const req = fakeReq('POST', `/api/threads/${thread.id}/${path}`, path === 'git-commit' ? { subject: 'x' } : {}, session)
+      const res = fakeRes()
+      await handleGitRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_busy')
+    }
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('pr without a configured GitHub token returns 400 github_token_missing', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

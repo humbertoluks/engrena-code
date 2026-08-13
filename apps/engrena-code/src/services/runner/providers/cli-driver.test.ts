@@ -3,11 +3,28 @@ import { EventEmitter } from 'events'
 import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ProviderError, resetSpawnForTesting, runCliTurn, setSpawnForTesting } from './cli-driver'
+import {
+  ProviderError,
+  buildPermissionHookCommand,
+  resetSpawnForTesting,
+  runCliTurn,
+  setSpawnForTesting,
+} from './cli-driver'
 import { resetFetchForTesting, setFetchForTesting } from './minimax-driver'
 import { resetFetchForTesting as resetGlmFetch, setFetchForTesting as setGlmFetch } from './glm-driver'
 import { resetFetchForTesting as resetGrokFetch, setFetchForTesting as setGrokFetch } from './grok-driver'
-import type { ProviderTurnInput } from './provider-types'
+import type { ProviderStreamEvent, ProviderTurnInput } from './provider-types'
+import {
+  HOOK_COMMAND_TIMEOUT_SEC,
+  INCLUDE_HOOK_EVENTS_FLAG,
+  checkSupervisedPermissionArgs,
+  validatePermissionSettingsShape,
+} from './permission-contract.js'
+import {
+  resetKillProcessTreeForTesting,
+  setKillProcessTreeForTesting,
+  type KillProcessTreeOptions,
+} from '../process-kill.js'
 
 type SpawnFn = Parameters<typeof setSpawnForTesting>[0]
 
@@ -19,6 +36,7 @@ class FakeChild extends EventEmitter {
   stdout = new PassThrough()
   stderr = new PassThrough()
   killed = false
+  pid: number | undefined
   kill(): void {
     this.killed = true
   }
@@ -48,6 +66,7 @@ afterEach(() => {
   resetFetchForTesting()
   resetGlmFetch()
   resetGrokFetch()
+  resetKillProcessTreeForTesting()
 })
 
 describe('runCliTurn — cli providers', () => {
@@ -287,7 +306,7 @@ describe('runCliTurn — cli providers', () => {
   })
 
   describe('PermissionBroker (supervised) — --settings do hook PreToolUse', () => {
-    it('writes a --settings file with a PreToolUse hook pointing at the permission-hook script, and sets ELECTRON_RUN_AS_NODE', async () => {
+    it('writes a --settings file with PreToolUse + PermissionRequest hooks and sets ELECTRON_RUN_AS_NODE', async () => {
       let capturedArgs: string[] = []
       let capturedEnv: Record<string, string | undefined> | undefined
       let writtenAtSpawnTime: string | undefined
@@ -311,10 +330,18 @@ describe('runCliTurn — cli providers', () => {
       expect(existsSync(settingsPath)).toBe(false)
 
       const written = JSON.parse(writtenAtSpawnTime as string)
-      const hookEntry = written.hooks.PreToolUse[0].hooks[0]
-      expect(hookEntry.type).toBe('command')
-      expect(hookEntry.command).toContain('--port 4321')
-      expect(hookEntry.command).toContain('--token perm-token-abc')
+      const preTool = written.hooks.PreToolUse[0].hooks[0]
+      const permReq = written.hooks.PermissionRequest[0].hooks[0]
+      expect(preTool.type).toBe('command')
+      expect(permReq.type).toBe('command')
+      expect(preTool.command).toContain('--port 4321')
+      expect(preTool.command).toContain('--token perm-token-abc')
+      expect(permReq.command).toBe(preTool.command)
+      if (process.platform === 'win32') {
+        expect(preTool.command).toContain('permission-hook.cmd')
+      } else {
+        expect(preTool.command).toContain('ELECTRON_RUN_AS_NODE=1')
+      }
       expect(capturedEnv?.ELECTRON_RUN_AS_NODE).toBe('1')
 
       // 'auto' é a única combinação onde o hook tem autoridade real (confirmado ao vivo contra
@@ -322,6 +349,92 @@ describe('runCliTurn — cli providers', () => {
       // antes do hook ser consultado, mesmo com permissionDecision:"allow" no stdout.
       const modeIdx = capturedArgs.indexOf('--permission-mode')
       expect(capturedArgs[modeIdx + 1]).toBe('auto')
+      expect(capturedArgs).toContain(INCLUDE_HOOK_EVENTS_FLAG)
+      expect(checkSupervisedPermissionArgs(capturedArgs).ok).toBe(true)
+      expect(preTool.timeout).toBe(HOOK_COMMAND_TIMEOUT_SEC)
+      expect(validatePermissionSettingsShape(written).ok).toBe(true)
+    })
+
+    it('omits --include-hook-events when supervised has no permission settings', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput())
+      expect(capturedArgs).not.toContain(INCLUDE_HOOK_EVENTS_FLAG)
+      expect(capturedArgs).not.toContain('--settings')
+    })
+
+    it('forwards hook lifecycle and permission-native-denial events from stream-json lines', async () => {
+      const seen: ProviderStreamEvent[] = []
+      const fakeSpawn: SpawnFn = (() => {
+        const child = new FakeChild()
+        child.stdout.write(
+          `${JSON.stringify({
+            type: 'system',
+            subtype: 'hook_started',
+            hook_id: 'h1',
+            hook_name: 'PreToolUse:Bash',
+            hook_event: 'PreToolUse',
+          })}\n`
+        )
+        child.stdout.write(
+          `${JSON.stringify({
+            type: 'system',
+            subtype: 'permission_denied',
+            tool_name: 'Bash',
+            tool_use_id: 'toolu_1',
+            decision_reason_type: 'mode',
+          })}\n`
+        )
+        child.stdout.write(
+          `${JSON.stringify({
+            type: 'result',
+            result: 'ok',
+            is_error: false,
+            permission_denials: [
+              { tool_name: 'Bash', tool_use_id: 'toolu_1', tool_input: { command: 'sleep 99' } },
+            ],
+          })}\n`
+        )
+        queueMicrotask(() => {
+          child.stdout.end()
+          child.emit('close', 0)
+        })
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(
+        baseInput({
+          permissionPort: 4321,
+          permissionToken: 'perm-token-abc',
+          onEvent: (event) => seen.push(event),
+        })
+      )
+
+      expect(seen.some((e) => e.type === 'hook-started' && e.hookEvent === 'PreToolUse')).toBe(true)
+      const denials = seen.filter((e) => e.type === 'permission-native-denial')
+      expect(denials.length).toBeGreaterThanOrEqual(2)
+      expect(JSON.stringify(denials)).not.toContain('sleep 99')
+    })
+
+    it('buildPermissionHookCommand embeds port/token (and ELECTRON_RUN_AS_NODE off Windows)', () => {
+      const launcher = process.platform === 'win32' ? 'C:\\tmp\\permission-hook.cmd' : '/tmp/permission-hook.mjs'
+      const cmd = buildPermissionHookCommand(launcher, 9, 'tok')
+      expect(cmd).toContain('--port 9')
+      expect(cmd).toContain('--token tok')
+      if (process.platform === 'win32') {
+        expect(cmd).toContain('permission-hook.cmd')
+        expect(cmd).not.toContain('cmd /c set ELECTRON_RUN_AS_NODE')
+      } else {
+        expect(cmd).toContain('ELECTRON_RUN_AS_NODE=1')
+      }
     })
 
     it('falls back to --permission-mode manual (fail-closed, no --settings) when supervised has no hook to attach', async () => {
@@ -341,7 +454,7 @@ describe('runCliTurn — cli providers', () => {
       expect(capturedArgs.indexOf('--settings')).toBe(-1)
     })
 
-    it('omits --settings when accessLevel is not supervised, even with permissionPort/Token set', async () => {
+    it('attaches the hook in auto-accept-edits too (--permission-mode auto), porque acceptEdits nega Bash/MCP sem modal', async () => {
       let capturedArgs: string[] = []
       let capturedEnv: Record<string, string | undefined> | undefined
       const fakeSpawn: SpawnFn = ((_bin: string, args: string[], opts: unknown) => {
@@ -357,7 +470,49 @@ describe('runCliTurn — cli providers', () => {
         baseInput({ accessLevel: 'auto-accept-edits', permissionPort: 4321, permissionToken: 'perm-token-abc' })
       )
 
+      expect(capturedArgs.indexOf('--settings')).toBeGreaterThan(-1)
+      const modeIdx = capturedArgs.indexOf('--permission-mode')
+      expect(capturedArgs[modeIdx + 1]).toBe('auto')
+      expect(capturedArgs).toContain(INCLUDE_HOOK_EVENTS_FLAG)
+      expect(capturedEnv?.ELECTRON_RUN_AS_NODE).toBe('1')
+    })
+
+    it('keeps --permission-mode acceptEdits (no --settings) when auto-accept-edits has no broker', async () => {
+      let capturedArgs: string[] = []
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        capturedArgs = args
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(baseInput({ accessLevel: 'auto-accept-edits' }))
+
+      const modeIdx = capturedArgs.indexOf('--permission-mode')
+      expect(capturedArgs[modeIdx + 1]).toBe('acceptEdits')
       expect(capturedArgs.indexOf('--settings')).toBe(-1)
+    })
+
+    it('omits --settings in full-access (bypassPermissions), even with permissionPort/Token set', async () => {
+      let capturedArgs: string[] = []
+      let capturedEnv: Record<string, string | undefined> | undefined
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[], opts: unknown) => {
+        capturedArgs = args
+        capturedEnv = (opts as { env?: Record<string, string | undefined> }).env
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      await runCliTurn(
+        baseInput({ accessLevel: 'full-access', permissionPort: 4321, permissionToken: 'perm-token-abc' })
+      )
+
+      expect(capturedArgs.indexOf('--settings')).toBe(-1)
+      const modeIdx = capturedArgs.indexOf('--permission-mode')
+      expect(capturedArgs[modeIdx + 1]).toBe('bypassPermissions')
       expect(capturedEnv?.ELECTRON_RUN_AS_NODE).toBeUndefined()
     })
 
@@ -616,3 +771,72 @@ describe('runCliTurn — glm/grok (http providers, F23)', () => {
     expect(spawnCalled).toBe(false)
   })
 })
+
+describe('runCliTurn — abort kills process tree', () => {
+  it('calls killProcessTree with the child pid on abort', async () => {
+    const killed: KillProcessTreeOptions[] = []
+    setKillProcessTreeForTesting((opts) => {
+      killed.push(opts)
+    })
+
+    const child = new FakeChild()
+    child.pid = 55_001
+    setSpawnForTesting((() => child as unknown as ReturnType<SpawnFn>) as SpawnFn)
+
+    const controller = new AbortController()
+    const turnPromise = runCliTurn(baseInput({ signal: controller.signal }))
+
+    await new Promise((r) => setTimeout(r, 10))
+    controller.abort()
+    child.emit('close', 1)
+
+    await expect(turnPromise).rejects.toBeInstanceOf(ProviderError)
+    expect(killed).toEqual([{ pid: 55_001 }])
+    expect(child.killed).toBe(false)
+  })
+
+  it('falls back to child.kill when pid is missing', async () => {
+    const killed: KillProcessTreeOptions[] = []
+    setKillProcessTreeForTesting((opts) => {
+      killed.push(opts)
+    })
+
+    const child = new FakeChild()
+    setSpawnForTesting((() => child as unknown as ReturnType<SpawnFn>) as SpawnFn)
+
+    const controller = new AbortController()
+    const turnPromise = runCliTurn(baseInput({ signal: controller.signal }))
+
+    await new Promise((r) => setTimeout(r, 10))
+    controller.abort()
+    child.emit('close', 1)
+
+    await expect(turnPromise).rejects.toBeInstanceOf(ProviderError)
+    expect(killed).toEqual([])
+    expect(child.killed).toBe(true)
+  })
+
+  it('caps stderrBuf so a flood cannot grow without bound', async () => {
+    const child = new FakeChild()
+    setSpawnForTesting((() => {
+      queueMicrotask(() => {
+        // One sync chunk over the 256KiB cap (multi-write floods can still be in the
+        // PassThrough buffer when `close` fires in this fake).
+        child.stderr.write('e'.repeat(300 * 1024))
+        child.stdout.end()
+        child.emit('close', 1)
+      })
+      return child as unknown as ReturnType<SpawnFn>
+    }) as SpawnFn)
+
+    const err = await runCliTurn(baseInput()).then(
+      () => null,
+      (e: unknown) => e
+    )
+    expect(err).toBeInstanceOf(ProviderError)
+    const message = err instanceof ProviderError ? err.message : ''
+    expect(message).toContain('stderr truncado pelo EngrenaCode')
+    expect(Buffer.byteLength(message, 'utf8')).toBeLessThanOrEqual(256 * 1024 + 64)
+  })
+})
+

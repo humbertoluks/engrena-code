@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  closeTurnServers,
   consumeThreadCancelled,
   getActiveController,
   markThreadCancelled,
   registerActiveController,
+  registerTurnServerClosers,
   unregisterActiveController,
 } from './turn-control.js'
 
@@ -23,6 +25,22 @@ describe('active controller registry', () => {
 
   it('unregistering an unknown threadId is a silent no-op', () => {
     expect(() => unregisterActiveController('thr_unknown')).not.toThrow()
+  })
+})
+
+describe('turn server closers', () => {
+  it('closeTurnServers runs the registered closer once (idempotent)', () => {
+    let closes = 0
+    registerTurnServerClosers('thr_close', () => {
+      closes += 1
+    })
+    closeTurnServers('thr_close')
+    closeTurnServers('thr_close')
+    expect(closes).toBe(1)
+  })
+
+  it('closeTurnServers is a no-op when nothing was registered', () => {
+    expect(() => closeTurnServers('thr_never')).not.toThrow()
   })
 })
 
