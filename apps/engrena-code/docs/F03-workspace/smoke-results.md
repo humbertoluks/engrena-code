@@ -344,3 +344,62 @@ o pedido chega antes do `tool_call` existir e o card nasceria fora de vista.
 | Zero `ask_user_question` no turno | pass |
 | Hook `PermissionRequest` + launcher `.cmd` (stdin Windows) | pass (package.json/index.js/README criados; npm install concluiu) |
 | Gates: permission-hook + cli-driver + permission-contract + askUserQuestion | 68 testes pass |
+
+## Fase 0 do redesign do chat — smoke Electron real (2026-08-13)
+
+Fecha **D08**. Primeiro smoke ao vivo após a remediação da auditoria (0 🔴 / 4 🟡, suíte 1500/151).
+Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY` desetada, sessão de assinatura),
+Chromium dirigido por `playwright-cli` em `localhost:5173`, API loopback `127.0.0.1:5174`.
+Projeto: `D:\temp\TodoV1` recriado do zero (git init + 1 commit).
+Provider `claude-sonnet-4-6`, accessLevel `supervised`, execution `main`.
+
+**Versão do CLI: `claude` 2.1.231.** O contrato do hook estava registrado como validado contra
+2.1.226 (CLAUDE.md) e as fixtures contra 2.1.228. Esta é a primeira validação ao vivo na 2.1.231.
+
+### Resultados
+
+| Critério | Resultado |
+|----------|-----------|
+| Card de permissão inline no fim da timeline (sem overlay) | pass |
+| `toolName` = `Bash` (não `unknown`) | pass |
+| Clique na opção **só** preenche o composer; card permanece; tool não executa | pass |
+| Enviar concede de verdade e a tool executa | pass |
+| "Permitir todos" → allowlist da thread; Bash seguinte sem novo card | pass |
+| `cliSessionId` persistido para `--resume` | pass (`020a677c-…`) |
+| Composer em `waiting_permission`: Parar **e** "Enviar decisão de permissão" | pass (Enviar desabilitado com texto vazio) |
+| Placeholder muda para modo follow-up em `idle` | pass |
+| **R03** — negação nativa do CLI vira aviso visível | pass (ver ressalva abaixo) |
+| Cancel/lifecycle: turno com `run_in_background` não deixa órfão | pass (ver nota) |
+| Export `format=md` e `format=json` | pass (4 mensagens, 3 tool calls, Work log íntegro) |
+| Export com `format=markdown` | 400 `validation_error` com mensagem clara (esperado; a API aceita `md`) |
+
+### R03 provou-se, e revelou um defeito na própria copy
+
+O turno disparou uma negação nativa real: a primeira `Bash` (`git log --oneline`) foi negada por um
+hook **global do usuário** (`~/.claude/scripts/validate-git-log-limit.ps1`), que exige bound em `git log`.
+Antes da correção do R03 esse evento era tipado no `StreamEvent` e descartado sem branch — o usuário
+veria o agente falar de aprovação sem card nenhum. Agora aparece.
+
+Mas a copy atual afirma: *"O CLI negou a ferramenta Bash por conta própria, sem pedir permissão ao
+EngrenaCode — por isso nenhum card apareceu no chat"*, e sugere revisar o nível de acesso da thread.
+Neste caso **é falso**: o card apareceu, o broker do EngrenaCode concedeu, e outro hook da mesma cadeia
+`PreToolUse` negou depois. A mensagem precisa distinguir os dois casos, e quando o `systemMessage` do
+hook vier junto (veio, e explicava o bound), ele é a informação útil — não o nível de acesso.
+
+Registrado como achado novo. Não corrigido nesta passagem.
+
+### Nota sobre órfãos de processo
+
+O agente resolveu `sleep 180 && echo fim` com `run_in_background: true`, o turno assentou em `idle`
+imediatamente e a árvore (`bash.exe` ×3 + `powershell.exe`) **foi colhida** — os PIDs não sobreviveram
+ao fim do turno. Baseline de `claude.exe` inalterado (14 → 14), `node.exe` inalterado (13 → 13).
+
+Contraste com o smoke de 2026-08-12: ao limpar `D:\temp\TodoV1` foram encontrados **dois `node server.js`
+órfãos** (PIDs 36272 e 30728), criados em 12/08 18:13 e 18:21, ainda vivos ~19 h depois, segurando a
+porta 3000 e o diretório. São anteriores à correção de kill por árvore de PID, então não a invalidam —
+mas documentam que o modo de falha era real e passava despercebido.
+
+### Não coberto
+
+Cancel explícito via botão Parar no meio de um turno longo em foreground: o agente escolheu background
+e o turno fechou antes. Continua recomendado.

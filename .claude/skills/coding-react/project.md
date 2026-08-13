@@ -67,3 +67,5 @@ Lote F03 Permission Recovery — contagem, data e evidência só em `AUDIT-CODE-
 ### Deferimento ativo (não trate como código morto)
 
 - `hasInflight` em `historyMerge.logic.ts` continua exportado de propósito: ganha consumidor de produção na fase que introduz reconnect de WebSocket com resync serializado. Uma varredura de export órfão vai apontá-lo; deixe como está.
+
+- `R08` — `streamNotices.logic.ts`: copy da negação nativa afirma que nenhum card apareceu e manda revisar accessLevel; falso quando o broker concedeu e outro hook `PreToolUse` negou depois. Propagar o `systemMessage` do hook, que é a informação útil (achado do smoke ao vivo 2026-08-13)

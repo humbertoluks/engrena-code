@@ -28,10 +28,10 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 4 | 3 |
+| Achados abertos | 0 | 5 | 4 |
 | Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
 
-Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto por falta de smoke ao vivo (D08) e 1 achado **novo** registrado na remediação (R07).
+Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
 
 ---
 
@@ -80,7 +80,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** o lote **deixou de estar bloqueado por 🔴**, mas **não está liberado**. Todos os 7 🔴 e 10 dos 12 🟡 de 2026-08-12 foram fechados no código desta branch (C58–C69), com `tsc -b` exit 0 e suíte completa verde. Restam 4 🟡 abertos: dois **deferidos de propósito** (A02, `hasInflight` do A05), um achado **novo** encontrado durante a remediação (R07) e, o que segura o veredito, **D08**: o smoke Electron ao vivo de Cancel + export + Bash background, que **não foi executado** nesta passagem. Enquanto D08 não rodar, o critério de UI de F03 continua sem evidência e o lote não pode ser declarado pronto. C01–C57 permanecem válidos.
+**Veredito:** o lote **deixou de estar bloqueado por 🔴**, mas **não está liberado**. Todos os 7 🔴 e 10 dos 12 🟡 de 2026-08-12 foram fechados no código desta branch (C58–C69), com `tsc -b` exit 0 e suíte completa verde. Restam 5 🟡 abertos: dois **deferidos de propósito** (A02, `hasInflight` do A05), dois achados **novos** (R07 na remediação, R08 encontrado no smoke ao vivo) e **D08**, agora estreitado. O smoke Electron real rodou em 2026-08-13 contra `claude` 2.1.231 e passou em permissão inline, allowlist, resume, export e Bash background sem órfão; falta apenas o Cancel explícito em turno foreground. O critério de UI de F03 deixou de estar sem evidência. C01–C57 permanecem válidos.
 
 **Corrigido nesta passagem (2026-08-13)**
 
@@ -93,7 +93,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 **Ainda aberto (por que o veredito não é "liberado")**
 
-1. **D08** — smoke ao vivo de F03 não executado nesta passagem. Sem ele, `docs/F03-workspace/smoke-results.md` continua com Cancel + export + Bash background como "recomendado".
+1. **D08** — smoke ao vivo rodou em 2026-08-13 (evidência em `docs/F03-workspace/smoke-results.md`); resta só o Cancel explícito em turno foreground.
 2. **R07** — `turnProcessCount` é semanticamente um booleano, não uma contagem (achado novo, ver §2).
 3. **A02** e **`hasInflight` (A05)** — deferidos com motivo registrado em §2; **não** fechar como código morto.
 
@@ -117,7 +117,8 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 | A02 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts:35,68,155` | `BASH_PERMISSION_MATRIX` / `checkSupervisedPermissionArgs` / `validatePermissionSettingsShape` só em teste — **deferido**, ver nota abaixo | [R-export-should-be-local](#r-export-should-be-local) |
 | A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | getter `hasInflight` exportado sem consumidor de produção — **deferido**, ver nota abaixo (a parte `stableJson` fechou em C69) | [R-export-should-be-local](#r-export-should-be-local) |
 | R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts:80` + `providers/cli-driver.ts:354` | `turnProcessCount` promete contagem e entrega booleano — **achado novo** de 2026-08-13 | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
-| D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | Cancel + export + Bash background ao vivo ainda “recomendado”, não fechado | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
+| D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **Estreitado em 2026-08-13**: smoke ao vivo rodou (permissão inline, allowlist, resume, export md/json, Bash background sem órfão). Falta só **Cancel explícito** no botão Parar durante turno longo em foreground — o agente escolheu `run_in_background` e o turno fechou antes | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
+| R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | Copy da negação nativa afirma “sem pedir permissão ao EngrenaCode — por isso nenhum card apareceu” e manda revisar o accessLevel; **falso** quando o broker concedeu e outro hook `PreToolUse` negou depois. O `systemMessage` do hook é a informação útil e é descartado — **achado novo** de 2026-08-13, encontrado no smoke ao vivo | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
 
 ### Notas de deferimento (não “corrija” estes dois)
 
@@ -1870,7 +1871,7 @@ Nenhuma no caminho supervised. Os outros retornos (`bypassPermissions`, `acceptE
 | Polling Dashboard / OAuth pending vs hub WS | Justificado |
 | PTY via IPC nomeado (F26) / `listen(0)` por turno | Por design |
 | Gates `tsc -b` + suíte Vitest | **Executados em 2026-08-13**: `tsc -b` exit 0; `pnpm test` 1500/151 verdes. `biome` / `vite` / `electron-builder` seguem não executados |
-| Smoke Electron ao vivo de F03 | **Não executado** — é o D08, único item que ainda segura o veredito do lote |
+| Smoke Electron ao vivo de F03 | **Executado em 2026-08-13** contra `claude` 2.1.231 — primeira validação nessa versão (contrato estava registrado contra 2.1.226/2.1.228). Resta o Cancel foreground |
 | Suíte flaky sob carga | Ainda rode `pnpm test` duas vezes antes de chamar regressão |
 | `.claude/agents/sprint-*` untracked | Fora do escopo `src/` desta auditoria |
 
@@ -1886,7 +1887,8 @@ Ordem: 🔴 segurança/parse → 🔴 UX testável → 🔴 testes irmãos → �
 6. `fix(F03): native denial UI + drop non-null` — R03 + R05 (C65 + C66) ✅ código pronto
 7. `refactor(F03): shared SUPERVISED_PERMISSION_MODE + local exports` — A03 + A04 + `stableJson` do A05 (C67–C69) ✅ código pronto. **A02 e `hasInflight` ficam de fora deste commit** — deferidos (§2)
 8. `test(F03): permissions 401/423 + graph waiting_permission` — D06 + D07 (C59) ✅ código pronto
-9. `docs(F03): smoke Cancel/export + copy inline` — `copy.md` sincronizado ✅; **D08 pendente** (smoke ao vivo ainda não rodou)
+9. `docs(F03): smoke Cancel/export + copy inline` — `copy.md` sincronizado ✅; smoke ao vivo executado ✅; **resta Cancel foreground**
+11. `fix(F03): copy da negacao nativa` — R08, achado novo do smoke. A copy precisa separar "CLI negou sem consultar o broker" de "broker concedeu e outro hook negou", e propagar o `systemMessage` do hook
 10. `fix(F03): turnProcessCount semantics` — R07, achado novo. Commit próprio, porque exige mudar call site, setter e o teste que trava o comportamento atual de uma vez
 
 ---
