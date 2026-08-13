@@ -8,8 +8,9 @@ import {
   listOpenThreadGates,
   type ThreadGate,
 } from '../db/repositories/thread-gates.js'
-import { getThread, updateThread, type ThreadAccessLevel } from '../db/repositories/threads.js'
+import { getThread, type ThreadAccessLevel } from '../db/repositories/threads.js'
 import { permissionPolicyDecision } from './permission-policy.js'
+import { applyTransition } from './turn-state.js'
 import { emit } from './ws-hub.js'
 
 /** Fail-closed: sem resposta do usuário, a tool é negada e o HTTP do hook não fica preso 10+ min. */
@@ -128,19 +129,22 @@ function releaseContinuation(gateId: string, outcome: GateOutcome): void {
 }
 
 /** Os dois estados que só existem enquanto há gate aberto — nenhum outro é tocado por este módulo. */
-const GATED_STATES = new Set(['waiting_permission', 'waiting_user'])
+const GATED_STATES = new Set<string>(['waiting_permission', 'waiting_user'])
 
 /**
  * Volta para `running` quando não sobra gate aberto na thread — de **qualquer** kind. Não faz nada
  * com outro gate ainda pendente (senão o card seguinte apareceria sobre "Executando…") nem com
- * thread já assentada em `stopping`/`cancelled`/`error`, cujo estado final é do chamador.
+ * thread já assentada em `stopping`/`cancelled`/`error`, cujo estado final é do chamador: o reducer
+ * (`turn-state.ts`) só aceita `gates_closed` vindo de `waiting_permission`/`waiting_user`, e é o que
+ * impede um gate fechado tarde de ressuscitar `running` por cima de um cancelamento em curso.
  */
 function maybeRestoreRunning(threadId: string): void {
   if (countOpenThreadGates(threadId) > 0) return
+  // Pré-checagem só para não logar "transição ilegal" no caminho rotineiro em que não havia gate
+  // nenhum (upgrade de nível sem fila, fim de turno): quem decide de verdade é o reducer.
   const thread = getThread(threadId)
   if (thread === null || !GATED_STATES.has(thread.state)) return
-  updateThread(threadId, { state: 'running' })
-  emit(threadId, { type: 'state.change', threadId, state: 'running' })
+  applyTransition(threadId, 'gates_closed')
 }
 
 /**
@@ -253,11 +257,9 @@ export function openPermissionGate(input: OpenPermissionGateInput): OpenPermissi
   })
 
   // Distinto de `waiting_user` (ask_user_question): aqui o PreToolUse está preso no broker.
-  const thread = getThread(gate.threadId)
-  if (thread !== null && thread.state !== 'waiting_permission') {
-    updateThread(gate.threadId, { state: 'waiting_permission' })
-    emit(gate.threadId, { type: 'state.change', threadId: gate.threadId, state: 'waiting_permission' })
-  }
+  // Idempotente e rejeitado durante `stopping` pelo reducer — gate que abre no meio de um cancel
+  // não tira a thread de `stopping`; quem o fecha é o próprio cancel (`expireOpenPermissionGates`).
+  applyTransition(gate.threadId, 'gate_opened_permission')
 
   const info = toPermissionRequestInfo(gate)
   emit(gate.threadId, {
@@ -413,10 +415,9 @@ function toQuestionGateInfo(gate: ThreadGate): QuestionGateInfo {
  * `409 thread_not_waiting` fora de `waiting_user`. Sem o pré-arme, um clique rápido perdia a corrida.
  */
 export function markThreadWaitingUser(threadId: string): void {
-  const thread = getThread(threadId)
-  if (thread === null || thread.state === 'waiting_user') return
-  updateThread(threadId, { state: 'waiting_user' })
-  emit(threadId, { type: 'state.change', threadId, state: 'waiting_user' })
+  // Idempotente pelo reducer: `waiting_user --gate_opened_question--> waiting_user` é legal e
+  // não gera UPDATE nem `state.change` repetido.
+  applyTransition(threadId, 'gate_opened_question')
 }
 
 export interface OpenQuestionGateInput {

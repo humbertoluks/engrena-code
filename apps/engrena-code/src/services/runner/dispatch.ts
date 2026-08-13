@@ -66,6 +66,7 @@ import {
   restoreRunningIfNoOpenGates,
 } from './gate.js'
 import { permissionBrokerApplies } from './permission-policy.js'
+import { applyTransition, INITIAL_TURN_STATE } from './turn-state.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
@@ -167,8 +168,7 @@ function scheduleStoppingDeadline(threadId: string): void {
     if (thread?.state !== 'stopping') return
     closeTurnServers(threadId)
     interruptRunningToolCalls(threadId)
-    updateThread(threadId, { state: 'cancelled' })
-    emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
+    applyTransition(threadId, 'cancel_settled')
     unregisterActiveController(threadId)
   }, STOPPING_DEADLINE_MS)
   stoppingDeadlines.set(threadId, timer)
@@ -215,8 +215,7 @@ export function cancelThread(threadId: string): boolean {
     // 3) Tool calls in-flight deixam de aparecer como "running" no histórico/export.
     interruptRunningToolCalls(threadId)
     // 4) Abort → cli-driver killProcessTree; estado stopping até o finally.
-    updateThread(threadId, { state: 'stopping' })
-    emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
+    applyTransition(threadId, 'cancel_requested')
     controller.abort()
     scheduleStoppingDeadline(threadId)
     return true
@@ -242,8 +241,7 @@ export function cancelThread(threadId: string): boolean {
   if (getLease(thread.projectId)?.ownerThreadId === threadId) releaseLease(thread.projectId)
 
   clearStoppingDeadline(threadId)
-  updateThread(threadId, { state: 'cancelled' })
-  emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
+  applyTransition(threadId, 'cancel_settled')
   return true
 }
 
@@ -357,7 +355,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       reasoningLevel: input.reasoningLevel ?? null,
       accessLevel: input.accessLevel,
       executionMode: input.executionMode,
-      state: 'running',
+      state: INITIAL_TURN_STATE,
       title: deriveThreadTitle(input.prompt),
       chatMode: input.chatMode ?? null,
     })
@@ -374,7 +372,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       thread = updateThread(thread.id, { worktreePath }) as Thread
     } catch (err) {
       releaseLease(project.id)
-      updateThread(thread.id, { state: 'error' })
+      applyTransition(thread.id, 'turn_failed')
       if (err instanceof WorktreeError) throw new DispatchValidationError(err.code, err.message)
       throw err
     }
@@ -408,23 +406,34 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
     model?: string | null
     reasoningLevel?: string | null
     chatMode?: string | null
-    state: 'running'
-  } = { state: 'running' }
+  } = {}
   if (input.accessLevel) patch.accessLevel = input.accessLevel
   if (input.model !== undefined) patch.model = input.model
   if (input.reasoningLevel !== undefined) patch.reasoningLevel = input.reasoningLevel
   // Trocar de modo no meio da thread vale para os turnos seguintes, como trocar de modelo.
   if (input.chatMode !== undefined) patch.chatMode = input.chatMode
 
-  let updated: Thread
+  // Estado e patch no mesmo UPDATE: sem janela com `running` e modelo velho. Transição ilegal
+  // aqui significa turno ainda vivo nesta thread (a lease do projeto normalmente barra antes) —
+  // rejeita o dispatch em vez de rodar um turno por cima de outro.
+  let transition: ReturnType<typeof applyTransition>
   try {
-    updated = updateThread(thread.id, patch) as Thread
+    transition = applyTransition(thread.id, 'follow_up', { patch })
   } catch (err) {
     releaseLease(project.id)
     throw err
   }
-
-  emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
+  if (!transition.ok) {
+    releaseLease(project.id)
+    if (transition.code === 'thread_not_found') {
+      throw new DispatchValidationError('thread_not_found', 'Thread não encontrada.')
+    }
+    throw new DispatchValidationError(
+      'thread_busy',
+      'Esta thread ainda tem um turno em andamento; aguarde ou pare o turno atual.'
+    )
+  }
+  const updated: Thread = transition.thread
   if (slash.kind === 'command') {
     void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
   } else {
@@ -794,15 +803,14 @@ async function runTurn(
       emit(thread.id, { type: 'diff.ready', threadId: thread.id, diffId: row.id, file: row.file })
     }
 
-    updateThread(thread.id, { state: 'idle' })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'idle' })
+    // `turn_finished` durante `stopping` (cancel pedido enquanto o turno terminava) assenta em
+    // `cancelled`, não `idle` — quem decide é o reducer.
+    applyTransition(thread.id, 'turn_finished')
   } catch (err) {
     const wasCancelled = consumeThreadCancelled(thread.id)
     // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
     // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
-    const state: ThreadState = wasCancelled ? 'cancelled' : 'error'
-    updateThread(thread.id, { state })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state })
+    applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_failed')
 
     if (!wasCancelled) {
       // Turno falhou mas o provider já reportou usage/custo (spec F11 §3.2) — captura mesmo no erro.

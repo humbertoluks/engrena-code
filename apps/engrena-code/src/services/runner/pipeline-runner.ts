@@ -1,5 +1,5 @@
 import type { Project } from '../db/repositories/projects.js'
-import { updateThread, type Thread } from '../db/repositories/threads.js'
+import type { Thread } from '../db/repositories/threads.js'
 import { appendMessage } from '../db/repositories/messages.js'
 import { createDiff, countPendingForThread, listDiffsForThread } from '../db/repositories/diffs.js'
 import {
@@ -19,6 +19,7 @@ import { runDelegatedSubagentTurn, type DelegationResult } from './delegate.js'
 import { rejectAskUserQuestion, waitForAnswer } from './ask-user-question.js'
 import { consumeThreadCancelled, registerActiveController, unregisterActiveController } from './turn-control.js'
 import { releaseLease } from './project-execution.js'
+import { applyTransition } from './turn-state.js'
 import type { SlashCommandName } from './slash-commands.js'
 
 /** Relógio de parede desde `pipelines.started_at` (spec F22 §3.2) — independente do hard-cap por filho (F15). */
@@ -225,8 +226,7 @@ async function runCheckpoint(
   controller: AbortController
 ): Promise<void> {
   updatePipeline(pipeline.id, { status: 'waiting_checkpoint' })
-  updateThread(thread.id, { state: 'waiting_user' })
-  emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_user' })
+  applyTransition(thread.id, 'gate_opened_question')
   emitPipelineState(thread, pipeline, 'waiting_checkpoint', stageIndex, stageTotal)
   emit(thread.id, {
     type: 'pipeline.stage',
@@ -252,8 +252,7 @@ async function runCheckpoint(
   }
 
   updatePipeline(pipeline.id, { status: 'running' })
-  updateThread(thread.id, { state: 'running' })
-  emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
+  applyTransition(thread.id, 'gates_closed')
 }
 
 function buildStageTask(stageId: string, argsText: string, priorText: string): string {
@@ -356,8 +355,7 @@ export async function runPipelineCommand(input: RunPipelineInput): Promise<void>
 
     updatePipeline(pipeline.id, { status: 'completed', finishedAt: Date.now() })
     if (finalText) appendMessage({ threadId: thread.id, role: 'assistant', content: finalText })
-    updateThread(thread.id, { state: 'idle' })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'idle' })
+    applyTransition(thread.id, 'turn_finished')
     emitPipelineState(thread, pipeline, 'completed', total, total)
   } catch (err) {
     const wasCancelled = consumeThreadCancelled(thread.id) || err instanceof PipelineCancelledError
@@ -373,9 +371,9 @@ export async function runPipelineCommand(input: RunPipelineInput): Promise<void>
       errorMessage: message,
     })
 
-    const threadState = wasCancelled ? 'cancelled' : 'idle'
-    updateThread(thread.id, { state: threadState })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state: threadState })
+    // Pipeline que falhou assenta em `idle` (não `error`): o texto do erro vira mensagem do
+    // assistente logo abaixo, e o estado do pipeline guarda o `failed`/`timeout`.
+    applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_finished')
 
     if (!wasCancelled) {
       appendMessage({ threadId: thread.id, role: 'assistant', content: `Pipeline ${status}: ${message}` })

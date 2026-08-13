@@ -1,5 +1,5 @@
 import { getProject } from '../db/repositories/projects.js'
-import { getThread, updateThread } from '../db/repositories/threads.js'
+import { getThread } from '../db/repositories/threads.js'
 import {
   countPendingForThread,
   listDiffsByIds,
@@ -10,7 +10,7 @@ import {
 } from '../db/repositories/diffs.js'
 import { discardFile, GitError } from '../git/git-client.js'
 import { acquireLease, releaseLease } from './project-execution.js'
-import { emit } from './ws-hub.js'
+import { applyTransition } from './turn-state.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 import { reindexFile } from '../codegraph/indexer.js'
 
@@ -109,9 +109,10 @@ export async function applyDiffAction(input: AcceptDiffInput): Promise<AcceptDif
     }
 
     const remainingPending = countPendingForThread(thread.id)
-    const nextState = action === 'accept' ? (remainingPending === 0 ? 'committed' : 'idle') : 'idle'
-    updateThread(thread.id, { state: nextState })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state: nextState })
+    // Revisão de diff roda com a thread parada (a lease do projeto barra turno vivo). Se ainda
+    // assim a transição for ilegal, os diffs já foram aplicados de verdade: registra e segue —
+    // derrubar o accept aqui deixaria o disco e o banco divergentes.
+    applyTransition(thread.id, action === 'accept' && remainingPending === 0 ? 'diffs_committed' : 'diffs_settled')
 
     createLogEntry({
       threadId: thread.id,
