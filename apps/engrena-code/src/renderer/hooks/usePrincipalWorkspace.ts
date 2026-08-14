@@ -80,9 +80,13 @@ import {
   recordHistoryRefetchCompleted,
   recordHistoryRefetchStarted,
 } from '../../services/runtime-metrics'
+import { useMessageQueue } from './useMessageQueue'
+import type { ComposerImage, QueueItem } from './messageQueue.logic'
 
+// A fila de mensagens (estado, persistência e despacho) mora em `useMessageQueue`; os tipos
+// seguem exportados daqui porque é por este módulo que os componentes do workspace os importam.
+export type { ComposerImage, QueueItem }
 
-const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
 
 const PROVIDERS: readonly ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax', 'glm', 'grok']
 const ACCESS_LEVELS: readonly ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
@@ -106,24 +110,6 @@ function asExecutionMode(value: string | null): ThreadExecutionMode | null {
 
 export type ThreadTab = 'history' | 'diff' | 'graph'
 
-export interface ComposerImage {
-  id: string
-  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
-  name: string
-  dataBase64: string
-  byteLength: number
-}
-
-export interface QueueItem {
-  id: string
-  text: string
-  images: ComposerImage[]
-  /** Contexto anexado quando a mensagem entrou na fila — sem isto o turno enfileirado perde os chips. */
-  attachments?: ComposerAttachment[]
-  model: string | null
-  reasoningLevel: string | null
-}
-
 export interface ComposerDraft {
   provider: ThreadProvider
   model: string | null
@@ -139,25 +125,6 @@ export interface ComposerDraft {
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
   return images.map((img) => ({ mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
-}
-
-function loadQueue(threadKey: string): QueueItem[] {
-  try {
-    const raw = localStorage.getItem(QUEUE_STORAGE_PREFIX + threadKey)
-    if (!raw) return []
-    return JSON.parse(raw) as QueueItem[]
-  } catch {
-    return []
-  }
-}
-
-function saveQueue(threadKey: string, queue: QueueItem[]): void {
-  try {
-    if (queue.length === 0) localStorage.removeItem(QUEUE_STORAGE_PREFIX + threadKey)
-    else localStorage.setItem(QUEUE_STORAGE_PREFIX + threadKey, JSON.stringify(queue))
-  } catch {
-    // localStorage indisponível — fila só em memória nesta sessão
-  }
 }
 
 export function usePrincipalWorkspace() {
@@ -222,7 +189,6 @@ export function usePrincipalWorkspace() {
     attachments: [],
     chatMode: null,
   })
-  const [queue, setQueue] = useState<QueueItem[]>([])
   // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
   // `GET /history` chega (ver pendingMessages.logic.ts).
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
@@ -267,19 +233,6 @@ export function usePrincipalWorkspace() {
   )
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
-
-  // A fila é lida pelo handler de WS, que roda com o closure do render em que a conexão subiu —
-  // o ref mantém o valor corrente sem reconectar o stream a cada mudança de fila.
-  const queueRef = useRef<QueueItem[]>([])
-  useEffect(() => {
-    queueRef.current = queue
-  }, [queue])
-
-  useEffect(() => {
-    const restored = loadQueue(queueKey)
-    queueRef.current = restored
-    setQueue(restored)
-  }, [queueKey])
 
   const upsertThreadLocal = useCallback((projectId: string, thread: Thread) => {
     setThreadsByProject((prev) => {
@@ -959,94 +912,6 @@ export function usePrincipalWorkspace() {
     [selectedThreadId, selectedProjectId, upsertThreadLocal]
   )
 
-  const enqueue = useCallback(
-    (
-      text: string,
-      images: ComposerImage[],
-      model: string | null,
-      reasoningLevel: string | null,
-      attachments: ComposerAttachment[] = []
-    ) => {
-      setQueue((prev) => {
-        const next = [
-          ...prev,
-          {
-            id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            text,
-            images,
-            attachments,
-            model,
-            reasoningLevel,
-          },
-        ]
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  const dequeue = useCallback(
-    (id: string) => {
-      setQueue((prev) => {
-        const next = prev.filter((q) => q.id !== id)
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  const updateQueueItem = useCallback(
-    (id: string, text: string) => {
-      const trimmed = text.trim()
-      if (trimmed === '') return
-      setQueue((prev) => {
-        const next = prev.map((q) => (q.id === id ? { ...q, text: trimmed } : q))
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  /** Move item to the front so it runs next when the turn ends. */
-  const promoteQueueItem = useCallback(
-    (id: string) => {
-      setQueue((prev) => {
-        const idx = prev.findIndex((q) => q.id === id)
-        if (idx <= 0) return prev
-        const item = prev[idx]
-        if (!item) return prev
-        const next = [item, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  // O despacho da fila roda fora do updater do `setQueue`: updater com efeito colateral é
-  // chamado duas vezes sob StrictMode e mandava o mesmo follow-up em dobro.
-  function processQueueIfIdle(): void {
-    const current = queueRef.current
-    const [head, ...rest] = current
-    if (!head || !selectedThreadId) return
-    queueRef.current = rest
-    setQueue(rest)
-    saveQueue(queueKey, rest)
-    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel, head.attachments ?? []).then((ok) => {
-      // O item sai da fila antes do POST (evita despacho duplo se outro `state.change` chegar
-      // no meio). Falhou — ex.: outra thread do projeto pegou a lease primeiro —, volta para a
-      // frente da fila; sem isso a mensagem enfileirada some sem nunca ter rodado.
-      if (ok) return
-      const restored = [head, ...queueRef.current]
-      queueRef.current = restored
-      setQueue(restored)
-      saveQueue(queueKey, restored)
-    })
-  }
-
   const sendFollowUp = useCallback(
     async (
       text: string,
@@ -1097,12 +962,15 @@ export function usePrincipalWorkspace() {
     ]
   )
 
-  // Mesma razão do `queueRef`: o handler de WS chamaria uma versão antiga de `sendFollowUp`
-  // (com `composer.accessLevel` congelado no render da conexão).
-  const sendFollowUpRef = useRef(sendFollowUp)
-  useEffect(() => {
-    sendFollowUpRef.current = sendFollowUp
-  }, [sendFollowUp])
+  // Fila de mensagens do composer (estado + persistência por `queueKey` + despacho no fim do
+  // turno). O hook guarda internamente os refs de fila e de envio — o handler de WS roda com o
+  // closure do render em que a conexão subiu e leria valores velhos sem eles.
+  const { queue, enqueue, dequeue, updateQueueItem, promoteQueueItem, processQueueIfIdle } =
+    useMessageQueue({
+      queueKey,
+      canDispatch: selectedThreadId !== null,
+      followUp: sendFollowUp,
+    })
 
   /**
    * Resolve o gate de permissão **em tela**, por `gateId`. Falhou (`res.error` ou throw): o card
