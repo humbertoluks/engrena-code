@@ -11,11 +11,11 @@ const { closeDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread } = await import('../db/repositories/threads.js')
 const {
-  answerNewestQuestionGate,
   clearAllGatesForTesting,
   expireOpenQuestionGates,
   hasOpenQuestionGate,
   listOpenQuestionGates,
+  resolveQuestionGate,
 } = await import('./gate.js')
 const { createAskUserQuestionServer } = await import('./ask-user-question.js')
 
@@ -70,8 +70,8 @@ describe('createAskUserQuestionServer', () => {
     await waitFor(() => hasOpenQuestionGate(threadId))
     expect(settled).toBe(false)
 
-    const resolved = answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })
-    expect(resolved).toBe(true)
+    const [gate] = listOpenQuestionGates(threadId)
+    expect(resolveQuestionGate(threadId, gate.gateId, { selectedOptions: ['A'] })).toEqual({ ok: true })
 
     const res = await requestPromise
     const body = (await res.json()) as { content: Array<{ type: string; text: string }>; isError: boolean }
@@ -122,16 +122,17 @@ describe('createAskUserQuestionServer', () => {
     })
     await waitFor(() => listOpenQuestionGates(threadId).length === 2)
 
-    // O wire legado não carrega gateId e responde a pergunta mais recente — é a que o card do chat
-    // mostra (`findPendingAskUserQuestion` varre `toolCalls` de trás para frente).
-    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['B'] })).toBe(true)
+    // Cada card carrega o seu `gateId`: a resposta vai para a pergunta escolhida, sem heurística de
+    // "a mais recente" — responder fora de ordem é legítimo e não toca na outra.
+    const [firstGate, secondGate] = listOpenQuestionGates(threadId)
+    expect(resolveQuestionGate(threadId, secondGate.gateId, { selectedOptions: ['B'] })).toEqual({ ok: true })
     const secondBody = (await (await second).json()) as { content: Array<{ text: string }>; isError: boolean }
     expect(secondBody.isError).toBe(false)
     expect(secondBody.content[0].text).toBe('B')
 
     // A primeira continua pendente — nunca foi sobrescrita, que era o bug do `pending` por thread.
     expect(hasOpenQuestionGate(threadId)).toBe(true)
-    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })).toBe(true)
+    expect(resolveQuestionGate(threadId, firstGate.gateId, { selectedOptions: ['A'] })).toEqual({ ok: true })
     const firstBody = (await (await first).json()) as { content: Array<{ text: string }> }
     expect(firstBody.content[0].text).toBe('A')
 
@@ -163,7 +164,8 @@ describe('createAskUserQuestionServer', () => {
     })
     await waitFor(() => hasOpenQuestionGate(threadId))
 
-    answerNewestQuestionGate(threadId, { selectedOptions: ['A'], freeText: 'texto livre' })
+    const [gate] = listOpenQuestionGates(threadId)
+    resolveQuestionGate(threadId, gate.gateId, { selectedOptions: ['A'], freeText: 'texto livre' })
     const res = await requestPromise
     const body = (await res.json()) as { content: Array<{ type: string; text: string }> }
     expect(body.content[0].text).toBe('texto livre')
@@ -187,10 +189,15 @@ describe('createAskUserQuestionServer', () => {
   })
 })
 
-describe('answerNewestQuestionGate', () => {
+describe('resolveQuestionGate', () => {
   it('is a silent no-op for a thread with no pending question', () => {
-    expect(() => answerNewestQuestionGate('thr_desconhecida', { selectedOptions: ['A'] })).not.toThrow()
-    expect(answerNewestQuestionGate('thr_desconhecida', { selectedOptions: ['A'] })).toBe(false)
+    expect(() =>
+      resolveQuestionGate('thr_desconhecida', 'gate_fantasma', { selectedOptions: ['A'] })
+    ).not.toThrow()
+    expect(resolveQuestionGate('thr_desconhecida', 'gate_fantasma', { selectedOptions: ['A'] })).toEqual({
+      ok: false,
+      code: 'not_found',
+    })
   })
 })
 

@@ -14,7 +14,6 @@ const { createThreadGate, getThreadGate, listOpenThreadGates } = await import(
 const { clearAllSubscriptions, subscribe } = await import('./ws-hub.js')
 const {
   allowOpenPermissionGates,
-  answerNewestQuestionGate,
   clearAllGatesForTesting,
   expireOpenPermissionGates,
   expireOpenQuestionGates,
@@ -71,7 +70,7 @@ afterAll(() => {
 })
 
 describe('openPermissionGate', () => {
-  it('persiste o gate, põe a thread em waiting_permission e emite gate.opened + permission.request', () => {
+  it('persiste o gate, põe a thread em waiting_permission e emite gate.opened', () => {
     const threadId = seedThread()
     const received = listen(threadId)
 
@@ -87,15 +86,15 @@ describe('openPermissionGate', () => {
     expect(typeof row?.expiresAt).toBe('number')
 
     expect(getThread(threadId)?.state).toBe('waiting_permission')
-    expect(received.map((e) => e.type)).toEqual(['state.change', 'gate.opened', 'permission.request'])
-    expect(received[1]).toMatchObject({ type: 'gate.opened', gateId: opened.gate.requestId, kind: 'permission' })
-    // Contrato de wire legado: `requestId` é o gateId, `params` é o payload.
-    expect(received[2]).toMatchObject({
-      type: 'permission.request',
+    expect(received.map((e) => e.type)).toEqual(['state.change', 'gate.opened'])
+    // Contrato de wire do gate: `gateId` identifica o card, `payload` são os params da tool.
+    expect(received[1]).toMatchObject({
+      type: 'gate.opened',
       threadId,
-      requestId: opened.gate.requestId,
+      gateId: opened.gate.requestId,
+      kind: 'permission',
       toolName: 'Bash',
-      params: { command: 'ls' },
+      payload: { command: 'ls' },
     })
   })
 
@@ -168,7 +167,7 @@ describe('resolvePermissionGate', () => {
     expect(resolvePermissionGate(threadId, opened.gate.requestId, true)).toEqual({ ok: false, code: 'not_found' })
   })
 
-  it('emite gate.resolved + permission.resolved e grava a resolução na linha', () => {
+  it('emite gate.resolved e grava a resolução na linha', () => {
     const threadId = seedThread()
     const opened = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
     if (!opened.ok) throw new Error('gate não abriu')
@@ -176,9 +175,15 @@ describe('resolvePermissionGate', () => {
 
     resolvePermissionGate(threadId, opened.gate.requestId, false)
 
-    expect(received.map((e) => e.type)).toEqual(['gate.resolved', 'permission.resolved', 'state.change'])
-    expect(received[0]).toMatchObject({ gateId: opened.gate.requestId, state: 'resolved', allow: false })
-    expect(received[1]).toMatchObject({ requestId: opened.gate.requestId, allow: false })
+    expect(received.map((e) => e.type)).toEqual(['gate.resolved', 'state.change'])
+    expect(received[0]).toMatchObject({
+      threadId,
+      gateId: opened.gate.requestId,
+      kind: 'permission',
+      state: 'resolved',
+      allow: false,
+      reason: 'user_decision',
+    })
     expect(getThreadGate(opened.gate.requestId)).toMatchObject({
       state: 'resolved',
       resolution: { allow: false, reason: 'user_decision' },
@@ -281,7 +286,7 @@ describe('expireOpenPermissionGates (cancel / fim de turno)', () => {
 })
 
 describe('timeout fail-closed', () => {
-  it('auto-nega, marca expired, emite os dois eventos e restaura running', async () => {
+  it('auto-nega, marca expired, emite gate.resolved e restaura running', async () => {
     const threadId = seedThread()
     const received = listen(threadId)
     const opened = openPermissionGate({ threadId, toolName: 'Bash', params: {}, timeoutMs: 40 })
@@ -297,8 +302,9 @@ describe('timeout fail-closed', () => {
       resolution: { allow: false, reason: 'permission_timeout' },
     })
     expect(getThread(threadId)?.state).toBe('running')
-    expect(received.some((e) => e.type === 'permission.resolved' && e.allow === false)).toBe(true)
-    expect(received.some((e) => e.type === 'gate.resolved' && e.state === 'expired')).toBe(true)
+    expect(
+      received.some((e) => e.type === 'gate.resolved' && e.state === 'expired' && e.allow === false)
+    ).toBe(true)
   })
 
   it('a resolução do usuário desarma o timer (sem segunda resposta ao hook)', async () => {
@@ -449,30 +455,6 @@ describe('resolveQuestionGate', () => {
 
     expireOpenPermissionGates(threadId, 'turn_ended')
     await expect(permission.decision).resolves.toBe(false)
-  })
-})
-
-describe('answerNewestQuestionGate (wire legado POST /answer)', () => {
-  it('devolve false sem pergunta pendente', () => {
-    const threadId = seedThread()
-    expect(answerNewestQuestionGate(threadId, { freeText: 'nada' })).toBe(false)
-  })
-
-  it('responde a pergunta mais recente — é a que o card do chat mostra', async () => {
-    // `findPendingAskUserQuestion` varre `toolCalls` de trás para frente e devolve a última
-    // `ask_user_question` em running. Responder a mais antiga mandaria a resposta para uma
-    // pergunta invisível e deixaria o card aberto na tela.
-    const threadId = seedThread()
-    const first = openQuestionGate({ threadId, question: { prompt: 'Primeira?' } })
-    const second = openQuestionGate({ threadId, question: { prompt: 'Segunda?' } })
-    if (!first.ok || !second.ok) throw new Error('gate não abriu')
-
-    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['A'] })).toBe(true)
-    await expect(second.answer).resolves.toEqual({ selectedOptions: ['A'] })
-    expect(getThreadGate(first.gate.gateId)?.state).toBe('open')
-
-    expect(answerNewestQuestionGate(threadId, { selectedOptions: ['B'] })).toBe(true)
-    await expect(first.answer).resolves.toEqual({ selectedOptions: ['B'] })
   })
 })
 

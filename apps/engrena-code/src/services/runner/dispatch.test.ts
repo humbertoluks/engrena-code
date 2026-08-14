@@ -1675,7 +1675,7 @@ describe('usage limit gate (F25)', () => {
 })
 
 describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised"', () => {
-  it('emits permission.request over WS, blocks the hook (--settings) até POST /permission resolver com allow', async () => {
+  it('emits gate.opened over WS, blocks the hook (--settings) até o gate ser resolvido com allow', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1708,13 +1708,13 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const req = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string; toolName: string }
     expect(req.toolName).toBe('Write')
     expect(getThread(thread.id)?.state).toBe('waiting_permission')
     expect(received.some((e) => e.type === 'state.change' && e.state === 'waiting_permission')).toBe(true)
 
-    expect(resolvePermissionRequest(thread.id, req.requestId, true).ok).toBe(true)
+    expect(resolvePermissionRequest(thread.id, req.gateId, true).ok).toBe(true)
     expect(getThread(thread.id)?.state).toBe('running')
 
     await dispatchPromise
@@ -1723,13 +1723,13 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     expect(capturedPort).toBeDefined()
     expect(capturedToken).toBeTruthy()
     expect(capturedAllow).toBe(true)
-    // `permission.resolved` só é emitido pelo handler HTTP (threads-handler.ts), não por
-    // `resolvePermissionRequest` em si — coberto em threads-handler.test.ts (fluxo end-to-end).
+    // O `gate.resolved` sai de dentro do gate; o fluxo end-to-end pela rota HTTP
+    // (`POST /api/threads/:id/gate/:gateId/resolve`) está coberto em threads-handler.test.ts.
 
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('deny explícito (POST /permission allow=false) devolve allow:false pro hook', async () => {
+  it('deny explícito (resolvePermissionGate allow=false) devolve allow:false pro hook', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1758,9 +1758,9 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const req = received.find((e) => e.type === 'permission.request') as { requestId: string }
-    expect(resolvePermissionRequest(thread.id, req.requestId, false).ok).toBe(true)
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string }
+    expect(resolvePermissionRequest(thread.id, req.gateId, false).ok).toBe(true)
 
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
@@ -1797,7 +1797,7 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
     expect(hasPendingPermission(thread.id)).toBe(true)
 
     // Deny + close servers BEFORE abort — pending limpa na hora (não só no finally).
@@ -1941,7 +1941,7 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('auto-accept-edits monta o broker: Write passa sem UI e Bash abre permission.request', async () => {
+  it('auto-accept-edits monta o broker: Write passa sem UI e Bash abre gate.opened', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1974,13 +1974,13 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const req = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string; toolName: string }
     // Só o Bash pediu: edição de arquivo é auto-aceita pelo nível, sem modal.
     expect(req.toolName).toBe('Bash')
-    expect(received.filter((e) => e.type === 'permission.request')).toHaveLength(1)
+    expect(received.filter((e) => e.type === 'gate.opened')).toHaveLength(1)
 
-    expect(resolvePermissionRequest(thread.id, req.requestId, true).ok).toBe(true)
+    expect(resolvePermissionRequest(thread.id, req.gateId, true).ok).toBe(true)
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
 
