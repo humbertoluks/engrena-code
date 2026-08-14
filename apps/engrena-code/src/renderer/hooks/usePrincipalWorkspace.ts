@@ -8,7 +8,7 @@ import {
   type Thread,
   type FeedbackVote,
 } from '../services/threads-service'
-import { connectThreadStream, type StreamEvent } from '../services/ws-client'
+import type { StreamEvent } from '../services/ws-client'
 import { configuracaoService, isConfigStatus, type ConfigStatus } from '../services/configuracao-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
@@ -42,6 +42,8 @@ import {
   recordHistoryRefetchStarted,
 } from '../../services/runtime-metrics'
 import { useChatTimeline } from './useChatTimeline'
+import { useThreadStream } from './useThreadStream'
+import { shouldRefetchHistoryOnResync } from './threadStream.logic'
 import { useComposerDraft } from './useComposerDraft'
 import { useMessageQueue } from './useMessageQueue'
 import { usePromptLibrary } from './usePromptLibrary'
@@ -416,19 +418,44 @@ export function usePrincipalWorkspace() {
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!selectedThreadId) return
-    const threadId = selectedThreadId
+  /**
+   * Resync a cada open do socket (o primeiro inclusive).
+   *
+   * O hub não bufferiza — `emit` é no-op quando ninguém está inscrito —, então o que passou
+   * durante uma queda **está perdido**, não atrasado. Reconectar não pode replicar eventos: a
+   * única recuperação correta é reler estado. Os dois caminhos são idempotentes: o histórico
+   * entra por `history_loaded` (merge por id, nunca append) e o gate é snapshot por `gateId`.
+   */
+  const resyncThread = useCallback(
+    (threadId: string, info: { reconnect: boolean }) => {
+      // `streamingText` é efêmero e a resposta final já está persistida (o `dispatch.ts` grava
+      // antes de assentar o turno). Sem zerar, o parcial da queda ficaria duplicado na frente do
+      // texto que volta do histórico. `thread_opened` é exatamente essa transição — só o
+      // streaming do turno anterior sai de cena, as listas ficam.
+      threadOpened()
+      if (
+        shouldRefetchHistoryOnResync({
+          reconnect: info.reconnect,
+          historyFetchInflight: historyGateRef.current.hasInflight,
+        })
+      ) {
+        // `background: true`: refetch disparado por stream nunca liga `historyLoading` nem pinta
+        // erro — trocar a árvore por "Carregando…" joga o scroll ao topo. O `HistoryRefetchGate`
+        // dentro de `loadHistory` serializa (single-flight + coalesce).
+        void loadHistory(threadId, { background: true })
+      }
+      // Gate perdido na queda: sem o snapshot o card de permissão/pergunta some da tela enquanto
+      // o broker segue preso do outro lado.
+      void gateApi.refresh(threadId)
+    },
+    [threadOpened, loadHistory, gateApi.refresh]
+  )
 
-    const disconnect = connectThreadStream(threadId, (event: StreamEvent) => {
-      if (!mountedRef.current || event.threadId !== threadId) return
-      handleStreamEvent(event)
-    })
-
-    // O snapshot `GET /gate` da thread é do próprio `useThreadGate` (efeito por threadId).
-    return () => disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId])
+  useThreadStream({
+    threadId: selectedThreadId,
+    onEvent: handleStreamEvent,
+    onResync: resyncThread,
+  })
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
