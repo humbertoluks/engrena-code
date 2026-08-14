@@ -4,19 +4,14 @@ import {
   threadsService,
   type ComposerImagePayload,
   type Diff,
-  type Message,
-  type PipelineHistory,
   type ThreadAccessLevel,
   type Thread,
-  type ToolCall,
   type FeedbackVote,
-  type MessageFeedback,
 } from '../services/threads-service'
 import { connectThreadStream, type StreamEvent } from '../services/ws-client'
 import { configuracaoService, isConfigStatus, type ConfigStatus } from '../services/configuracao-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
-import type { SubagentRun } from '../services/subagents-service'
 import { composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
 import { routeComposerSend } from '../components/workspace/composerRoute.logic'
 import { useThreadGate } from './useThreadGate'
@@ -31,42 +26,22 @@ import {
   toWirePayload,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
-import {
-  dropStalePermissionDecisionPendings,
-  reconcilePendingMessages,
-  type PendingMessage,
-  type PendingMessageStatus,
-} from '../components/workspace/pendingMessages.logic'
-import {
-  interpretPermissionChatReply,
-  PERMISSION_PENDING_HINT,
-} from '../components/workspace/permissionComposer.logic'
-import {
-  applyLiveEvent,
-  emptyLiveOverlay,
-  type LiveGraphOverlay,
-} from '../components/workspace/graph/executionGraph.logic'
+import type { PendingMessage } from '../components/workspace/pendingMessages.logic'
+import { PERMISSION_PENDING_HINT } from '../components/workspace/permissionComposer.logic'
 import {
   EXPORT_COPY,
   exportFetchErrorMessage,
   mimeTypeForExportFormat,
   triggerBrowserDownload,
 } from '../components/workspace/threadExportDownload.logic'
-import {
-  HistoryRefetchGate,
-  isAbortError,
-  mergeById,
-  mergeSubagentRunsByChildId,
-  sameMessageLike,
-  sameSubagentRunLike,
-  sameToolCallLike,
-} from '../components/workspace/historyMerge.logic'
+import { HistoryRefetchGate, isAbortError } from '../components/workspace/historyMerge.logic'
 import {
   recordHistoryRefetchAborted,
   recordHistoryRefetchCoalesced,
   recordHistoryRefetchCompleted,
   recordHistoryRefetchStarted,
 } from '../../services/runtime-metrics'
+import { useChatTimeline } from './useChatTimeline'
 import { useComposerDraft } from './useComposerDraft'
 import { useMessageQueue } from './useMessageQueue'
 import { usePromptLibrary } from './usePromptLibrary'
@@ -111,31 +86,61 @@ export function usePrincipalWorkspace() {
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
   const [usageLimitStatus, setUsageLimitStatus] = useState<UsageLimitStatusResponse | null>(null)
 
-  const [messages, setMessages] = useState<Message[]>([])
-  const [feedback, setFeedback] = useState<Record<string, FeedbackVote>>({})
+  /**
+   * Timeline do chat: mensagens, tool calls, subagentes, pipeline, overlay otimista do grafo
+   * (F29), bolhas otimistas do usuário (a mensagem aparece no envio, não só quando o próximo
+   * `GET /history` chega) e o par carregando/erro do histórico.
+   *
+   * Estado único num reducer puro (`chatTimeline.logic.ts`) porque repor a timeline com o
+   * histórico canónico é uma transição **atômica** — espalhada em setters soltos ela pinta
+   * frames incoerentes (overlay otimista sobre linhas já persistidas, pipeline novo com
+   * mensagens velhas). Este hook só orquestra rede: quem decide o estado é o reducer.
+   */
+  const {
+    messages,
+    feedback,
+    pendingMessages,
+    toolCalls,
+    subagentRuns,
+    pipeline,
+    activeSubagentRun,
+    liveGraphOverlay,
+    historyLoading,
+    historyError,
+    streamingText,
+    historyLoadStarted,
+    historyLoadFailed,
+    historyLoaded,
+    historyLoadSettled,
+    threadOpened,
+    threadCleared,
+    threadSelected,
+    projectSwitched,
+    newThreadStarted,
+    appendDelta,
+    turnSettled,
+    turnCancelled,
+    applyLiveStreamEvent,
+    permissionGateOpened,
+    addPending,
+    setPendingStatus,
+    removePending,
+    setFeedbackVote,
+    openSubagentRun,
+    closeSubagentRun,
+  } = useChatTimeline()
+
   const [followups, setFollowups] = useState<string[]>([])
   // Âncora + estado de espera: o turno adianta a geração no servidor, mas quando ela demora a UI
   // precisa dizer "vem sugestão aí" em vez de deixar o espaço vazio até depois da resposta.
   const [followupsMessageId, setFollowupsMessageId] = useState<string | null>(null)
   const [followupsPending, setFollowupsPending] = useState(false)
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
-  const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
-  const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
-  const [activeSubagentRun, setActiveSubagentRun] = useState<SubagentRun | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState<string | null>(null)
-  const [streamingText, setStreamingText] = useState('')
 
   const [diffs, setDiffs] = useState<Diff[]>([])
   const [activeTab, setActiveTab] = useState<ThreadTab>('history')
-  /** Overlay otimista do grafo (F29) — nós aparecem em subagent.start antes do refetch. */
-  const [liveGraphOverlay, setLiveGraphOverlay] = useState<LiveGraphOverlay>(() => emptyLiveOverlay())
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
 
-  // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
-  // `GET /history` chega (ver pendingMessages.logic.ts).
-  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
   const [sendError, setSendError] = useState<string | null>(null)
   /** Erro/progresso de export ficam fora do composer, ao lado da ação que os dispara. */
   const [exporting, setExporting] = useState(false)
@@ -303,10 +308,7 @@ export function usePrincipalWorkspace() {
     }
     const { signal } = decision
     recordHistoryRefetchStarted()
-    if (!background) {
-      setHistoryLoading(true)
-      setHistoryError(null)
-    }
+    if (!background) historyLoadStarted()
     try {
       const res = await threadsService.history(threadId, { signal })
       if (signal.aborted || !mountedRef.current) {
@@ -315,17 +317,11 @@ export function usePrincipalWorkspace() {
       }
       if (res.error) {
         if (background) console.error('[workspace] history refetch:', res.error.message)
-        else setHistoryError(res.error.message)
+        else historyLoadFailed(res.error.message)
         return
       }
-      setMessages((prev) => mergeById(prev, res.messages, sameMessageLike))
-      setFeedback(Object.fromEntries((res.feedback ?? []).map((f: MessageFeedback) => [f.messageId, f.vote])))
-      setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
-      setToolCalls((prev) => mergeById(prev, res.toolCalls, sameToolCallLike))
-      setSubagentRuns((prev) => mergeSubagentRunsByChildId(prev, res.subagentRuns, sameSubagentRunLike))
-      setPipeline(res.pipeline)
-      // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
-      setLiveGraphOverlay(emptyLiveOverlay())
+      // Uma transição só: merge por id das listas, reconcile das bolhas e overlay zerado.
+      historyLoaded(res)
       recordHistoryRefetchCompleted()
     } catch (err: unknown) {
       if (isAbortError(err) || signal.aborted) {
@@ -334,15 +330,15 @@ export function usePrincipalWorkspace() {
       }
       if (!mountedRef.current) return
       if (background) console.error('[workspace] history refetch:', err)
-      else setHistoryError('Falha ao carregar o histórico da thread.')
+      else historyLoadFailed('Falha ao carregar o histórico da thread.')
     } finally {
-      if (mountedRef.current && !background) setHistoryLoading(false)
+      if (mountedRef.current && !background) historyLoadSettled()
       const { coalesced } = historyGateRef.current.finish(signal)
       if (coalesced && mountedRef.current) {
         void loadHistory(threadId, { background: true })
       }
     }
-  }, [])
+  }, [historyLoadStarted, historyLoadFailed, historyLoaded, historyLoadSettled])
 
   /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
   const loadFollowups = useCallback(async (threadId: string) => {
@@ -402,23 +398,21 @@ export function usePrincipalWorkspace() {
   }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus, loadUsageLimitStatus])
 
   useEffect(() => {
-    setStreamingText('')
     setFollowups([])
     setFollowupsMessageId(null)
     setFollowupsPending(false)
     setMcpNotices([])
     historyGateRef.current.cancel()
     if (selectedThreadId) {
+      // Só o streaming do turno anterior sai de cena; as listas ficam até o histórico chegar.
+      threadOpened()
       void loadHistory(selectedThreadId)
       void loadDiffs(selectedThreadId)
     } else {
-      setMessages([])
-      setToolCalls([])
-      setSubagentRuns([])
-      setPipeline(null)
+      threadCleared()
       setDiffs([])
     }
-  }, [selectedThreadId, loadHistory, loadDiffs])
+  }, [selectedThreadId, loadHistory, loadDiffs, threadOpened, threadCleared])
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
@@ -438,11 +432,11 @@ export function usePrincipalWorkspace() {
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
-      setStreamingText((prev) => prev + event.text)
+      appendDelta(event.text)
       return
     }
     if (event.type === 'state.change') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       if (event.state === 'running') {
         setFollowups([])
         setFollowupsMessageId(null)
@@ -465,7 +459,7 @@ export function usePrincipalWorkspace() {
         gateApi.clear()
       }
       if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
-        setStreamingText('')
+        turnSettled()
         void loadHistory(event.threadId, { background: true })
         void loadDiffs(event.threadId)
         void loadFollowups(event.threadId)
@@ -484,18 +478,18 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
       // Overlay imediato (F29) + refetch F15 que traz subagentRuns canónicos.
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
@@ -506,14 +500,7 @@ export function usePrincipalWorkspace() {
       // de que a decisão pendente é sempre alcançável.
       setActiveTab('history')
       // Grant anterior não pode ficar como "Permitir / Executando…" sob o card novo.
-      if (event.kind === 'permission') {
-        setPendingMessages((prev) =>
-          dropStalePermissionDecisionPendings(
-            prev,
-            (text) => interpretPermissionChatReply(text).kind !== 'blocked'
-          )
-        )
-      }
+      if (event.kind === 'permission') permissionGateOpened()
       return
     }
     if (event.type === 'gate.resolved') {
@@ -538,56 +525,33 @@ export function usePrincipalWorkspace() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   // Bolha otimista pertence à thread onde foi digitada — trocar de thread/projeto descarta as
-  // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha).
-  // O id da bolha é o `clientMessageId` que viaja no POST e volta em `Message.clientId`: é por ele
-  // que a reconciliação casa, e não pelo texto (o servidor reescreve o prompt antes de persistir).
-  const addPending = useCallback((text: string, images: ComposerImage[], status: PendingMessageStatus): string => {
-    const id = crypto.randomUUID()
-    setPendingMessages((prev) => [
-      ...prev,
-      {
-        id,
-        text,
-        images: images.map((img) => ({ id: img.id, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 })),
-        status,
-        createdAt: Date.now(),
-      },
-    ])
-    return id
-  }, [])
-
-  const setPendingStatus = useCallback((id: string, status: PendingMessageStatus) => {
-    setPendingMessages((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
-  }, [])
-
-  const removePending = useCallback((id: string) => {
-    setPendingMessages((prev) => prev.filter((p) => p.id !== id))
-  }, [])
-
+  // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha). O id da bolha
+  // (`addPending`, em `useChatTimeline`) é o `clientMessageId` que viaja no POST e volta em
+  // `Message.clientId`: é por ele que a reconciliação casa, e não pelo texto (o servidor reescreve
+  // o prompt antes de persistir).
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
-    setPendingMessages([])
+    projectSwitched()
     setSendError(null)
-  }, [])
+  }, [projectSwitched])
 
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
-    setPendingMessages([])
+    threadSelected()
     clearAttachError()
     setSendError(null)
     setActiveTab('history')
-    setLiveGraphOverlay(emptyLiveOverlay())
-  }, [clearAttachError])
+  }, [clearAttachError, threadSelected])
 
   // Nada foi enviado: os chips de contexto ficam (só texto e imagens saem). `newThread`, ao
   // contrário de `selectThread`, também não zera `attachError` — a assimetria é intencional.
   const newThread = useCallback(() => {
     setSelectedThreadId(null)
-    setPendingMessages([])
+    newThreadStarted()
     setSendError(null)
     clearTextAndImages()
-  }, [clearTextAndImages])
+  }, [clearTextAndImages, newThreadStarted])
 
   const addProject = useCallback(
     async (path: string, name: string | undefined) => {
@@ -895,8 +859,7 @@ export function usePrincipalWorkspace() {
 
   const cancel = useCallback(async () => {
     if (!selectedThreadId) return
-    setStreamingText('')
-    setPendingMessages([])
+    turnCancelled()
     setSendError(null)
     const res = await threadsService.cancel(selectedThreadId)
     if (res.error) {
@@ -905,7 +868,7 @@ export function usePrincipalWorkspace() {
       setSendError('Não foi possível cancelar a execução.')
     }
     void loadHistory(selectedThreadId, { background: true })
-  }, [selectedThreadId, loadHistory])
+  }, [selectedThreadId, loadHistory, turnCancelled])
 
   const dismissMcpNotices = useCallback(() => {
     setMcpNotices([])
@@ -997,23 +960,11 @@ export function usePrincipalWorkspace() {
       if (!selectedThreadId) return
       const current = feedback[messageId]
       const next = current === vote ? null : vote
-      setFeedback((prev) => {
-        const copy = { ...prev }
-        if (next === null) delete copy[messageId]
-        else copy[messageId] = next
-        return copy
-      })
+      setFeedbackVote(messageId, next)
       const res = await threadsService.feedback(selectedThreadId, messageId, next)
-      if (res.error) {
-        setFeedback((prev) => {
-          const copy = { ...prev }
-          if (current === undefined) delete copy[messageId]
-          else copy[messageId] = current
-          return copy
-        })
-      }
+      if (res.error) setFeedbackVote(messageId, current ?? null)
     },
-    [selectedThreadId, feedback]
+    [selectedThreadId, feedback, setFeedbackVote]
   )
 
   const renameThread = useCallback(
@@ -1067,9 +1018,6 @@ export function usePrincipalWorkspace() {
     },
     [loadThreads]
   )
-
-  const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
-  const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
   // Refetch manual do status de memória — o painel de Memória (F20) alterna o toggle
   // por fora do fluxo de turno, então o evento `memory.entry` não cobre esse caso.
