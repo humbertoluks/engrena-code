@@ -25,8 +25,10 @@ import {
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
 import type { SubagentRun } from '../services/subagents-service'
-import { findPendingAskUserQuestion, answerErrorMessage, composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
+import { composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
 import { routeComposerSend } from '../components/workspace/composerRoute.logic'
+import { useThreadGate } from './useThreadGate'
+import { GATE_ERROR_COPY, questionFromGate, type ThreadGate } from './threadGate.logic'
 import {
   appendWorkspaceNotice,
   mcpNotice,
@@ -230,10 +232,6 @@ export function usePrincipalWorkspace() {
   const [exportError, setExportError] = useState<string | null>(null)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
 
-  const [permissionQueue, setPermissionQueue] = useState<
-    Array<{ requestId: string; threadId: string; toolName: string; params: unknown }>
-  >([])
-
   // Faixa âmbar do workspace: MCP degradado + negação nativa do CLI (ver streamNotices.logic).
   const [mcpNotices, setMcpNotices] = useState<WorkspaceNotice[]>([])
 
@@ -246,35 +244,26 @@ export function usePrincipalWorkspace() {
     return (threadsByProject[selectedProjectId] ?? []).find((t) => t.id === selectedThreadId) ?? null
   }, [threadsByProject, selectedProjectId, selectedThreadId])
 
-  // F21: pergunta pendente do turno atual — só relevante com a thread pausada em waiting_user;
-  // deriva do tool_call ask_user_question mais recente ainda `running` (mesmo padrão de
-  // correlateSubagentRuns em chatHistory.logic.ts, sem estado próprio).
-  const [answerBusy, setAnswerBusy] = useState(false)
-  const [answerError, setAnswerError] = useState<string | null>(null)
+  /**
+   * Fonte única de "algo espera decisão humana" (permissão **e** pergunta), vinda do dono do fato
+   * (`services/runner/gate.ts`) por snapshot `GET /gate` + `gate.opened`/`gate.resolved`.
+   * Substituiu `permissionQueue` (fila local alimentada por `permission.request`) e
+   * `pendingQuestion` (inferido de `toolCalls`, ou seja, de um refetch abortável).
+   */
+  const gateApi = useThreadGate(selectedThreadId)
+  const { gate } = gateApi
 
-  const pendingQuestion = useMemo(() => {
-    if (selectedThread?.state !== 'waiting_user') return null
-    return findPendingAskUserQuestion(toolCalls)
-  }, [selectedThread, toolCalls])
-
-  // Envio da resposta precisa de estado próprio: sem `answerBusy` o duplo clique manda
-  // duas respostas, e sem `answerError` a falha do POST (ex.: 409 `thread_not_waiting`
-  // quando o turno já foi cancelado) ficava invisível para o usuário (F21 ui.md §Estados).
+  /**
+   * Resposta a um gate de pergunta pelo caminho que não passa pelo composer: o checkpoint do
+   * pipeline (F22), cujo CTA fica no `PipelinePanel`. Vai por `gateId` do gate em tela — a mesma
+   * regra do card, sem heurística de "pergunta mais recente".
+   */
   const answerQuestion = useCallback(
     async (input: { selectedOptions: string[]; freeText: string | null }) => {
-      if (!selectedThreadId || answerBusy) return
-      setAnswerBusy(true)
-      setAnswerError(null)
-      try {
-        const res = await threadsService.answerQuestion(selectedThreadId, input)
-        if (res.error) setAnswerError(answerErrorMessage(res.error.code))
-      } catch {
-        setAnswerError(answerErrorMessage(undefined))
-      } finally {
-        if (mountedRef.current) setAnswerBusy(false)
-      }
+      if (gate === null || gate.kind !== 'question') return
+      await gateApi.resolve(gate, { kind: 'question', ...input })
     },
-    [selectedThreadId, answerBusy]
+    [gate, gateApi]
   )
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
@@ -544,28 +533,6 @@ export function usePrincipalWorkspace() {
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
-  const refillPermissionQueue = useCallback(async (threadId: string) => {
-    try {
-      const res = await threadsService.pendingPermissions(threadId)
-      if (res.error || !mountedRef.current) return
-      const permissions = res.permissions ?? []
-      setPermissionQueue((prev) => {
-        const others = prev.filter((p) => p.threadId !== threadId)
-        return [
-          ...others,
-          ...permissions.map((p) => ({
-            requestId: p.requestId,
-            threadId: p.threadId,
-            toolName: p.toolName,
-            params: p.params,
-          })),
-        ]
-      })
-    } catch {
-      // Snapshot é best-effort no reconnect; o próximo envio tenta de novo.
-    }
-  }, [])
-
   useEffect(() => {
     if (!selectedThreadId) return
     const threadId = selectedThreadId
@@ -575,12 +542,10 @@ export function usePrincipalWorkspace() {
       handleStreamEvent(event)
     })
 
-    // Reconnect / troca de thread: reenche a fila a partir do broker (além do replay WS).
-    void refillPermissionQueue(threadId)
-
+    // O snapshot `GET /gate` da thread é do próprio `useThreadGate` (efeito por threadId).
     return () => disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId, refillPermissionQueue])
+  }, [selectedThreadId])
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
@@ -608,7 +573,7 @@ export function usePrincipalWorkspace() {
       // pendente no `finally` do dispatch; limpa o banner de Allow/Deny órfão que sobraria se o
       // usuário cancelou o turno em vez de responder.
       if (event.state === 'idle' || event.state === 'committed' || event.state === 'error' || event.state === 'cancelled') {
-        setPermissionQueue((prev) => prev.filter((p) => p.threadId !== event.threadId))
+        gateApi.clear()
       }
       if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
         setStreamingText('')
@@ -645,34 +610,25 @@ export function usePrincipalWorkspace() {
       void loadHistory(event.threadId, { background: true })
       return
     }
-    if (event.type === 'permission.request') {
-      // O pedido virou card na timeline: fora da aba Histórico ele não seria visto. Como o overlay
+    if (event.type === 'gate.opened') {
+      gateApi.applyStreamEvent(event)
+      // O gate virou card na timeline: fora da aba Histórico ele não seria visto. Como o overlay
       // antigo flutuava sobre qualquer aba, trazer o usuário de volta ao chat preserva a garantia
-      // de que a permissão pendente é sempre alcançável.
+      // de que a decisão pendente é sempre alcançável.
       setActiveTab('history')
       // Grant anterior não pode ficar como "Permitir / Executando…" sob o card novo.
-      setPendingMessages((prev) =>
-        dropStalePermissionDecisionPendings(
-          prev,
-          (text) => interpretPermissionChatReply(text).kind !== 'blocked'
+      if (event.kind === 'permission') {
+        setPendingMessages((prev) =>
+          dropStalePermissionDecisionPendings(
+            prev,
+            (text) => interpretPermissionChatReply(text).kind !== 'blocked'
+          )
         )
-      )
-      setPermissionQueue((prev) => {
-        if (prev.some((p) => p.requestId === event.requestId)) return prev
-        return [
-          ...prev,
-          {
-            requestId: event.requestId,
-            threadId: event.threadId,
-            toolName: event.toolName,
-            params: event.params,
-          },
-        ]
-      })
+      }
       return
     }
-    if (event.type === 'permission.resolved') {
-      setPermissionQueue((prev) => prev.filter((p) => p.requestId !== event.requestId))
+    if (event.type === 'gate.resolved') {
+      gateApi.applyStreamEvent(event)
       return
     }
     if (event.type === 'error') {
@@ -1148,38 +1104,31 @@ export function usePrincipalWorkspace() {
     sendFollowUpRef.current = sendFollowUp
   }, [sendFollowUp])
 
+  /**
+   * Resolve o gate de permissão **em tela**, por `gateId`. Falhou (`res.error` ou throw): o card
+   * fica — o broker continua esperando do outro lado, e sumir com o pedido aqui era o sintoma
+   * "clique aceito mas permissão não concedida".
+   */
   const resolvePermission = useCallback(
     async (
-      requestId: string,
+      target: ThreadGate,
       allow: boolean,
       always = false,
-      scope: 'thread' | 'project' = 'thread',
-      threadIdOverride?: string
+      scope: 'thread' | 'project' = 'thread'
     ): Promise<boolean> => {
-      const entry = permissionQueue.find((p) => p.requestId === requestId)
-      const threadId = entry?.threadId ?? threadIdOverride
-      if (!threadId) return false
-      try {
-        const res = await threadsService.permission(threadId, {
-          requestId,
-          allow,
-          always: always || undefined,
-          scope: scope === 'project' ? 'project' : undefined,
-        })
-        if (res.error) {
-          // Não remove da fila: o broker ainda espera. Card some sem grant era o sintoma
-          // "clique aceito mas permissão não concedida".
-          setSendError(res.error.message)
-          return false
-        }
-        setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
-        return true
-      } catch {
-        setSendError('Falha ao enviar a decisão de permissão.')
+      const res = await gateApi.resolve(target, {
+        kind: 'permission',
+        allow,
+        always: always || undefined,
+        scope: scope === 'project' ? 'project' : undefined,
+      })
+      if (!res.ok) {
+        setSendError(res.message === '' ? GATE_ERROR_COPY.generic : res.message)
         return false
       }
+      return true
     },
-    [permissionQueue]
+    [gateApi]
   )
 
   /**
@@ -1197,45 +1146,19 @@ export function usePrincipalWorkspace() {
     if (text === '') return
     setSendError(null)
 
-    let pendingPermission =
-      selectedThreadId !== null
-        ? permissionQueue.find((p) => p.threadId === selectedThreadId)
-        : undefined
+    let currentGate = gate
 
-    // waiting_permission com fila local vazia (WS perdido): snapshot do broker antes de decidir.
-    if (
-      selectedThreadId &&
-      !pendingPermission &&
-      selectedThread?.state === 'waiting_permission'
-    ) {
-      try {
-        const snap = await threadsService.pendingPermissions(selectedThreadId)
-        const first = snap.permissions?.[0]
-        if (first && !snap.error) {
-          // Const local (não o `let` acima): sem ela o `setPermissionQueue` precisaria de `!`
-          // e mascararia o caso em que o snapshot volta vazio — aí a rota abaixo é que decide.
-          const recovered = {
-            requestId: first.requestId,
-            threadId: first.threadId,
-            toolName: first.toolName,
-            params: first.params,
-          }
-          pendingPermission = recovered
-          setPermissionQueue((prev) => {
-            if (prev.some((p) => p.requestId === recovered.requestId)) return prev
-            return [...prev, recovered]
-          })
-        }
-      } catch {
-        // cai no route blocked abaixo
-      }
+    // waiting_permission sem gate conhecido localmente (WS perdido): snapshot antes de decidir.
+    if (selectedThreadId && currentGate === null && selectedThread?.state === 'waiting_permission') {
+      const recovered = await gateApi.refresh(selectedThreadId)
+      // Snapshot vazio não vira `!`: sem gate a rota abaixo é que decide (permission_blocked).
+      currentGate = recovered?.[0] ?? null
     }
 
     const route = routeComposerSend({
       text,
       threadState: selectedThread?.state,
-      hasPendingPermission: pendingPermission !== undefined,
-      hasPendingQuestion: pendingQuestion !== null,
+      gate: currentGate,
       hasSelectedThread: selectedThreadId !== null,
       hasSelectedProject: selectedProjectId !== null,
     })
@@ -1248,9 +1171,9 @@ export function usePrincipalWorkspace() {
     }
 
     if (route.action === 'resolve_permission') {
-      // Sem a permissão em mãos o `if` antigo caía nos branches de baixo e o texto virava turno
-      // novo em silêncio. Ausência aqui é o mesmo caso do snapshot vazio: erro visível.
-      if (!pendingPermission) {
+      // Sem o gate em mãos o `if` antigo caía nos branches de baixo e o texto virava turno novo
+      // em silêncio. Ausência aqui é o mesmo caso do snapshot vazio: erro visível.
+      if (currentGate === null || currentGate.kind !== 'permission') {
         setSendError(PERMISSION_PENDING_HINT)
         return
       }
@@ -1266,13 +1189,7 @@ export function usePrincipalWorkspace() {
       const always =
         route.decision.kind === 'allow_always' || route.decision.kind === 'allow_project'
       const scope = route.decision.kind === 'allow_project' ? 'project' : 'thread'
-      const ok = await resolvePermission(
-        pendingPermission.requestId,
-        allow,
-        always,
-        scope,
-        pendingPermission.threadId
-      )
+      const ok = await resolvePermission(currentGate, allow, always, scope)
       removePending(pendingId)
       if (!ok) return
       return
@@ -1281,24 +1198,16 @@ export function usePrincipalWorkspace() {
     // F21: texto no composer (digitado ou opção clicada) responde a ask_user_question —
     // antes caía na fila de follow-up e a pergunta ficava presa.
     if (route.action === 'answer_question') {
-      const answer = composerAnswerForQuestion(
-        text,
-        pendingQuestion!.options,
-        pendingQuestion!.multiSelect
-      )
+      // A rota só existe com gate de pergunta aberto — o `kind` reconfirma para estreitar o tipo.
+      if (currentGate === null || currentGate.kind !== 'question') return
+      const question = questionFromGate(currentGate)
+      const answer = composerAnswerForQuestion(text, question?.options ?? [], question?.multiSelect ?? false)
       const pendingId = addPending(text, [], 'permission')
       setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
-      try {
-        const res = await threadsService.answerQuestion(selectedThreadId!, answer)
-        removePending(pendingId)
-        if (res.error) {
-          setSendError(answerErrorMessage(res.error.code))
-          return
-        }
-      } catch {
-        removePending(pendingId)
-        setSendError(answerErrorMessage(undefined))
-      }
+      const res = await gateApi.resolve(currentGate, { kind: 'question', ...answer })
+      removePending(pendingId)
+      // O erro já está visível no card (`gateApi.error`); no composer ele vira a mesma faixa de envio.
+      if (!res.ok && res.message !== '') setSendError(res.message)
       return
     }
 
@@ -1357,8 +1266,8 @@ export function usePrincipalWorkspace() {
     selectedThread,
     selectedThreadId,
     selectedProjectId,
-    permissionQueue,
-    pendingQuestion,
+    gate,
+    gateApi,
     enqueue,
     sendFollowUp,
     resolvePermission,
@@ -1367,7 +1276,6 @@ export function usePrincipalWorkspace() {
     setPendingStatus,
     removePending,
     composerAttachments,
-    refillPermissionQueue,
   ])
 
   const cancel = useCallback(async () => {
@@ -1628,17 +1536,16 @@ export function usePrincipalWorkspace() {
     sendError,
     send,
     cancel,
-    pendingQuestion,
     answerQuestion,
-    answerBusy,
-    answerError,
     addProjectModalOpen,
     setAddProjectModalOpen,
     addProject,
     removeProject,
     gitInitProject,
-    permissionQueue,
-    resolvePermission,
+    gate,
+    gateQueuedCount: gateApi.queuedCount,
+    gateBusy: gateApi.busy,
+    gateError: gateApi.error,
     mcpNotices,
     dismissMcpNotices,
     acceptDiffs,

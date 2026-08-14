@@ -1,6 +1,7 @@
 import { apiRequest, type ApiErrorBody } from './api-client'
 import type { ContextAttachmentInput } from '../../services/runner/providers/context-attachments.js'
 import type { SubagentRun } from './subagents-service'
+import type { GateResolveBody, ThreadGate } from '../hooks/threadGate.logic'
 
 export type { ApiErrorBody, ContextAttachmentInput }
 
@@ -251,31 +252,20 @@ export const threadsService = {
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/cancel`),
 
-  permission: (
-    threadId: string,
-    input: { requestId: string; allow: boolean; always?: boolean; scope?: 'thread' | 'project' }
-  ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
-    apiRequest('POST', `/api/threads/${threadId}/permission`, input),
+  /**
+   * Snapshot dos gates abertos (permissão **e** pergunta), na ordem em que foram abertos. É a fonte
+   * do card na abertura da thread e no reconnect — o ao vivo vem de `gate.opened`/`gate.resolved`.
+   */
+  openGates: (threadId: string): Promise<{ gates: ThreadGate[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/gate`),
 
-  /** Snapshot de PreToolUse pendentes (reconnect / fila vazia com `waiting_permission`). */
-  pendingPermissions: (
-    threadId: string
-  ): Promise<
-    {
-      permissions: Array<{
-        requestId: string
-        threadId: string
-        toolName: string
-        params: unknown
-        createdAt?: number
-      }>
-    } & ApiErrorBody
-  > => apiRequest('GET', `/api/threads/${threadId}/permissions`),
-
-  answerQuestion: (
+  /** Resolve **o** gate que o card mostra, por `gateId` — nunca "o mais recente da thread". */
+  resolveGate: (
     threadId: string,
-    input: { selectedOptions?: string[]; freeText?: string | null }
-  ): Promise<{ answered: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/answer`, input),
+    gateId: string,
+    input: GateResolveBody
+  ): Promise<{ resolved: boolean; kind?: string; always?: boolean; toolName?: string } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/gate/${gateId}/resolve`, input),
 
   accept: (
     threadId: string,

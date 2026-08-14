@@ -26,6 +26,7 @@ import {
 } from './composer.logic'
 import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, type SlashTrigger } from './commandTrigger'
 import { deriveChatSurface, type ComposerPlaceholderKey } from './chatSurface.logic'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { ComposerModePicker } from './ComposerModePicker'
 import type { ChatModeItem, SavedPromptItem } from '../../services/prompt-library-service'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
@@ -133,10 +134,11 @@ export interface TaskComposerProps {
   usageLimitStatus: UsageLimitStatusResponse | null
   onSend: () => void
   onCancel: () => void
-  /** PreToolUse aguardando decisão — Enviar (não Parar) resolve sim/não no composer. */
-  permissionPending?: boolean
-  /** ask_user_question aguardando resposta — o Enviar responde em vez de enfileirar. */
-  questionPending?: boolean
+  /**
+   * Gate aberto da thread (`useThreadGate`): permissão faz o Enviar (não o Parar) resolver
+   * sim/não, pergunta faz o Enviar responder em vez de enfileirar.
+   */
+  gate?: ThreadGate | null
   /** Bolha otimista do usuário ainda em voo (entra em `deriveChatSurface`). */
   pendingActive?: boolean
   onGitInit: () => Promise<unknown>
@@ -174,8 +176,7 @@ export function TaskComposer({
   usageLimitStatus,
   onSend,
   onCancel,
-  permissionPending = false,
-  questionPending = false,
+  gate = null,
   pendingActive = false,
   onGitInit,
   hasProject,
@@ -208,8 +209,7 @@ export function TaskComposer({
   // saem daqui (e a rota é a mesma de `routeComposerSend`, sem segunda cópia do predicado).
   const surface = deriveChatSurface({
     threadState: selectedThread?.state ?? null,
-    hasPendingPermission: permissionPending,
-    hasPendingQuestion: questionPending,
+    gate,
     hasActivePending: pendingActive,
     queueLength: queue.length,
     hasSelectedThread: selectedThread !== null,

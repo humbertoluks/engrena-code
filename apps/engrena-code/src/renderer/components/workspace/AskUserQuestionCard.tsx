@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from 'react'
+import { questionFromGate, type ThreadGate } from '../../hooks/threadGate.logic'
 
 const COPY = {
   header: 'O agente precisa da sua resposta',
@@ -17,25 +18,30 @@ const CHIP = `rounded-md border px-sm py-[3px] text-[12px] disabled:opacity-50 $
  * e o texto ia parar no composer sem o CTA certo.
  */
 export interface AskUserQuestionCardProps {
-  prompt: string
-  options: string[]
-  multiSelect: boolean
+  /**
+   * O gate que este card representa. É o `gateId` dele que vai no `POST /gate/:gateId/resolve` —
+   * o que está em tela é o que o Enviar responde, e não mais "a pergunta aberta mais recente".
+   */
+  gate: ThreadGate
   busy?: boolean
-  /** Mensagem de falha do `POST /answer` (quando o Enviar do composer falha). */
+  /** Mensagem de falha da resolução (quando o Enviar do composer falha). */
   error?: string | null
   /** Clique numa opção: preenche o composer principal (envio via Enviar). */
   onPickOption: (option: string) => void
 }
 
 export function AskUserQuestionCard({
-  prompt,
-  options,
-  multiSelect,
+  gate,
   busy = false,
   error = null,
   onPickOption,
 }: Readonly<AskUserQuestionCardProps>): ReactElement {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
+  const { prompt, options, multiSelect } = questionFromGate(gate) ?? {
+    prompt: '',
+    options: [],
+    multiSelect: false,
+  }
 
   function pickOption(option: string): void {
     if (busy) return

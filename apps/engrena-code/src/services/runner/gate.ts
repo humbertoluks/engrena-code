@@ -158,8 +158,6 @@ export function restoreRunningIfNoOpenGates(threadId: string): void {
 interface CloseOptions {
   /** `false` na expiração de fim de turno/cancel: quem assenta o estado final é o chamador. */
   restoreRunning?: boolean
-  /** `false` em cancel/fim de turno — o legado nunca emitiu `permission.resolved` nesses caminhos. */
-  emitLegacyResolved?: boolean
   /** Roda com o gate já consumido e **antes** de destravar o hook (ver `onGranted`). */
   beforeRelease?: (gate: ThreadGate) => void
 }
@@ -196,11 +194,6 @@ function closeGate(
     allow,
     reason,
   })
-  // `permission.resolved` é wire legado de permissão — pergunta nunca teve evento próprio (a UI
-  // legada segue o `state.change` + `tool_call.result`), então não inventamos um aqui.
-  if (gate.kind === 'permission' && options.emitLegacyResolved !== false) {
-    emit(gate.threadId, { type: 'permission.resolved', threadId: gate.threadId, requestId: gate.id, allow })
-  }
   if (options.restoreRunning !== false) maybeRestoreRunning(gate.threadId)
   return gate
 }
@@ -219,7 +212,7 @@ export type OpenPermissionGateResult =
 
 /**
  * Abre um gate de permissão: persiste a linha, arma o timeout fail-closed, põe a thread em
- * `waiting_permission` e anuncia (`gate.opened` novo + `permission.request` legado).
+ * `waiting_permission` e anuncia (`gate.opened`).
  *
  * A continuação é registrada **antes** de qualquer `emit` — um consumidor no mesmo processo que
  * resolvesse no próprio evento não pode achar o gate sem continuação.
@@ -272,14 +265,6 @@ export function openPermissionGate(input: OpenPermissionGateInput): OpenPermissi
     createdAt: gate.createdAt,
     expiresAt: gate.expiresAt,
   })
-  emit(gate.threadId, {
-    type: 'permission.request',
-    threadId: gate.threadId,
-    requestId: info.requestId,
-    toolName: info.toolName,
-    params: info.params,
-  })
-
   return { ok: true, gate: info, decision }
 }
 
@@ -357,8 +342,8 @@ export function allowOpenPermissionGates(threadId: string, accessLevel?: ThreadA
 /**
  * Expira (nega) todo gate aberto da thread — cancel, erro e fim de turno. Mesmo contrato do legado
  * "permission pendente no cancel → deny" (`_reversa_sdd/runner/requirements.md`): não restaura
- * `running`, porque quem assenta o estado final (cancelled/error/idle) é o chamador; e não emite o
- * `permission.resolved` legado, que nunca existiu nesse caminho. O `gate.resolved` novo sai sempre.
+ * `running`, porque quem assenta o estado final (cancelled/error/idle) é o chamador. O
+ * `gate.resolved` sai sempre, e é por ele que o card some da UI.
  */
 export function expireOpenPermissionGates(threadId: string, reason = 'turn_ended'): string[] {
   const expiredIds: string[] = []
@@ -366,7 +351,6 @@ export function expireOpenPermissionGates(threadId: string, reason = 'turn_ended
     if (
       closeGate(gate.id, 'expired', { kind: 'permission', allow: false }, reason, {
         restoreRunning: false,
-        emitLegacyResolved: false,
       }) !== null
     ) {
       expiredIds.push(gate.id)
@@ -376,8 +360,8 @@ export function expireOpenPermissionGates(threadId: string, reason = 'turn_ended
 }
 
 /**
- * Snapshot consultável dos gates de permissão abertos (reconnect WS / `GET /permissions`).
- * Sem continuação nem handles — só o que a UI precisa para remontar o card.
+ * Snapshot consultável dos gates de permissão abertos, por kind. O snapshot que a UI consome é o
+ * unificado (`listOpenGates`); este fica para quem só se importa com permissão.
  */
 export function listOpenPermissionGates(threadId: string): PermissionRequestInfo[] {
   return listOpenThreadGates(threadId, 'permission').map(toPermissionRequestInfo)
@@ -440,8 +424,7 @@ export type OpenQuestionGateResult =
 
 /**
  * Abre um gate de pergunta: persiste a linha, põe a thread em `waiting_user` e anuncia
- * (`gate.opened` novo; o legado que a UI consome hoje é o `state.change` + `tool_call.start` do
- * dispatch, não há evento `question.*` próprio a manter).
+ * (`gate.opened` — o mesmo evento da permissão, discriminado por `kind`).
  *
  * **Vários gates de pergunta na mesma thread coexistem** — é o ponto da migração. O `pending` antigo
  * (`ask-user-question.ts`, um por thread) era sobrescrito em silêncio: a segunda pergunta do mesmo
@@ -530,30 +513,6 @@ export function resolveQuestionGate(
 }
 
 /**
- * Compat do wire legado `POST /api/threads/:id/answer`, que não carrega `gateId`: responde o gate
- * de pergunta **mais recente** ainda aberto.
- *
- * Mais recente, não mais antigo, porque é o que o usuário está vendo: o card sai de
- * `findPendingAskUserQuestion` (`renderer/components/workspace/askUserQuestion.logic.ts`), que
- * varre `toolCalls` de trás para frente e devolve a última `ask_user_question` em `running`.
- * Responder a mais antiga mandaria a resposta para uma pergunta invisível e deixaria o card aberto.
- *
- * Também é a paridade com o legado: o `pending` por thread do `ask-user-question.ts` era
- * sobrescrito pela pergunta nova, então `/answer` resolvia justamente essa. O bug de lá era a
- * primeira pergunta ficar presa para sempre — não a resposta ir para o alvo errado.
- *
- * Só a rota nova `POST /gate/:gateId/resolve` endereça uma pergunta específica. A Fase C migra o
- * card para `gate.opened`/`gateId` e esta heurística cai junto.
- * `false` = nenhuma pendente (409 `no_pending_question`), mesmo resultado observável do legado.
- */
-export function answerNewestQuestionGate(threadId: string, answer: GateAnswer): boolean {
-  const open = listOpenThreadGates(threadId, 'question')
-  const newest = open[open.length - 1]
-  if (newest === undefined) return false
-  return resolveQuestionGate(threadId, newest.id, answer).ok
-}
-
-/**
  * Rejeita toda pergunta aberta da thread — cancel, erro e fim de turno. `message` chega ao agente
  * como texto do `tools/call` com `isError: true` (contrato legado de `rejectAskUserQuestion`), por
  * isso é PT-BR; `reason` é o código que fica persistido na linha. Não restaura `running`: quem
@@ -573,7 +532,7 @@ export function expireOpenQuestionGates(threadId: string, reason: string, messag
   return expiredIds
 }
 
-/** Snapshot consultável das perguntas abertas (reconnect WS / `GET /gate`). */
+/** Snapshot consultável das perguntas abertas, por kind (o unificado é `listOpenGates`). */
 export function listOpenQuestionGates(threadId: string): QuestionGateInfo[] {
   return listOpenThreadGates(threadId, 'question').map(toQuestionGateInfo)
 }

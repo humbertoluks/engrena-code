@@ -15,7 +15,7 @@ import {
   turnDurationForAssistant,
 } from './chatHistory.logic'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
-import type { PendingAskUserQuestion } from './askUserQuestion.logic'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { PermissionPrompt } from './PermissionPrompt'
 import { ChatMarkdown } from './ChatMarkdown'
 import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
@@ -448,15 +448,19 @@ export interface ChatHistoryProps {
   streamingText: string
   hasThread: boolean
   threadState?: ThreadState | null
-  pendingQuestion?: PendingAskUserQuestion | null
-  /** Permissão pendente da thread selecionada — card inline na timeline. */
-  pendingPermission?: { requestId: string; toolName: string; params: unknown; queuedCount: number } | null
+  /**
+   * Gate aberto da thread (`useThreadGate`) — permissão **ou** pergunta, card inline na timeline.
+   * Fonte única: nada aqui é inferido de `toolCalls`, que chega por refetch abortável.
+   */
+  gate?: ThreadGate | null
+  /** Gates além do exibido — vira "+N na fila" no card de permissão. */
+  gateQueuedCount?: number
   /** Clique numa decisão de permissão: preenche o composer (envio via Enviar). */
   onPermissionDecide?: (text: string) => void
   /** Clique numa opção do ask_user_question: preenche o composer (envio via Enviar). */
   onPickAskOption?: (option: string) => void
-  answerBusy?: boolean
-  answerError?: string | null
+  gateBusy?: boolean
+  gateError?: string | null
   /** Voto por id de mensagem (👍/👎), vindo do histórico persistido. */
   feedback?: Record<string, FeedbackVote>
   onVote?: (messageId: string, vote: FeedbackVote) => void
@@ -482,12 +486,12 @@ export function ChatHistory({
   streamingText,
   hasThread,
   threadState = null,
-  pendingQuestion = null,
-  pendingPermission = null,
+  gate = null,
+  gateQueuedCount = 0,
   onPermissionDecide,
   onPickAskOption,
-  answerBusy = false,
-  answerError = null,
+  gateBusy = false,
+  gateError = null,
   feedback = {},
   onVote,
   followups = [],
@@ -518,7 +522,7 @@ export function ChatHistory({
     streamingText !== '' ||
     toolCalls.length > 0 ||
     pendingMessages.length > 0 ||
-    pendingPermission !== null
+    gate !== null
 
   // Loading/erro só tomam a tela quando não há nada para preservar. Com conversa em tela o
   // refetch é silencioso — trocar a árvore por "Carregando…" jogaria o scroll para o topo.
@@ -556,8 +560,7 @@ export function ChatHistory({
   // rascunho são do composer).
   const surface = deriveChatSurface({
     threadState,
-    hasPendingPermission: pendingPermission !== null,
-    hasPendingQuestion: pendingQuestion !== null,
+    gate,
     hasActivePending: pendingMessages.some((p) => isPendingActive(p.status)),
     queueLength: 0,
     hasSelectedThread: hasThread,
@@ -625,14 +628,12 @@ export function ChatHistory({
         <PendingUserMessage key={pending.id} pending={pending} />
       ))}
 
-      {pendingQuestion && onPickAskOption ? (
+      {gate !== null && gate.kind === 'question' && onPickAskOption ? (
         <AskUserQuestionCard
-          key={pendingQuestion.toolCallId}
-          prompt={pendingQuestion.prompt}
-          options={pendingQuestion.options}
-          multiSelect={pendingQuestion.multiSelect}
-          busy={answerBusy}
-          error={answerError}
+          key={gate.gateId}
+          gate={gate}
+          busy={gateBusy}
+          error={gateError}
           onPickOption={onPickAskOption}
         />
       ) : null}
@@ -645,12 +646,12 @@ export function ChatHistory({
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
-      {pendingPermission && onPermissionDecide ? (
+      {gate !== null && gate.kind === 'permission' && onPermissionDecide ? (
         <PermissionPrompt
-          key={pendingPermission.requestId}
-          toolName={pendingPermission.toolName}
-          params={pendingPermission.params}
-          queuedCount={pendingPermission.queuedCount}
+          key={gate.gateId}
+          gate={gate}
+          queuedCount={gateQueuedCount}
+          error={gateError}
           onDecide={onPermissionDecide}
         />
       ) : null}

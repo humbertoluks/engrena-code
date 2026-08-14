@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { ThreadState } from '../../services/threads-service'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { routeComposerSend } from './composerRoute.logic'
 import { CHAT_SURFACE_COPY, deriveChatSurface, type ChatSurfaceInput } from './chatSurface.logic'
+
+function gateOf(kind: 'permission' | 'question'): ThreadGate {
+  return {
+    gateId: `gate_${kind}`,
+    threadId: 'thr_1',
+    kind,
+    toolName: kind === 'permission' ? 'Bash' : null,
+    payload: null,
+    createdAt: 1,
+    expiresAt: null,
+  }
+}
+
+const PERMISSION_GATE = gateOf('permission')
+const QUESTION_GATE = gateOf('question')
 
 const ALL_STATES: Array<ThreadState | null> = [
   'running',
@@ -17,8 +33,7 @@ const ALL_STATES: Array<ThreadState | null> = [
 
 const base: ChatSurfaceInput = {
   threadState: 'idle',
-  hasPendingPermission: false,
-  hasPendingQuestion: false,
+  gate: null,
   hasActivePending: false,
   queueLength: 0,
   hasSelectedThread: true,
@@ -27,26 +42,24 @@ const base: ChatSurfaceInput = {
 }
 
 const BOOLS = [false, true]
+const GATES: Array<ThreadGate | null> = [null, PERMISSION_GATE, QUESTION_GATE]
 const TEXTS = ['', '   ', 'oi', 'Sim', 'Permitir todos', 'Negar', 'talvez depois']
 
 function allInputs(): ChatSurfaceInput[] {
   const out: ChatSurfaceInput[] = []
   for (const threadState of ALL_STATES) {
-    for (const hasPendingPermission of BOOLS) {
-      for (const hasPendingQuestion of BOOLS) {
-        for (const hasSelectedThread of BOOLS) {
-          for (const hasSelectedProject of BOOLS) {
-            for (const draftText of TEXTS) {
-              out.push({
-                ...base,
-                threadState,
-                hasPendingPermission,
-                hasPendingQuestion,
-                hasSelectedThread,
-                hasSelectedProject,
-                draftText,
-              })
-            }
+    for (const gate of GATES) {
+      for (const hasSelectedThread of BOOLS) {
+        for (const hasSelectedProject of BOOLS) {
+          for (const draftText of TEXTS) {
+            out.push({
+              ...base,
+              threadState,
+              gate,
+              hasSelectedThread,
+              hasSelectedProject,
+              draftText,
+            })
           }
         }
       }
@@ -56,17 +69,16 @@ function allInputs(): ChatSurfaceInput[] {
 }
 
 describe('deriveChatSurface — rota é a de routeComposerSend, nunca reimplementada', () => {
-  it('devolve exatamente a mesma action para toda a matriz estado × flags × texto', () => {
+  it('devolve exatamente a mesma action para toda a matriz estado × gate × texto', () => {
     const cases = allInputs()
     // Guarda contra a matriz encolher em silêncio.
-    expect(cases.length).toBe(ALL_STATES.length * 2 * 2 * 2 * 2 * TEXTS.length)
+    expect(cases.length).toBe(ALL_STATES.length * GATES.length * 2 * 2 * TEXTS.length)
 
     for (const input of cases) {
       const expected = routeComposerSend({
         text: input.draftText,
         threadState: input.threadState,
-        hasPendingPermission: input.hasPendingPermission,
-        hasPendingQuestion: input.hasPendingQuestion,
+        gate: input.gate,
         hasSelectedThread: input.hasSelectedThread,
         hasSelectedProject: input.hasSelectedProject,
       }).action
@@ -78,16 +90,16 @@ describe('deriveChatSurface — rota é a de routeComposerSend, nunca reimplemen
 describe('deriveChatSurface — modo', () => {
   it('stopping vence tudo', () => {
     expect(
-      deriveChatSurface({ ...base, threadState: 'stopping', hasPendingPermission: true }).composerMode
+      deriveChatSurface({ ...base, threadState: 'stopping', gate: PERMISSION_GATE }).composerMode
     ).toBe('stopping')
   })
 
   it('permissão pendente vence running e waiting_user', () => {
     expect(
-      deriveChatSurface({ ...base, threadState: 'running', hasPendingPermission: true }).composerMode
+      deriveChatSurface({ ...base, threadState: 'running', gate: PERMISSION_GATE }).composerMode
     ).toBe('permission')
     expect(
-      deriveChatSurface({ ...base, threadState: 'waiting_user', hasPendingPermission: true }).composerMode
+      deriveChatSurface({ ...base, threadState: 'waiting_user', gate: PERMISSION_GATE }).composerMode
     ).toBe('permission')
   })
 
@@ -123,7 +135,7 @@ describe('deriveChatSurface — Parar e Enviar', () => {
   })
 
   it('permissão pendente com a thread já parada ainda mostra Parar', () => {
-    expect(deriveChatSurface({ ...base, threadState: 'idle', hasPendingPermission: true }).showStop).toBe(true)
+    expect(deriveChatSurface({ ...base, threadState: 'idle', gate: PERMISSION_GATE }).showStop).toBe(true)
   })
 
   it('thread parada sem permissão não mostra Parar', () => {
@@ -134,13 +146,13 @@ describe('deriveChatSurface — Parar e Enviar', () => {
 
 describe('deriveChatSurface — rótulo acompanha a rota', () => {
   it('waiting_user sem pergunta pendente rotula enfileirar, não "Enviar resposta"', () => {
-    const surface = deriveChatSurface({ ...base, threadState: 'waiting_user', hasPendingQuestion: false })
+    const surface = deriveChatSurface({ ...base, threadState: 'waiting_user', gate: null })
     expect(surface.route).toBe('enqueue')
     expect(surface.sendLabel).toBe(CHAT_SURFACE_COPY.sendEnqueue)
   })
 
   it('waiting_user com pergunta pendente rotula resposta', () => {
-    const surface = deriveChatSurface({ ...base, threadState: 'waiting_user', hasPendingQuestion: true })
+    const surface = deriveChatSurface({ ...base, threadState: 'waiting_user', gate: QUESTION_GATE })
     expect(surface.route).toBe('answer_question')
     expect(surface.sendLabel).toBe(CHAT_SURFACE_COPY.sendQuestion)
   })
@@ -150,7 +162,7 @@ describe('deriveChatSurface — rótulo acompanha a rota', () => {
       deriveChatSurface({
         ...base,
         threadState: 'waiting_permission',
-        hasPendingPermission: true,
+        gate: PERMISSION_GATE,
         draftText: 'Sim',
       }).sendLabel
     ).toBe(CHAT_SURFACE_COPY.sendPermission)
@@ -199,10 +211,10 @@ describe('deriveChatSurface — indicador de atividade', () => {
 
   it('some quando a bola passa para o usuário', () => {
     expect(
-      deriveChatSurface({ ...base, threadState: 'running', hasPendingPermission: true }).showActivity
+      deriveChatSurface({ ...base, threadState: 'running', gate: PERMISSION_GATE }).showActivity
     ).toBe(false)
     expect(
-      deriveChatSurface({ ...base, threadState: 'running', hasPendingQuestion: true }).showActivity
+      deriveChatSurface({ ...base, threadState: 'running', gate: QUESTION_GATE }).showActivity
     ).toBe(false)
     expect(deriveChatSurface({ ...base, threadState: 'waiting_user' }).showActivity).toBe(false)
     expect(deriveChatSurface({ ...base, threadState: 'waiting_permission' }).showActivity).toBe(false)
@@ -222,8 +234,8 @@ describe('deriveChatSurface — followups', () => {
   })
 
   it('some com permissão ou pergunta pendente mesmo com a thread parada', () => {
-    expect(deriveChatSurface({ ...base, hasPendingPermission: true }).showFollowups).toBe(false)
-    expect(deriveChatSurface({ ...base, hasPendingQuestion: true }).showFollowups).toBe(false)
+    expect(deriveChatSurface({ ...base, gate: PERMISSION_GATE }).showFollowups).toBe(false)
+    expect(deriveChatSurface({ ...base, gate: QUESTION_GATE }).showFollowups).toBe(false)
   })
 
   it('some com bolha otimista em voo', () => {
@@ -238,7 +250,7 @@ describe('deriveChatSurface — followups', () => {
 
 describe('deriveChatSurface — sendStartsTurn', () => {
   it('decisão de permissão, resposta e enfileiramento passam por cima dos gates do projeto', () => {
-    expect(deriveChatSurface({ ...base, hasPendingPermission: true }).sendStartsTurn).toBe(false)
+    expect(deriveChatSurface({ ...base, gate: PERMISSION_GATE }).sendStartsTurn).toBe(false)
     expect(deriveChatSurface({ ...base, threadState: 'waiting_permission' }).sendStartsTurn).toBe(false)
     expect(deriveChatSurface({ ...base, threadState: 'waiting_user' }).sendStartsTurn).toBe(false)
     expect(deriveChatSurface({ ...base, threadState: 'running' }).sendStartsTurn).toBe(false)
@@ -264,7 +276,7 @@ describe('deriveChatSurface — runtimeLocked', () => {
   })
 
   it('permissão pendente sozinha não trava provider/anexos', () => {
-    expect(deriveChatSurface({ ...base, threadState: 'idle', hasPendingPermission: true }).runtimeLocked).toBe(
+    expect(deriveChatSurface({ ...base, threadState: 'idle', gate: PERMISSION_GATE }).runtimeLocked).toBe(
       false
     )
   })

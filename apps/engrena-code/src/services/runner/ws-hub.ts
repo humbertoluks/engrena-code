@@ -8,8 +8,9 @@ export type StreamEvent =
   | { type: 'state.change'; threadId: string; state: string }
   | { type: 'error'; threadId: string; code: string; message: string }
   /**
-   * `gate.*` é o contrato novo do ThreadGate (`runner/gate.ts`). Os dois `permission.*` abaixo são
-   * o legado que o renderer ainda consome — emitidos em paralelo até a Fase C, quando a UI migra.
+   * `gate.*` é o contrato do ThreadGate (`runner/gate.ts`) — dono único de "algo espera decisão
+   * humana", nos dois kinds. O par legado `permission.request`/`permission.resolved` saiu quando o
+   * renderer passou a consumir só isto (`renderer/hooks/useThreadGate.ts`).
    */
   | {
       type: 'gate.opened'
@@ -30,8 +31,6 @@ export type StreamEvent =
       allow: boolean
       reason: string
     }
-  | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
-  | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
   /** Negação nativa do Claude CLI (sem modal EngrenaCode) — metadata only, sem tool_input. */
   | {
       type: 'permission.native_denial'

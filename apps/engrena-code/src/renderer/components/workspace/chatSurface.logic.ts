@@ -13,6 +13,7 @@
  */
 
 import type { ThreadState } from '../../services/threads-service'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { routeComposerSend, type ComposerRouteDecision } from './composerRoute.logic'
 
 /** Modo da superfície — governa placeholder, rótulo e visibilidade dos botões. */
@@ -30,12 +31,11 @@ export type ComposerPlaceholderKey =
 export interface ChatSurfaceInput {
   threadState: ThreadState | null | undefined
   /**
-   * Nota de desenho: `hasPendingPermission` + `hasPendingQuestion` colapsam depois num único
-   * `gate: ThreadGate | null` (permissão e pergunta viram um conceito só, persistido). Ficam
-   * adjacentes aqui e são lidos uma vez só no corpo, para a troca ser local.
+   * O gate aberto da thread (`useThreadGate`): permissão e pergunta são um conceito só, persistido
+   * em `thread_gates` e servido por `GET /gate` + `gate.opened`/`gate.resolved`. Substituiu o par
+   * `hasPendingPermission`/`hasPendingQuestion`.
    */
-  hasPendingPermission: boolean
-  hasPendingQuestion: boolean
+  gate: ThreadGate | null
   /** Bolha otimista do usuário ainda em voo (sending/sent/queued). */
   hasActivePending: boolean
   queueLength: number
@@ -99,8 +99,11 @@ const LABEL_BY_ROUTE: Record<ComposerRouteDecision['action'], string | null> = {
 }
 
 export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
-  // Leitura única do par que vira `ThreadGate` depois.
-  const gate = { permission: input.hasPendingPermission, question: input.hasPendingQuestion }
+  // Leitura única do gate por kind — o resto do corpo não volta a olhar `input.gate`.
+  const gate = {
+    permission: input.gate?.kind === 'permission',
+    question: input.gate?.kind === 'question',
+  }
 
   const state = input.threadState
   // Turno em andamento pelo estado da thread (sem contar permissão pendente): é o que trava
@@ -125,8 +128,7 @@ export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
   const route = routeComposerSend({
     text: input.draftText,
     threadState: state,
-    hasPendingPermission: gate.permission,
-    hasPendingQuestion: gate.question,
+    gate: input.gate,
     hasSelectedThread: input.hasSelectedThread,
     hasSelectedProject: input.hasSelectedProject,
   }).action

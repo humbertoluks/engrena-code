@@ -1,4 +1,5 @@
 import type { ThreadState } from '../../services/threads-service'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import {
   interpretPermissionChatReply,
   PERMISSION_PENDING_HINT,
@@ -20,8 +21,12 @@ export type ComposerRouteDecision =
 export interface ComposerRouteInput {
   text: string
   threadState: ThreadState | null | undefined
-  hasPendingPermission: boolean
-  hasPendingQuestion: boolean
+  /**
+   * O gate aberto da thread (`useThreadGate`) — fonte única de "algo espera decisão humana".
+   * Substituiu o par `hasPendingPermission`/`hasPendingQuestion`, que eram duas representações
+   * paralelas do mesmo fato (uma vinda do WS, outra inferida de `toolCalls`).
+   */
+  gate: ThreadGate | null
   hasSelectedThread: boolean
   hasSelectedProject: boolean
 }
@@ -39,11 +44,11 @@ export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecis
   const text = input.text.trim()
   if (text === '') return { action: 'noop' }
 
-  const permissionGate =
-    input.hasPendingPermission || input.threadState === 'waiting_permission'
+  const hasPendingPermission = input.gate?.kind === 'permission'
+  const permissionGate = hasPendingPermission || input.threadState === 'waiting_permission'
 
   if (permissionGate) {
-    if (!input.hasPendingPermission) {
+    if (!hasPendingPermission) {
       // Estado DB diz waiting_permission mas a fila local está vazia (WS perdido) —
       // nunca enfileira; a UI deve refetch do snapshot antes de resolver.
       return { action: 'permission_blocked', message: PERMISSION_PENDING_HINT }
@@ -55,7 +60,7 @@ export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecis
     return { action: 'resolve_permission', decision: reply }
   }
 
-  if (input.threadState === 'waiting_user' && input.hasPendingQuestion) {
+  if (input.threadState === 'waiting_user' && input.gate?.kind === 'question') {
     return { action: 'answer_question' }
   }
 

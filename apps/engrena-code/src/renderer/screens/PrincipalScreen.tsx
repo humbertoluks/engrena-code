@@ -38,9 +38,9 @@ export function PrincipalScreen(): ReactElement {
   // CTA em vez de salto (ver useChatScroll).
   const lastAssistant = [...ws.messages].reverse().find((m) => m.role === 'assistant') ?? null
   const chatScroll = useChatScroll<HTMLDivElement>({
-    // permissionQueue entra no sinal porque o pedido chega antes do tool_call existir: sem ele o
-    // card inline nasceria fora de vista e o turno pareceria travado sem nada para responder.
-    signal: `${ws.selectedThreadId ?? ''}|${ws.messages.length}|${ws.toolCalls.length}|${ws.streamingText.length}|${ws.chatPendingMessages.length}|${ws.permissionQueue.length}`,
+    // O gate entra no sinal porque o pedido chega antes do tool_call existir: sem ele o card
+    // inline nasceria fora de vista e o turno pareceria travado sem nada para responder.
+    signal: `${ws.selectedThreadId ?? ''}|${ws.messages.length}|${ws.toolCalls.length}|${ws.streamingText.length}|${ws.chatPendingMessages.length}|${ws.gate?.gateId ?? ''}`,
     enabled: ws.activeTab === 'history' && !terminalMaximized,
     active:
       ws.selectedThread?.state === 'running' ||
@@ -51,11 +51,6 @@ export function PrincipalScreen(): ReactElement {
   const showJump = chatScroll.showJump && ws.activeTab === 'history' && !terminalMaximized
 
   const pendingDiffCount = ws.diffs.filter((d) => d.status === 'pending').length
-  // Só o pedido da thread selecionada — permissão de outra thread na fila não rouba o clique.
-  const threadPermissions = ws.selectedThreadId
-    ? ws.permissionQueue.filter((p) => p.threadId === ws.selectedThreadId)
-    : ws.permissionQueue
-  const currentPermission = threadPermissions[0] ?? null
 
   // Deep-link do Dashboard (F04): "#principal?project=<id>&thread=<id>&tab=diff|history".
   const deepLinkAppliedRef = useRef(false)
@@ -120,8 +115,8 @@ export function PrincipalScreen(): ReactElement {
       onOpenSubagentRun={ws.openSubagentRun}
       pipeline={ws.pipeline}
       onAnswerPipelineCheckpoint={(input) => void ws.answerQuestion(input)}
-      pipelineAnswerBusy={ws.answerBusy}
-      pipelineAnswerError={ws.answerError}
+      pipelineAnswerBusy={ws.gateBusy}
+      pipelineAnswerError={ws.gateError}
       onCancelPipeline={() => void ws.cancel()}
       onNewThread={ws.newThread}
       onCommit={ws.gitCommit}
@@ -255,21 +250,12 @@ export function PrincipalScreen(): ReactElement {
                     streamingText={ws.streamingText}
                     hasThread={ws.selectedThreadId !== null}
                     threadState={ws.selectedThread?.state ?? null}
-                    pendingQuestion={ws.pendingQuestion}
-                    pendingPermission={
-                      currentPermission
-                        ? {
-                            requestId: currentPermission.requestId,
-                            toolName: currentPermission.toolName,
-                            params: currentPermission.params,
-                            queuedCount: threadPermissions.length - 1,
-                          }
-                        : null
-                    }
+                    gate={ws.gate}
+                    gateQueuedCount={ws.gateQueuedCount}
                     onPermissionDecide={ws.sendDecision}
                     onPickAskOption={(text) => ws.updateComposer({ text })}
-                    answerBusy={ws.answerBusy}
-                    answerError={ws.answerError}
+                    gateBusy={ws.gateBusy}
+                    gateError={ws.gateError}
                     feedback={ws.feedback}
                     onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
                     followups={ws.followups}
@@ -341,8 +327,7 @@ export function PrincipalScreen(): ReactElement {
               usageLimitStatus={ws.usageLimitStatus}
               onSend={() => void ws.send()}
               onCancel={() => void ws.cancel()}
-              permissionPending={threadPermissions.length > 0}
-              questionPending={ws.pendingQuestion !== null}
+              gate={ws.gate}
               pendingActive={ws.chatPendingMessages.some((p) => isPendingActive(p.status))}
               onGitInit={() => (ws.selectedProjectId ? ws.gitInitProject(ws.selectedProjectId) : Promise.resolve())}
               hasProject={ws.selectedProjectId !== null}

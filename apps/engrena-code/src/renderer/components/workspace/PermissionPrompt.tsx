@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import { permissionFromGate, type ThreadGate } from '../../hooks/threadGate.logic'
 import {
   PERMISSION_COMPOSER_ALLOW,
   PERMISSION_COMPOSER_ALLOW_ALL,
@@ -21,11 +22,17 @@ const CHIP_QUIET = `${CHIP} border-border text-muted hover:text-fg`
 const CHIP_PRIMARY = `${CHIP} border-accent/60 bg-accent/10 text-fg hover:bg-accent/20`
 
 export interface PermissionPromptProps {
-  toolName: string
-  params: unknown
+  /**
+   * O gate que este card representa. O card carrega o `gateId` porque é ele quem vai no
+   * `POST /gate/:gateId/resolve`: o que está em tela é exatamente o que o Enviar resolve — nunca
+   * "o pedido mais recente da thread".
+   */
+  gate: ThreadGate
   queuedCount: number
   /** Preenche o composer com a decisão — a concessão real é o Enviar (ou o texto digitado). */
   onDecide: (text: string) => void
+  /** Falha da resolução: o card continua enquanto o POST não sucede. */
+  error?: string | null
 }
 
 /**
@@ -34,11 +41,12 @@ export interface PermissionPromptProps {
  * de que só o botão concedia — o contrato é opção → composer → Enviar, igual ao `AskUserQuestionCard`.
  */
 export function PermissionPrompt({
-  toolName,
-  params,
+  gate,
   queuedCount,
   onDecide,
+  error = null,
 }: Readonly<PermissionPromptProps>): ReactElement {
+  const { toolName, params } = permissionFromGate(gate) ?? { toolName: 'unknown', params: gate.payload }
   return (
     <div className="mb-md w-full max-w-[42rem] self-start rounded-lg border border-accent/40 bg-surface-2 p-sm text-[13px]">
       <div className="mb-[2px] flex items-center justify-between gap-sm">
@@ -83,6 +91,12 @@ export function PermissionPrompt({
           {PERMISSION_COMPOSER_DENY}
         </button>
       </div>
+
+      {error !== null ? (
+        <p role="alert" className="mt-xs text-[11.5px] text-red">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }

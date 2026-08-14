@@ -1,19 +1,34 @@
 import { describe, expect, it } from 'vitest'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { PERMISSION_PENDING_HINT } from './permissionComposer.logic'
 import { routeComposerSend } from './composerRoute.logic'
+
+function gateOf(kind: 'permission' | 'question'): ThreadGate {
+  return {
+    gateId: `gate_${kind}`,
+    threadId: 'thr_1',
+    kind,
+    toolName: kind === 'permission' ? 'Bash' : null,
+    payload: null,
+    createdAt: 1,
+    expiresAt: null,
+  }
+}
+
+const PERMISSION_GATE = gateOf('permission')
+const QUESTION_GATE = gateOf('question')
 
 describe('routeComposerSend', () => {
   const base = {
     hasSelectedThread: true,
     hasSelectedProject: true,
-    hasPendingPermission: false,
-    hasPendingQuestion: false,
+    gate: null as ThreadGate | null,
     threadState: 'idle' as const,
   }
 
-  it('maps Sim to resolve_permission when queue has a pending request', () => {
+  it('maps Sim to resolve_permission when a permission gate is open', () => {
     expect(
-      routeComposerSend({ ...base, text: 'Sim', threadState: 'waiting_permission', hasPendingPermission: true })
+      routeComposerSend({ ...base, text: 'Sim', threadState: 'waiting_permission', gate: PERMISSION_GATE })
     ).toEqual({ action: 'resolve_permission', decision: { kind: 'allow' } })
   })
 
@@ -23,7 +38,7 @@ describe('routeComposerSend', () => {
         ...base,
         text: 'Permitir todos',
         threadState: 'running',
-        hasPendingPermission: true,
+        gate: PERMISSION_GATE,
       })
     ).toEqual({ action: 'resolve_permission', decision: { kind: 'allow_always' } })
   })
@@ -34,14 +49,14 @@ describe('routeComposerSend', () => {
         ...base,
         text: 'Sempre neste projeto',
         threadState: 'waiting_permission',
-        hasPendingPermission: true,
+        gate: PERMISSION_GATE,
       })
     ).toEqual({ action: 'resolve_permission', decision: { kind: 'allow_project' } })
   })
 
   it('maps Não to deny', () => {
     expect(
-      routeComposerSend({ ...base, text: 'Não', hasPendingPermission: true, threadState: 'waiting_permission' })
+      routeComposerSend({ ...base, text: 'Não', gate: PERMISSION_GATE, threadState: 'waiting_permission' })
     ).toEqual({ action: 'resolve_permission', decision: { kind: 'deny' } })
   })
 
@@ -50,32 +65,49 @@ describe('routeComposerSend', () => {
       routeComposerSend({
         ...base,
         text: 'Crie o package.json',
-        hasPendingPermission: true,
+        gate: PERMISSION_GATE,
         threadState: 'waiting_permission',
       })
     ).toEqual({ action: 'permission_blocked', message: PERMISSION_PENDING_HINT })
   })
 
-  it('blocks when waiting_permission but local queue is empty (lost WS) — never enqueue', () => {
+  it('blocks when waiting_permission but no gate is known locally (lost WS) — never enqueue', () => {
     expect(
       routeComposerSend({
         ...base,
         text: 'Sim',
         threadState: 'waiting_permission',
-        hasPendingPermission: false,
+        gate: null,
       })
     ).toEqual({ action: 'permission_blocked', message: PERMISSION_PENDING_HINT })
   })
 
-  it('routes to answer_question when waiting_user with pending question', () => {
+  it('a question gate never satisfies the permission gate — waiting_permission still blocks', () => {
+    expect(
+      routeComposerSend({
+        ...base,
+        text: 'Sim',
+        threadState: 'waiting_permission',
+        gate: QUESTION_GATE,
+      })
+    ).toEqual({ action: 'permission_blocked', message: PERMISSION_PENDING_HINT })
+  })
+
+  it('routes to answer_question when waiting_user with an open question gate', () => {
     expect(
       routeComposerSend({
         ...base,
         text: 'Opção A',
         threadState: 'waiting_user',
-        hasPendingQuestion: true,
+        gate: QUESTION_GATE,
       })
     ).toEqual({ action: 'answer_question' })
+  })
+
+  it('waiting_user without a question gate enqueues instead of answering', () => {
+    expect(routeComposerSend({ ...base, text: 'Opção A', threadState: 'waiting_user' })).toEqual({
+      action: 'enqueue',
+    })
   })
 
   it('enqueues follow-up while running without permission gate', () => {

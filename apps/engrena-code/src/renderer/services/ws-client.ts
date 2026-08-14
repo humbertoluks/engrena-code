@@ -1,45 +1,14 @@
-export type StreamEvent =
-  | { type: 'message.delta'; threadId: string; text: string }
-  | { type: 'tool_call.start'; threadId: string; id: string; name: string; params: unknown }
-  | { type: 'tool_call.result'; threadId: string; id: string; status: string; result: unknown }
-  | { type: 'diff.ready'; threadId: string; diffId: string; file: string }
-  | { type: 'state.change'; threadId: string; state: string }
-  | { type: 'error'; threadId: string; code: string; message: string }
-  | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
-  | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
-  | {
-      type: 'permission.native_denial'
-      threadId: string
-      toolName: string
-      code: 'permission_native_denial'
-      message: string
-      toolUseId?: string
-      decisionReasonType?: string | null
-    }
-  | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
-  | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }
-  | { type: 'mcp.notice'; threadId: string; code: string; mcpName: string; reason: string; message: string }
-  | { type: 'memory.entry'; threadId: string; projectId: string }
-  | {
-      type: 'pipeline.state'
-      threadId: string
-      pipelineId: string
-      command: string
-      status: string
-      stageIndex: number
-      stageTotal: number
-    }
-  | {
-      type: 'pipeline.stage'
-      threadId: string
-      pipelineId: string
-      stageId: string
-      index: number
-      total: number
-      phase: string
-      subagentName: string
-      status: string
-    }
+/**
+ * O union do wire pertence ao emissor (`services/runner/ws-hub.ts`) e é re-exportado aqui, não
+ * copiado: o mirror manual que existia neste arquivo já tinha drifado do original (nunca ganhou
+ * `gate.opened`/`gate.resolved`, e `pipeline.stage.phase` tinha virado `string` em vez do union).
+ * Drift num tipo de wire não falha a compilação — some em runtime, no `if` que nunca casa.
+ *
+ * O import é **type-only**: some no bundle, então nada do main entra no renderer (`ws-hub.ts` não
+ * tem import de valor — só `import type { WebSocket } from 'ws'`).
+ */
+export type { StreamEvent } from '../../services/runner/ws-hub.js'
+import type { StreamEvent } from '../../services/runner/ws-hub.js'
 
 const WS_BASE_URL = 'ws://127.0.0.1:5174'
 
