@@ -2,14 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectsService, type Project, type VcsStatus } from '../services/projects-service'
 import {
   threadsService,
-  type ComposerCatalog,
   type ComposerImagePayload,
   type Diff,
   type Message,
   type PipelineHistory,
   type ThreadAccessLevel,
-  type ThreadExecutionMode,
-  type ThreadProvider,
   type Thread,
   type ToolCall,
   type FeedbackVote,
@@ -31,11 +28,7 @@ import {
   type WorkspaceNotice,
 } from './streamNotices.logic'
 import {
-  addAttachment,
-  makeSelectionAttachment,
-  removeAttachment as removeAttachmentFromList,
   toWirePayload,
-  withImplicitContext,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
 import {
@@ -74,29 +67,19 @@ import {
   recordHistoryRefetchCompleted,
   recordHistoryRefetchStarted,
 } from '../../services/runtime-metrics'
+import { useComposerDraft } from './useComposerDraft'
 import { useMessageQueue } from './useMessageQueue'
 import { usePromptLibrary } from './usePromptLibrary'
 import type { ComposerImage, QueueItem } from './messageQueue.logic'
 
-// A fila de mensagens (estado, persistência e despacho) mora em `useMessageQueue`; os tipos
-// seguem exportados daqui porque é por este módulo que os componentes do workspace os importam.
+// A fila de mensagens (estado, persistência e despacho) mora em `useMessageQueue`; o rascunho do
+// composer e seus anexos moram em `useComposerDraft`. Os tipos seguem exportados daqui porque é
+// por este módulo que os componentes do workspace os importam.
 export type { ComposerImage, QueueItem }
+export type { ComposerDraft } from './composerDraft.logic'
 
 
 export type ThreadTab = 'history' | 'diff' | 'graph'
-
-export interface ComposerDraft {
-  provider: ThreadProvider
-  model: string | null
-  reasoningLevel: string | null
-  accessLevel: ThreadAccessLevel
-  executionMode: ThreadExecutionMode
-  text: string
-  images: ComposerImage[]
-  attachments: ComposerAttachment[]
-  /** Nome do modo de chat aplicado (F28 §3.4); null = sem modo. */
-  chatMode: string | null
-}
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
   return images.map((img) => ({ mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
@@ -149,21 +132,7 @@ export function usePrincipalWorkspace() {
   const [liveGraphOverlay, setLiveGraphOverlay] = useState<LiveGraphOverlay>(() => emptyLiveOverlay())
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
-  const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
 
-  const [composer, setComposer] = useState<ComposerDraft>({
-    provider: 'claude',
-    model: null,
-    reasoningLevel: null,
-    // Default cotidiano: edição de arquivo passa direto e Bash/MCP abrem o PermissionPrompt
-    // (permission-policy.ts). 'supervised' pede aprovação até para leitura.
-    accessLevel: 'auto-accept-edits',
-    executionMode: 'main',
-    text: '',
-    images: [],
-    attachments: [],
-    chatMode: null,
-  })
   // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
   // `GET /history` chega (ver pendingMessages.logic.ts).
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
@@ -184,6 +153,33 @@ export function usePrincipalWorkspace() {
     if (!selectedProjectId || !selectedThreadId) return null
     return (threadsByProject[selectedProjectId] ?? []).find((t) => t.id === selectedThreadId) ?? null
   }, [threadsByProject, selectedProjectId, selectedThreadId])
+
+  // Rascunho do composer: draft + catálogo + anexos de contexto (explícitos e implícito) e as
+  // ações que os mexem. O hook não envia nada — quem despacha o rascunho é o `send` daqui, que
+  // chama a limpeza certa (`clearTextAndImages` mantém os chips; `clearDraftAfterSend` não).
+  const {
+    composerCatalog,
+    composer,
+    updateComposer,
+    updateDraft,
+    clearTextAndImages,
+    clearDraftAfterSend,
+    composerAttachments,
+    attach,
+    detach,
+    attachCodebase,
+    codebaseBusy,
+    attachError,
+    clearAttachError,
+    activeFile,
+    setActiveFile,
+    implicitContextEnabled,
+    setImplicitContextEnabled,
+  } = useComposerDraft({
+    projectId: selectedProjectId,
+    selectedThread,
+    mountedRef,
+  })
 
   /**
    * Fonte única de "algo espera decisão humana" (permissão **e** pergunta), vinda do dono do fato
@@ -388,19 +384,6 @@ export function usePrincipalWorkspace() {
       .catch((err: unknown) => {
         console.error('[workspace] config status:', err)
       })
-    threadsService
-      .composerCatalog()
-      .then((res) => {
-        if (!mountedRef.current) return
-        if (res.error) {
-          console.error('[workspace] composer catalog:', res.error.message)
-          return
-        }
-        setComposerCatalog(res)
-      })
-      .catch((err: unknown) => {
-        console.error('[workspace] composer catalog:', err)
-      })
   }, [loadProjects])
 
   useEffect(() => {
@@ -417,28 +400,6 @@ export function usePrincipalWorkspace() {
       setUsageLimitStatus(null)
     }
   }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus, loadUsageLimitStatus])
-
-  // Rehidrata model/reasoning/access da thread selecionada nos controles do composer (spec F16 + Access mid-thread).
-  useEffect(() => {
-    if (!selectedThread) return
-    setComposer((prev) => ({
-      ...prev,
-      provider: selectedThread.provider,
-      model: selectedThread.model,
-      reasoningLevel: selectedThread.reasoningLevel,
-      accessLevel: selectedThread.accessLevel,
-      executionMode: selectedThread.executionMode,
-      chatMode: selectedThread.chatMode ?? null,
-    }))
-  }, [
-    selectedThread?.id,
-    selectedThread?.model,
-    selectedThread?.reasoningLevel,
-    selectedThread?.provider,
-    selectedThread?.accessLevel,
-    selectedThread?.executionMode,
-    selectedThread?.chatMode,
-  ])
 
   useEffect(() => {
     setStreamingText('')
@@ -603,77 +564,6 @@ export function usePrincipalWorkspace() {
     setPendingMessages((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
-  // Contexto implícito: arquivo aberto no viewer (+ seleção), espelhando `chatImplicitContext.ts`
-  // do VS Code. Vira chip removível e pode ser desligado — nunca entra escondido no turno.
-  const [activeFile, setActiveFile] = useState<{ path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null>(null)
-  const [implicitContextEnabled, setImplicitContextEnabled] = useState(true)
-  const [attachError, setAttachError] = useState<string | null>(null)
-
-  const composerAttachments = useMemo(
-    () => withImplicitContext(composer.attachments, activeFile, implicitContextEnabled),
-    [composer.attachments, activeFile, implicitContextEnabled]
-  )
-
-  const [codebaseBusy, setCodebaseBusy] = useState(false)
-
-  const attach = useCallback((attachment: ComposerAttachment) => {
-    setComposer((prev) => {
-      const result = addAttachment(prev.attachments, attachment)
-      if (!result.ok) {
-        setAttachError(result.message)
-        return prev
-      }
-      setAttachError(null)
-      return { ...prev, attachments: result.attachments }
-    })
-  }, [])
-
-  /** Chip implícito não sai da lista explícita — remover significa desligar o implícito. */
-  const detach = useCallback((id: string) => {
-    setAttachError(null)
-    setComposer((prev) => {
-      const next = removeAttachmentFromList(prev.attachments, id)
-      if (next.length !== prev.attachments.length) return { ...prev, attachments: next }
-      setImplicitContextEnabled(false)
-      return prev
-    })
-  }, [])
-
-  /**
-   * `#codebase`: busca trechos pelo texto que já está no composer e anexa os melhores como chips
-   * de seleção — o usuário vê exatamente o que vai junto e pode remover.
-   */
-  const attachCodebase = useCallback(async () => {
-    if (!selectedProjectId || codebaseBusy) return
-    const query = composer.text.trim()
-    if (query === '') {
-      setAttachError('Escreva o pedido antes de buscar no codebase.')
-      return
-    }
-    setCodebaseBusy(true)
-    setAttachError(null)
-    try {
-      const res = await projectsService.codesearch(selectedProjectId, query, 3)
-      if (res.error) {
-        setAttachError(res.error.message)
-        return
-      }
-      if (res.hits.length === 0) {
-        setAttachError('Nenhum trecho do projeto casou com esse pedido.')
-        return
-      }
-      for (const hit of res.hits) {
-        attach(
-          makeSelectionAttachment(hit.path, hit.snippet, { startLine: hit.startLine, endLine: hit.endLine })
-        )
-      }
-    } catch {
-      setAttachError('Não foi possível buscar no codebase.')
-    } finally {
-      if (mountedRef.current) setCodebaseBusy(false)
-    }
-  }, [selectedProjectId, composer.text, codebaseBusy, attach])
-
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
@@ -684,18 +574,20 @@ export function usePrincipalWorkspace() {
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
     setPendingMessages([])
-    setAttachError(null)
+    clearAttachError()
     setSendError(null)
     setActiveTab('history')
     setLiveGraphOverlay(emptyLiveOverlay())
-  }, [])
+  }, [clearAttachError])
 
+  // Nada foi enviado: os chips de contexto ficam (só texto e imagens saem). `newThread`, ao
+  // contrário de `selectThread`, também não zera `attachError` — a assimetria é intencional.
   const newThread = useCallback(() => {
     setSelectedThreadId(null)
     setPendingMessages([])
     setSendError(null)
-    setComposer((prev) => ({ ...prev, text: '', images: [] }))
-  }, [])
+    clearTextAndImages()
+  }, [clearTextAndImages])
 
   const addProject = useCallback(
     async (path: string, name: string | undefined) => {
@@ -736,7 +628,7 @@ export function usePrincipalWorkspace() {
     projectId: selectedProjectId,
     isNewThread: selectedThreadId === null,
     draft: composer,
-    updateDraft: setComposer,
+    updateDraft,
     mountedRef,
   })
 
@@ -746,14 +638,10 @@ export function usePrincipalWorkspace() {
     return res
   }, [loadVcsStatus])
 
-  const updateComposer = useCallback((patch: Partial<ComposerDraft>) => {
-    setComposer((prev) => ({ ...prev, ...patch }))
-  }, [])
-
   /** Persiste Access na thread imediatamente (não espera o próximo follow-up). */
   const setAccessLevel = useCallback(
     async (accessLevel: ThreadAccessLevel) => {
-      setComposer((prev) => ({ ...prev, accessLevel }))
+      updateComposer({ accessLevel })
       if (!selectedThreadId) return
       const res = await threadsService.patchAccess(selectedThreadId, accessLevel)
       if (res.error) {
@@ -762,7 +650,7 @@ export function usePrincipalWorkspace() {
       }
       if (selectedProjectId && res.thread) upsertThreadLocal(selectedProjectId, res.thread)
     },
-    [selectedThreadId, selectedProjectId, upsertThreadLocal]
+    [selectedThreadId, selectedProjectId, upsertThreadLocal, updateComposer]
   )
 
   const sendFollowUp = useCallback(
@@ -856,11 +744,14 @@ export function usePrincipalWorkspace() {
    * Clique numa resposta da pergunta do agente: preenche o composer — o envio é o Enviar
    * (resolve permissão / ask_user_question / follow-up conforme o estado).
    */
-  const sendDecision = useCallback((text: string) => {
-    const value = text.trim()
-    if (value === '') return
-    setComposer((prev) => ({ ...prev, text: value }))
-  }, [])
+  const sendDecision = useCallback(
+    (text: string) => {
+      const value = text.trim()
+      if (value === '') return
+      updateComposer({ text: value })
+    },
+    [updateComposer]
+  )
 
   const send = useCallback(async () => {
     const text = composer.text.trim()
@@ -902,7 +793,8 @@ export function usePrincipalWorkspace() {
       // grant a bolha some — promover para `sent` deixava "Executando…" fantasma e o próximo
       // pedido de permissão parecia sobrepor trabalho ainda em curso.
       const pendingId = addPending(text, [], 'permission')
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
+      // Decisão de permissão não é turno: os anexos ficam para a mensagem que vem depois.
+      clearTextAndImages()
       const allow =
         route.decision.kind === 'allow' ||
         route.decision.kind === 'allow_always' ||
@@ -924,7 +816,7 @@ export function usePrincipalWorkspace() {
       const question = questionFromGate(currentGate)
       const answer = composerAnswerForQuestion(text, question?.options ?? [], question?.multiSelect ?? false)
       const pendingId = addPending(text, [], 'permission')
-      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      clearDraftAfterSend()
       const res = await gateApi.resolve(currentGate, { kind: 'question', ...answer })
       removePending(pendingId)
       // O erro já está visível no card (`gateApi.error`); no composer ele vira a mesma faixa de envio.
@@ -939,7 +831,7 @@ export function usePrincipalWorkspace() {
       setFollowupsMessageId(null)
       setFollowupsPending(false)
       enqueue(text, composer.images, composer.model, composer.reasoningLevel, composerAttachments)
-      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      clearDraftAfterSend()
       return
     }
 
@@ -949,7 +841,7 @@ export function usePrincipalWorkspace() {
       const images = composer.images
       const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
-      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      clearDraftAfterSend()
       try {
         const res = await threadsService.create(selectedProjectId, {
           prompt: text,
@@ -980,7 +872,7 @@ export function usePrincipalWorkspace() {
 
     const images = composer.images
     const attachments = composerAttachments
-    setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+    clearDraftAfterSend()
     await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
   }, [
     composer,
@@ -997,6 +889,8 @@ export function usePrincipalWorkspace() {
     setPendingStatus,
     removePending,
     composerAttachments,
+    clearTextAndImages,
+    clearDraftAfterSend,
   ])
 
   const cancel = useCallback(async () => {
