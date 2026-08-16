@@ -4,10 +4,10 @@ import { app } from 'electron'
 import {
   PERMISSION_HOOK_LAUNCHER_NAME,
   PERMISSION_HOOK_SCRIPT_NAME,
-} from './providers/permission-contract.js'
+} from '../permission-contract.js'
 
 /**
- * Hook `PreToolUse` + `PermissionRequest` do Claude CLI (via `--settings`, ver `cli-driver.ts`).
+ * Hook `PreToolUse` + `PermissionRequest` do Claude CLI (via `--settings`, ver `permission-settings.ts`).
  *
  * Em headless (`-p`), o CLI não tem TTY para aprovar tool. Duas portas:
  * - `PreToolUse` — decide com `permissionDecision` (allow/deny)

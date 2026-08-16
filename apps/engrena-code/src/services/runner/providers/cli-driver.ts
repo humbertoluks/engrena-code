@@ -1,10 +1,9 @@
 import { spawn } from 'child_process'
 import { createInterface } from 'readline'
-import { mkdirSync, writeFileSync, unlinkSync } from 'fs'
+import { writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { app } from 'electron'
-import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
+import type { ThreadProvider } from '../../db/repositories/threads.js'
 import type { ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn as runMinimaxHttpTurn } from './minimax-driver.js'
@@ -13,16 +12,14 @@ import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
 import { buildPtyEnv } from '../../terminal/pty-env.js'
-import { ensurePermissionHookLauncher } from '../permission-hook.js'
+import { resolveTurnArtifactsDir } from './turn-artifacts.js'
 import {
-  assertPermissionContract,
-  HOOK_COMMAND_TIMEOUT_SEC,
-  INCLUDE_HOOK_EVENTS_FLAG,
-  shouldIncludeHookEvents,
-  SUPERVISED_PERMISSION_MODE,
-  type PermissionSettingsShape,
-} from './permission-contract.js'
-import { permissionBrokerApplies } from '../permission-policy.js'
+  claudeResumeArgs,
+  permissionModeFlag,
+  permissionSettingsArgs,
+  setupPermissionBroker,
+} from './claude/adapter.js'
+import { assertPermissionContract } from './permission-contract.js'
 import { parseStreamJsonLine } from './stream-json-parse.js'
 import { killProcessTree } from '../process-kill.js'
 import { appendStderrCapped } from '../buffer-cap.js'
@@ -32,23 +29,6 @@ import {
   recordStderrBufBytes,
 } from '../../runtime-metrics.js'
 
-/** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
-function resolveUserData(): string {
-  const override = process.env.ENGRENACODE_USER_DATA
-  if (override) {
-    mkdirSync(override, { recursive: true })
-    return override
-  }
-  return app.getPath('userData')
-}
-
-/** Artefatos efêmeros do turno (mcp-config, imagens) — fora de os.tmpdir(). */
-function resolveTurnArtifactsDir(): string {
-  const dir = join(resolveUserData(), 'tmp')
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
-
 export type {
   ProviderStreamEvent,
   PermissionDecision,
@@ -57,6 +37,16 @@ export type {
   ProviderUsage,
 } from './provider-types.js'
 export { ProviderError } from './provider-types.js'
+
+/**
+ * Reexports do adaptador do Claude: `buildPermissionHookCommand` e a injeção do builder de
+ * settings nasceram aqui e continuam sendo importados deste módulo por testes e call sites.
+ */
+export {
+  buildPermissionHookCommand,
+  resetPermissionSettingsBuilderForTesting,
+  setPermissionSettingsBuilderForTesting,
+} from './claude/adapter.js'
 
 type ProviderKind = 'cli' | 'http'
 
@@ -148,28 +138,6 @@ function appendImageReferences(prompt: string, paths: string[]): string {
   return `${prompt}\n\nImagens anexadas (leia os arquivos abaixo):\n${lines}`
 }
 
-/**
- * `supervised` sem hook confirmado ao vivo (claude-code 2.1.226): `'manual'`/`'dontAsk'` negam
- * toda tool com `decision_reason_type: "mode"` **antes** de qualquer `PreToolUse` hook rodar — o
- * hook chega a disparar, mas o veredito de modo já decidiu, `permissionDecision: "allow"` do hook
- * é ignorado. `'auto'` é a única combinação onde o hook (`--settings`, ver
- * `buildPermissionSettings`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
- * decoração. `'default'` (valor antigo) nem é choice válido nesta versão do CLI.
- *
- * Com hook anexado, `auto-accept-edits` também vai de `'auto'`: sob `'acceptEdits'` o CLI nega
- * Bash/MCP nativamente sem consultar ninguém, e o usuário não tem como aprovar (nem no modal nem
- * por texto). A semântica do nível (edição livre, resto pergunta) passa a vir do broker
- * (`permission-policy.ts`).
- */
-function permissionModeFlag(accessLevel: ThreadAccessLevel, hasPermissionHook: boolean): string {
-  if (accessLevel === 'full-access') return 'bypassPermissions'
-  if (hasPermissionHook) return SUPERVISED_PERMISSION_MODE
-  if (accessLevel === 'auto-accept-edits') return 'acceptEdits'
-  // supervised sem hook disponível (provider sem suporte, broker não montado): sem gate real
-  // possível, mas falha fechado — nunca vira 'auto' (permissivo) por omissão.
-  return 'manual'
-}
-
 /** JSON `mcpServers` (spec §5.6) — schema oficial da Claude Code CLI (`--mcp-config`), assumido também para Codex/Kimi. */
 function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
   if (mcpServers.length === 0) return undefined
@@ -189,75 +157,10 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
 }
 
 /**
- * `--settings` com hook `PreToolUse` (spec `PermissionBroker`) — pra Claude em qualquer nível
- * exceto `full-access`: aprovação interativa via stdin não existe no spawn headless (`-p`), então
- * o hook (`permission-hook.ts`) segura cada tool call até a UI decidir, via `POST /permission` no
- * `permission-broker.ts` do dispatch. Quanto o nível auto-aprova sem UI é decisão de
- * `permission-policy.ts`, não do modo do CLI.
+ * Núcleo comum dos três binários CLI (claude/codex/kimi): o shape de argumentos é o mesmo, e o
+ * que só o Claude entende vem de `claude/adapter.ts` — nunca de um `if (provider === 'claude')`
+ * espalhado aqui.
  */
-/**
- * Comando do hook PreToolUse. O CLI Claude pode spawnar o hook sem herdar
- * `ELECTRON_RUN_AS_NODE` do processo pai — sem a var, `process.execPath` (binário Electron)
- * abre UI em vez de interpretar o `.mjs`, o broker nunca recebe o POST e a tool cai em deny
- * sem modal. A var vai no próprio comando; o env do spawn do Claude continua como rede de segurança.
- */
-/**
- * Comando do hook. No Windows o launcher é um `.cmd` (stdin preservado); no Unix prefixamos
- * ELECTRON_RUN_AS_NODE no próprio comando. `cmd /c set VAR=1&& electron …` engolia o JSON do
- * stdin em alguns hosts — o broker recebia `{}` e o modal virava tool "unknown".
- */
-export function buildPermissionHookCommand(launcherPath: string, port: number, token: string): string {
-  const args = `--port ${port} --token ${token}`
-  if (process.platform === 'win32') {
-    return `${JSON.stringify(launcherPath)} ${args}`
-  }
-  const exe = JSON.stringify(process.execPath)
-  const script = JSON.stringify(launcherPath)
-  return `ELECTRON_RUN_AS_NODE=1 ${exe} ${script} ${args}`
-}
-
-/**
- * Objeto de `--settings`, montado antes de virar arquivo para que `assertPermissionContract`
- * possa validá-lo sem reler o disco.
- *
- * `--settings` exige hooks aninhados sob "hooks". PermissionRequest é o gate real do
- * "haven't granted it yet" em headless — PreToolUse sozinho não basta (smoke Haiku 2026-08-12).
- */
-function buildPermissionSettings(port: number, token: string): PermissionSettingsShape {
-  const launcherPath = ensurePermissionHookLauncher()
-  const command = buildPermissionHookCommand(launcherPath, port, token)
-  const hookEntry = {
-    matcher: '*',
-    hooks: [{ type: 'command' as const, command, timeout: HOOK_COMMAND_TIMEOUT_SEC }],
-  }
-  return {
-    hooks: {
-      PreToolUse: [hookEntry],
-      PermissionRequest: [hookEntry],
-    },
-  }
-}
-
-/**
- * Injetável só para teste: o gate de contrato só prova alguma coisa se o teste conseguir
- * entregar um settings fora do contrato. Retorna `unknown` de propósito — é a validação,
- * não o tipo, que garante o shape gravado.
- */
-type PermissionSettingsBuilder = (port: number, token: string) => unknown
-let permissionSettingsBuilder: PermissionSettingsBuilder = buildPermissionSettings
-export function setPermissionSettingsBuilderForTesting(fn: PermissionSettingsBuilder): void {
-  permissionSettingsBuilder = fn
-}
-export function resetPermissionSettingsBuilderForTesting(): void {
-  permissionSettingsBuilder = buildPermissionSettings
-}
-
-function writePermissionSettingsFile(settings: unknown): string {
-  const path = join(resolveTurnArtifactsDir(), `engrenacode-permission-settings-${randomUUID()}.json`)
-  writeFileSync(path, JSON.stringify(settings), { mode: 0o600 })
-  return path
-}
-
 function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, permissionSettingsPath: string | undefined): string[] {
   const args = ['-p', input.prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose']
   if (input.model) args.push('--model', input.model)
@@ -266,11 +169,7 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
     args.push('--effort', effort)
   }
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
-  // Claude headless: `--resume <session_id>` continua a conversa no disco (~/.claude/projects/…).
-  // Codex/Kimi não usam este flag neste driver — só Claude reporta `session_id` no stream-json.
-  if (input.provider === 'claude' && input.resumeSessionId) {
-    args.push('--resume', input.resumeSessionId)
-  }
+  args.push(...claudeResumeArgs(input))
   args.push('--permission-mode', permissionModeFlag(input.accessLevel, permissionSettingsPath !== undefined))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
   // Sem isto, `acceptEdits` (auto-accept-edits) libera edição de arquivo mas nega tool MCP: o agente
@@ -278,11 +177,7 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
   if (input.alwaysAllowedTools && input.alwaysAllowedTools.length > 0) {
     args.push('--allowedTools', ...input.alwaysAllowedTools)
   }
-  if (permissionSettingsPath) {
-    args.push('--settings', permissionSettingsPath)
-    // Visibilidade do lifecycle PreToolUse + permission_denied no stream (Sprint 1).
-    if (shouldIncludeHookEvents(true)) args.push(INCLUDE_HOOK_EVENTS_FLAG)
-  }
+  args.push(...permissionSettingsArgs(permissionSettingsPath))
   return args
 }
 
@@ -336,15 +231,11 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
-  const permissionSettings =
-    input.provider === 'claude' &&
-    permissionBrokerApplies(input.accessLevel) &&
-    input.permissionPort !== undefined &&
-    input.permissionToken
-      ? permissionSettingsBuilder(input.permissionPort, input.permissionToken)
-      : undefined
-  const permissionSettingsPath =
-    permissionSettings === undefined ? undefined : writePermissionSettingsFile(permissionSettings)
+  // Único ponto do driver que toca o broker: quem sabe se este turno merece `--settings` é o
+  // adaptador do Claude.
+  const permissionBroker = setupPermissionBroker(input)
+  const permissionSettings = permissionBroker?.settings
+  const permissionSettingsPath = permissionBroker?.path
   const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
   const effectiveInput: ProviderTurnInput = tempImages
     ? { ...input, prompt: appendImageReferences(input.prompt, tempImages.paths) }

@@ -641,7 +641,7 @@ async function runTurn(
     const toolCallIdByProviderId = new Map<string, string>()
 
     // PermissionBroker — só Claude: aprovação interativa via stdin não existe no spawn headless.
-    // O hook `PreToolUse` (cli-driver.ts) segura cada tool call aqui até a UI responder via
+    // O hook `PreToolUse` (providers/claude/permission-hook.ts) segura cada tool call aqui até a UI responder via
     // `POST /api/threads/:id/permission`. Vale também em `auto-accept-edits`: lá o CLI negava
     // Bash/MCP sozinho, sem modal nem caminho por texto (`permission-policy.ts`).
     // `waiting_permission`, `gate.opened` e o `permission.request` legado saem de dentro do gate

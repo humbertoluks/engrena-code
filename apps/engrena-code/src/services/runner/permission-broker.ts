@@ -94,7 +94,7 @@ export function clearAllowedToolsForThread(threadId: string): void {
 
 /**
  * Servidor HTTP loopback efêmero por turno — recebe o `POST /permission` do hook `PreToolUse`
- * (spawnado pelo CLI via `--settings`, ver `cli-driver.ts`), abre um gate em `gate.ts` e segura a
+ * (spawnado pelo CLI via `--settings`, ver `providers/claude/permission-settings.ts`), abre um gate em `gate.ts` e segura a
  * resposta até o gate ser resolvido/expirado, devolvendo `{allow}` pro hook decidir
  * `permissionDecision: allow|deny`.
  *
