@@ -37,6 +37,8 @@ Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C5
 
 Fecharam neste dia: **A05** (`5f6b1c7`, o `resyncThread` consome `hasInflight` via `shouldRefetchHistoryOnResync`), **R08** (`da022fa`, com validação ao vivo), **A02 na parte dos validadores** (`2a6d112`, o gate antes do spawn) e **R07**, que na verdade já estava morto desde `ed17966` e só não tinha sido registrado — `turnProcessCount` foi substituído pelo par `recordProviderProcessSpawned`/`recordProviderProcessExited`.
 
+A fatia **D3** entrou no mesmo dia e **não fecha achado**: dá visibilidade à faixa de versão do Claude CLI em que o contrato de permissão foi conferido (2.1.226 a 2.1.231, com evidência por versão em `PERMISSION_CONTRACT_VALIDATED_VERSIONS`). Versão fora da faixa, ou `--version` ilegível, vira aviso na faixa âmbar e uma linha de log, no máximo uma vez por processo — nunca bloqueio. O gate fail-closed continua sendo só o `assertPermissionContract` do D1: bloquear o turno por versão nova custaria mais que avisar, já que o contrato provavelmente segue valendo. Um teste de coerência impede a lista de versões e os limites `MIN`/`MAX` de se desencontrarem.
+
 O smoke da Fase C rendeu um achado 🔴 novo, também já fechado (`63a60ea`): thread presa em "Agente trabalhando" quando o `state.change` de assentamento se perdia numa queda de socket. Rendeu ainda dois 🟡 fechados no mesmo dia (a copy da negação nativa e o erro de decisão em dobro, `628442d`) e uma suspeita **retificada**: os "dois WebSockets por thread" não existem, eram artefato da instrumentação do próprio smoke (`8eb9b51`). Detalhes em `docs/F03-workspace/smoke-results.md`.
 
 ---
