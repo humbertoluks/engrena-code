@@ -4,11 +4,13 @@ import {
   HOOK_COMMAND_TIMEOUT_SEC,
   INCLUDE_HOOK_EVENTS_FLAG,
   SUPERVISED_PERMISSION_MODE,
+  assertPermissionContract,
   checkSupervisedPermissionArgs,
   nativeDenialCase,
   nativeDenialDiagnosis,
   shouldIncludeHookEvents,
   validatePermissionSettingsShape,
+  type PermissionContractSpawnPlan,
 } from './permission-contract.js'
 
 describe('permission-contract — supervised CLI compliance', () => {
@@ -171,5 +173,159 @@ describe('permission-contract — supervised CLI compliance', () => {
     expect(nativeDenialDiagnosis({ toolName: '   ', brokerGranted: false })).toContain(
       'ferramenta desconhecida'
     )
+  })
+})
+
+describe('assertPermissionContract — gate de produção', () => {
+  const hookCommand =
+    process.platform === 'win32'
+      ? '"C:\\ud\\permission-hook.cmd" --port 1 --token t'
+      : 'ELECTRON_RUN_AS_NODE=1 "/app/electron" "/ud/permission-hook.mjs" --port 1 --token t'
+
+  function hookEntry() {
+    return {
+      matcher: '*',
+      hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_COMMAND_TIMEOUT_SEC }],
+    }
+  }
+
+  function plan(overrides: Partial<PermissionContractSpawnPlan> = {}): PermissionContractSpawnPlan {
+    const path = '/ud/tmp/settings.json'
+    return {
+      provider: 'claude',
+      accessLevel: 'supervised',
+      permissionSettingsPath: path,
+      permissionSettings: { hooks: { PreToolUse: [hookEntry()], PermissionRequest: [hookEntry()] } },
+      args: [
+        '-p',
+        'oi',
+        '--output-format',
+        'stream-json',
+        '--permission-mode',
+        SUPERVISED_PERMISSION_MODE,
+        '--settings',
+        path,
+        INCLUDE_HOOK_EVENTS_FLAG,
+      ],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      platform: process.platform,
+      ...overrides,
+    }
+  }
+
+  it('accepts a supervised turn with the broker fully mounted', () => {
+    expect(assertPermissionContract(plan())).toEqual({ ok: true })
+  })
+
+  it('does not apply when the broker was not mounted', () => {
+    expect(
+      assertPermissionContract({
+        provider: 'codex',
+        accessLevel: 'full-access',
+        permissionSettingsPath: undefined,
+        permissionSettings: undefined,
+        args: ['-p', 'oi'],
+        env: {},
+        platform: process.platform,
+      })
+    ).toEqual({ ok: true })
+  })
+
+  it('reports the missing flags when the args drift out of contract', () => {
+    const result = assertPermissionContract(
+      plan({ args: ['-p', 'oi', '--permission-mode', 'manual', '--settings', '/ud/tmp/settings.json'] })
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toContain('--permission-mode auto')
+      expect(result.message).toContain(INCLUDE_HOOK_EVENTS_FLAG)
+    }
+  })
+
+  it('rejects settings without the PermissionRequest group', () => {
+    const result = assertPermissionContract(
+      plan({ permissionSettings: { hooks: { PreToolUse: [hookEntry()] } } })
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toContain('PermissionRequest')
+  })
+
+  it('rejects a --settings value that points elsewhere than the file written this turn', () => {
+    const result = assertPermissionContract({
+      ...plan(),
+      permissionSettingsPath: '/ud/tmp/outro.json',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toContain('--settings')
+  })
+
+  it('requires ELECTRON_RUN_AS_NODE in the spawn env whenever settings are attached', () => {
+    const result = assertPermissionContract(plan({ env: {} }))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toContain('ELECTRON_RUN_AS_NODE')
+  })
+
+  it('accepts the .cmd launcher on Windows and the env prefix elsewhere', () => {
+    const winEntry = {
+      matcher: '*',
+      hooks: [
+        {
+          type: 'command',
+          command: '"C:\\ud\\permission-hook.cmd" --port 1 --token t',
+          timeout: HOOK_COMMAND_TIMEOUT_SEC,
+        },
+      ],
+    }
+    const unixEntry = {
+      matcher: '*',
+      hooks: [
+        {
+          type: 'command',
+          command: 'ELECTRON_RUN_AS_NODE=1 "/app/electron" "/ud/permission-hook.mjs" --port 1 --token t',
+          timeout: HOOK_COMMAND_TIMEOUT_SEC,
+        },
+      ],
+    }
+    expect(
+      assertPermissionContract(
+        plan({
+          platform: 'win32',
+          permissionSettings: { hooks: { PreToolUse: [winEntry], PermissionRequest: [winEntry] } },
+        })
+      )
+    ).toEqual({ ok: true })
+    expect(
+      assertPermissionContract(
+        plan({
+          platform: 'linux',
+          permissionSettings: { hooks: { PreToolUse: [unixEntry], PermissionRequest: [unixEntry] } },
+        })
+      )
+    ).toEqual({ ok: true })
+    // Forma do outro SO não vale: no Windows o .cmd é o que preserva o stdin do hook.
+    const crossed = assertPermissionContract(
+      plan({
+        platform: 'win32',
+        permissionSettings: { hooks: { PreToolUse: [unixEntry], PermissionRequest: [unixEntry] } },
+      })
+    )
+    expect(crossed.ok).toBe(false)
+    if (!crossed.ok) expect(crossed.message).toContain('permission-hook.cmd')
+  })
+
+  it('refuses a broker mounted for a provider without PreToolUse, or in full-access', () => {
+    const wrongProvider = assertPermissionContract(plan({ provider: 'codex' }))
+    expect(wrongProvider.ok).toBe(false)
+    const fullAccess = assertPermissionContract(plan({ accessLevel: 'full-access' }))
+    expect(fullAccess.ok).toBe(false)
+  })
+
+  it('never embeds the hook command (which carries the broker token) in the message', () => {
+    const result = assertPermissionContract(plan({ env: {} }))
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).not.toContain('--token')
+      expect(result.message).not.toContain('permission-hook.mjs')
+    }
   })
 })

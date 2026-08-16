@@ -1,6 +1,10 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
+import {
+  PERMISSION_HOOK_LAUNCHER_NAME,
+  PERMISSION_HOOK_SCRIPT_NAME,
+} from './providers/permission-contract.js'
 
 /**
  * Hook `PreToolUse` + `PermissionRequest` do Claude CLI (via `--settings`, ver `cli-driver.ts`).
@@ -151,7 +155,7 @@ function resolveScriptDir(): string {
 
 /** Escreve o script do hook (idempotente) — mesmo padrão de `ensureSubagentMcpServerScript`. */
 export function ensurePermissionHookScript(): string {
-  const path = join(resolveScriptDir(), 'permission-hook.mjs')
+  const path = join(resolveScriptDir(), PERMISSION_HOOK_SCRIPT_NAME)
   if (!existsSync(path) || readFileSync(path, 'utf-8') !== SCRIPT_SOURCE) {
     writeFileSync(path, SCRIPT_SOURCE, { mode: 0o600 })
   }
@@ -171,7 +175,7 @@ export function ensurePermissionHookLauncher(): string {
     '{{SCRIPT}}',
     JSON.stringify(scriptPath)
   )
-  const cmdPath = join(resolveScriptDir(), 'permission-hook.cmd')
+  const cmdPath = join(resolveScriptDir(), PERMISSION_HOOK_LAUNCHER_NAME)
   if (!existsSync(cmdPath) || readFileSync(cmdPath, 'utf-8') !== content) {
     writeFileSync(cmdPath, content, { mode: 0o700 })
   }

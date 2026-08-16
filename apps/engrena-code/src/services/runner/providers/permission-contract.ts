@@ -9,6 +9,16 @@
  * em aprovação nativa).
  */
 
+/**
+ * Nomes dos dois arquivos do hook. Moram aqui, e não em `permission-hook.ts`, porque
+ * `assertPermissionContract` cobra a forma do comando por plataforma e é fail-closed: com dois
+ * donos da mesma string, renomear o launcher derrubaria todo turno supervised no gate. O caminho
+ * inverso (o contrato importar do hook) não serve, porque `permission-hook.ts` importa `electron`
+ * e este módulo é puro.
+ */
+export const PERMISSION_HOOK_SCRIPT_NAME = 'permission-hook.mjs'
+export const PERMISSION_HOOK_LAUNCHER_NAME = 'permission-hook.cmd'
+
 export const SUPERVISED_PERMISSION_MODE = 'auto' as const
 export const HOOK_COMMAND_TIMEOUT_SEC = 600
 export const INCLUDE_HOOK_EVENTS_FLAG = '--include-hook-events' as const
@@ -178,6 +188,93 @@ export function validatePermissionSettingsShape(value: unknown): PermissionSetti
       },
     },
   }
+}
+
+/**
+ * Descrição do spawn prestes a acontecer, do ponto de vista do contrato de permissão.
+ * `permissionSettingsPath` ausente significa broker não montado (full-access, provider
+ * não-Claude, porta/token ausentes): nesse caso não há contrato a cobrar.
+ */
+export interface PermissionContractSpawnPlan {
+  provider: string
+  accessLevel: string
+  /** Caminho já gravado de `--settings`; `undefined` quando o broker não foi montado. */
+  permissionSettingsPath: string | undefined
+  /** O objeto que virou o arquivo de `--settings`, validado sem reler o disco. */
+  permissionSettings: unknown
+  args: readonly string[]
+  env: Record<string, string | undefined>
+  platform: NodeJS.Platform
+}
+
+export type PermissionContractAssertion =
+  | { ok: true }
+  | { ok: false; message: string }
+
+const CONTRACT_VIOLATION_PREFIX = 'Contrato de permissão do Claude CLI violado antes do turno'
+
+/** Frase acionável para UI e log. Nunca embute command/tool_input (o command carrega o token do broker). */
+function contractViolation(detail: string): PermissionContractAssertion {
+  return { ok: false, message: `${CONTRACT_VIOLATION_PREFIX}: ${detail}. O turno não foi iniciado.` }
+}
+
+/**
+ * Gate de produção do contrato: compõe `checkSupervisedPermissionArgs` e
+ * `validatePermissionSettingsShape` no ponto onde o spawn ainda pode ser abortado.
+ * Sem isto, uma regressão de contrato só aparecia como o agente pedindo aprovação em prosa
+ * sobre um botão que nunca chegou à tela.
+ */
+export function assertPermissionContract(plan: PermissionContractSpawnPlan): PermissionContractAssertion {
+  // Turno sem broker montado não tem contrato a cobrar.
+  if (plan.permissionSettingsPath === undefined) return { ok: true }
+
+  if (plan.provider !== 'claude') {
+    return contractViolation(
+      `o broker foi montado para o provider "${plan.provider}", e o hook PreToolUse só existe no Claude CLI`
+    )
+  }
+  if (plan.accessLevel === 'full-access') {
+    return contractViolation('o broker foi montado em full-access, nível que roda sem gate de permissão')
+  }
+
+  const argsCheck = checkSupervisedPermissionArgs(plan.args)
+  if (!argsCheck.ok) {
+    return contractViolation(`faltam flags obrigatórias no spawn: ${argsCheck.missing.join(', ')}`)
+  }
+
+  const settingsValue = plan.args[plan.args.indexOf('--settings') + 1]
+  if (settingsValue !== plan.permissionSettingsPath) {
+    return contractViolation('o valor de --settings não aponta para o arquivo de settings gravado neste turno')
+  }
+
+  const shape = validatePermissionSettingsShape(plan.permissionSettings)
+  if (!shape.ok) {
+    return contractViolation(
+      `o arquivo de --settings está fora do contrato (${shape.message}); sem os dois grupos de hook, ` +
+        'PreToolUse e PermissionRequest com o mesmo command, o CLI nega a escrita mesmo depois do broker aprovar'
+    )
+  }
+
+  const hookCommand = shape.settings.hooks.PreToolUse[0].hooks[0].command
+  if (plan.platform === 'win32') {
+    if (!hookCommand.includes(PERMISSION_HOOK_LAUNCHER_NAME)) {
+      return contractViolation(
+        'no Windows o comando do hook precisa ser o launcher permission-hook.cmd, senão o stdin é engolido e o broker recebe a tool como "unknown"'
+      )
+    }
+  } else if (!hookCommand.includes('ELECTRON_RUN_AS_NODE=1')) {
+    return contractViolation(
+      'fora do Windows o comando do hook precisa prefixar ELECTRON_RUN_AS_NODE=1, senão o binário do Electron abre UI em vez de interpretar o .mjs do hook'
+    )
+  }
+
+  if (plan.env.ELECTRON_RUN_AS_NODE !== '1') {
+    return contractViolation(
+      'ELECTRON_RUN_AS_NODE=1 está ausente no env do spawn, e sem ela o processo do hook abre UI em vez de rodar como Node'
+    )
+  }
+
+  return { ok: true }
 }
 
 /**

@@ -15,10 +15,12 @@ import { sanitizeProcessError } from '../../process-error.js'
 import { buildPtyEnv } from '../../terminal/pty-env.js'
 import { ensurePermissionHookLauncher } from '../permission-hook.js'
 import {
+  assertPermissionContract,
   HOOK_COMMAND_TIMEOUT_SEC,
   INCLUDE_HOOK_EVENTS_FLAG,
   shouldIncludeHookEvents,
   SUPERVISED_PERMISSION_MODE,
+  type PermissionSettingsShape,
 } from './permission-contract.js'
 import { permissionBrokerApplies } from '../permission-policy.js'
 import { parseStreamJsonLine } from './stream-json-parse.js'
@@ -151,7 +153,7 @@ function appendImageReferences(prompt: string, paths: string[]): string {
  * toda tool com `decision_reason_type: "mode"` **antes** de qualquer `PreToolUse` hook rodar — o
  * hook chega a disparar, mas o veredito de modo já decidiu, `permissionDecision: "allow"` do hook
  * é ignorado. `'auto'` é a única combinação onde o hook (`--settings`, ver
- * `buildPermissionSettingsFile`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
+ * `buildPermissionSettings`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
  * decoração. `'default'` (valor antigo) nem é choice válido nesta versão do CLI.
  *
  * Com hook anexado, `auto-accept-edits` também vai de `'auto'`: sob `'acceptEdits'` o CLI nega
@@ -214,21 +216,43 @@ export function buildPermissionHookCommand(launcherPath: string, port: number, t
   return `ELECTRON_RUN_AS_NODE=1 ${exe} ${script} ${args}`
 }
 
-function buildPermissionSettingsFile(port: number, token: string): string {
+/**
+ * Objeto de `--settings`, montado antes de virar arquivo para que `assertPermissionContract`
+ * possa validá-lo sem reler o disco.
+ *
+ * `--settings` exige hooks aninhados sob "hooks". PermissionRequest é o gate real do
+ * "haven't granted it yet" em headless — PreToolUse sozinho não basta (smoke Haiku 2026-08-12).
+ */
+function buildPermissionSettings(port: number, token: string): PermissionSettingsShape {
   const launcherPath = ensurePermissionHookLauncher()
   const command = buildPermissionHookCommand(launcherPath, port, token)
   const hookEntry = {
     matcher: '*',
-    hooks: [{ type: 'command', command, timeout: HOOK_COMMAND_TIMEOUT_SEC }],
+    hooks: [{ type: 'command' as const, command, timeout: HOOK_COMMAND_TIMEOUT_SEC }],
   }
-  // `--settings` exige hooks aninhados sob "hooks". PermissionRequest é o gate real do
-  // "haven't granted it yet" em headless — PreToolUse sozinho não basta (smoke Haiku 2026-08-12).
-  const settings = {
+  return {
     hooks: {
       PreToolUse: [hookEntry],
       PermissionRequest: [hookEntry],
     },
   }
+}
+
+/**
+ * Injetável só para teste: o gate de contrato só prova alguma coisa se o teste conseguir
+ * entregar um settings fora do contrato. Retorna `unknown` de propósito — é a validação,
+ * não o tipo, que garante o shape gravado.
+ */
+type PermissionSettingsBuilder = (port: number, token: string) => unknown
+let permissionSettingsBuilder: PermissionSettingsBuilder = buildPermissionSettings
+export function setPermissionSettingsBuilderForTesting(fn: PermissionSettingsBuilder): void {
+  permissionSettingsBuilder = fn
+}
+export function resetPermissionSettingsBuilderForTesting(): void {
+  permissionSettingsBuilder = buildPermissionSettings
+}
+
+function writePermissionSettingsFile(settings: unknown): string {
   const path = join(resolveTurnArtifactsDir(), `engrenacode-permission-settings-${randomUUID()}.json`)
   writeFileSync(path, JSON.stringify(settings), { mode: 0o600 })
   return path
@@ -312,13 +336,15 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
-  const permissionSettingsPath =
+  const permissionSettings =
     input.provider === 'claude' &&
     permissionBrokerApplies(input.accessLevel) &&
     input.permissionPort !== undefined &&
     input.permissionToken
-      ? buildPermissionSettingsFile(input.permissionPort, input.permissionToken)
+      ? permissionSettingsBuilder(input.permissionPort, input.permissionToken)
       : undefined
+  const permissionSettingsPath =
+    permissionSettings === undefined ? undefined : writePermissionSettingsFile(permissionSettings)
   const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
   const effectiveInput: ProviderTurnInput = tempImages
     ? { ...input, prompt: appendImageReferences(input.prompt, tempImages.paths) }
@@ -344,6 +370,29 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     try { unlinkSync(permissionSettingsPath) } catch { /* já removido ou nunca criado */ }
   }
   const cleanupTempImages = (): void => tempImages?.cleanup()
+  // Ponto único de limpeza: o gate de contrato aborta antes do `new Promise`, e sem isto os três
+  // temporários (settings, mcp-config, imagens) vazariam por ficarem presos ao ciclo do spawn.
+  const cleanupTurnArtifacts = (): void => {
+    cleanupMcpConfig()
+    cleanupPermissionSettings()
+    cleanupTempImages()
+  }
+
+  // Gate A02: regressão de contrato vira erro visível antes do turno, em vez do agente pedindo
+  // aprovação em prosa sobre um botão que nunca apareceu na tela.
+  const contract = assertPermissionContract({
+    provider: input.provider,
+    accessLevel: input.accessLevel,
+    permissionSettingsPath,
+    permissionSettings,
+    args,
+    env,
+    platform: process.platform,
+  })
+  if (!contract.ok) {
+    cleanupTurnArtifacts()
+    throw new ProviderError('permission_contract_violation', contract.message)
+  }
 
   return new Promise((resolve, reject) => {
     try {
@@ -425,9 +474,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
 
       child.on('error', (err) => {
         noteExit()
-        cleanupMcpConfig()
-        cleanupPermissionSettings()
-        cleanupTempImages()
+        cleanupTurnArtifacts()
         reject(
           new ProviderError(
             'provider_spawn_failed',
@@ -438,9 +485,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
 
       child.on('close', (code) => {
         noteExit()
-        cleanupMcpConfig()
-        cleanupPermissionSettings()
-        cleanupTempImages()
+        cleanupTurnArtifacts()
         if (sawResult) {
           resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
           return
@@ -457,9 +502,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
       })
     } catch (err) {
-      cleanupMcpConfig()
-      cleanupPermissionSettings()
-      cleanupTempImages()
+      cleanupTurnArtifacts()
       const message = err instanceof Error ? err.message : String(err)
       reject(
         new ProviderError(

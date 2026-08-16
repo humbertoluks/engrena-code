@@ -1,13 +1,15 @@
 import { PassThrough } from 'stream'
 import { EventEmitter } from 'events'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ProviderError,
   buildPermissionHookCommand,
+  resetPermissionSettingsBuilderForTesting,
   resetSpawnForTesting,
   runCliTurn,
+  setPermissionSettingsBuilderForTesting,
   setSpawnForTesting,
 } from './cli-driver'
 import { resetFetchForTesting, setFetchForTesting } from './minimax-driver'
@@ -63,6 +65,7 @@ function emitResultAndClose(child: FakeChild, text: string, code = 0): void {
 
 afterEach(() => {
   resetSpawnForTesting()
+  resetPermissionSettingsBuilderForTesting()
   resetFetchForTesting()
   resetGlmFetch()
   resetGrokFetch()
@@ -546,6 +549,98 @@ describe('runCliTurn — cli providers', () => {
       await runCliTurn(baseInput())
 
       expect(capturedArgs.indexOf('--settings')).toBe(-1)
+    })
+  })
+
+  // A02: os validadores de contrato existiam só no harness unitário. Sem consumidor de produção,
+  // uma regressão de shape só aparecia como o agente pedindo aprovação em prosa sobre um botão
+  // que nunca chegou à tela.
+  describe('gate de contrato de permissão (A02)', () => {
+    function tmpArtifacts(): string[] {
+      const dir = join(process.env.ENGRENACODE_USER_DATA as string, 'tmp')
+      return existsSync(dir) ? readdirSync(dir).sort() : []
+    }
+
+    it('aborta o turno com permission_contract_violation antes de qualquer spawn quando o settings perde PermissionRequest', async () => {
+      let spawnCalls = 0
+      const fakeSpawn: SpawnFn = (() => {
+        spawnCalls += 1
+        const child = new FakeChild()
+        emitResultAndClose(child, 'nunca deveria rodar')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+      setPermissionSettingsBuilderForTesting((port, token) => ({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: '*',
+              hooks: [
+                {
+                  type: 'command',
+                  command: `"C:\\ud\\permission-hook.cmd" ELECTRON_RUN_AS_NODE=1 --port ${port} --token ${token}`,
+                  timeout: HOOK_COMMAND_TIMEOUT_SEC,
+                },
+              ],
+            },
+          ],
+        },
+      }))
+
+      const before = tmpArtifacts()
+      const err = await runCliTurn(
+        baseInput({
+          permissionPort: 4321,
+          permissionToken: 'perm-token-abc',
+          mcpServers: [{ name: 'ctx', transport: 'stdio', command: 'node', args: ['s.js'] }],
+          images: [{ mimeType: 'image/png', dataBase64: Buffer.from('x').toString('base64') }],
+        })
+      ).catch((e) => e)
+
+      expect(spawnCalls).toBe(0)
+      expect(err).toBeInstanceOf(ProviderError)
+      expect((err as ProviderError).code).toBe('permission_contract_violation')
+      expect((err as ProviderError).message).toContain('PermissionRequest')
+      // Mensagem vai para UI e log: nunca pode carregar o command (que embute o token do broker).
+      expect((err as ProviderError).message).not.toContain('perm-token-abc')
+      // Settings, mcp-config e imagens nascem antes do gate e são limpos no caminho de erro.
+      expect(tmpArtifacts()).toEqual(before)
+    })
+
+    it('deixa o turno supervised com broker montado passar pelo gate', async () => {
+      let spawnCalls = 0
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        spawnCalls += 1
+        expect(checkSupervisedPermissionArgs(args).ok).toBe(true)
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+
+      const result = await runCliTurn(baseInput({ permissionPort: 4321, permissionToken: 'perm-token-abc' }))
+      expect(result.text).toBe('ok')
+      expect(spawnCalls).toBe(1)
+    })
+
+    it('não cobra o contrato quando o broker não foi montado (full-access)', async () => {
+      let spawnCalls = 0
+      const fakeSpawn: SpawnFn = ((_bin: string, args: string[]) => {
+        spawnCalls += 1
+        expect(args.indexOf('--settings')).toBe(-1)
+        const child = new FakeChild()
+        emitResultAndClose(child, 'ok')
+        return child as unknown as ReturnType<SpawnFn>
+      }) as SpawnFn
+      setSpawnForTesting(fakeSpawn)
+      // Builder quebrado de propósito: sem broker montado ele nem é chamado.
+      setPermissionSettingsBuilderForTesting(() => ({ hooks: {} }))
+
+      const result = await runCliTurn(
+        baseInput({ accessLevel: 'full-access', permissionPort: 4321, permissionToken: 'perm-token-abc' })
+      )
+      expect(result.text).toBe('ok')
+      expect(spawnCalls).toBe(1)
     })
   })
 
