@@ -15,7 +15,7 @@ import { consumoService, type UsageLimitStatusResponse } from '../services/consu
 import { composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
 import { routeComposerSend } from '../components/workspace/composerRoute.logic'
 import { useThreadGate } from './useThreadGate'
-import { GATE_ERROR_COPY, questionFromGate, type ThreadGate } from './threadGate.logic'
+import { questionFromGate, type ThreadGate } from './threadGate.logic'
 import {
   appendWorkspaceNotice,
   mcpNotice,
@@ -602,8 +602,10 @@ export function usePrincipalWorkspace() {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, mcpNotice(event)))
       return
     }
-    // Tool negada pelo próprio CLI, sem passar pelo broker: o usuário só via o agente pedindo
-    // aprovação em prosa, sem card nenhum. Vai para a mesma faixa do mcp.notice.
+    // Tool negada pela aprovação nativa do CLI: ou sem passar pelo broker (o usuário só via o
+    // agente pedindo aprovação em prosa, sem card nenhum), ou depois de o broker conceder, quando
+    // outro hook `PreToolUse` nega. `brokerGranted` no evento é quem separa os dois na copy.
+    // Vai para a mesma faixa do mcp.notice.
     if (event.type === 'permission.native_denial') {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
     }
@@ -768,6 +770,10 @@ export function usePrincipalWorkspace() {
    * Resolve o gate de permissão **em tela**, por `gateId`. Falhou (`res.error` ou throw): o card
    * fica — o broker continua esperando do outro lado, e sumir com o pedido aqui era o sintoma
    * "clique aceito mas permissão não concedida".
+   *
+   * A falha é do card, e só dele: `gateApi.error` já a mostra no `role="alert"` do
+   * `PermissionPrompt`, que é onde a decisão vive e onde o usuário tenta de novo. Copiar a mesma
+   * frase para `sendError` pintava dois alertas idênticos na tela, um no card e outro no composer.
    */
   const resolvePermission = useCallback(
     async (
@@ -782,11 +788,7 @@ export function usePrincipalWorkspace() {
         always: always || undefined,
         scope: scope === 'project' ? 'project' : undefined,
       })
-      if (!res.ok) {
-        setSendError(res.message === '' ? GATE_ERROR_COPY.generic : res.message)
-        return false
-      }
-      return true
+      return res.ok
     },
     [gateApi]
   )
@@ -868,10 +870,10 @@ export function usePrincipalWorkspace() {
       const answer = composerAnswerForQuestion(text, question?.options ?? [], question?.multiSelect ?? false)
       const pendingId = addPending(text, [], 'permission')
       clearDraftAfterSend()
-      const res = await gateApi.resolve(currentGate, { kind: 'question', ...answer })
+      await gateApi.resolve(currentGate, { kind: 'question', ...answer })
       removePending(pendingId)
-      // O erro já está visível no card (`gateApi.error`); no composer ele vira a mesma faixa de envio.
-      if (!res.ok && res.message !== '') setSendError(res.message)
+      // Mesma regra da permissão: a falha aparece no `AskUserQuestionCard` (`gateApi.error`), que
+      // continua em tela, e não é repetida no composer.
       return
     }
 
