@@ -28,12 +28,16 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 4 | 4 |
+| Achados abertos | 0 | 2 | 2 |
 | Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
 
 Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
 
-**Atualização de 2026-08-16.** O `hasInflight` do A05 deixou de ser deferido: ganhou consumidor de produção em `5f6b1c7` (o `resyncThread` consome via `shouldRefetchHistoryOnResync`). O **R08 fechou** em `da022fa`, com validação ao vivo. O A02 segue deferido de propósito para a Fase D. O smoke da Fase C rendeu um achado 🔴 novo, também já fechado (`63a60ea`): thread presa em "Agente trabalhando" quando o `state.change` de assentamento se perdia numa queda de socket — detalhe em `docs/F03-workspace/smoke-results.md`.
+**Atualização de 2026-08-16.** Restam **dois** 🟡 abertos: **A09** (a matriz de Bash, resto do A02) e **D08** (Cancel explícito em turno foreground). Os dois fecham no mesmo smoke ao vivo, que precisa exercitar as quatro formas de Bash e um Parar durante turno longo em foreground.
+
+Fecharam neste dia: **A05** (`5f6b1c7`, o `resyncThread` consome `hasInflight` via `shouldRefetchHistoryOnResync`), **R08** (`da022fa`, com validação ao vivo), **A02 na parte dos validadores** (`2a6d112`, o gate antes do spawn) e **R07**, que na verdade já estava morto desde `ed17966` e só não tinha sido registrado — `turnProcessCount` foi substituído pelo par `recordProviderProcessSpawned`/`recordProviderProcessExited`.
+
+O smoke da Fase C rendeu um achado 🔴 novo, também já fechado (`63a60ea`): thread presa em "Agente trabalhando" quando o `state.change` de assentamento se perdia numa queda de socket. Rendeu ainda dois 🟡 fechados no mesmo dia (a copy da negação nativa e o erro de decisão em dobro, `628442d`) e uma suspeita **retificada**: os "dois WebSockets por thread" não existem, eram artefato da instrumentação do próprio smoke (`8eb9b51`). Detalhes em `docs/F03-workspace/smoke-results.md`.
 
 ---
 
@@ -116,18 +120,19 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 | ID | Stack | Sev | Frente | Local | Problema | Regra |
 |----|--------|-----|--------|-------|----------|-------|
-| A02 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts:35,68,155` | `BASH_PERMISSION_MATRIX` / `checkSupervisedPermissionArgs` / `validatePermissionSettingsShape` só em teste — **deferido**, ver nota abaixo | [R-export-should-be-local](#r-export-should-be-local) |
-| A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | getter `hasInflight` exportado sem consumidor de produção — **deferido**, ver nota abaixo (a parte `stableJson` fechou em C69) | [R-export-should-be-local](#r-export-should-be-local) |
-| R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts:80` + `providers/cli-driver.ts:354` | `turnProcessCount` promete contagem e entrega booleano — **achado novo** de 2026-08-13 | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
+| A02 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` | **FECHADO PARCIALMENTE em 2026-08-16** (`2a6d112`, fatia D1). `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` ganharam consumidor de produção: `assertPermissionContract` roda antes do spawn e aborta o turno com erro visível. Fica aberto só o pedaço da matriz, agora rastreado como A09 | [R-export-should-be-local](#r-export-should-be-local) |
+| A09 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` (`BASH_PERMISSION_MATRIX`) | Resto do A02. A matriz descreve o que o CLI faz **durante** o turno (quando o `PreToolUse` dispara por forma de Bash), e o gate roda antes de existir tool call — não há consumidor de produção honesto a inventar. Consumidor previsto: smoke ao vivo das quatro formas de Bash correlacionando `hook_started` com `permission-native-denial`, que também fecha o D08. Até lá é fixture de conformance, **não** código morto | [R-export-should-be-local](#r-export-should-be-local) |
+| A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | **FECHADO em `5f6b1c7`**: o `hasInflight` ganhou consumidor de produção quando o resync do socket passou a serializar o refetch (`shouldRefetchHistoryOnResync`). A parte `stableJson` já tinha fechado em C69 | [R-export-should-be-local](#r-export-should-be-local) |
+| R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts` | **FECHADO em `ed17966`** (fatia B2), e o registro só não tinha sido atualizado. `turnProcessCount` não existe mais: a métrica virou o par honesto `recordProviderProcessSpawned` / `recordProviderProcessExited`, junto com a `TurnSession` única | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
 | D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **Estreitado em 2026-08-13**: smoke ao vivo rodou (permissão inline, allowlist, resume, export md/json, Bash background sem órfão). Falta só **Cancel explícito** no botão Parar durante turno longo em foreground — o agente escolheu `run_in_background` e o turno fechou antes | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
 | R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | **FECHADO em 2026-08-16** (`da022fa`). O broker registra o que concedeu no turno e o evento `permission.native_denial` carrega `brokerGranted`, que separa "o CLI negou sem consultar o broker" de "o broker concedeu e outro hook `PreToolUse` negou depois" — no segundo caso a copy deixou de mandar revisar o accessLevel, que não manda em hook de terceiro. O diagnóstico saiu do parser para o `dispatch`, único ponto com as duas metades. Sobre o `systemMessage` citado no achado: **esse campo não existe** no payload; o equivalente com evidência in-repo é `decision_reason`, agora propagado. Validado ao vivo (negação de `git log` por hook global do usuário) | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
 
-### Notas de deferimento (não “corrija” estes dois)
+### Notas de deferimento (resolvidas em 2026-08-16)
 
-Os dois itens abaixo **não** são código morto. Foram mantidos abertos por decisão deliberada em 2026-08-13, com consumidor de produção previsto numa fase seguinte deste mesmo trabalho. Torná-los locais agora e reabrir depois é trabalho jogado fora.
+Os dois itens abaixo foram mantidos abertos por decisão deliberada em 2026-08-13, com consumidor de produção previsto numa fase seguinte deste mesmo trabalho. **Ambos chegaram lá**, e ficam registrados aqui porque a decisão de esperar foi correta: torná-los locais e reabrir depois teria sido trabalho jogado fora.
 
-- **A02 — `providers/permission-contract.ts`.** `BASH_PERMISSION_MATRIX`, `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` passam a rodar **antes do spawn do CLI**, para que uma regressão de contrato (grupo `PermissionRequest` faltando no `--settings`, `hookEventName` errado, `--permission-mode` divergente) vire erro visível na UI. O sintoma que isso ataca é o atual: o agente pede aprovação em prosa referindo um botão que nunca apareceu na tela.
-- **A05 (parcial) — `hasInflight` em `historyMerge.logic.ts:263`.** Ganha consumidor de produção na fase que introduz reconnect de WebSocket com resync serializado. Só a parte `stableJson` do A05 foi fechada (C69).
+- **A02 — `providers/permission-contract.ts`.** Cumprido na fatia D1 (`2a6d112`): `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` rodam **antes do spawn do CLI**, dentro de `assertPermissionContract`, e uma regressão de contrato (grupo `PermissionRequest` faltando no `--settings`, comando do hook errado para a plataforma, `--permission-mode` divergente, `ELECTRON_RUN_AS_NODE` ausente) vira erro visível antes do turno começar. O sintoma que isso atacava era o agente pedir aprovação em prosa referindo um botão que nunca apareceu na tela. Sobrou só a matriz de Bash, que virou **A09** por não ter consumidor honesto do mesmo tipo.
+- **A05 (parcial) — `hasInflight`.** Cumprido em `5f6b1c7`: o resync do socket serializa o refetch de histórico por ele.
 
 ---
 
