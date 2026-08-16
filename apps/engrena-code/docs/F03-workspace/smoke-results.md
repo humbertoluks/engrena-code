@@ -467,11 +467,19 @@ Com o `POST /gate/:id/resolve` falhando, a mensagem "Não foi possível enviar a
 apareceu **duas vezes** na tela. O comportamento de fundo está certo (o card permanece, nada é removido
 otimisticamente), só a renderização do erro é duplicada.
 
-### Observação ℹ️ — dois sockets abertos por thread em dev
+### Observação ℹ️ — "dois sockets por thread" era artefato da instrumentação (retificado em 2026-08-16)
 
-Cada thread abre dois WebSockets para `5174`, ambos em `readyState 1`. É o mount duplo do `React.StrictMode`
-(`renderer/main.tsx:21`), que só existe em dev — mas o esperado seria o cleanup fechar o primeiro, e não
-fecha. Não investigado se há vazamento equivalente em produção.
+Registrado aqui primeiro como suspeita de vazamento: duas conexões para `5174` na mesma thread, ambas em
+`readyState 1`, com a hipótese de que o cleanup do mount duplo do `React.StrictMode` não fechava a primeira.
+
+**Não se confirma.** Medido depois com um tracer que conta criação e chamadas de `close()` por socket: uma
+thread aberta do zero cria **um** socket, sem `close()` pendurado. O par que eu tinha visto veio do meu
+próprio teste — eu fechava à mão os sockets apontados para a porta morta enquanto o hook já tinha um timer
+de reconnect agendado, e as duas aberturas se somavam. O `disconnect` de `renderer/services/ws-client.ts:71`
+zera os handlers e chama `ws.close()` como deveria.
+
+Fica como lembrete de método: contar sockets numa lista acumulada não distingue vazamento de artefato do
+próprio instrumento. O que decide é registrar criação e fechamento por socket.
 
 ### Notas de ambiente (custaram tempo neste smoke)
 
