@@ -403,3 +403,85 @@ mas documentam que o modo de falha era real e passava despercebido.
 
 Cancel explícito via botão Parar no meio de um turno longo em foreground: o agente escolheu background
 e o turno fechou antes. Continua recomendado.
+
+## Fase C do redesign do chat — smoke Electron real (2026-08-16)
+
+Gate da Fase C do plano: **H1, H2, H3, H7**, scroll/work log sem regressão e reconnect com socket morto.
+Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY` desetada), Chromium headed dirigido por
+`playwright-cli` em `localhost:5173`, API loopback `127.0.0.1:5174`. Projeto `D:\temp\TodoV1`.
+Provider `claude-sonnet-4-6`, execution `main`. Thread `thr_8c9d2e01-81d5-4f22-88e1-a9603d42b75e`.
+
+### Como o socket foi derrubado
+
+Primeira tentativa (emulação de rede do Chromium, `Network.emulateNetworkConditions` / `context.setOffline`)
+**não serve** e custou dois turnos: `offline: true` corta fetch/XHR mas **não** o WebSocket em loopback —
+o card de permissão chegou com `navigator.onLine === false`. Pior, a condição gruda na sessão CDP e não
+volta nem com `setOffline(false)`; só fechando o browser.
+
+O que funciona é patch no construtor, via `addInitScript`: uma subclasse de `WebSocket` que registra cada
+tentativa com timestamp e, sob a flag `window.__break`, reescreve a porta `5174` para uma porta morta.
+Isso dá socket morto de verdade, backoff observável e restauração instantânea.
+
+### Resultados
+
+| Critério | Resultado |
+|----------|-----------|
+| H1 — turno nasce com streaming, tool e resposta persistida | pass |
+| H2 — follow-up lembra o contexto via resume | pass (`cli_session_id` = `4d69d620-…` no DB) |
+| H3 — follow-up durante `running` enfileira ("Na fila — aguarde") e drena em `idle` | pass |
+| H7 — pill de acesso mid-thread | pass (`PATCH` 200; DB gravou `access_level='auto-accept-edits'`) |
+| Socket morto reconecta sozinho | pass — exatamente 1 socket novo, sem tempestade em 108 s |
+| Backoff crescente com jitter | pass — tentativas em +0,7s, +4,5s, +10,2s, +20,1s, +31,3s |
+| Resync após a queda traz o que passou, sem duplicata | pass — turno inteiro produzido com o socket quebrado; cada mensagem aparece 1× |
+| Gate aberto reaparece pelo snapshot `GET /gate` | pass — reload completo (passando pelo unlock) e o card volta na posição certa |
+| Concessão real depois do reconnect executa a tool | pass |
+| Troca de thread durante o backoff não escreve na thread nova | pass — após a troca, 100% das tentativas usam o `threadId` novo; timeline da outra thread sem contaminação |
+| Work log aberto sobrevive ao refetch de stream | pass — `<details>` continua aberto |
+| Scroll não é destruído pelo refetch | pass — `scrollTop` idêntico (1978) antes e depois; sem "Carregando…" foreground |
+| CTA quando a resposta chega fora de vista | pass — copy real é "O agente respondeu. / Ir para o final (ctrl+End)", não "Ver mensagem" como o plano dizia |
+
+### Achado novo 🔴 — thread presa em "Agente trabalhando" com o backend em `idle`
+
+Reprodução: turno em andamento, socket quebrado durante todo o turno (backoff apontando para porta morta),
+troca de thread e volta. O turno terminou normalmente no servidor — `threads.state = 'idle'`, resposta
+persistida, `GET /gate` vazio — mas a UI ficou com o composer em modo busy: placeholder
+"Agente trabalhando — Enter enfileira para o próximo turno" e só o botão Parar. **A thread fica inutilizável
+até um F5**, sem nenhum sinal de erro.
+
+Trocar de thread e voltar **não** corrige. Recarregar a página corrige. Ao reabrir a thread o cliente chama
+`GET /history`, `GET /diffs` e `GET /gate` — mas nada relê o `state` da thread, que vem da lista carregada
+antes e permanece obsoleta em memória. O `state.change → idle` perdido durante a queda nunca é recuperado.
+
+É o mesmo buraco que o resync fechou para mensagens e para o gate, faltando para o estado do turno.
+
+### Achado 🟡 — R08 reconfirmado ao vivo
+
+O aviso "Aprovação nativa do Claude CLI negou a ferramenta Bash (sem modal EngrenaCode) … revise o nível de
+acesso da thread" apareceu num turno em que o card **apareceu** e o broker do EngrenaCode **concedeu**;
+o Bash foi negado depois, por outro hook da cadeia `PreToolUse`. A copy afirma o contrário do que houve.
+Já estava aberto como R08; esta é a segunda observação ao vivo.
+
+### Achado 🟡 — erro de decisão renderizado em dobro
+
+Com o `POST /gate/:id/resolve` falhando, a mensagem "Não foi possível enviar a decisão. Tente novamente."
+apareceu **duas vezes** na tela. O comportamento de fundo está certo (o card permanece, nada é removido
+otimisticamente), só a renderização do erro é duplicada.
+
+### Observação ℹ️ — dois sockets abertos por thread em dev
+
+Cada thread abre dois WebSockets para `5174`, ambos em `readyState 1`. É o mount duplo do `React.StrictMode`
+(`renderer/main.tsx:21`), que só existe em dev — mas o esperado seria o cleanup fechar o primeiro, e não
+fecha. Não investigado se há vazamento equivalente em produção.
+
+### Notas de ambiente (custaram tempo neste smoke)
+
+- O cofre vive na memória do processo main e só é destravado por IPC pela **janela do Electron**. Fechar
+  aquela janela derruba o `pnpm dev` inteiro (exit 0) e leva a API junto; qualquer reload do renderer do
+  Electron trava o cofre e derruba a sessão que o Chromium estava usando.
+- `playwright-cli open` sem `--headed` sobe headless: não há janela para o usuário digitar a senha.
+- O header de sessão é `x-engrenacode-session`, não `Authorization: Bearer`.
+
+### Não coberto
+
+Cancel explícito pelo botão Parar em turno longo em foreground (continua pendente desde 2026-08-13) e
+`GET /gate` durante a janela de backoff longo (o gate expira em 120 s, o reconnect real leva menos de 8 s).
