@@ -3,13 +3,24 @@ import {
   BASH_PERMISSION_MATRIX,
   HOOK_COMMAND_TIMEOUT_SEC,
   INCLUDE_HOOK_EVENTS_FLAG,
+  OBSERVED_CLI_VERSION_MAX_CHARS,
+  PERMISSION_CONTRACT_MAX_VALIDATED_VERSION,
+  PERMISSION_CONTRACT_MIN_VALIDATED_VERSION,
+  PERMISSION_CONTRACT_VALIDATED_VERSIONS,
   SUPERVISED_PERMISSION_MODE,
   assertPermissionContract,
+  checkClaudeCliVersion,
   checkSupervisedPermissionArgs,
+  claudeCliVersionLogLine,
+  claudeCliVersionWarrantsNotice,
+  compareCliVersions,
+  formatCliVersion,
   nativeDenialCase,
   nativeDenialDiagnosis,
+  parseCliVersion,
   shouldIncludeHookEvents,
   validatePermissionSettingsShape,
+  type ClaudeCliVersionStatus,
   type PermissionContractSpawnPlan,
 } from './permission-contract.js'
 
@@ -327,5 +338,171 @@ describe('assertPermissionContract — gate de produção', () => {
       expect(result.message).not.toContain('--token')
       expect(result.message).not.toContain('permission-hook.mjs')
     }
+  })
+})
+
+describe('parseCliVersion / formatCliVersion / compareCliVersions (D3)', () => {
+  it('extracts the first x.y.z triple from real `claude --version` output', () => {
+    expect(parseCliVersion('2.1.233 (Claude Code)')).toEqual({ major: 2, minor: 1, patch: 233 })
+  })
+
+  it('returns null when the output carries no numeric triple', () => {
+    expect(parseCliVersion('command not found: claude')).toBeNull()
+    expect(parseCliVersion('')).toBeNull()
+  })
+
+  it('formats back to the canonical x.y.z string', () => {
+    expect(formatCliVersion({ major: 2, minor: 1, patch: 9 })).toBe('2.1.9')
+  })
+
+  it('compares field by field, not as strings (2.1.9 < 2.1.10, which string comparison gets wrong)', () => {
+    const a = { major: 2, minor: 1, patch: 9 }
+    const b = { major: 2, minor: 1, patch: 10 }
+    expect(compareCliVersions(a, b)).toBeLessThan(0)
+    expect(compareCliVersions(b, a)).toBeGreaterThan(0)
+    expect('2.1.9' < '2.1.10').toBe(false) // a comparação de string erraria este caso
+
+    expect(compareCliVersions({ major: 2, minor: 1, patch: 1 }, { major: 3, minor: 0, patch: 0 })).toBeLessThan(0)
+    expect(compareCliVersions({ major: 2, minor: 2, patch: 0 }, { major: 2, minor: 1, patch: 9 })).toBeGreaterThan(
+      0
+    )
+    expect(compareCliVersions({ major: 2, minor: 1, patch: 5 }, { major: 2, minor: 1, patch: 5 })).toBe(0)
+  })
+})
+
+describe('checkClaudeCliVersion (D3)', () => {
+  it('reports in-range for the two closed-interval endpoints', () => {
+    expect(checkClaudeCliVersion(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION).status).toBe('in-range')
+    expect(checkClaudeCliVersion(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION).status).toBe('in-range')
+  })
+
+  it('reports in-range for an intermediate version that is not itself in the validated list', () => {
+    const check = checkClaudeCliVersion('2.1.229 (Claude Code)')
+    expect(check.status).toBe('in-range')
+    expect(PERMISSION_CONTRACT_VALIDATED_VERSIONS.some((v) => v.version === '2.1.229')).toBe(false)
+  })
+
+  it('reports below-min for a version older than the oldest validated one', () => {
+    expect(checkClaudeCliVersion('2.1.225').status).toBe('below-min')
+    expect(checkClaudeCliVersion('2.0.999').status).toBe('below-min')
+  })
+
+  it('reports above-max for a version newer than the last validated one', () => {
+    expect(checkClaudeCliVersion('2.1.233 (Claude Code)').status).toBe('above-max')
+  })
+
+  it('reports unparseable for output with no numeric triple, including empty output', () => {
+    expect(checkClaudeCliVersion('command not found: claude').status).toBe('unparseable')
+    expect(checkClaudeCliVersion('').status).toBe('unparseable')
+  })
+
+  it('normalizes `observed` to formatCliVersion(parsed) when the output parses', () => {
+    const check = checkClaudeCliVersion('2.1.233 (Claude Code)')
+    expect(check.parsed).toEqual({ major: 2, minor: 1, patch: 233 })
+    expect(check.observed).toBe(formatCliVersion(check.parsed as NonNullable<typeof check.parsed>))
+    expect(check.observed).toBe('2.1.233')
+  })
+
+  it('normalizes `observed` to the trimmed first non-empty line, capped at OBSERVED_CLI_VERSION_MAX_CHARS, when it does not parse', () => {
+    const longLine = 'x'.repeat(OBSERVED_CLI_VERSION_MAX_CHARS + 20)
+    const check = checkClaudeCliVersion(`\n  \n  ${longLine}  \nsegunda linha ignorada`)
+    expect(check.status).toBe('unparseable')
+    expect(check.observed).toBe(longLine.slice(0, OBSERVED_CLI_VERSION_MAX_CHARS))
+    expect(check.observed).toHaveLength(OBSERVED_CLI_VERSION_MAX_CHARS)
+  })
+
+  it('normalizes `observed` to an empty string when the output is empty', () => {
+    expect(checkClaudeCliVersion('').observed).toBe('')
+  })
+})
+
+// Guarda de coerência: sem este teste, os limites (MIN/MAX_VALIDATED_VERSION) e a lista
+// (PERMISSION_CONTRACT_VALIDATED_VERSIONS) podem se desencontrar silenciosamente ao editar só um dos dois.
+describe('coerência entre a lista de versões validadas e os limites (D3)', () => {
+  it('MIN_VALIDATED_VERSION é a menor e MAX_VALIDATED_VERSION é a maior da lista', () => {
+    const parsedVersions = PERMISSION_CONTRACT_VALIDATED_VERSIONS.map((v) => {
+      const parsed = parseCliVersion(v.version)
+      expect(parsed).not.toBeNull()
+      return parsed as NonNullable<typeof parsed>
+    })
+
+    const min = parseCliVersion(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+    const max = parseCliVersion(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+    expect(min).not.toBeNull()
+    expect(max).not.toBeNull()
+
+    for (const parsed of parsedVersions) {
+      expect(compareCliVersions(min as NonNullable<typeof min>, parsed)).toBeLessThanOrEqual(0)
+      expect(compareCliVersions(max as NonNullable<typeof max>, parsed)).toBeGreaterThanOrEqual(0)
+    }
+
+    // Só "min ≤ todos ≤ max" deixaria passar um limite inventado (MIN '1.0.0' satisfaz a
+    // desigualdade e alargaria a faixa em silêncio): os limites têm que sair da própria lista.
+    const versions = PERMISSION_CONTRACT_VALIDATED_VERSIONS.map((v) => v.version)
+    expect(versions).toContain(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+    expect(versions).toContain(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+  })
+
+  it('toda entrada da lista parseia e cai in-range', () => {
+    for (const entry of PERMISSION_CONTRACT_VALIDATED_VERSIONS) {
+      const check = checkClaudeCliVersion(entry.version)
+      expect(check.parsed).not.toBeNull()
+      expect(check.status).toBe('in-range')
+    }
+  })
+
+  it('toda entrada tem evidence não vazia', () => {
+    for (const entry of PERMISSION_CONTRACT_VALIDATED_VERSIONS) {
+      expect(entry.evidence.trim()).not.toBe('')
+    }
+  })
+})
+
+describe('claudeCliVersionWarrantsNotice (D3)', () => {
+  it('é false só para in-range', () => {
+    expect(claudeCliVersionWarrantsNotice('in-range')).toBe(false)
+  })
+
+  it('é true para os três casos de alerta', () => {
+    const warnings: ClaudeCliVersionStatus[] = ['below-min', 'above-max', 'unparseable']
+    for (const status of warnings) {
+      expect(claudeCliVersionWarrantsNotice(status)).toBe(true)
+    }
+  })
+})
+
+describe('claudeCliVersionLogLine (D3)', () => {
+  it('cita a versão observada e a faixa min→max no caso below-min', () => {
+    const check = checkClaudeCliVersion('2.1.225')
+    const line = claudeCliVersionLogLine(check)
+    expect(line).toContain('2.1.225')
+    expect(line).toContain(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+    expect(line).toContain(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+    expect(line).toContain('turno não foi bloqueado')
+  })
+
+  it('cita a versão observada e a faixa min→max no caso above-max', () => {
+    const check = checkClaudeCliVersion('2.1.233 (Claude Code)')
+    const line = claudeCliVersionLogLine(check)
+    expect(line).toContain('2.1.233')
+    expect(line).toContain(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+    expect(line).toContain(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+    expect(line).toContain('turno não foi bloqueado')
+  })
+
+  it('no caso unparseable com saída presente, cita a saída e a faixa', () => {
+    const check = checkClaudeCliVersion('lixo sem versão')
+    const line = claudeCliVersionLogLine(check)
+    expect(line).toContain('lixo sem versão')
+    expect(line).toContain(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+    expect(line).toContain(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+    expect(line).toContain('turno não foi bloqueado')
+  })
+
+  it('no caso unparseable com saída vazia, distingue de saída presente', () => {
+    const check = checkClaudeCliVersion('')
+    const line = claudeCliVersionLogLine(check)
+    expect(line).toContain('saída vazia')
+    expect(line).not.toContain('saída ""')
   })
 })

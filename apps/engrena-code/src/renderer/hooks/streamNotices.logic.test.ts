@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendWorkspaceNotice,
+  cliVersionNotice,
+  cliVersionNoticeMessage,
   MAX_WORKSPACE_NOTICES,
   mcpNotice,
   nativeDenialMessage,
   nativeDenialNotice,
+  type CliVersionNoticeEvent,
   type WorkspaceNotice,
 } from './streamNotices.logic'
 
@@ -142,5 +145,78 @@ describe('appendWorkspaceNotice', () => {
     const original: WorkspaceNotice[] = [notice(1)]
     appendWorkspaceNotice(original, notice(2))
     expect(original).toHaveLength(1)
+  })
+
+  // D3: cli_version entra na mesma fila que mcp/native_denial; o teto continua valendo
+  // independente do discriminante do aviso.
+  it('aplica o teto mesmo com uma mistura de kinds, incluindo cli_version', () => {
+    let list: WorkspaceNotice[] = []
+    for (let i = 0; i < MAX_WORKSPACE_NOTICES + 3; i += 1) {
+      const kind = i % 3
+      const next: WorkspaceNotice =
+        kind === 0
+          ? { kind: 'mcp', mcpName: `m${i}`, reason: 'r', message: `msg ${i}` }
+          : kind === 1
+            ? { kind: 'native_denial', toolName: 'Bash', code: 'permission_native_denial', message: `msg ${i}` }
+            : { kind: 'cli_version', code: 'claude_cli_version_out_of_range', message: `msg ${i}` }
+      list = appendWorkspaceNotice(list, next)
+    }
+    expect(list).toHaveLength(MAX_WORKSPACE_NOTICES)
+    expect(list.some((n) => n.kind === 'cli_version')).toBe(true)
+  })
+})
+
+describe('cliVersionNoticeMessage (D3)', () => {
+  const faixa = { minValidated: '2.1.226', maxValidated: '2.1.231' }
+
+  it('below-min cita a versão observada, a faixa e diz que o turno não foi bloqueado', () => {
+    const text = cliVersionNoticeMessage({ status: 'below-min', observedVersion: '2.1.225', ...faixa })
+    expect(text).toContain('2.1.225')
+    expect(text).toContain('2.1.226')
+    expect(text).toContain('2.1.231')
+    expect(text).toContain('O turno não foi bloqueado')
+  })
+
+  it('above-max cita a versão observada, a faixa e diz que o turno não foi bloqueado', () => {
+    const text = cliVersionNoticeMessage({ status: 'above-max', observedVersion: '2.1.233', ...faixa })
+    expect(text).toContain('2.1.233')
+    expect(text).toContain('2.1.226')
+    expect(text).toContain('2.1.231')
+    expect(text).toContain('O turno não foi bloqueado')
+  })
+
+  it('unparseable com observedVersion vazio usa a variante "não respondeu nada legível"', () => {
+    const text = cliVersionNoticeMessage({ status: 'unparseable', observedVersion: '', ...faixa })
+    expect(text).toContain('não respondeu nada legível')
+    expect(text).toContain('2.1.226')
+    expect(text).toContain('2.1.231')
+    expect(text).toContain('O turno não foi bloqueado')
+  })
+
+  it('unparseable com saída presente cita a saída em vez da variante vazia', () => {
+    const text = cliVersionNoticeMessage({ status: 'unparseable', observedVersion: 'lixo sem versão', ...faixa })
+    expect(text).toContain('lixo sem versão')
+    expect(text).not.toContain('não respondeu nada legível')
+    expect(text).toContain('2.1.226')
+    expect(text).toContain('2.1.231')
+    expect(text).toContain('O turno não foi bloqueado')
+  })
+})
+
+describe('cliVersionNotice (D3)', () => {
+  it('devolve { kind: cli_version, code, message } com o code recebido', () => {
+    const event: CliVersionNoticeEvent & { code: string } = {
+      status: 'above-max',
+      observedVersion: '2.1.233',
+      minValidated: '2.1.226',
+      maxValidated: '2.1.231',
+      code: 'claude_cli_version_out_of_range',
+    }
+    const notice = cliVersionNotice(event)
+    expect(notice).toEqual({
+      kind: 'cli_version',
+      code: 'claude_cli_version_out_of_range',
+      message: cliVersionNoticeMessage(event),
+    })
   })
 })

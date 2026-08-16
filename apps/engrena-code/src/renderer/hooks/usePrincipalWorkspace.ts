@@ -18,6 +18,7 @@ import { useThreadGate } from './useThreadGate'
 import { questionFromGate, type ThreadGate } from './threadGate.logic'
 import {
   appendWorkspaceNotice,
+  cliVersionNotice,
   mcpNotice,
   nativeDenialNotice,
   type WorkspaceNotice,
@@ -608,6 +609,12 @@ export function usePrincipalWorkspace() {
     // Vai para a mesma faixa do mcp.notice.
     if (event.type === 'permission.native_denial') {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
+      return
+    }
+    // Versão do Claude CLI fora da faixa em que o contrato de permissão foi validado. Chega no
+    // máximo uma vez por processo e é só aviso: o turno correu normalmente.
+    if (event.type === 'cli.version_notice') {
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, cliVersionNotice(event)))
     }
   }
 

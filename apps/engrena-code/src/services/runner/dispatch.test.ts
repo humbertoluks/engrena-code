@@ -47,6 +47,9 @@ const {
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
 } = await import('./delegate.js')
 const { listPipelinesForThread } = await import('../db/repositories/pipelines.js')
+const { setClaudeCliVersionReaderForTesting, resetClaudeCliVersionReaderForTesting } = await import(
+  './providers/claude/cli-version.js'
+)
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -64,6 +67,9 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  // A checagem de versão do Claude CLI (aviso D3) roda fire-and-forget no dispatch: sem este stub
+  // ela spawna o binário real e o aviso da versão do host cairia no meio das asserções de stream.
+  setClaudeCliVersionReaderForTesting(async () => ({ outcome: 'unavailable' }))
   // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
   // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
   setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
@@ -97,6 +103,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
+  resetClaudeCliVersionReaderForTesting()
   closeDb()
   rmSync(process.env.ENGRENACODE_USER_DATA as string, { recursive: true, force: true })
 })

@@ -82,6 +82,25 @@ export type StreamEvent =
       reason: string
       message: string
     }
+  /**
+   * Versão do `claude` instalada fora da faixa em que o contrato de permissão foi validado.
+   *
+   * Aviso, nunca bloqueio: chega no máximo uma vez por processo e só quando há divergência
+   * (`in-range` não vai ao wire, por isso o `status` aqui é o subconjunto de alerta). Não carrega
+   * `message` de propósito, diferente de `mcp.notice`: a copy da faixa âmbar é composta no
+   * renderer (`streamNotices.logic.ts`) a partir destes campos, e o log do turno usa uma frase
+   * própria, mais curta. Uma frase só serviria mal aos dois.
+   */
+  | {
+      type: 'cli.version_notice'
+      threadId: string
+      code: 'claude_cli_version_out_of_range'
+      status: 'below-min' | 'above-max' | 'unparseable'
+      /** Versão lida, ou a saída crua aparada quando ela não pôde ser interpretada. */
+      observedVersion: string
+      minValidated: string
+      maxValidated: string
+    }
 
 const subscribers = new Map<string, Set<WebSocket>>()
 

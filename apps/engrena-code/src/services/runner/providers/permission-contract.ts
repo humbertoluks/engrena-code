@@ -320,3 +320,149 @@ export function nativeDenialDiagnosis(context: NativeDenialContext): string {
   if (reason !== '') parts.push(`Detalhe do CLI: ${reason}`)
   return parts.join(' ')
 }
+
+// ── Faixa de versão do Claude CLI (D3) ───────────────────────────────────────
+//
+// A versão do CLI não entra em `assertPermissionContract`: contrato violado é erro fail-closed,
+// versão divergente é aviso. Bloquear o turno numa versão nova custa mais que avisar, porque o
+// contrato provavelmente continua valendo e o usuário ficaria sem app por uma suspeita.
+
+/** Uma versão em que o contrato desta pasta foi conferido, com a evidência que sustenta isso. */
+export interface ValidatedClaudeCliVersion {
+  version: string
+  evidence: string
+}
+
+/**
+ * O que a história do projeto registra como conferido. Ordenado, mas quem manda nos limites são
+ * as duas constantes abaixo (teste cobre que elas continuam batendo com esta lista).
+ */
+export const PERMISSION_CONTRACT_VALIDATED_VERSIONS: readonly ValidatedClaudeCliVersion[] = [
+  {
+    version: '2.1.226',
+    evidence: 'autoridade real do hook PreToolUse sob --permission-mode auto, confirmada ao vivo',
+  },
+  {
+    version: '2.1.228',
+    evidence: 'fixtures stream-json de providers/__fixtures__/permission-stream/ escritas contra ela',
+  },
+  {
+    version: '2.1.231',
+    evidence: 'smoke ao vivo de 2026-08-13 (apps/engrena-code/docs/F03-workspace/smoke-results.md)',
+  },
+]
+
+export const PERMISSION_CONTRACT_MIN_VALIDATED_VERSION = '2.1.226'
+export const PERMISSION_CONTRACT_MAX_VALIDATED_VERSION = '2.1.231'
+
+export interface ParsedCliVersion {
+  major: number
+  minor: number
+  patch: number
+}
+
+/**
+ * Primeiro trio `x.y.z` da saída. `claude --version` hoje responde `2.1.233 (Claude Code)`, mas o
+ * formato é do CLI, não nosso: quando ele mudar, o parse devolve `null` e o caso vira
+ * indeterminado, nunca uma comparação inventada.
+ */
+const CLI_VERSION_TRIPLE = /(\d{1,9})\.(\d{1,9})\.(\d{1,9})/
+
+/** Teto do texto que vai para a faixa âmbar: é saída de binário de terceiro, não pode virar parede. */
+export const OBSERVED_CLI_VERSION_MAX_CHARS = 60
+
+export function parseCliVersion(raw: string): ParsedCliVersion | null {
+  const match = CLI_VERSION_TRIPLE.exec(raw ?? '')
+  if (match === null) return null
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    return null
+  }
+  return { major, minor, patch }
+}
+
+export function formatCliVersion(version: ParsedCliVersion): string {
+  return `${version.major}.${version.minor}.${version.patch}`
+}
+
+/** Comparação numérica campo a campo. `2.1.9 < 2.1.10`, que a comparação de string erra. */
+export function compareCliVersions(a: ParsedCliVersion, b: ParsedCliVersion): number {
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
+  return 0
+}
+
+/**
+ * Três casos honestos: `below-min` (mais velha que a mais antiga conferida), `above-max` (mais
+ * nova que a última validada) e `unparseable` (o `--version` respondeu algo que não tem versão
+ * dentro, inclusive vazio). `in-range` cobre o intervalo fechado, não só as três versões da lista:
+ * uma 2.1.229 está entre duas conferidas e não merece alarme.
+ */
+export type ClaudeCliVersionStatus = 'in-range' | 'below-min' | 'above-max' | 'unparseable'
+
+/** Subconjunto que vira aviso; `in-range` nunca chega ao wire. */
+export type ClaudeCliVersionWarning = Exclude<ClaudeCliVersionStatus, 'in-range'>
+
+export interface ClaudeCliVersionCheck {
+  status: ClaudeCliVersionStatus
+  /** Versão formatada quando deu para ler; a saída crua aparada quando não deu. */
+  observed: string
+  parsed: ParsedCliVersion | null
+  minValidated: string
+  maxValidated: string
+}
+
+/** Primeira linha não vazia, aparada e limitada: o resto da saída não interessa ao usuário. */
+function firstMeaningfulLine(rawOutput: string): string {
+  const line = (rawOutput ?? '')
+    .split('\n')
+    .map((part) => part.trim())
+    .find((part) => part !== '')
+  return (line ?? '').slice(0, OBSERVED_CLI_VERSION_MAX_CHARS)
+}
+
+export function checkClaudeCliVersion(rawOutput: string): ClaudeCliVersionCheck {
+  const observedRaw = firstMeaningfulLine(rawOutput)
+  const parsed = parseCliVersion(observedRaw)
+  const min = parseCliVersion(PERMISSION_CONTRACT_MIN_VALIDATED_VERSION)
+  const max = parseCliVersion(PERMISSION_CONTRACT_MAX_VALIDATED_VERSION)
+  const base = {
+    observed: observedRaw,
+    parsed,
+    minValidated: PERMISSION_CONTRACT_MIN_VALIDATED_VERSION,
+    maxValidated: PERMISSION_CONTRACT_MAX_VALIDATED_VERSION,
+  }
+
+  // `min`/`max` só seriam nulos com literal quebrado neste arquivo; sem versão de referência não
+  // há faixa a cobrar, e inventar um veredito seria pior que assumir indeterminado.
+  if (parsed === null || min === null || max === null) {
+    return { ...base, status: 'unparseable' }
+  }
+  if (compareCliVersions(parsed, min) < 0) {
+    return { ...base, observed: formatCliVersion(parsed), status: 'below-min' }
+  }
+  if (compareCliVersions(parsed, max) > 0) {
+    return { ...base, observed: formatCliVersion(parsed), status: 'above-max' }
+  }
+  return { ...base, observed: formatCliVersion(parsed), status: 'in-range' }
+}
+
+export function claudeCliVersionWarrantsNotice(
+  status: ClaudeCliVersionStatus
+): status is ClaudeCliVersionWarning {
+  return status !== 'in-range'
+}
+
+/** Linha curta de log (kind `task`). A copy da faixa âmbar é do renderer, e é outra frase. */
+export function claudeCliVersionLogLine(check: ClaudeCliVersionCheck): string {
+  const faixa = `${check.minValidated} a ${check.maxValidated}`
+  if (check.status === 'unparseable') {
+    const saida = check.observed === '' ? 'saída vazia' : `saída "${check.observed}"`
+    return `Não foi possível ler a versão do Claude CLI (${saida}); contrato de permissão validado na faixa ${faixa}. Aviso apenas, o turno não foi bloqueado.`
+  }
+  const lado = check.status === 'below-min' ? 'abaixo' : 'acima'
+  return `Claude CLI ${check.observed} está ${lado} da faixa ${faixa} em que o contrato de permissão foi validado. Aviso apenas, o turno não foi bloqueado.`
+}

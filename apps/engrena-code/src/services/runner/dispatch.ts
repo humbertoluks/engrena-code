@@ -67,6 +67,7 @@ import {
   type PermissionServerHandle,
 } from './permission-broker.js'
 import { nativeDenialDiagnosis } from './providers/permission-contract.js'
+import { announceClaudeCliVersionOnce } from './claude-version-notice.js'
 import {
   expireOpenPermissionGates,
   expireOpenQuestionGates,
@@ -654,6 +655,11 @@ async function runTurn(
     if (thread.provider === 'claude' && permissionBrokerApplies(thread.accessLevel)) {
       permissionServer = await createPermissionServer(thread.id)
     }
+
+    // Versão do CLI fora da faixa validada vira aviso na faixa âmbar, nunca bloqueio. Sem `await`
+    // de propósito e sem promessa devolvida: a leitura roda uma vez por processo e o turno segue
+    // mesmo que ela ainda não tenha terminado quando o spawn começar.
+    announceClaudeCliVersionOnce(thread.id, thread.provider)
 
     // Cancel fecha estes servers *antes* do abort — senão hook/MCP fica preso e o kill demora.
     addTurnCloser(thread.id, () => {
