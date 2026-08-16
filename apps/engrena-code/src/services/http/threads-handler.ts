@@ -35,6 +35,7 @@ import {
   exportThreadAsMarkdown,
 } from '../threads/thread-export.js'
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
+import { clearFollowups } from '../threads/followups-cache.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import {
@@ -739,6 +740,9 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
     deleteDiffsForThread(thread.id)
     clearAllowedToolsForThread(thread.id)
     clearBrokerGrantsForThread(thread.id)
+    // Cache de sugestões é por thread e vive no processo: sem isto, apagar a thread deixava as
+    // entradas (e a promessa em voo) presas até o app fechar.
+    clearFollowups(thread.id)
     deleteThread(thread.id)
     sendJson(res, 200, {
       deleted: true,

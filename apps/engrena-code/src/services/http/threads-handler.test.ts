@@ -31,7 +31,9 @@ const {
   setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
 } = await import('../threads/followups.js')
-const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
+const { clearAllFollowupsForTesting, getCachedFollowups, resolveFollowups } = await import(
+  '../threads/followups-cache.js'
+)
 const {
   setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
@@ -860,6 +862,36 @@ describe('handleThreadsRequest', () => {
     expect(status).toBe(400)
     expect((body as { error: { code: string; message: string } }).error.code).toBe('worktree_git_required')
     expect((body as { error: { message: string } }).error.message).toBe('Inicialize o Git antes de usar Worktree.')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('DELETE /api/threads/:id clears the followups cache of the thread', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    // Gerador injetado: popular o cache não depende de rodar provider nenhum.
+    await resolveFollowups(created.thread.id, 'msg_1', async () => ['e agora?'])
+    expect(getCachedFollowups(created.thread.id, 'msg_1')).toEqual(['e agora?'])
+
+    const req = fakeReq('DELETE', `/api/threads/${created.thread.id}`, undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    expect((await res.result()).status).toBe(200)
+    // Sem o clear no DELETE, a entrada sobrevivia à thread e só morria com o processo.
+    expect(getCachedFollowups(created.thread.id, 'msg_1')).toBeNull()
 
     rmSync(dir, { recursive: true, force: true })
   })
