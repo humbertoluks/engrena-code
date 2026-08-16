@@ -485,3 +485,18 @@ fecha. Não investigado se há vazamento equivalente em produção.
 
 Cancel explícito pelo botão Parar em turno longo em foreground (continua pendente desde 2026-08-13) e
 `GET /gate` durante a janela de backoff longo (o gate expira em 120 s, o reconnect real leva menos de 8 s).
+
+### Correção do achado 🔴, verificada ao vivo (2026-08-16)
+
+`resyncThread` passou a reler o estado da thread em todo open (não só no reconnect) e a aplicar
+`decideThreadStateResync` de `threadStream.logic.ts`; o bloco de assentamento virou
+`reconcileSettledTurn`, chamado tanto pelo `state.change` ao vivo quanto pelo resync.
+
+Repro com o código novo, mesmo roteiro: turno longo, socket reescrito para porta morta durante o
+turno inteiro, servidor assentando em `idle` com o cliente cego. Antes de religar, o composer
+seguia em "Agente trabalhando" (o bug). Ao religar, a UI voltou sozinha para "Responder nesta
+conversa…" com o botão Enviar, e a resposta produzida durante a queda entrou na timeline uma vez
+só. Nenhum F5.
+
+Gates: `tsc -b` verde; `pnpm test` 160 arquivos / 1781 testes (baseline 1770 + 11 novos), verde
+com o app de smoke encerrado.

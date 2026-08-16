@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACTIVE_THREAD_STATES,
+  decideThreadStateResync,
+  isActiveThreadState,
   isEventForThread,
+  isSettledThreadState,
   planReconnect,
+  reconcilesTurnEnd,
   reconnectDelayMs,
   RECONNECT_BASE_DELAY_MS,
   RECONNECT_MAX_DELAY_MS,
+  SETTLED_THREAD_STATES,
   shouldRefetchHistoryOnResync,
+  TURN_RECONCILED_STATES,
 } from './threadStream.logic'
+import type { ThreadState } from '../services/threads-service'
 
 /** Fonte de aleatoriedade determinística: consome a lista e repete o último valor. */
 function rolls(...values: number[]): () => number {
@@ -124,5 +132,127 @@ describe('isEventForThread', () => {
 
   it('sem thread selecionada nada entra', () => {
     expect(isEventForThread({ threadId: 'thr_1' }, null)).toBe(false)
+  })
+})
+
+/** Todo estado do wire, para as matrizes abaixo não deixarem par de fora em silêncio. */
+const ALL_STATES: readonly ThreadState[] = [
+  'running',
+  'stopping',
+  'waiting_user',
+  'waiting_permission',
+  'idle',
+  'committed',
+  'error',
+  'cancelled',
+]
+
+describe('predicados de estado da thread', () => {
+  it('ativo e assentado particionam o universo de estados, sem sobra nem sobreposição', () => {
+    expect([...ACTIVE_THREAD_STATES, ...SETTLED_THREAD_STATES].sort()).toEqual([...ALL_STATES].sort())
+    for (const state of ALL_STATES) {
+      expect(isActiveThreadState(state)).toBe(!isSettledThreadState(state))
+    }
+  })
+
+  it('cancelled assenta o turno mas não é assentamento com resultado a reconciliar', () => {
+    expect(isSettledThreadState('cancelled')).toBe(true)
+    expect(reconcilesTurnEnd('cancelled')).toBe(false)
+    expect(TURN_RECONCILED_STATES).toEqual(['idle', 'committed', 'error'])
+    for (const state of TURN_RECONCILED_STATES) {
+      expect(reconcilesTurnEnd(state)).toBe(true)
+      expect(isSettledThreadState(state)).toBe(true)
+    }
+  })
+
+  it('string desconhecida ou ausente não é nem ativa nem assentada (o wire manda `state: string` cru)', () => {
+    for (const value of [null, undefined, '', 'zumbi']) {
+      expect(isActiveThreadState(value)).toBe(false)
+      expect(isSettledThreadState(value)).toBe(false)
+      expect(reconcilesTurnEnd(value)).toBe(false)
+    }
+  })
+})
+
+describe('decideThreadStateResync', () => {
+  const NOTHING = { adoptState: null, reconcileSettled: false }
+
+  it('estados iguais não mexem em nada — o caso comum não pode custar re-render', () => {
+    for (const state of ALL_STATES) {
+      expect(decideThreadStateResync({ localState: state, serverState: state })).toEqual(NOTHING)
+    }
+  })
+
+  it('lado desconhecido não adota nada', () => {
+    expect(decideThreadStateResync({ localState: null, serverState: 'idle' })).toEqual(NOTHING)
+    expect(decideThreadStateResync({ localState: undefined, serverState: 'idle' })).toEqual(NOTHING)
+    // Thread sumiu da lista do servidor (apagada em outra janela): manter o que está em tela.
+    expect(decideThreadStateResync({ localState: 'running', serverState: null })).toEqual(NOTHING)
+    expect(decideThreadStateResync({ localState: 'running', serverState: undefined })).toEqual(NOTHING)
+  })
+
+  it('o bug: servidor assentou com resultado enquanto o local seguia ativo → adota e reconcilia', () => {
+    for (const localState of ACTIVE_THREAD_STATES) {
+      for (const serverState of TURN_RECONCILED_STATES) {
+        expect(decideThreadStateResync({ localState, serverState })).toEqual({
+          adoptState: serverState,
+          reconcileSettled: true,
+        })
+      }
+    }
+  })
+
+  it('cancelamento perdido destrava o composer sem despachar a fila do usuário', () => {
+    for (const localState of ACTIVE_THREAD_STATES) {
+      expect(decideThreadStateResync({ localState, serverState: 'cancelled' })).toEqual({
+        adoptState: 'cancelled',
+        reconcileSettled: false,
+      })
+    }
+  })
+
+  it('servidor ativo com local assentado só adota (turno novo começou durante a queda)', () => {
+    for (const localState of SETTLED_THREAD_STATES) {
+      for (const serverState of ACTIVE_THREAD_STATES) {
+        expect(decideThreadStateResync({ localState, serverState })).toEqual({
+          adoptState: serverState,
+          reconcileSettled: false,
+        })
+      }
+    }
+  })
+
+  it('dois assentamentos diferentes só adotam — histórico e gate do resync já cobriram o resto', () => {
+    expect(decideThreadStateResync({ localState: 'idle', serverState: 'committed' })).toEqual({
+      adoptState: 'committed',
+      reconcileSettled: false,
+    })
+    expect(decideThreadStateResync({ localState: 'cancelled', serverState: 'error' })).toEqual({
+      adoptState: 'error',
+      reconcileSettled: false,
+    })
+  })
+
+  it('troca entre dois estados ativos só adota (running → waiting_permission na queda)', () => {
+    expect(
+      decideThreadStateResync({ localState: 'running', serverState: 'waiting_permission' })
+    ).toEqual({ adoptState: 'waiting_permission', reconcileSettled: false })
+    expect(decideThreadStateResync({ localState: 'stopping', serverState: 'running' })).toEqual({
+      adoptState: 'running',
+      reconcileSettled: false,
+    })
+  })
+
+  it('cobre a matriz inteira: reconcilia se e só se saiu de ativo para assentamento com resultado', () => {
+    for (const localState of ALL_STATES) {
+      for (const serverState of ALL_STATES) {
+        const decision = decideThreadStateResync({ localState, serverState })
+        const changed = localState !== serverState
+        expect(decision.adoptState).toBe(changed ? serverState : null)
+        expect(decision.reconcileSettled).toBe(
+          changed && isActiveThreadState(localState) && reconcilesTurnEnd(serverState)
+        )
+      }
+    }
   })
 })

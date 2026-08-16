@@ -8,8 +8,11 @@
  *
  * Daí o desenho: o hook cuida do ciclo de vida do socket e este módulo cuida das decisões
  * (quanto esperar antes de tentar de novo, se ainda vale tentar, se o resync precisa reler o
- * histórico). Tudo aqui é determinístico com a fonte de aleatoriedade injetada.
+ * histórico, o que fazer com o estado da thread relido). Tudo aqui é determinístico com a fonte
+ * de aleatoriedade injetada.
  */
+
+import type { ThreadState } from '../services/threads-service'
 
 /** Primeiro passo do backoff. */
 export const RECONNECT_BASE_DELAY_MS = 1_000
@@ -81,4 +84,93 @@ export function shouldRefetchHistoryOnResync(input: {
  */
 export function isEventForThread(event: { threadId: string }, threadId: string | null): boolean {
   return threadId !== null && event.threadId === threadId
+}
+
+// ── Estado da thread no resync ───────────────────────────────────────────────
+
+/**
+ * Turno em curso para a UI: o composer fica em modo ocupado (só Parar; o Enter enfileira). É
+ * deste conjunto que a thread precisa sair para voltar a ser usável.
+ */
+export const ACTIVE_THREAD_STATES: readonly ThreadState[] = [
+  'running',
+  'stopping',
+  'waiting_user',
+  'waiting_permission',
+]
+
+/** Complemento exato de `ACTIVE_THREAD_STATES`: o turno já acabou no servidor. */
+export const SETTLED_THREAD_STATES: readonly ThreadState[] = [
+  'idle',
+  'committed',
+  'error',
+  'cancelled',
+]
+
+/**
+ * Assentamentos que deixam resultado a reconciliar (histórico, diffs, sugestões, fila, consumo).
+ *
+ * `cancelled` fica de fora de propósito, e é a mesma linha que o handler de `state.change` já
+ * traçava: turno abortado não produziu resposta, e despachar a fila logo depois de um Parar faz
+ * exatamente o contrário do que o usuário pediu. Cancelado só adota o estado (o que já basta
+ * para destravar o composer) e limpa o gate.
+ */
+export const TURN_RECONCILED_STATES: readonly ThreadState[] = ['idle', 'committed', 'error']
+
+/** `state` do wire é `string` cru (`ws-hub.ts`), então os predicados aceitam qualquer string. */
+function isOneOf(states: readonly ThreadState[], state: string | null | undefined): boolean {
+  return state != null && (states as readonly string[]).includes(state)
+}
+
+export function isActiveThreadState(state: string | null | undefined): boolean {
+  return isOneOf(ACTIVE_THREAD_STATES, state)
+}
+
+export function isSettledThreadState(state: string | null | undefined): boolean {
+  return isOneOf(SETTLED_THREAD_STATES, state)
+}
+
+export function reconcilesTurnEnd(state: string | null | undefined): boolean {
+  return isOneOf(TURN_RECONCILED_STATES, state)
+}
+
+export interface ThreadStateResyncDecision {
+  /** Estado a gravar na thread local; `null` = manter o que já está em tela. */
+  adoptState: ThreadState | null
+  /** Rodar o mesmo bloco de assentamento que o handler de `state.change` roda ao vivo. */
+  reconcileSettled: boolean
+}
+
+/**
+ * O que fazer com o estado da thread relido no resync.
+ *
+ * O buraco que isto tapa: se o socket cai e continua caído até o turno terminar, o `state.change`
+ * que assentaria o turno passa para ninguém (o `emit` do hub é no-op sem subscriber) e não volta.
+ * O resync relia histórico e gate, mas nunca o estado — o backend ficava `idle` com a resposta
+ * persistida enquanto o composer seguia em modo ocupado, e nem trocar de thread e voltar
+ * consertava, porque a reabertura só chama `GET /history`, `GET /diffs` e `GET /gate`. Só o F5
+ * saía disso.
+ *
+ * Regras, nesta ordem:
+ * - lado desconhecido (thread ainda não carregada, ou sumiu da lista do servidor) → nada. Sem os
+ *   dois lados não há divergência a resolver, e adotar estado numa linha que não existe só
+ *   plantaria uma thread fantasma na sidebar;
+ * - estados iguais → nada. O caso comum: o resync não pode custar um re-render por open;
+ * - servidor assentou e o local ainda estava ativo → adota **e** reconcilia. É a perda de evento
+ *   que originou o bug;
+ * - qualquer outra divergência (servidor ativo, local assentado; ou dois assentamentos
+ *   diferentes) → só adota. O servidor é a fonte de verdade do estado, mas reconciliar aqui
+ *   repetiria trabalho que o próprio resync (histórico + gate) já fez.
+ */
+export function decideThreadStateResync(input: {
+  localState: ThreadState | null | undefined
+  serverState: ThreadState | null | undefined
+}): ThreadStateResyncDecision {
+  const { localState, serverState } = input
+  if (localState == null || serverState == null) return { adoptState: null, reconcileSettled: false }
+  if (localState === serverState) return { adoptState: null, reconcileSettled: false }
+  return {
+    adoptState: serverState,
+    reconcileSettled: isActiveThreadState(localState) && reconcilesTurnEnd(serverState),
+  }
 }

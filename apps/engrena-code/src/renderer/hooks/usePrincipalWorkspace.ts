@@ -43,7 +43,12 @@ import {
 } from '../../services/runtime-metrics'
 import { useChatTimeline } from './useChatTimeline'
 import { useThreadStream } from './useThreadStream'
-import { shouldRefetchHistoryOnResync } from './threadStream.logic'
+import {
+  decideThreadStateResync,
+  isSettledThreadState,
+  reconcilesTurnEnd,
+  shouldRefetchHistoryOnResync,
+} from './threadStream.logic'
 import { useComposerDraft } from './useComposerDraft'
 import { useMessageQueue } from './useMessageQueue'
 import { usePromptLibrary } from './usePromptLibrary'
@@ -418,44 +423,104 @@ export function usePrincipalWorkspace() {
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
-  /**
-   * Resync a cada open do socket (o primeiro inclusive).
-   *
-   * O hub não bufferiza — `emit` é no-op quando ninguém está inscrito —, então o que passou
-   * durante uma queda **está perdido**, não atrasado. Reconectar não pode replicar eventos: a
-   * única recuperação correta é reler estado. Os dois caminhos são idempotentes: o histórico
-   * entra por `history_loaded` (merge por id, nunca append) e o gate é snapshot por `gateId`.
-   */
-  const resyncThread = useCallback(
-    (threadId: string, info: { reconnect: boolean }) => {
-      // `streamingText` é efêmero e a resposta final já está persistida (o `dispatch.ts` grava
-      // antes de assentar o turno). Sem zerar, o parcial da queda ficaria duplicado na frente do
-      // texto que volta do histórico. `thread_opened` é exatamente essa transição — só o
-      // streaming do turno anterior sai de cena, as listas ficam.
-      threadOpened()
-      if (
-        shouldRefetchHistoryOnResync({
-          reconnect: info.reconnect,
-          historyFetchInflight: historyGateRef.current.hasInflight,
-        })
-      ) {
-        // `background: true`: refetch disparado por stream nunca liga `historyLoading` nem pinta
-        // erro — trocar a árvore por "Carregando…" joga o scroll ao topo. O `HistoryRefetchGate`
-        // dentro de `loadHistory` serializa (single-flight + coalesce).
-        void loadHistory(threadId, { background: true })
-      }
-      // Gate perdido na queda: sem o snapshot o card de permissão/pergunta some da tela enquanto
-      // o broker segue preso do outro lado.
-      void gateApi.refresh(threadId)
-    },
-    [threadOpened, loadHistory, gateApi.refresh]
-  )
-
   useThreadStream({
     threadId: selectedThreadId,
     onEvent: handleStreamEvent,
     onResync: resyncThread,
   })
+
+  /**
+   * Resync a cada open do socket (o primeiro inclusive).
+   *
+   * O hub não bufferiza — `emit` é no-op quando ninguém está inscrito —, então o que passou
+   * durante uma queda **está perdido**, não atrasado. Reconectar não pode replicar eventos: a
+   * única recuperação correta é reler estado. Os três caminhos são idempotentes: o histórico
+   * entra por `history_loaded` (merge por id, nunca append), o gate é snapshot por `gateId` e o
+   * estado da thread é comparação contra a fonte de verdade.
+   *
+   * Declaração de função, não `useCallback`, pelo mesmo motivo de `handleStreamEvent`:
+   * `useThreadStream` guarda o handler num ref a cada render e só o chama no open, então o
+   * closure é sempre o do render corrente — e sem lista de deps não há como reler
+   * `selectedProjectId` velho nem esquecer `reconcileSettledTurn` (recriada a cada render).
+   */
+  function resyncThread(threadId: string, info: { reconnect: boolean }): void {
+    // `streamingText` é efêmero e a resposta final já está persistida (o `dispatch.ts` grava
+    // antes de assentar o turno). Sem zerar, o parcial da queda ficaria duplicado na frente do
+    // texto que volta do histórico. `thread_opened` é exatamente essa transição — só o
+    // streaming do turno anterior sai de cena, as listas ficam.
+    threadOpened()
+    if (
+      shouldRefetchHistoryOnResync({
+        reconnect: info.reconnect,
+        historyFetchInflight: historyGateRef.current.hasInflight,
+      })
+    ) {
+      // `background: true`: refetch disparado por stream nunca liga `historyLoading` nem pinta
+      // erro — trocar a árvore por "Carregando…" joga o scroll ao topo. O `HistoryRefetchGate`
+      // dentro de `loadHistory` serializa (single-flight + coalesce).
+      void loadHistory(threadId, { background: true })
+    }
+    // Gate perdido na queda: sem o snapshot o card de permissão/pergunta some da tela enquanto
+    // o broker segue preso do outro lado.
+    void gateApi.refresh(threadId)
+    // Estado perdido na queda: sem isto o composer fica em modo ocupado para sempre.
+    if (selectedProjectId) void resyncThreadState(threadId, selectedProjectId)
+  }
+
+  /**
+   * Relê o estado da thread e aplica a decisão de `decideThreadStateResync`.
+   *
+   * Roda em **todo** open, não só no reconnect: reabrir a thread pela sidebar caía no mesmo
+   * buraco, porque a reabertura só dispara `GET /history`, `GET /diffs` e `GET /gate`, e o
+   * usuário ficava sem saída além do F5.
+   *
+   * A leitura vai pela lista do projeto (`GET /api/projects/:id/threads`), a mesma de
+   * `loadThreads`: não existe `GET /api/threads/:id`. Best-effort como os outros loaders da
+   * sidebar — falha aqui só significa que o próximo evento resolve.
+   */
+  async function resyncThreadState(threadId: string, projectId: string): Promise<void> {
+    const findLocal = (): Thread | undefined =>
+      (threadsByProjectRef.current[projectId] ?? []).find((t) => t.id === threadId)
+    const stateAtRequest = findLocal()?.state
+    try {
+      const res = await threadsService.listForProject(projectId)
+      if (!mountedRef.current || res.error) return
+      const server = res.threads.find((t) => t.id === threadId)
+      // Local lido **depois** do GET: o `state.change` (ou a resposta do POST de envio) pode ter
+      // chegado com a listagem em voo. Nesse caso a fonte fresca ganha e a listagem é passado —
+      // sem esta trava, um turno recém-despachado seria "assentado" por um snapshot pré-envio.
+      const local = findLocal()
+      if (local?.state !== stateAtRequest) return
+      const decision = decideThreadStateResync({
+        localState: local?.state,
+        serverState: server?.state,
+      })
+      if (decision.adoptState === null || local === undefined) return
+      // Só o `state` entra: a linha local pode carregar edição otimista (accessLevel, título em
+      // rename) que a lista do servidor ainda não conhece.
+      upsertThreadLocal(projectId, { ...local, state: decision.adoptState })
+      if (decision.reconcileSettled) reconcileSettledTurn(threadId)
+    } catch {
+      // Sem rede o resync é no-op; o reconnect seguinte tenta de novo.
+    }
+  }
+
+  /**
+   * Reconciliação de fim de turno: histórico, diffs, sugestões, fila e teto de consumo.
+   *
+   * Uma função só porque dois caminhos precisam dela — o `state.change` ao vivo e o resync, que
+   * descobre o assentamento relendo o estado quando o evento se perdeu. Duplicar o bloco era
+   * garantir que só um dos dois receberia a próxima correção.
+   */
+  function reconcileSettledTurn(threadId: string): void {
+    turnSettled()
+    void loadHistory(threadId, { background: true })
+    void loadDiffs(threadId)
+    void loadFollowups(threadId)
+    processQueueIfIdle()
+    // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
+    if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
+  }
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
@@ -482,17 +547,12 @@ export function usePrincipalWorkspace() {
       // Turno assentou (idle/committed/error/cancelled) — o backend já negou qualquer permissão
       // pendente no `finally` do dispatch; limpa o banner de Allow/Deny órfão que sobraria se o
       // usuário cancelou o turno em vez de responder.
-      if (event.state === 'idle' || event.state === 'committed' || event.state === 'error' || event.state === 'cancelled') {
+      if (isSettledThreadState(event.state)) {
         gateApi.clear()
       }
-      if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
-        turnSettled()
-        void loadHistory(event.threadId, { background: true })
-        void loadDiffs(event.threadId)
-        void loadFollowups(event.threadId)
-        processQueueIfIdle()
-        // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
-        if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
+      // Mesmo bloco que o resync roda quando o `state.change` se perde numa queda de socket.
+      if (reconcilesTurnEnd(event.state)) {
+        reconcileSettledTurn(event.threadId)
       }
       return
     }
