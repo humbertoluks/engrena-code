@@ -28,12 +28,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 2 | 2 |
+| Achados abertos | 0 | 1 | 1 |
 | Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
 
 Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
 
-**Atualização de 2026-08-16.** Restam **dois** 🟡 abertos: **A09** (a matriz de Bash, resto do A02) e **D08** (Cancel explícito em turno foreground). Os dois fecham no mesmo smoke ao vivo, que precisa exercitar as quatro formas de Bash e um Parar durante turno longo em foreground.
+**Atualização de 2026-08-16.** O smoke ao vivo previsto rodou e **fechou A09 e D08 de uma vez**: as quatro formas de Bash passaram pelo `PreToolUse` contra `claude` 2.1.233, e o Parar em turno bloqueado por servidor em foreground cancelou a tool, matou o processo e assentou a thread. Resta **um** 🟡 aberto, **novo, achado nesse mesmo smoke**: **R09** — negar pelo card faz o log e a faixa âmbar dizerem que o CLI negou "sem consultar o broker".
 
 Fecharam neste dia: **A05** (`5f6b1c7`, o `resyncThread` consome `hasInflight` via `shouldRefetchHistoryOnResync`), **R08** (`da022fa`, com validação ao vivo), **A02 na parte dos validadores** (`2a6d112`, o gate antes do spawn) e **R07**, que na verdade já estava morto desde `ed17966` e só não tinha sido registrado — `turnProcessCount` foi substituído pelo par `recordProviderProcessSpawned`/`recordProviderProcessExited`.
 
@@ -101,9 +101,8 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 **Ainda aberto (por que o veredito não é "liberado")**
 
-1. **D08** — smoke ao vivo rodou em 2026-08-13 (evidência em `docs/F03-workspace/smoke-results.md`); resta só o Cancel explícito em turno foreground.
-2. **R07** — `turnProcessCount` é semanticamente um booleano, não uma contagem (achado novo, ver §2).
-3. **A02** e **`hasInflight` (A05)** — deferidos com motivo registrado em §2; **não** fechar como código morto.
+1. ~~**D08**~~, ~~**R07**~~, ~~**A02**/**A05**~~, ~~**A09**~~ — todos fechados até 2026-08-16; a linha de cada um em §2 diz onde e com que evidência.
+2. **R09** — único aberto: negar pelo card é relatado como negação nativa "sem consultar o broker" (achado novo do smoke de 2026-08-16, ver §2).
 
 ### Por Stack (abertos)
 
@@ -123,11 +122,12 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 | ID | Stack | Sev | Frente | Local | Problema | Regra |
 |----|--------|-----|--------|-------|----------|-------|
 | A02 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` | **FECHADO PARCIALMENTE em 2026-08-16** (`2a6d112`, fatia D1). `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` ganharam consumidor de produção: `assertPermissionContract` roda antes do spawn e aborta o turno com erro visível. Fica aberto só o pedaço da matriz, agora rastreado como A09 | [R-export-should-be-local](#r-export-should-be-local) |
-| A09 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` (`BASH_PERMISSION_MATRIX`) | Resto do A02. A matriz descreve o que o CLI faz **durante** o turno (quando o `PreToolUse` dispara por forma de Bash), e o gate roda antes de existir tool call — não há consumidor de produção honesto a inventar. Consumidor previsto: smoke ao vivo das quatro formas de Bash correlacionando `hook_started` com `permission-native-denial`, que também fecha o D08. Até lá é fixture de conformance, **não** código morto | [R-export-should-be-local](#r-export-should-be-local) |
+| A09 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` (`BASH_PERMISSION_MATRIX`) | **FECHADO em 2026-08-16** pelo smoke ao vivo das quatro formas de Bash contra `claude` 2.1.233. `expectsPreToolUseGate` valeu nas quatro (`ls`, `pwd && ls -1`, `python -m http.server 8931` em foreground, `sleep 20 && echo caso4-ok` com `run_in_background: true`) e nenhuma exigiu `requiresNativeDenialEventIfUngated`, porque nenhuma ficou sem gate. A nota pessimista da linha `run-in-background` **não se materializa** nesta versão: o card aparece igual às outras três. Evidência em `docs/F03-workspace/smoke-results.md` | [R-export-should-be-local](#r-export-should-be-local) |
 | A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | **FECHADO em `5f6b1c7`**: o `hasInflight` ganhou consumidor de produção quando o resync do socket passou a serializar o refetch (`shouldRefetchHistoryOnResync`). A parte `stableJson` já tinha fechado em C69 | [R-export-should-be-local](#r-export-should-be-local) |
 | R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts` | **FECHADO em `ed17966`** (fatia B2), e o registro só não tinha sido atualizado. `turnProcessCount` não existe mais: a métrica virou o par honesto `recordProviderProcessSpawned` / `recordProviderProcessExited`, junto com a `TurnSession` única | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
-| D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **Estreitado em 2026-08-13**: smoke ao vivo rodou (permissão inline, allowlist, resume, export md/json, Bash background sem órfão). Falta só **Cancel explícito** no botão Parar durante turno longo em foreground — o agente escolheu `run_in_background` e o turno fechou antes | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
+| D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **FECHADO em 2026-08-16**. O que faltava era o Cancel explícito em turno longo **em foreground**, e o palco veio do caso `foreground-server` do A09: com `python -m http.server 8931` bloqueando a tool, o Parar produziu `Bash (cancelled)` no mesmo segundo, matou o processo e liberou a porta em menos de 2 s, assentou a thread em `cancelled` e não deixou gate aberto | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
 | R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | **FECHADO em 2026-08-16** (`da022fa`). O broker registra o que concedeu no turno e o evento `permission.native_denial` carrega `brokerGranted`, que separa "o CLI negou sem consultar o broker" de "o broker concedeu e outro hook `PreToolUse` negou depois" — no segundo caso a copy deixou de mandar revisar o accessLevel, que não manda em hook de terceiro. O diagnóstico saiu do parser para o `dispatch`, único ponto com as duas metades. Sobre o `systemMessage` citado no achado: **esse campo não existe** no payload; o equivalente com evidência in-repo é `decision_reason`, agora propagado. Validado ao vivo (negação de `git log` por hook global do usuário) | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
+| R09 | `Node.js` | 🟡 | rob | `providers/permission-contract.ts` (`nativeDenialCase`) + `permission-broker.ts` | **NOVO em 2026-08-16**, achado no smoke do A09. Negar uma tool **pelo card do EngrenaCode** produz `permission_denied` no stream, e as duas superfícies afirmam o contrário do que houve: o log diz "negou … sem consultar o broker do EngrenaCode" e a faixa âmbar diz "sem pedir permissão ao EngrenaCode, por isso nenhum card apareceu no chat", mandando revisar o nível de acesso. O card apareceu e quem negou foi o usuário. Causa: `NativeDenialCase` tem só dois valores derivados de `brokerGranted`, e o broker registra apenas concessões (`recordBrokerGrant`) — "negado por mim" é indistinguível de "nunca visto". Mesma classe do R08, que fechou só o outro caso | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
 
 ### Notas de deferimento (resolvidas em 2026-08-16)
 

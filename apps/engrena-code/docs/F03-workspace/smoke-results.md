@@ -529,3 +529,89 @@ de `gateApi.error` e de uma cópia em `sendError`). Depois da correção, **um**
 card, com o card ainda em tela — o contrato de "falhou, o pedido não some" segue valendo.
 
 Gates dos dois: `tsc -b` verde, `pnpm test` 160 arquivos / 1795 testes (1781 + 14 novos).
+
+## A09 + D08 — as quatro formas de Bash e o Cancel em foreground (2026-08-16)
+
+Último smoke pendente do lote: o que dá consumidor honesto à `BASH_PERMISSION_MATRIX` (A09) e o que
+faltava do D08 desde 2026-08-13. Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY`
+desetada antes de subir), Chromium headed dirigido por `playwright-cli` em `localhost:5173`, API
+loopback `127.0.0.1:5174`. Projeto `D:\temp\TodoV1`, provider `claude-sonnet-4-6`, access
+**supervised**, execution `main`. Thread `thr_3c28713f-60d9-4b84-87f7-8fd986f09f0d`. Binário
+`claude` **2.1.233**.
+
+A correlação foi lida direto de `log_entries` (`kind='tool'`) no `engrenacode.db`, que é onde
+`hook started: …` / `hook response: …` e a negação nativa caem — não por inspeção de DOM.
+
+### As quatro linhas da matriz
+
+| Caso da matriz | `command` observado no card | `PreToolUse` disparou? | Negação nativa? | Desfecho |
+|---|---|---|---|---|
+| `simple` | `ls` | sim | não | `Bash (completed)` |
+| `compound` | `pwd && ls -1` | sim | não | `Bash (completed)` |
+| `foreground-server` | `python -m http.server 8931` (`timeout: 600000`) | sim | não | `Bash (cancelled)` pelo Parar |
+| `run-in-background` | `sleep 20 && echo caso4-ok` (`run_in_background: true`) | sim | não | `Bash (completed)` |
+
+`expectsPreToolUseGate: true` valeu nas quatro, e `requiresNativeDenialEventIfUngated` nunca
+precisou disparar porque nenhuma ficou sem gate. A nota pessimista da linha `run-in-background`
+("se o CLI atual pular PreToolUse e cair em aprovação nativa…") **não se materializa** em 2.1.233:
+o card apareceu com `run_in_background: true` no payload, igual às outras três.
+
+Os quatro gates de permissão nasceram e morreram resolvidos em `thread_gates` (`permission/Bash`,
+quatro linhas, todas `state=resolved`), e o clique só preencheu o composer — a concessão veio do
+Enviar, como manda o contrato.
+
+### D08 — Parar durante turno longo em foreground
+
+O caso `foreground-server` é o palco que faltava: `python -m http.server 8931` bloqueia a tool, e o
+turno fica preso de verdade (nada de o agente escolher `run_in_background` e o turno fechar sozinho,
+que foi o que frustrou a tentativa de 2026-08-13).
+
+Com o servidor no ar (`python.exe` PID 8460, `0.0.0.0:8931 LISTENING`), o botão **Parar** foi
+clicado. Resultado:
+
+- `Bash (cancelled)` no log **no mesmo segundo** do clique — a tool não ficou presa em `running`.
+- Processo 8460 morto e porta 8931 liberada em **menos de 2 s** (primeira verificação já achou
+  `listening=0`, `proc8460=False`). Sem órfão.
+- Thread assentou em `cancelled` no DB e o composer voltou para "Responder nesta conversa…".
+- Nenhum gate ficou aberto.
+
+D08 fechado.
+
+### Achado 🟡 novo — negar pelo card é relatado como "sem consultar o broker"
+
+Depois dos quatro casos, o agente pediu `Read`. A permissão foi **negada pelo card do EngrenaCode**
+(botão Negar → Enviar). O CLI então emitiu `permission_denied` no stream, e as duas superfícies do
+EngrenaCode descreveram o que aconteceu **errado**:
+
+- log (`kind='tool'`): *"Aprovação nativa do Claude CLI negou a ferramenta Read sem consultar o
+  broker do EngrenaCode."*
+- faixa âmbar: *"O CLI negou a ferramenta Read por conta própria, sem pedir permissão ao
+  EngrenaCode, por isso nenhum card apareceu no chat. Peça de novo ao agente; se repetir, revise o
+  nível de acesso da thread."*
+
+O broker foi consultado, o card apareceu, e quem negou foi o usuário. A causa é estrutural:
+`NativeDenialCase` tem só dois valores, derivados de `brokerGranted`, e o broker registra apenas
+concessões (`recordBrokerGrant`); "negado por mim" é indistinguível de "nunca visto". É a mesma
+classe do R08 — que fechou o caso *broker concedeu e outro hook negou* e deixou este de fora.
+
+O dano é o conselho: manda revisar o nível de acesso e repetir o pedido, quando a resposta certa é
+"você negou". Rastreado como **R09**.
+
+### Também verificado de graça
+
+- **D3 ao vivo.** A faixa âmbar trouxe, no primeiro turno, *"O Claude CLI instalado é a versão
+  2.1.233, acima da faixa 2.1.226 a 2.1.231 … O turno não foi bloqueado"* — a copy `above-max`
+  exata, uma vez só na sessão inteira, com a linha curta correspondente em `log_entries` (`kind`
+  `task`). Nenhum turno foi bloqueado por causa dela.
+- **`--resume`.** `hook started: SessionStart:resume` abre cada follow-up, confirmando que a thread
+  continuou a mesma sessão do CLI.
+
+### Não coberto
+
+`GET /gate` durante a janela de backoff longo (segue pendente desde a Fase C: o gate expira em 120 s
+e o reconnect real leva menos de 8 s).
+
+Nota sobre a fala do agente: depois do cancel ele escreveu que "caso 3 não rodou, o servidor nunca
+subiu". É falso — o servidor subiu e foi observado escutando na 8931. O cancel apenas o deixou sem o
+resultado da tool. Não é defeito do EngrenaCode, mas explica por que o transcript daquela thread
+parece contradizer esta evidência.
