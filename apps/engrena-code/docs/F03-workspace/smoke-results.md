@@ -508,3 +508,24 @@ só. Nenhum F5.
 
 Gates: `tsc -b` verde; `pnpm test` 160 arquivos / 1781 testes (baseline 1770 + 11 novos), verde
 com o app de smoke encerrado.
+
+### Correção dos dois achados 🟡, verificada ao vivo (2026-08-16)
+
+**R08 (`da022fa`).** O broker passou a registrar o que concedeu no turno, e o evento
+`permission.native_denial` carrega `brokerGranted`. Com o hook global do usuário negando
+`git log --oneline` sem bound, a faixa mostrou a copy do caso certo: *"O EngrenaCode concedeu a
+ferramenta Bash, mas outro hook PreToolUse do Claude CLI negou em seguida. O nível de acesso da
+thread não muda isso…"*. O work log do próprio agente confirmou a causa (*"bloqueado por hook de
+política global. Rodei com -n 50 + git rev-list --count"*). A copy antiga, que afirmava que nenhum
+card apareceu, não é mais emitida nesse caso.
+
+Nota sobre o achado original: ele citava um `systemMessage` do hook como a informação útil
+descartada. **Esse campo não existe** no payload do CLI — era suposição. O equivalente com
+evidência in-repo é `decision_reason`, agora propagado e truncado em 300 chars.
+
+**Erro de decisão duplicado (`628442d`).** Reproduzido interceptando `POST **/gate/**/resolve` com
+500: antes, dois `<p role="alert">` idênticos (um no `PermissionPrompt`, outro no composer, vindos
+de `gateApi.error` e de uma cópia em `sendError`). Depois da correção, **um** `role="alert"`, no
+card, com o card ainda em tela — o contrato de "falhou, o pedido não some" segue valendo.
+
+Gates dos dois: `tsc -b` verde, `pnpm test` 160 arquivos / 1795 testes (1781 + 14 novos).

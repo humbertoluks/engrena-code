@@ -28,10 +28,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 5 | 4 |
+| Achados abertos | 0 | 4 | 4 |
 | Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
 
 Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
+
+**Atualização de 2026-08-16.** O `hasInflight` do A05 deixou de ser deferido: ganhou consumidor de produção em `5f6b1c7` (o `resyncThread` consome via `shouldRefetchHistoryOnResync`). O **R08 fechou** em `da022fa`, com validação ao vivo. O A02 segue deferido de propósito para a Fase D. O smoke da Fase C rendeu um achado 🔴 novo, também já fechado (`63a60ea`): thread presa em "Agente trabalhando" quando o `state.change` de assentamento se perdia numa queda de socket — detalhe em `docs/F03-workspace/smoke-results.md`.
 
 ---
 
@@ -118,7 +120,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 | A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | getter `hasInflight` exportado sem consumidor de produção — **deferido**, ver nota abaixo (a parte `stableJson` fechou em C69) | [R-export-should-be-local](#r-export-should-be-local) |
 | R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts:80` + `providers/cli-driver.ts:354` | `turnProcessCount` promete contagem e entrega booleano — **achado novo** de 2026-08-13 | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
 | D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **Estreitado em 2026-08-13**: smoke ao vivo rodou (permissão inline, allowlist, resume, export md/json, Bash background sem órfão). Falta só **Cancel explícito** no botão Parar durante turno longo em foreground — o agente escolheu `run_in_background` e o turno fechou antes | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
-| R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | Copy da negação nativa afirma “sem pedir permissão ao EngrenaCode — por isso nenhum card apareceu” e manda revisar o accessLevel; **falso** quando o broker concedeu e outro hook `PreToolUse` negou depois. O `systemMessage` do hook é a informação útil e é descartado — **achado novo** de 2026-08-13, encontrado no smoke ao vivo | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
+| R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | **FECHADO em 2026-08-16** (`da022fa`). O broker registra o que concedeu no turno e o evento `permission.native_denial` carrega `brokerGranted`, que separa "o CLI negou sem consultar o broker" de "o broker concedeu e outro hook `PreToolUse` negou depois" — no segundo caso a copy deixou de mandar revisar o accessLevel, que não manda em hook de terceiro. O diagnóstico saiu do parser para o `dispatch`, único ponto com as duas metades. Sobre o `systemMessage` citado no achado: **esse campo não existe** no payload; o equivalente com evidência in-repo é `decision_reason`, agora propagado. Validado ao vivo (negação de `git log` por hook global do usuário) | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
 
 ### Notas de deferimento (não “corrija” estes dois)
 
