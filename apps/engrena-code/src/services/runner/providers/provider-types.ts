@@ -17,15 +17,20 @@ export type ProviderStreamEvent =
       exitCode: number | null
     }
   /**
-   * Negação da aprovação nativa do Claude CLI (sem modal EngrenaCode).
+   * Negação da aprovação nativa do Claude CLI.
    * Metadata only — nunca inclui command/tool_input (risco de segredo).
+   *
+   * Sem `message`: o diagnóstico depende de saber se o broker do EngrenaCode já havia concedido
+   * a tool no turno, fato que só `dispatch.ts` tem. O parser entrega metadado; quem compõe a
+   * frase é `nativeDenialDiagnosis`, uma vez só.
    */
   | {
       type: 'permission-native-denial'
       toolName: string
       toolUseId?: string
       decisionReasonType: string | null
-      message: string
+      /** `decision_reason` do CLI: a frase do hook que negou, quando o payload traz. */
+      decisionReason: string | null
     }
 
 export interface PermissionDecision {

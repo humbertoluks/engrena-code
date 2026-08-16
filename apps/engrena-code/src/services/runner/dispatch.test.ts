@@ -498,7 +498,11 @@ describe('dispatchNewThread', () => {
     const { nativeDenialDiagnosis } = await import('./providers/permission-contract.js')
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
-    const diagnosis = nativeDenialDiagnosis('Bash', 'mode')
+    const diagnosis = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'mode',
+      brokerGranted: false,
+    })
     const sensitiveCommand = 'sleep 30'
 
     let releaseGate: (() => void) | undefined
@@ -528,7 +532,7 @@ describe('dispatchNewThread', () => {
         toolName: 'Bash',
         toolUseId: 'toolu_bg_bash_001',
         decisionReasonType: 'mode',
-        message: diagnosis,
+        decisionReason: null,
       })
       return { text: 'Preciso de aprovação no modal.' }
     })
@@ -560,6 +564,7 @@ describe('dispatchNewThread', () => {
           toolName: string
           code: string
           message: string
+          brokerGranted?: boolean
           toolUseId?: string
           decisionReasonType?: string | null
         }
@@ -570,6 +575,8 @@ describe('dispatchNewThread', () => {
     expect(denial?.message).toBe(diagnosis)
     expect(denial?.toolUseId).toBe('toolu_bg_bash_001')
     expect(denial?.decisionReasonType).toBe('mode')
+    // Nenhum gate concedido neste turno: o diagnóstico continua sendo o do caso "broker nunca viu".
+    expect(denial?.brokerGranted).toBe(false)
 
     const toolLogs = listLogEntries({ kind: 'tool' })
     expect(toolLogs.some((e) => e.event === diagnosis)).toBe(true)

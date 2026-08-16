@@ -37,7 +37,11 @@ import {
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
-import { clearAllowedToolsForThread, grantAlwaysAllowedTool } from '../runner/permission-broker.js'
+import {
+  clearAllowedToolsForThread,
+  clearBrokerGrantsForThread,
+  grantAlwaysAllowedTool,
+} from '../runner/permission-broker.js'
 import {
   allowOpenPermissionGates,
   listOpenGates,
@@ -734,6 +738,7 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
     const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
     deleteDiffsForThread(thread.id)
     clearAllowedToolsForThread(thread.id)
+    clearBrokerGrantsForThread(thread.id)
     deleteThread(thread.id)
     sendJson(res, 200, {
       deleted: true,

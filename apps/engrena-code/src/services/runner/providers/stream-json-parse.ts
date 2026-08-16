@@ -1,5 +1,5 @@
 import type { ProviderStreamEvent } from './provider-types.js'
-import { nativeDenialDiagnosis } from './permission-contract.js'
+import { NATIVE_DENIAL_REASON_MAX_CHARS } from './permission-contract.js'
 
 function isErrorBlock(block: Record<string, unknown>): boolean {
   return block.is_error === true
@@ -18,18 +18,37 @@ function asOutcome(value: unknown): 'success' | 'error' | 'cancelled' | null {
   return null
 }
 
+/**
+ * `decision_reason` é a frase de quem negou (o hook que rodou no `PreToolUse`), e é a única
+ * informação do payload que explica a causa real. Vai truncada porque é texto de terceiro.
+ *
+ * O irmão `message` do payload (`"Claude requested permissions to run a bash command, but you
+ * haven't granted it yet"`) fica de fora de propósito: é boilerplate do CLI que já descreve mal o
+ * que aconteceu e foi o que empurrou a copy antiga para a afirmação falsa.
+ */
+function asDenialReason(value: unknown): string | null {
+  const raw = asNonEmptyString(value)
+  if (raw === null) return null
+  const trimmed = raw.trim()
+  if (trimmed === '') return null
+  return trimmed.length > NATIVE_DENIAL_REASON_MAX_CHARS
+    ? `${trimmed.slice(0, NATIVE_DENIAL_REASON_MAX_CHARS)}…`
+    : trimmed
+}
+
 function parsePermissionDenialEntry(entry: unknown): ProviderStreamEvent | null {
   if (!isRecord(entry)) return null
   const toolName = asNonEmptyString(entry.tool_name) ?? 'unknown'
   const toolUseId = asNonEmptyString(entry.tool_use_id) ?? undefined
   // Metadata only — never forward tool_input (pode conter command/secrets).
-  const decisionReasonType = asNonEmptyString(entry.decision_reason_type)
   return {
     type: 'permission-native-denial',
     toolName,
     toolUseId,
-    decisionReasonType,
-    message: nativeDenialDiagnosis(toolName, decisionReasonType),
+    decisionReasonType: asNonEmptyString(entry.decision_reason_type),
+    // O resumo em `result.permission_denials[]` não traz `decision_reason`; só o evento
+    // `system/permission_denied` traz.
+    decisionReason: asDenialReason(entry.decision_reason),
   }
 }
 
@@ -121,15 +140,12 @@ export function parseStreamJsonLine(line: string): ProviderStreamEvent[] {
     }
 
     if (subtype === 'permission_denied') {
-      const toolName = asNonEmptyString(payload.tool_name) ?? 'unknown'
-      const toolUseId = asNonEmptyString(payload.tool_use_id) ?? undefined
-      const decisionReasonType = asNonEmptyString(payload.decision_reason_type)
       events.push({
         type: 'permission-native-denial',
-        toolName,
-        toolUseId,
-        decisionReasonType,
-        message: nativeDenialDiagnosis(toolName, decisionReasonType),
+        toolName: asNonEmptyString(payload.tool_name) ?? 'unknown',
+        toolUseId: asNonEmptyString(payload.tool_use_id) ?? undefined,
+        decisionReasonType: asNonEmptyString(payload.decision_reason_type),
+        decisionReason: asDenialReason(payload.decision_reason),
       })
       return events
     }

@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { describe, expect, it } from 'vitest'
+import { NATIVE_DENIAL_REASON_MAX_CHARS } from './permission-contract.js'
 import { parseStreamJsonLine } from './stream-json-parse.js'
 import type { ProviderStreamEvent } from './provider-types.js'
 
@@ -52,17 +53,40 @@ describe('parseStreamJsonLine — permission stream fixtures', () => {
   it('emits permission-native-denial from system/permission_denied without command body', () => {
     const events = parseStreamJsonLine(readFixture('system-permission-denied.json'))
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({
+    expect(events[0]).toEqual({
       type: 'permission-native-denial',
       toolName: 'Bash',
       toolUseId: 'toolu_bg_bash_001',
       decisionReasonType: 'mode',
+      decisionReason: 'Permission mode blocked tool without interactive approval',
     })
-    if (events[0]?.type === 'permission-native-denial') {
-      expect(events[0].message).toContain('Bash')
-      expect(events[0].message).toContain('EngrenaCode')
-    }
     expect(JSON.stringify(events)).not.toContain('sleep')
+  })
+
+  // `message` do payload é o boilerplate "you haven't granted it yet", que descreve mal o caso em
+  // que o card apareceu e o broker concedeu; só `decision_reason` explica quem negou.
+  it('forwards decision_reason and drops the generic CLI message', () => {
+    const events = parseStreamJsonLine(readFixture('system-permission-denied-hook.json'))
+    expect(events[0]).toMatchObject({
+      type: 'permission-native-denial',
+      toolName: 'Bash',
+      decisionReasonType: 'hook',
+      decisionReason: 'PreToolUse:Bash [validate-git-log-limit.ps1] bloqueou: git log exige -n',
+    })
+    expect(JSON.stringify(events)).not.toContain("haven't granted it yet")
+  })
+
+  it('caps the CLI explanation instead of forwarding an unbounded hook stdout', () => {
+    const line = JSON.stringify({
+      type: 'system',
+      subtype: 'permission_denied',
+      tool_name: 'Bash',
+      decision_reason_type: 'hook',
+      decision_reason: 'x'.repeat(1200),
+    })
+    const [event] = parseStreamJsonLine(line)
+    if (event?.type !== 'permission-native-denial') throw new Error('expected native denial')
+    expect(event.decisionReason?.length).toBe(NATIVE_DENIAL_REASON_MAX_CHARS + 1)
   })
 
   it('strips tool_input from result.permission_denials (no secret/command leak)', () => {
@@ -72,6 +96,8 @@ describe('parseStreamJsonLine — permission stream fixtures', () => {
       type: 'permission-native-denial',
       toolName: 'Bash',
       toolUseId: 'toolu_bg_bash_001',
+      // O resumo do `result` não traz explicação nenhuma; só o evento `system` traz.
+      decisionReason: null,
     })
     const raw = JSON.stringify(events)
     expect(raw).not.toContain('sleep 30')

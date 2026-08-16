@@ -5,6 +5,7 @@ import {
   INCLUDE_HOOK_EVENTS_FLAG,
   SUPERVISED_PERMISSION_MODE,
   checkSupervisedPermissionArgs,
+  nativeDenialCase,
   nativeDenialDiagnosis,
   shouldIncludeHookEvents,
   validatePermissionSettingsShape,
@@ -124,11 +125,51 @@ describe('permission-contract — supervised CLI compliance', () => {
   })
 
   it('builds Portuguese diagnosis without embedding command bodies', () => {
-    const msg = nativeDenialDiagnosis('Bash', 'mode')
+    const msg = nativeDenialDiagnosis({ toolName: 'Bash', decisionReasonType: 'mode', brokerGranted: false })
     expect(msg).toContain('Bash')
     expect(msg).toContain('mode')
     expect(msg).toContain('EngrenaCode')
     expect(msg).not.toContain('sleep')
     expect(msg).not.toContain('command')
+  })
+
+  // R08: a mesma frase para os dois casos afirmava que nenhum card apareceu inclusive quando o
+  // usuário tinha acabado de conceder no card.
+  it('separates "broker never saw the tool" from "denied after the broker granted"', () => {
+    expect(nativeDenialCase(false)).toBe('never-brokered')
+    expect(nativeDenialCase(true)).toBe('after-broker-grant')
+
+    const ungated = nativeDenialDiagnosis({ toolName: 'Bash', decisionReasonType: 'mode', brokerGranted: false })
+    expect(ungated).toContain('sem consultar o broker do EngrenaCode')
+
+    const afterGrant = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'hook',
+      brokerGranted: true,
+    })
+    expect(afterGrant).toContain('concedeu a ferramenta Bash')
+    expect(afterGrant).toContain('outro hook PreToolUse')
+    expect(afterGrant).not.toContain('sem consultar')
+  })
+
+  it('carries the CLI explanation when it comes, and stays quiet when it does not', () => {
+    const withReason = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'hook',
+      decisionReason: 'git log precisa de -n',
+      brokerGranted: true,
+    })
+    expect(withReason).toContain('Detalhe do CLI: git log precisa de -n')
+
+    const bare = nativeDenialDiagnosis({ toolName: 'Write', brokerGranted: false })
+    expect(bare).not.toContain('Motivo:')
+    expect(bare).not.toContain('Detalhe do CLI')
+    expect(bare).not.toContain('  ')
+  })
+
+  it('does not leave the sentence without a subject when the tool name is blank', () => {
+    expect(nativeDenialDiagnosis({ toolName: '   ', brokerGranted: false })).toContain(
+      'ferramenta desconhecida'
+    )
   })
 })

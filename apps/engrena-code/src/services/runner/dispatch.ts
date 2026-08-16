@@ -60,7 +60,13 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
-import { createPermissionServer, type PermissionServerHandle } from './permission-broker.js'
+import {
+  clearBrokerGrantsForThread,
+  createPermissionServer,
+  wasToolGrantedByBroker,
+  type PermissionServerHandle,
+} from './permission-broker.js'
+import { nativeDenialDiagnosis } from './providers/permission-contract.js'
 import {
   expireOpenPermissionGates,
   expireOpenQuestionGates,
@@ -640,6 +646,11 @@ async function runTurn(
     // Bash/MCP sozinho, sem modal nem caminho por texto (`permission-policy.ts`).
     // `waiting_permission`, `gate.opened` e o `permission.request` legado saem de dentro do gate
     // (`gate.ts`), dono único do fato — o broker aqui é só o transporte do hook.
+    // Zera os grants **antes** do `if`, não só dentro de `createPermissionServer`: turno em
+    // full-access (ou de provider não-Claude) não monta broker nenhum, e sem esta linha herdaria
+    // o conjunto do turno anterior — uma negação nativa aqui diria "o EngrenaCode concedeu"
+    // apoiada num grant que não é deste turno, que é o mesmo tipo de afirmação falsa do R08.
+    clearBrokerGrantsForThread(thread.id)
     if (thread.provider === 'claude' && permissionBrokerApplies(thread.accessLevel)) {
       permissionServer = await createPermissionServer(thread.id)
     }
@@ -739,21 +750,33 @@ async function runTurn(
           return
         }
 
-        // Sprint 1: negação nativa do CLI (sem modal) vira log + WS observável — sem tool_input/command.
+        // Sprint 1: negação nativa do CLI vira log + WS observável — sem tool_input/command.
+        // O diagnóstico nasce aqui, e não no parser, porque só este ponto sabe se o broker já
+        // havia concedido a tool neste turno: sem esse fato a frase afirmava sempre que nenhum
+        // card apareceu, inclusive quando o card apareceu e outro hook negou depois (R08).
         if (event.type === 'permission-native-denial') {
+          const brokerGranted = wasToolGrantedByBroker(thread.id, event.toolName)
+          const message = nativeDenialDiagnosis({
+            toolName: event.toolName,
+            decisionReasonType: event.decisionReasonType,
+            decisionReason: event.decisionReason,
+            brokerGranted,
+          })
           createLogEntry({
             threadId: thread.id,
             kind: 'tool',
-            event: event.message,
+            event: message,
           })
           emit(thread.id, {
             type: 'permission.native_denial',
             threadId: thread.id,
             toolName: event.toolName,
             code: 'permission_native_denial',
-            message: event.message,
+            message,
+            brokerGranted,
             toolUseId: event.toolUseId,
             decisionReasonType: event.decisionReasonType,
+            decisionReason: event.decisionReason,
           })
           return
         }

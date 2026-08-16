@@ -19,10 +19,12 @@ const {
 } = await import('./gate.js')
 const {
   clearAllowedToolsForThread,
+  clearBrokerGrantsForThread,
   createPermissionServer,
   grantAlwaysAllowedTool,
   isToolAllowedForThread,
   rememberAllowedTool,
+  wasToolGrantedByBroker,
 } = await import('./permission-broker.js')
 
 const fixtures: string[] = []
@@ -152,6 +154,66 @@ describe('createPermissionServer', () => {
 
     server.close()
   })
+})
+
+/**
+ * R08: sem este registro, a negação nativa não distingue "o CLI negou sem consultar o broker" de
+ * "o broker concedeu e outro hook `PreToolUse` negou depois", e a faixa afirmava sempre a primeira.
+ */
+describe('grants do broker (diagnóstico da negação nativa)', () => {
+  it('registra o allow da política do nível', async () => {
+    const threadId = seedThread('auto-accept-edits')
+    const server = await createPermissionServer(threadId)
+
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    await ask(server, 'Write', { file_path: 'a.txt' })
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(true)
+
+    server.close()
+  }, 10000)
+
+  it('registra a decisão do usuário no card e ignora a negação', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const allowed = ask(server, 'Bash', { command: 'ls' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, true)
+    await allowed
+    expect(wasToolGrantedByBroker(threadId, 'Bash')).toBe(true)
+
+    const denied = ask(server, 'Write', { file_path: 'a.txt' })
+    await waitFor(() => seen.length === 2)
+    resolvePermissionGate(threadId, seen[1].requestId, false)
+    await denied
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+
+    server.close()
+  }, 10000)
+
+  it('zera no turno seguinte: grant velho não explica negação nova', async () => {
+    const threadId = seedThread('auto-accept-edits')
+    const first = await createPermissionServer(threadId)
+    await ask(first, 'Write', { file_path: 'a.txt' })
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(true)
+    first.close()
+
+    const second = await createPermissionServer(threadId)
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    second.close()
+  }, 10000)
+
+  it('clearBrokerGrantsForThread esquece a thread (DELETE)', async () => {
+    const threadId = seedThread('auto-accept-edits')
+    const server = await createPermissionServer(threadId)
+    await ask(server, 'Write', { file_path: 'a.txt' })
+
+    clearBrokerGrantsForThread(threadId)
+    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+
+    server.close()
+  }, 10000)
 })
 
 describe('allowlist da thread ("Permitir todos")', () => {

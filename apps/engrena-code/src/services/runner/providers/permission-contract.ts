@@ -180,11 +180,46 @@ export function validatePermissionSettingsShape(value: unknown): PermissionSetti
   }
 }
 
-/** Diagnóstico PT-BR para negação nativa do CLI (sem modal EngrenaCode). */
-export function nativeDenialDiagnosis(toolName: string, decisionReasonType: string | null): string {
-  const base = `Aprovação nativa do Claude CLI negou a ferramenta ${toolName} (sem modal EngrenaCode).`
-  if (decisionReasonType && decisionReasonType.length > 0) {
-    return `${base} Motivo: ${decisionReasonType}.`
-  }
-  return base
+/**
+ * Contexto de uma negação nativa. O parser do stream não consegue preencher `brokerGranted`
+ * (não conhece a thread), então quem diagnostica é `dispatch.ts`, único ponto que tem as duas
+ * metades: o metadado do CLI e o fato de o broker ter concedido aquela tool no turno.
+ */
+export interface NativeDenialContext {
+  toolName: string
+  /** Código do CLI (`mode`, `hook`, …). */
+  decisionReasonType?: string | null
+  /** Frase do CLI/hook que explica a negação (`decision_reason`), quando vem. */
+  decisionReason?: string | null
+  /** `true` quando o broker do EngrenaCode já havia concedido esta tool neste turno. */
+  brokerGranted: boolean
+}
+
+/**
+ * Os dois casos que a negação nativa cobre. Tratá-los como um só era o defeito R08: a copy
+ * afirmava sempre `never-brokered` e mandava revisar o nível de acesso, mesmo quando o card
+ * apareceu, o usuário concedeu e outro hook `PreToolUse` negou depois.
+ */
+export type NativeDenialCase = 'never-brokered' | 'after-broker-grant'
+
+export function nativeDenialCase(brokerGranted: boolean): NativeDenialCase {
+  return brokerGranted ? 'after-broker-grant' : 'never-brokered'
+}
+
+/** Teto do texto vindo do CLI: é frase de hook de terceiro, não pode virar parede de log. */
+export const NATIVE_DENIAL_REASON_MAX_CHARS = 300
+
+/** Diagnóstico PT-BR persistido em log e emitido no WS. Nunca embute command/tool_input. */
+export function nativeDenialDiagnosis(context: NativeDenialContext): string {
+  const tool = context.toolName.trim() === '' ? 'desconhecida' : context.toolName.trim()
+  const parts = [
+    nativeDenialCase(context.brokerGranted) === 'after-broker-grant'
+      ? `O broker do EngrenaCode concedeu a ferramenta ${tool} e outro hook PreToolUse do Claude CLI negou em seguida.`
+      : `Aprovação nativa do Claude CLI negou a ferramenta ${tool} sem consultar o broker do EngrenaCode.`,
+  ]
+  const reasonType = (context.decisionReasonType ?? '').trim()
+  if (reasonType !== '') parts.push(`Motivo: ${reasonType}.`)
+  const reason = (context.decisionReason ?? '').trim()
+  if (reason !== '') parts.push(`Detalhe do CLI: ${reason}`)
+  return parts.join(' ')
 }

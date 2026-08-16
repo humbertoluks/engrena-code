@@ -31,15 +31,25 @@ export type StreamEvent =
       allow: boolean
       reason: string
     }
-  /** Negação nativa do Claude CLI (sem modal EngrenaCode) — metadata only, sem tool_input. */
+  /**
+   * Negação da aprovação nativa do Claude CLI — metadata only, sem tool_input.
+   *
+   * `brokerGranted` é o que separa os dois casos e existe porque a UI não consegue derivá-lo:
+   * `false` = o CLI negou sem passar pelo broker e nenhum card apareceu; `true` = o broker
+   * concedeu e outro hook `PreToolUse` negou depois (o card apareceu e o nível de acesso da
+   * thread é irrelevante para a causa).
+   */
   | {
       type: 'permission.native_denial'
       threadId: string
       toolName: string
       code: 'permission_native_denial'
       message: string
+      brokerGranted: boolean
       toolUseId?: string
       decisionReasonType?: string | null
+      /** `decision_reason` do CLI: a frase de quem negou, quando o payload traz. */
+      decisionReason?: string | null
     }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }

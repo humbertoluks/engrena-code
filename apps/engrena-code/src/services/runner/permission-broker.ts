@@ -21,6 +21,45 @@ export type { PermissionRequestInfo }
  */
 const allowedToolsByThread = new Map<string, Set<string>>()
 
+/**
+ * Tools que **este** broker liberou no turno corrente, por qualquer um dos três caminhos de
+ * `allow` do servidor: política do nível, allowlist ("Permitir todos") e decisão do usuário no
+ * card. É o único lugar do processo que sabe o fato, e sem ele o diagnóstico da negação nativa
+ * não distingue os dois casos que ela cobre:
+ *
+ * - o CLI negou sem nunca consultar o broker (não há entrada aqui) e nenhum card apareceu;
+ * - o broker concedeu e **outro** hook da mesma cadeia `PreToolUse` negou depois (há entrada):
+ *   o card apareceu, o usuário decidiu, e o nível de acesso da thread não tem efeito nenhum
+ *   sobre quem negou.
+ *
+ * Escopo de turno: `createPermissionServer` roda uma vez por turno e zera o conjunto, porque um
+ * grant de turno anterior não explica a negação do turno atual.
+ *
+ * Granularidade é o `toolName`, não a chamada: o `POST /permission` do hook manda `toolName` e
+ * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Duas chamadas da mesma
+ * tool no mesmo turno, uma concedida e outra que nem passa pelo hook (o caso `run_in_background`
+ * da matriz Sprint 1), ficam indistinguíveis aqui.
+ */
+const brokerGrantsByThread = new Map<string, Set<string>>()
+
+function recordBrokerGrant(threadId: string, toolName: string): void {
+  let set = brokerGrantsByThread.get(threadId)
+  if (!set) {
+    set = new Set()
+    brokerGrantsByThread.set(threadId, set)
+  }
+  set.add(toolName)
+}
+
+/** Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`. */
+export function wasToolGrantedByBroker(threadId: string, toolName: string): boolean {
+  return brokerGrantsByThread.get(threadId)?.has(toolName) === true
+}
+
+export function clearBrokerGrantsForThread(threadId: string): void {
+  brokerGrantsByThread.delete(threadId)
+}
+
 export interface PermissionServerHandle {
   port: number
   token: string
@@ -76,6 +115,8 @@ export function createPermissionServer(
 ): Promise<PermissionServerHandle> {
   const token = randomBytes(24).toString('hex')
   const timeoutMs = options?.timeoutMs ?? PERMISSION_TIMEOUT_MS
+  // Um servidor por turno: zerar aqui é o que dá escopo de turno aos grants.
+  clearBrokerGrantsForThread(threadId)
 
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/permission') {
@@ -125,12 +166,14 @@ export function createPermissionServer(
       // Sem thread (apagada mid-turn) cai no mais restrito — nunca libera por omissão.
       const accessLevel = current?.accessLevel ?? 'supervised'
       if (permissionPolicyDecision(accessLevel, toolName) === 'allow') {
+        recordBrokerGrant(threadId, toolName)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
       }
 
       if (isToolAllowedForThread(threadId, toolName)) {
+        recordBrokerGrant(threadId, toolName)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
@@ -145,6 +188,7 @@ export function createPermissionServer(
 
       onRequest?.(opened.gate)
       opened.decision.then((allow) => {
+        if (allow) recordBrokerGrant(threadId, toolName)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow }))
       })

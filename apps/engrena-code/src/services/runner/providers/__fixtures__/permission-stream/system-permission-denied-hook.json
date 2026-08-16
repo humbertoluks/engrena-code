@@ -1,0 +1,11 @@
+{
+  "type": "system",
+  "subtype": "permission_denied",
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_git_log_001",
+  "decision_reason_type": "hook",
+  "decision_reason": "PreToolUse:Bash [validate-git-log-limit.ps1] bloqueou: git log exige -n",
+  "message": "Claude requested permissions to run a bash command, but you haven't granted it yet",
+  "uuid": "00000000-0000-4000-8000-000000000011",
+  "session_id": "sess_fixture_perm_hook_001"
+}
