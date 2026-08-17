@@ -205,7 +205,7 @@ Turno ficou preso em "test it runs" com servidor Node de longa duração; thread
 | Windows hook embute ELECTRON_RUN_AS_NODE=1 | pass (cli-driver.test) |
 | Background Bash sem PreToolUse ainda pode negar nativo; evento EngrenaCode existe | pass (mínimo Sprint 1; UI modal = Sprint 2) |
 
-Agentes: .claude/agents/sprint-1-permission-contract-dev.md + …-review.md. Loop: 2 ciclos (FAIL wire dispatch → fix → APPROVE).
+Agentes: `.claude/agents/sprint-1-permission-contract-dev.md` + `…-review.md` (removidos do repo em 2026-08-17, sprints encerradas). Loop: 2 ciclos (FAIL wire dispatch → fix → APPROVE).
 
 ## Permission Recovery — Sprint 2 (2026-08-12)
 
