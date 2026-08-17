@@ -48,6 +48,10 @@ Corrigido em `parallel-merge.ts`: o caso de path exclusivo agora **só materiali
 
 Re-rodado um segundo turno real após o fix (arquivos `out2-*.txt`, mesmos 4 subagents): `Diff 8` sem nenhuma duplicata — os 4 arquivos da rodada anterior (`out-*.txt`, ainda sem commit) mais os 4 novos, cada um uma vez só. Regressão travada em `delegate.test.ts` (`test_parallel_two_children_disjoint_paths` simula agora o post-turn de `dispatch.ts` explicitamente e verifica 1 diff por arquivo, não 0 nem 2).
 
+## Timeline do pai com batch paralelo (2026-08-17)
+
+Rodada posterior, no contexto do F29 (`docs/F29-monitor-de-execucao/smoke-results-tool-stream.md`, rodada 3): batch de 2 filhos reais disparado pelo composer da UI. Achou um defeito que nem o turno de 4 filhos acima nem os unitários pegaram, porque nenhum dos dois olhou a timeline do chat — **o bloco de subagente mostrava só um dos filhos do batch**. Os N filhos de um `tasks[]` gravam o mesmo `parent_tool_call_id`, e a correlação do renderer era 1:1 (`Map<string, SubagentRun>`), sobrescrevendo em silêncio. Corrigido para 1:N, com um bloco por filho.
+
 ## Não exercitado
 
 - Conflito de path com turno pago real (2 filhos reais escrevendo o mesmo arquivo) — o caminho de conflito foi provado ponta a ponta com worktrees git reais em teste de integração (`delegate.test.ts`) e com estado semeado no smoke visual acima; não repetido com custo de API adicional já que a lógica de materialização é idêntica à do caso disjunto, que o turno pago acima já exercitou e corrigiu.

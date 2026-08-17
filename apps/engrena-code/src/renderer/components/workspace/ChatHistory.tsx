@@ -610,12 +610,16 @@ export function ChatHistory({
 
         if (group.kind === 'subagent') {
           return (
-            <div key={group.key} className="mb-sm w-full max-w-[42rem] self-start">
-              <SubagentTimelineBlock
-                run={group.run}
-                onOpen={onOpenSubagentRun}
-                activity={childTools[group.run.childThreadId] ?? null}
-              />
+            // Um bloco por filho: `tasks[]` (batch paralelo F18) sai de uma chamada só e rende N runs.
+            <div key={group.key} className="mb-sm flex w-full max-w-[42rem] flex-col gap-xs self-start">
+              {group.runs.map((run) => (
+                <SubagentTimelineBlock
+                  key={run.childThreadId}
+                  run={run}
+                  onOpen={onOpenSubagentRun}
+                  activity={childTools[run.childThreadId] ?? null}
+                />
+              ))}
             </div>
           )
         }

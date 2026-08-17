@@ -471,46 +471,47 @@ export function buildExecutionGraph(input: BuildExecutionGraphInput): ExecutionG
   const callTools = toolCalls.filter((t) => t.name === CALL_SUBAGENT_TOOL_NAME)
   const matchedRunIds = new Set<string>()
 
+  // 1:N — uma chamada `call_subagent` com `tasks[]` correlaciona a todos os filhos daquele batch.
   for (const tool of callTools) {
-    const run = runByToolCallId.get(tool.id)
-    if (!run) continue
-    matchedRunIds.add(run.childThreadId)
-    if (runIdsInBatchEdge.has(run.childThreadId)) continue
-    if (run.parallelBatchId && batchMembers.has(run.parallelBatchId)) continue
+    for (const run of runByToolCallId.get(tool.id) ?? []) {
+      matchedRunIds.add(run.childThreadId)
+      if (runIdsInBatchEdge.has(run.childThreadId)) continue
+      if (run.parallelBatchId && batchMembers.has(run.parallelBatchId)) continue
 
-    const sId = subagentNodeId(run.childThreadId)
-    if (!nodeIds.has(sId)) {
-      nodes.push(subagentNodeFromRun(run))
-      nodeIds.add(sId)
-    }
-    const task = extractTask(tool.params) || run.subagentName
-    edges.push({
-      id: `edge:delegate:${tool.id}:${run.childThreadId}`,
-      source: rootId,
-      target: sId,
-      kind: 'delegate',
-      label: truncateLabel(task),
-      status: mapRunStatus(run.status),
-      startedAt: tool.startedAt,
-      endedAt: tool.endedAt ?? (run.durationMs != null ? run.createdAt + run.durationMs : null),
-      task,
-      returnText: run.text,
-      animated: run.status === 'running',
-    })
-    if (run.status !== 'running' && run.text) {
+      const sId = subagentNodeId(run.childThreadId)
+      if (!nodeIds.has(sId)) {
+        nodes.push(subagentNodeFromRun(run))
+        nodeIds.add(sId)
+      }
+      const task = extractTask(tool.params) || run.subagentName
       edges.push({
-        id: `edge:return:${run.childThreadId}`,
-        source: sId,
-        target: rootId,
-        kind: 'return',
-        label: '',
+        id: `edge:delegate:${tool.id}:${run.childThreadId}`,
+        source: rootId,
+        target: sId,
+        kind: 'delegate',
+        label: truncateLabel(task),
         status: mapRunStatus(run.status),
-        startedAt: tool.endedAt,
-        endedAt: tool.endedAt,
+        startedAt: tool.startedAt,
+        endedAt: tool.endedAt ?? (run.durationMs != null ? run.createdAt + run.durationMs : null),
         task,
         returnText: run.text,
-        animated: false,
+        animated: run.status === 'running',
       })
+      if (run.status !== 'running' && run.text) {
+        edges.push({
+          id: `edge:return:${run.childThreadId}`,
+          source: sId,
+          target: rootId,
+          kind: 'return',
+          label: '',
+          status: mapRunStatus(run.status),
+          startedAt: tool.endedAt,
+          endedAt: tool.endedAt,
+          task,
+          returnText: run.text,
+          animated: false,
+        })
+      }
     }
   }
 
