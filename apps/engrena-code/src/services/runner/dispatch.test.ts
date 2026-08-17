@@ -30,7 +30,7 @@ const { ASK_USER_QUESTION_TOOL_NAME } = await import('./ask-user-question.js')
 const { updateThread } = await import('../db/repositories/threads.js')
 const { LeaseBusyError } = await import('./project-execution.js')
 const { createMcp, setProjectMcpLink } = await import('../db/repositories/mcps.js')
-const { subscribe, clearAllSubscriptions } = await import('./ws-hub.js')
+const { subscribe, unsubscribe, clearAllSubscriptions } = await import('./ws-hub.js')
 const {
   setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
@@ -1401,6 +1401,79 @@ describe('usage_events write path (F11)', () => {
     expect(getThread(thread.id)?.state).toBe('error')
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('persists the reason a turn failed, and emits `error` before `state.change`', async () => {
+    setRunCliTurnForTesting(async () => {
+      throw new ProviderError('provider_turn_error', 'Credit balance is too low')
+    })
+
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+    await waitForState(thread.id, ['idle', 'error'])
+
+    // O motivo sobrevive ao turno: o hub não bufferiza, e sem isto a thread ficava em `error` sem
+    // uma linha dizendo por quê.
+    const taskLogs = listLogEntries({ kind: 'task' }).filter((e) => e.threadId === thread.id)
+    expect(taskLogs.some((e) => e.event.includes('provider_turn_error'))).toBe(true)
+    expect(taskLogs.some((e) => e.event.includes('Credit balance is too low'))).toBe(true)
+
+    // Ordem: quem escuta o socket encerra no estado terminal, então o erro tem de vir antes.
+    const errorIdx = received.findIndex((e) => e.type === 'error')
+    const settledIdx = received.findIndex((e) => e.type === 'state.change' && e.state === 'error')
+    expect(errorIdx).toBeGreaterThanOrEqual(0)
+    expect(settledIdx).toBeGreaterThanOrEqual(0)
+    expect(errorIdx).toBeLessThan(settledIdx)
+
+    unsubscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('does not log a failure reason when the user cancelled the turn', async () => {
+    // Poll curto em vez de listener de `abort`: o turno precisa estar em voo quando o Parar chega,
+    // e o poll rejeita alguns ms depois do abort — sem promessa pendurada depois do teste, que
+    // derrubava o worker do vitest com ERR_IPC_CHANNEL_CLOSED.
+    setRunCliTurnForTesting(
+      (input) =>
+        new Promise((_resolve, reject) => {
+          const timer = setInterval(() => {
+            if (input.signal?.aborted) {
+              clearInterval(timer)
+              reject(new Error('aborted'))
+            }
+          }, 5)
+        })
+    )
+
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+    cancelThread(thread.id)
+    await waitForState(thread.id, ['cancelled', 'idle', 'error'])
+
+    // Cancelar não é falhar: nada de "turno falhou" no registro por causa de um Parar.
+    const taskLogs = listLogEntries({ kind: 'task' }).filter((e) => e.threadId === thread.id)
+    expect(taskLogs.some((e) => e.event.startsWith('turno falhou'))).toBe(false)
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+
+    rmSync(dir, { recursive: true, force: true })
+  }, 10_000)
 
   it('resolveBillingMode: minimax is always api-key regardless of vault state', async () => {
     setRunCliTurnForTesting(async () => ({

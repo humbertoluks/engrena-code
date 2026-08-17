@@ -54,6 +54,22 @@ Screenshots: `smoke/f29_graph_child_live.png` (5 ações em execução), `smoke/
 
 - **Batch paralelo (F18) ao vivo.** Coberto por unitário (`delegate.test.ts`: dois filhos, mesmo `id` de tool, `childThreadId` distintos).
 
-## Observação fora do escopo desta fatia
+## Turno que morria sem registro — investigado e fechado
 
-Dois turnos de delegação anteriores a este terminaram em `state = error` após ~206 s **sem registro nenhum do motivo**: nada em `log_entries`, nenhuma mensagem de assistente, e o `emit({type:'error'})` do `dispatch.ts` chega **depois** do `state.change`. Quem assina o socket e encerra ao ver o estado terminal nunca vê a mensagem de erro. O terceiro turno, com o mesmo ambiente e um prompt quase igual, funcionou — então não é falha determinística de configuração. Vale investigar em separado: hoje um turno que morre assim não deixa rastro para o usuário nem para auditoria.
+Dois turnos de delegação desta primeira rodada terminaram em `state = error` após ~206 s **sem registro nenhum do motivo**: nada em `log_entries`, nenhuma mensagem de assistente. A investigação achou duas causas independentes.
+
+**1. O motivo nunca era persistido.** O `catch` do `dispatch.ts` só fazia `emit({type:'error'})`. O hub não bufferiza: quem não estava com a thread aberta, ou reconectou depois, ficava com uma thread em `error` sem uma linha dizendo por quê. Agora o `catch` grava um `log_entry` `kind='task'` com código e mensagem (`turno falhou (<code>): <mensagem>`), sanitizada — a mensagem do `result` do CLI é a única que chegava ali sem passar por `sanitizeProcessError`, e vai para o disco. A gravação é best-effort: se a thread sumiu no meio do turno, a FK falha e o erro é engolido, porque trocar a falha do turno por uma rejeição não tratada é pior que o problema original.
+
+**2. A ordem escondia o erro de quem escutava.** `applyTransition` (que emite `state.change`) rodava **antes** do `emit({type:'error'})`. Consumidor que encerra no estado terminal — o meu monitor, e qualquer cliente com o mesmo desenho — nunca via a mensagem. Invertida.
+
+**Causa provável dos dois turnos originais**, pelo que sobrou de rastro: ambos gravaram `usage_event` com **tudo zero** (`input_tokens=0`, `output_tokens=0`, `cost_usd=0`), assinatura de `is_error` no `result` do CLI com usage vazio — o mesmo shape de um erro de API (`provider_turn_error`). Qual erro exatamente, não dá para afirmar: a mensagem se perdeu, que é justamente o que a correção resolve.
+
+**Verificação ao vivo** (2026-08-17), turno com provider não instalado:
+
+```
+log_entries:  task | turno falhou (provider_spawn_failed): Não foi possível iniciar o provider "codex": spawn codex ENOENT
+
+WS, na ordem:  state.change running
+               error  provider_spawn_failed  ← antes
+               state.change error
+```

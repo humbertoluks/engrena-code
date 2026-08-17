@@ -19,6 +19,7 @@ import {
 } from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
+import { sanitizeProcessError } from '../process-error.js'
 import { createUsageEvent } from '../db/repositories/usage-events.js'
 import { resolveBillingMode, resolveProviderApiKey, resolveTurnCost } from './provider-resolution.js'
 import { diffWorkingTree } from '../git/git-client.js'
@@ -873,9 +874,6 @@ async function runTurn(
     applyTransition(thread.id, 'turn_finished')
   } catch (err) {
     const wasCancelled = session.cancelRequested
-    // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
-    // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
-    applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_failed')
 
     if (!wasCancelled) {
       // Turno falhou mas o provider já reportou usage/custo (spec F11 §3.2) — captura mesmo no erro.
@@ -885,10 +883,33 @@ async function runTurn(
 
       const message = err instanceof Error ? err.message : 'Erro desconhecido no turno.'
       const code = err instanceof ProviderError ? err.code : 'turn_failed'
+      // O motivo da falha precisa sobreviver ao turno. Antes ele existia só no `emit` abaixo, e o
+      // hub não bufferiza: quem não estava com a thread aberta — ou reconectou depois — via a
+      // thread em `error` sem uma linha sequer dizendo por quê, nem no Work log nem no histórico.
+      // Sanitiza de novo por garantia: a mensagem do `result` do CLI (`provider_turn_error`) é a
+      // única que chega aqui sem ter passado por `sanitizeProcessError`, e vai para o disco.
+      try {
+        createLogEntry({
+          threadId: thread.id,
+          kind: 'task',
+          event: sanitizeProcessError(`turno falhou (${code}): ${message}`),
+        })
+      } catch {
+        // O registro é best-effort e roda dentro do próprio tratamento de erro: se a thread sumiu
+        // no meio do turno (delete mid-turn), a FK de `log_entries` falha, e deixar isso subir
+        // trocaria a falha do turno por uma rejeição não tratada — mais barulho e menos informação
+        // do que o problema original. O `emit` e o assentamento abaixo continuam valendo.
+      }
+      // Antes do `state.change`: quem escuta o socket costuma encerrar no estado terminal, e com a
+      // ordem invertida o erro chegava depois de ninguém estar ouvindo.
       emit(thread.id, { type: 'error', threadId: thread.id, code, message })
       // Crash mid-tool: não deixar Work log em "running" para sempre.
       interruptRunningToolCalls(thread.id, 'interrupted')
     }
+
+    // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
+    // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
+    applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_failed')
   } finally {
     mcpsCleanup()
     // Idempotente com cancelThread: deny/reject/close já podem ter rodado.
