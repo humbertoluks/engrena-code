@@ -157,12 +157,63 @@ describe('permission-contract — supervised CLI compliance', () => {
     expect(nativeDenialCase('granted')).toBe('after-broker-grant')
     expect(nativeDenialCase('denied')).toBe('after-user-denial')
     expect(nativeDenialCase('expired')).toBe('after-gate-expiry')
+    expect(nativeDenialCase('cancelled')).toBe('after-turn-cancel')
     expect(nativeDenialCase('unavailable')).toBe('broker-unavailable')
+    expect(nativeDenialCase('ambiguous')).toBe('conflicting-decisions')
 
-    const cases = (['never-requested', 'granted', 'denied', 'expired', 'unavailable'] as const).map(
-      nativeDenialCase
-    )
+    // Um caso por outcome: colapsar dois é literalmente como o R08 e o R09 nasceram.
+    const outcomes = [
+      'never-requested',
+      'granted',
+      'denied',
+      'expired',
+      'cancelled',
+      'unavailable',
+      'ambiguous',
+    ] as const
+    const cases = outcomes.map(nativeDenialCase)
     expect(new Set(cases).size).toBe(cases.length)
+  })
+
+  // O Parar do usuário fechava o gate e caía na copy de timeout, que mandava responder ao card
+  // "enquanto ele estiver na tela" — conselho para o problema errado.
+  it('separates a cancelled turn from a request nobody answered', () => {
+    const cancelled = nativeDenialDiagnosis({ toolName: 'Bash', brokerOutcome: 'cancelled' })
+    expect(cancelled).toContain('turno foi cancelado')
+    expect(cancelled).not.toContain('ficou sem resposta')
+
+    const expired = nativeDenialDiagnosis({ toolName: 'Bash', brokerOutcome: 'expired' })
+    expect(expired).toContain('ficou sem resposta')
+    expect(expired).not.toContain('cancelado')
+  })
+
+  // A chave é o toolName, não a chamada: quando as duas discordam, afirmar uma delas é trocar
+  // uma mentira por outra.
+  it('admits it cannot tell which call a denial belongs to when decisions conflict', () => {
+    const ambiguous = nativeDenialDiagnosis({ toolName: 'Bash', brokerOutcome: 'ambiguous' })
+    expect(ambiguous).toContain('decisões opostas')
+    expect(ambiguous).toContain('não informa a qual chamada')
+    expect(ambiguous).not.toContain('usuário negou a ferramenta')
+    expect(ambiguous).not.toContain('sem consultar o broker')
+  })
+
+  // O 413 responde antes de existir toolName, então a tool fica indistinguível de "nunca vista".
+  it('qualifies the never-brokered claim when a request was rejected for size in the turn', () => {
+    const withDoubt = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      brokerOutcome: 'never-requested',
+      oversizedRequestInTurn: true,
+    })
+    expect(withDoubt).toContain('sem consultar o broker')
+    expect(withDoubt).toContain('excede')
+
+    // A ressalva não contamina os casos em que o broker sabe o que fez.
+    const denied = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      brokerOutcome: 'denied',
+      oversizedRequestInTurn: true,
+    })
+    expect(denied).not.toContain('excede')
   })
 
   it('separates "broker never saw the tool" from "denied after the broker granted"', () => {

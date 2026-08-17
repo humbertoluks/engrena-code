@@ -13,6 +13,8 @@ const { createThread, updateThread } = await import('../db/repositories/threads.
 const { PERMISSION_BODY_MAX_BYTES } = await import('./buffer-cap.js')
 const {
   clearAllGatesForTesting,
+  expireOpenPermissionGates,
+  GATE_REASON_THREAD_CANCELLED,
   hasOpenPermissionGate,
   listOpenPermissionGates,
   resolvePermissionGate,
@@ -23,6 +25,7 @@ const {
   clearBrokerOutcomesForThread,
   createPermissionServer,
   grantAlwaysAllowedTool,
+  hadOversizedPermissionRequest,
   isToolAllowedForThread,
   rememberAllowedTool,
 } = await import('./permission-broker.js')
@@ -214,6 +217,96 @@ describe('decisões do broker (diagnóstico da negação nativa)', () => {
 
     server.close()
   }, 10000)
+
+  // Parar com card aberto fechava o gate pelo mesmo caminho do timeout, e a copy mandava
+  // "responder ao card enquanto ele estiver na tela" para quem tinha acabado de cancelar.
+  it('separa o cancelamento do turno do pedido que ninguém respondeu', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info), { timeoutMs: 60 })
+
+    const cancelled = ask(server, 'Bash', { command: 'ls' })
+    await waitFor(() => seen.length === 1)
+    expireOpenPermissionGates(threadId, GATE_REASON_THREAD_CANCELLED)
+    await cancelled
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('cancelled')
+
+    // Sem ninguém responder nem cancelar: o fail-closed do gate fecha sozinho.
+    await ask(server, 'Write', { file_path: 'a.txt' })
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('expired')
+
+    server.close()
+  }, 15000)
+
+  // Granularidade é por tool, não por chamada: deixar a última decisão vencer em silêncio faria a
+  // negação nativa afirmar a decisão da chamada errada.
+  it('marca ambiguous quando a mesma tool é liberada numa chamada e negada em outra', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const first = ask(server, 'Bash', { command: 'ls' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, true)
+    await first
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('granted')
+
+    const second = ask(server, 'Bash', { command: 'rm -rf /' })
+    await waitFor(() => seen.length === 2)
+    resolvePermissionGate(threadId, seen[1].requestId, false)
+    await second
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('ambiguous')
+
+    // Uma vez ambíguo, decisão nova não "desempata": continua sem dar para saber qual chamada.
+    const third = ask(server, 'Bash', { command: 'ls -la' })
+    await waitFor(() => seen.length === 3)
+    resolvePermissionGate(threadId, seen[2].requestId, true)
+    await third
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('ambiguous')
+
+    server.close()
+  }, 15000)
+
+  it('mantém a decisão quando as chamadas concordam entre si', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const first = ask(server, 'Bash', { command: 'ls' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
+    await first
+
+    const second = ask(server, 'Bash', { command: 'pwd' })
+    await waitFor(() => seen.length === 2)
+    resolvePermissionGate(threadId, seen[1].requestId, false)
+    await second
+
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('denied')
+
+    server.close()
+  }, 15000)
+
+  // O 413 responde antes de existir toolName: sem esta marca por turno, a tool fica
+  // indistinguível de "o CLI nunca consultou o broker".
+  it('marca o turno quando um pedido é recusado por tamanho', async () => {
+    const threadId = seedThread()
+    const server = await createPermissionServer(threadId)
+    expect(hadOversizedPermissionRequest(threadId)).toBe(false)
+
+    const huge = 'x'.repeat(PERMISSION_BODY_MAX_BYTES + 1024)
+    await ask(server, 'Bash', { command: huge }).catch(() => undefined)
+    await waitFor(() => hadOversizedPermissionRequest(threadId))
+
+    expect(hadOversizedPermissionRequest(threadId)).toBe(true)
+    // Não há toolName para associar: a tool continua sem registro próprio.
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('never-requested')
+
+    clearBrokerOutcomesForThread(threadId)
+    expect(hadOversizedPermissionRequest(threadId)).toBe(false)
+
+    server.close()
+  }, 15000)
 
   it('registra unavailable quando o gate não persiste (thread apagada mid-turn)', async () => {
     // Thread que não existe no SQLite: createThreadGate viola a FK, o gate nunca abre e o broker

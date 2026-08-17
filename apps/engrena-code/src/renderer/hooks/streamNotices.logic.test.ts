@@ -162,6 +162,48 @@ describe('nativeDenialMessage', () => {
   })
 })
 
+describe('nativeDenialMessage — casos que a granularidade e o cancel deixavam mentir', () => {
+  it('atribui o cancelamento a quem cancelou, sem mandar responder um card que já saiu', () => {
+    const text = nativeDenialMessage({
+      toolName: 'Bash',
+      brokerOutcome: 'cancelled',
+    })
+    expect(text).toContain('parou o turno')
+    expect(text).not.toContain('ficou sem resposta')
+    expect(text).not.toContain('revise o nível de acesso')
+  })
+
+  it('admite não saber a qual chamada a negação pertence quando as decisões conflitam', () => {
+    const text = nativeDenialMessage({
+      toolName: 'Bash',
+      brokerOutcome: 'ambiguous',
+    })
+    expect(text).toContain('liberada numa chamada e negada em outra')
+    expect(text).not.toContain('Você negou')
+    expect(text).not.toContain('por conta própria')
+  })
+
+  it('ressalva o "nunca consultou" quando houve pedido recusado por tamanho no turno', () => {
+    const text = nativeDenialMessage({
+      toolName: 'Bash',
+      brokerOutcome: 'never-requested',
+      oversizedRequestInTurn: true,
+    })
+    expect(text).toContain('sem pedir permissão ao EngrenaCode')
+    expect(text).toContain('grande demais')
+  })
+
+  it('não põe a ressalva de tamanho quando o broker sabe o que fez com a tool', () => {
+    const text = nativeDenialMessage({
+      toolName: 'Bash',
+      brokerOutcome: 'denied',
+      oversizedRequestInTurn: true,
+    })
+    expect(text).toContain('Você negou')
+    expect(text).not.toContain('grande demais')
+  })
+})
+
 describe('nativeDenialNotice', () => {
   it('vira aviso discriminado com a tool preservada', () => {
     const notice = nativeDenialNotice({

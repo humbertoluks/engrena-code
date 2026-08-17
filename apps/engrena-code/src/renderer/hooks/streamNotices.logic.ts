@@ -51,6 +51,11 @@ export function mcpNotice(event: {
 export interface NativeDenialEvent {
   toolName: string
   /**
+   * Houve rejeição de pedido por tamanho neste turno. Só qualifica o caso "o broker nunca foi
+   * consultado": é o único em que uma rejeição sem `toolName` pode estar se passando por ele.
+   */
+  oversizedRequestInTurn?: boolean
+  /**
    * Vem do runner (`permission.native_denial`): o que o broker do EngrenaCode fez com esta tool no
    * turno. Opcional porque o evento chega do socket como JSON, e ausência cai em `never-requested`
    * — o caso mais conservador, que não atribui a negação a ninguém do lado de cá.
@@ -81,8 +86,12 @@ function denialLead(denialCase: NativeDenialCase, tool: string): string {
       return `Você negou a ferramenta ${tool} no card de permissão, e o Claude CLI encerrou a chamada.`
     case 'after-gate-expiry':
       return `O card de permissão da ferramenta ${tool} ficou sem resposta e expirou, então o EngrenaCode negou por segurança.`
+    case 'after-turn-cancel':
+      return `Você parou o turno com o card de permissão da ferramenta ${tool} ainda aberto, então ele fechou negando.`
     case 'broker-unavailable':
       return `O EngrenaCode não conseguiu abrir o pedido de permissão da ferramenta ${tool} e negou por segurança, sem chegar a te perguntar.`
+    case 'conflicting-decisions':
+      return `A ferramenta ${tool} foi liberada numa chamada e negada em outra neste mesmo turno, e o CLI não diz a qual delas esta negação pertence.`
     case 'never-brokered':
       return `O CLI negou a ferramenta ${tool} por conta própria, sem pedir permissão ao EngrenaCode, por isso nenhum card apareceu no chat.`
   }
@@ -100,6 +109,10 @@ function denialAdvice(denialCase: NativeDenialCase): string {
       )
     case 'after-gate-expiry':
       return 'Peça a ação de novo ao agente e responda ao card enquanto ele estiver na tela.'
+    case 'after-turn-cancel':
+      return 'Nada quebrou: o turno foi cancelado por você. Peça a ação de novo quando quiser retomar.'
+    case 'conflicting-decisions':
+      return 'Se a ação que você queria não aconteceu, peça de novo ao agente e responda ao card que aparecer.'
     case 'broker-unavailable':
       return 'Não foi decisão sua nem do Claude CLI: foi uma falha interna do EngrenaCode ao registrar o pedido. Peça a ação de novo ao agente.'
     case 'never-brokered':
@@ -124,6 +137,11 @@ export function nativeDenialMessage(event: NativeDenialEvent): string {
   const tool = event.toolName.trim() === '' ? 'desconhecida' : event.toolName.trim()
   const denialCase = nativeDenialCase(event.brokerOutcome ?? 'never-requested')
   const parts = [denialLead(denialCase, tool)]
+  if (denialCase === 'never-brokered' && event.oversizedRequestInTurn === true) {
+    parts.push(
+      'Ressalva: um pedido de permissão deste turno foi recusado por ser grande demais, e esse caminho responde antes de ler o nome da ferramenta — pode ter sido este.'
+    )
+  }
   const reasonType = (event.decisionReasonType ?? '').trim()
   if (reasonType !== '') parts.push(`Motivo do CLI: ${reasonType}.`)
   const reason = (event.decisionReason ?? '').trim()

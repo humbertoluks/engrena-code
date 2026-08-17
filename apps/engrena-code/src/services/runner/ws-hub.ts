@@ -37,8 +37,9 @@ export type StreamEvent =
    *
    * `brokerOutcome` é o que separa os casos e existe porque a UI não consegue derivá-lo: o que o
    * broker do EngrenaCode fez com aquela tool neste turno (concedeu, o usuário negou, expirou sem
-   * resposta, falhou ao abrir o pedido, ou nunca foi consultado). Era um booleano `brokerGranted`
-   * até o R09, e por isso a faixa acusava o CLI de negar sozinho uma tool que o usuário recusou.
+   * resposta, o turno foi cancelado, falhou ao abrir o pedido, houve decisões opostas, ou nunca
+   * foi consultado). Era um booleano `brokerGranted` até o R09, e por isso a faixa acusava o CLI
+   * de negar sozinho uma tool que o usuário recusou.
    */
   | {
       type: 'permission.native_denial'
@@ -47,6 +48,11 @@ export type StreamEvent =
       code: 'permission_native_denial'
       message: string
       brokerOutcome: BrokerPermissionOutcome
+      /**
+       * Houve rejeição por tamanho de corpo neste turno. Só qualifica o caso "nunca consultado",
+       * que é o único em que a rejeição sem `toolName` pode estar escondida.
+       */
+      oversizedRequestInTurn?: boolean
       toolUseId?: string
       decisionReasonType?: string | null
       /** `decision_reason` do CLI: a frase de quem negou, quando o payload traz. */

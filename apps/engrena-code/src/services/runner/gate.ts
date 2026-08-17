@@ -36,6 +36,13 @@ const GATE_ABANDONED_REASON = 'gate_abandoned'
 export const GATE_REASON_USER_DECISION = 'user_decision'
 
 /**
+ * Fechamento provocado pelo Parar. Também é negação sem resposta do usuário, mas com causa que ele
+ * conhece: quem cancelou foi ele. Constante pelo mesmo motivo da de cima — o broker decide a copy
+ * por este literal, e duplicá-lo faria "cancelei o turno" voltar a ser lido como "não respondi".
+ */
+export const GATE_REASON_THREAD_CANCELLED = 'thread_cancelled'
+
+/**
  * Dono único do fato "há um gate aberto nesta thread".
  *
  * O split que este módulo existe para manter:

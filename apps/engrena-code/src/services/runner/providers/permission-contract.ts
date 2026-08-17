@@ -287,12 +287,20 @@ export function assertPermissionContract(plan: PermissionContractSpawnPlan): Per
  *
  * `never-requested` não é gravado por ninguém: é o que a consulta responde quando não há registro,
  * ou seja, o hook nunca perguntou por essa tool neste turno.
+ *
+ * `ambiguous` existe porque a chave aqui é o `toolName`, não a chamada: o hook manda `toolName` e
+ * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Quando a mesma tool recebe
+ * decisões de sentidos opostos no mesmo turno (concedida numa chamada, negada em outra), não há
+ * como saber qual delas o CLI está reportando — e afirmar uma das duas seria voltar a mentir com
+ * outra roupa. Registrar a ambiguidade é o mais honesto que este dado permite.
  */
 export type BrokerPermissionOutcome =
   | 'granted'
   | 'denied'
   | 'expired'
+  | 'cancelled'
   | 'unavailable'
+  | 'ambiguous'
   | 'never-requested'
 
 /**
@@ -308,6 +316,14 @@ export interface NativeDenialContext {
   decisionReason?: string | null
   /** O que o broker do EngrenaCode fez com esta tool neste turno. */
   brokerOutcome: BrokerPermissionOutcome
+  /**
+   * `true` quando algum `POST /permission` deste turno foi rejeitado por estourar
+   * `PERMISSION_BODY_MAX_BYTES`. Esse caminho responde 413 **antes** de parsear o corpo, então não
+   * há `toolName` para registrar e a tool aparece como `never-requested` — exatamente a mesma
+   * assinatura de "o CLI nunca consultou o broker". Sem esta ressalva a frase afirmaria com
+   * certeza algo que pode ser falso; com ela, o log admite a dúvida em vez de escolher um culpado.
+   */
+  oversizedRequestInTurn?: boolean
 }
 
 /**
@@ -321,13 +337,17 @@ export type NativeDenialCase =
   | 'after-broker-grant'
   | 'after-user-denial'
   | 'after-gate-expiry'
+  | 'after-turn-cancel'
   | 'broker-unavailable'
+  | 'conflicting-decisions'
 
 const NATIVE_DENIAL_CASE_BY_OUTCOME: Record<BrokerPermissionOutcome, NativeDenialCase> = {
   granted: 'after-broker-grant',
   denied: 'after-user-denial',
   expired: 'after-gate-expiry',
+  cancelled: 'after-turn-cancel',
   unavailable: 'broker-unavailable',
+  ambiguous: 'conflicting-decisions',
   'never-requested': 'never-brokered',
 }
 
@@ -347,8 +367,12 @@ function nativeDenialLead(denialCase: NativeDenialCase, tool: string): string {
       return `O usuário negou a ferramenta ${tool} no card de permissão do EngrenaCode, e o Claude CLI registrou a negação.`
     case 'after-gate-expiry':
       return `O pedido de permissão da ferramenta ${tool} ficou sem resposta no card do EngrenaCode e o fail-closed negou.`
+    case 'after-turn-cancel':
+      return `O turno foi cancelado com o pedido de permissão da ferramenta ${tool} ainda aberto, e o gate fechou negando.`
     case 'broker-unavailable':
       return `O EngrenaCode não conseguiu abrir o pedido de permissão da ferramenta ${tool} e negou por falha interna, sem decisão do usuário nem do Claude CLI.`
+    case 'conflicting-decisions':
+      return `A ferramenta ${tool} teve decisões opostas neste turno (uma liberada, outra negada) e o CLI não informa a qual chamada esta negação pertence.`
     case 'never-brokered':
       return `Aprovação nativa do Claude CLI negou a ferramenta ${tool} sem consultar o broker do EngrenaCode.`
   }
@@ -357,7 +381,13 @@ function nativeDenialLead(denialCase: NativeDenialCase, tool: string): string {
 /** Diagnóstico PT-BR persistido em log e emitido no WS. Nunca embute command/tool_input. */
 export function nativeDenialDiagnosis(context: NativeDenialContext): string {
   const tool = context.toolName.trim() === '' ? 'desconhecida' : context.toolName.trim()
-  const parts = [nativeDenialLead(nativeDenialCase(context.brokerOutcome), tool)]
+  const denialCase = nativeDenialCase(context.brokerOutcome)
+  const parts = [nativeDenialLead(denialCase, tool)]
+  if (denialCase === 'never-brokered' && context.oversizedRequestInTurn === true) {
+    parts.push(
+      'Ressalva: um pedido de permissão deste turno foi rejeitado por exceder o limite de tamanho, e esse caminho responde antes de ler o nome da ferramenta — pode ter sido este.'
+    )
+  }
   const reasonType = (context.decisionReasonType ?? '').trim()
   if (reasonType !== '') parts.push(`Motivo: ${reasonType}.`)
   const reason = (context.decisionReason ?? '').trim()

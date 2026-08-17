@@ -4,6 +4,7 @@ import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
 import { PERMISSION_BODY_MAX_BYTES } from './buffer-cap.js'
 import {
+  GATE_REASON_THREAD_CANCELLED,
   GATE_REASON_USER_DECISION,
   openPermissionGate,
   PERMISSION_TIMEOUT_MS,
@@ -39,10 +40,13 @@ type RecordedBrokerOutcome = Exclude<BrokerPermissionOutcome, 'never-requested'>
  *   todos") e decisão do usuário no card. O card apareceu (ou nem precisou), e quem negou depois
  *   foi outro hook da cadeia `PreToolUse`, sobre o qual o nível de acesso não tem efeito nenhum;
  * - `denied` — o usuário negou no card;
- * - `expired` — o gate fechou sem resposta do usuário (timeout fail-closed, cancel do turno) e a
- *   tool foi negada por omissão;
+ * - `expired` — o gate fechou sem resposta do usuário (timeout fail-closed) e a tool foi negada
+ *   por omissão;
+ * - `cancelled` — o gate fechou porque o turno foi cancelado com o card ainda aberto;
  * - `unavailable` — o EngrenaCode nem conseguiu abrir o pedido (`gate_not_persisted`) e negou por
  *   falha interna, sem chegar a perguntar;
+ * - `ambiguous` — a mesma tool recebeu decisões de sentidos opostos neste turno (ver
+ *   `mergeBrokerOutcome`);
  * - sem entrada: o CLI negou sem nunca consultar o broker e nenhum card apareceu.
  *
  * Distinguir `denied` de "sem entrada" é o defeito R09: as duas superfícies acusavam o CLI de ter
@@ -53,10 +57,32 @@ type RecordedBrokerOutcome = Exclude<BrokerPermissionOutcome, 'never-requested'>
  *
  * Granularidade é o `toolName`, não a chamada: o `POST /permission` do hook manda `toolName` e
  * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Duas chamadas da mesma
- * tool no mesmo turno, uma concedida e outra que nem passa pelo hook (o caso `run_in_background`
- * da matriz Sprint 1), ficam indistinguíveis aqui — a última decisão registrada vence.
+ * tool no mesmo turno ficam indistinguíveis aqui; quando elas discordam, `mergeBrokerOutcome`
+ * marca `ambiguous` em vez de deixar a última vencer em silêncio.
  */
 const brokerOutcomesByThread = new Map<string, Map<string, RecordedBrokerOutcome>>()
+
+/** `granted` é o único sentido positivo; todo o resto negou, por um motivo ou outro. */
+function isPositiveOutcome(outcome: RecordedBrokerOutcome): boolean {
+  return outcome === 'granted'
+}
+
+/**
+ * Última decisão vence, **exceto** quando ela contradiz a anterior: aí a entrada vira `ambiguous`.
+ *
+ * A chave é o `toolName`, não a chamada, porque é só isso que o hook manda. Sobrescrever em
+ * silêncio faria a negação nativa afirmar a decisão da chamada errada — trocar uma mentira por
+ * outra. `ambiguous` é o único valor honesto quando a mesma tool foi liberada numa chamada e
+ * negada em outra dentro do mesmo turno.
+ */
+function mergeBrokerOutcome(
+  previous: RecordedBrokerOutcome | undefined,
+  next: RecordedBrokerOutcome
+): RecordedBrokerOutcome {
+  if (previous === undefined || previous === next) return next
+  if (previous === 'ambiguous') return 'ambiguous'
+  return isPositiveOutcome(previous) === isPositiveOutcome(next) ? next : 'ambiguous'
+}
 
 function recordBrokerOutcome(threadId: string, toolName: string, outcome: RecordedBrokerOutcome): void {
   let byTool = brokerOutcomesByThread.get(threadId)
@@ -64,16 +90,18 @@ function recordBrokerOutcome(threadId: string, toolName: string, outcome: Record
     byTool = new Map()
     brokerOutcomesByThread.set(threadId, byTool)
   }
-  byTool.set(toolName, outcome)
+  byTool.set(toolName, mergeBrokerOutcome(byTool.get(toolName), outcome))
 }
 
 /**
- * Só `user_decision` é resposta do usuário; timeout, cancel de turno e abandono fecham o gate sem
- * ele — todos negam por omissão e todos são `expired` para quem lê o diagnóstico.
+ * Só `user_decision` é resposta do usuário. O resto fecha o gate sem ele e nega por omissão, mas
+ * `thread_cancelled` merece caso próprio: mandar "responda ao card enquanto ele está na tela"
+ * para quem acabou de apertar Parar é conselho para o problema errado.
  */
 function outcomeForGateDecision(decision: PermissionGateDecision): RecordedBrokerOutcome {
   if (decision.allow) return 'granted'
-  return decision.reason === GATE_REASON_USER_DECISION ? 'denied' : 'expired'
+  if (decision.reason === GATE_REASON_USER_DECISION) return 'denied'
+  return decision.reason === GATE_REASON_THREAD_CANCELLED ? 'cancelled' : 'expired'
 }
 
 /** Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`. */
@@ -81,8 +109,28 @@ export function brokerOutcomeForTool(threadId: string, toolName: string): Broker
   return brokerOutcomesByThread.get(threadId)?.get(toolName) ?? 'never-requested'
 }
 
+/**
+ * Turnos em que algum `POST /permission` estourou `PERMISSION_BODY_MAX_BYTES`.
+ *
+ * Esse caminho responde 413 no `data`, antes de existir corpo parseado — não há `toolName` a que
+ * associar a rejeição, então a tool fica `never-requested`, indistinguível de "o CLI nunca
+ * consultou o broker". Guardar o fato por thread não resolve a atribuição, mas deixa o diagnóstico
+ * admitir a dúvida em vez de afirmar com certeza a versão errada.
+ */
+const oversizedRequestsByThread = new Set<string>()
+
+function recordOversizedPermissionRequest(threadId: string): void {
+  oversizedRequestsByThread.add(threadId)
+}
+
+/** Consumido por `dispatch.ts` para ressalvar o diagnóstico de negação nativa. */
+export function hadOversizedPermissionRequest(threadId: string): boolean {
+  return oversizedRequestsByThread.has(threadId)
+}
+
 export function clearBrokerOutcomesForThread(threadId: string): void {
   brokerOutcomesByThread.delete(threadId)
+  oversizedRequestsByThread.delete(threadId)
 }
 
 export interface PermissionServerHandle {
@@ -168,6 +216,8 @@ export function createPermissionServer(
       if (bodyBytes > PERMISSION_BODY_MAX_BYTES) {
         overCap = true
         // Fail-closed: seguir com body parcial daria JSON inválido → toolName 'unknown' no modal.
+        // Sem `toolName` não dá para registrar a decisão por tool; o que sobra é marcar o turno.
+        recordOversizedPermissionRequest(threadId)
         res.writeHead(413, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: false, error: 'payload_too_large' }), () => {
           req.destroy()

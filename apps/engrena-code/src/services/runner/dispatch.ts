@@ -64,6 +64,7 @@ import {
   clearBrokerOutcomesForThread,
   createPermissionServer,
   brokerOutcomeForTool,
+  hadOversizedPermissionRequest,
   type PermissionServerHandle,
 } from './permission-broker.js'
 import { nativeDenialDiagnosis } from './providers/permission-contract.js'
@@ -71,6 +72,7 @@ import { announceClaudeCliVersionOnce } from './claude-version-notice.js'
 import {
   expireOpenPermissionGates,
   expireOpenQuestionGates,
+  GATE_REASON_THREAD_CANCELLED,
   markThreadWaitingUser,
   restoreRunningIfNoOpenGates,
 } from './gate.js'
@@ -219,8 +221,8 @@ export function cancelThread(threadId: string): boolean {
     // Marca do cancelamento vive na sessão: some com o turno, mesmo quando ele termina sem lançar.
     session.cancelRequested = true
     // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
-    expireOpenPermissionGates(threadId, 'thread_cancelled')
-    expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
+    expireOpenPermissionGates(threadId, GATE_REASON_THREAD_CANCELLED)
+    expireOpenQuestionGates(threadId, GATE_REASON_THREAD_CANCELLED, 'thread cancelada pelo usuário')
     // 2) Fecha servers do turno (permission / ask / delegation / memory).
     closeTurnServers(threadId)
     // 3) Tool calls in-flight deixam de aparecer como "running" no histórico/export.
@@ -238,8 +240,8 @@ export function cancelThread(threadId: string): boolean {
   // A pergunta pendente (se houver) precisa ser rejeitada antes do estado assentar, senão o
   // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
-  expireOpenQuestionGates(threadId, 'thread_cancelled', 'thread cancelada pelo usuário')
-  expireOpenPermissionGates(threadId, 'thread_cancelled')
+  expireOpenQuestionGates(threadId, GATE_REASON_THREAD_CANCELLED, 'thread cancelada pelo usuário')
+  expireOpenPermissionGates(threadId, GATE_REASON_THREAD_CANCELLED)
   closeTurnServers(threadId)
   interruptRunningToolCalls(threadId)
 
@@ -768,6 +770,7 @@ async function runTurn(
             decisionReasonType: event.decisionReasonType,
             decisionReason: event.decisionReason,
             brokerOutcome,
+            oversizedRequestInTurn: hadOversizedPermissionRequest(thread.id),
           })
           createLogEntry({
             threadId: thread.id,
@@ -781,6 +784,7 @@ async function runTurn(
             code: 'permission_native_denial',
             message,
             brokerOutcome,
+            oversizedRequestInTurn: hadOversizedPermissionRequest(thread.id),
             toolUseId: event.toolUseId,
             decisionReasonType: event.decisionReasonType,
             decisionReason: event.decisionReason,

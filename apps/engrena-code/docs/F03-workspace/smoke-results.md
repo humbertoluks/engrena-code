@@ -636,3 +636,22 @@ cai em `never-brokered`; a granularidade continua por tool, com a última decis�
 `expired` cobre também o cancel de turno com card aberto.
 
 Gates: `tsc -b` exit 0, `pnpm test` **1855 testes / 161 arquivos** verde em duas rodadas, `vite build` ok.
+
+### As três limitações do R09, tratadas em 2026-08-17
+
+- **Cancel deixou de se passar por timeout.** `GATE_REASON_THREAD_CANCELLED` virou constante e o
+  broker registra `cancelled`, com copy própria. Antes, apertar Parar com o card aberto produzia a
+  frase do fail-closed, que mandava "responder ao card enquanto ele estiver na tela".
+- **Decisões conflitantes viram `ambiguous`.** A chave do registro é o `toolName`, não a chamada, e
+  deixar a última decisão vencer em silêncio fazia a negação nativa afirmar a decisão da chamada
+  errada. Quando a mesma tool é liberada numa chamada e negada em outra no mesmo turno, o
+  diagnóstico passa a dizer que não dá para saber a qual delas a negação pertence.
+- **Rejeição por tamanho (413) passa a ressalvar a frase.** Esse caminho responde antes de existir
+  `toolName`, então a tool fica indistinguível de "o CLI nunca consultou o broker". O turno é
+  marcado e a frase de `never-brokered` ganha a ressalva, em vez de afirmar certeza.
+
+O que **não** foi resolvido, por não ter solução do lado de cá: a atribuição da negação a uma
+chamada específica. O CLI manda `tool_use_id` na negação e o hook manda `toolName` no pedido; sem
+chave comum, o melhor honesto é admitir a ambiguidade — que é o que passa a acontecer.
+
+Gates: `tsc -b` exit 0, `pnpm test` **1866 testes / 161 arquivos** verde em duas rodadas, `vite build` ok.
