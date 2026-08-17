@@ -9,7 +9,7 @@ Referência upstream (MIT): clone raso de `microsoft/vscode` em `C:\Users\Me\Cod
 
 **Ambiente:** `pnpm dev` (Electron real, `dangerouslyDisableSandbox`) + `playwright-cli` em `http://localhost:5173`;
 `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_onda1_smoke`; `ANTHROPIC_API_KEY` unset.
-Projeto `TodolistV1` com `marcador.ts` contendo `MARCADOR_SMOKE = "engrena-onda1-7788"`.
+Projeto `projeto de smoke` com `marcador.ts` contendo `MARCADOR_SMOKE = "engrena-onda1-7788"`.
 Provider Claude, modelo `claude-haiku-4-5`, access `Full access`.
 
 | # | Cenário | Esperado | Resultado |
@@ -25,7 +25,7 @@ Provider Claude, modelo `claude-haiku-4-5`, access `Full access`.
 acima de 20k chars, rejeição de payload malformado no HTTP (`attachment_invalid`), anexo com path inseguro
 ou arquivo inexistente ignorado sem derrubar o turno.
 
-**Nota de ambiente:** a pasta `TodolistV1` foi encontrada no início desta rodada apenas com `.git` e sem os
+**Nota de ambiente:** a pasta `projeto de smoke` foi encontrada no início desta rodada apenas com `.git` e sem os
 arquivos gerados na sessão anterior (`index.js`, `package.json`, `node_modules`) — reset externo a este
 trabalho, não houve remoção por esta sessão.
 
@@ -56,7 +56,7 @@ parsing de follow-up (bloco de código, duplicata, teto de 3, lixo → lista vaz
 ## Onda 3 — contexto profundo e governança (2026-08-11)
 
 **Ambiente:** mesmo das ondas anteriores, `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_onda3_smoke`.
-Fixtures no `TodolistV1`: `frete.ts` (indexável), `segredo.ts` (com `CHAVE_SECRETA`) e
+Fixtures no `projeto de smoke`: `frete.ts` (indexável), `segredo.ts` (com `CHAVE_SECRETA`) e
 `.engrenaignore` com `segredo.ts`.
 
 | # | Cenário | Esperado | Resultado |
@@ -79,7 +79,7 @@ supervised extra mais reinício; o caminho está coberto por unitário no reposi
 ## Onda 4 — prompts salvos e modos de chat (2026-08-11)
 
 **Ambiente:** mesmo das anteriores, `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_onda4_smoke`.
-Fixtures versionadas no `TodolistV1`: `.engrena/prompts/checar-rota.prompt.md` (com variável
+Fixtures versionadas no `projeto de smoke`: `.engrena/prompts/checar-rota.prompt.md` (com variável
 `${input:rota:GET /todos}`) e `.engrena/modes/modo-repo.chatmode.md` (`model: claude-haiku-4-5`,
 `access: full-access`, instrução com o marcador `MODO-REPO-4321`).
 
@@ -125,7 +125,7 @@ no formulário de salvar; edição posterior de prompt/modo só via API ou arqui
 chamada extra ao provider) embaixo da mensagem seguinte.
 
 **Ambiente:** `pnpm dev` (Electron real), `ENGRENACODE_USER_DATA` em `%TEMP%\engrenacode_decision_smoke`,
-`ANTHROPIC_API_KEY` unset, projeto `TodolistV1` vazio, Claude Sonnet, access `Auto-accept edits`.
+`ANTHROPIC_API_KEY` unset, projeto `projeto de smoke` vazio, Claude Sonnet, access `Auto-accept edits`.
 
 | # | Cenário | Esperado | Resultado |
 |---|---------|----------|-----------|

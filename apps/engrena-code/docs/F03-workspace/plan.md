@@ -78,4 +78,4 @@
 
 ## Permission Recovery (2026-08-12) — fechado
 
-Cinco sprints sequenciais com agentes Dev/Review em .claude/agents/sprint-{1..5}-*-{dev,review}.md (contexto limpo, max 5 ciclos). Evidência: smoke-results.md §§ Sprint 1–5. Suite final ~1421 + 	sc -b + pnpm build verdes. Smoke Electron TodoV1 pós-fix ainda recomendado (Bash background + Sim + Cancel + export).
+Cinco sprints sequenciais com agentes Dev/Review em .claude/agents/sprint-{1..5}-*-{dev,review}.md (contexto limpo, max 5 ciclos). Evidência: smoke-results.md §§ Sprint 1–5. Suite final ~1421 + 	sc -b + pnpm build verdes. Smoke Electron projeto de smoke pós-fix ainda recomendado (Bash background + Sim + Cancel + export).
