@@ -707,7 +707,13 @@ async function handleResolveConflict(
     sendJson(res, 200, { diff })
   } catch (err) {
     if (err instanceof DiffConflictResolutionError) {
-      const status = err.code === 'diff_not_found' ? 404 : err.code === 'diff_not_conflict' ? 409 : 400
+      // `worktree_missing` é estado, não pedido malformado: entra no mesmo 409 de `diff_not_conflict`.
+      const status =
+        err.code === 'diff_not_found'
+          ? 404
+          : err.code === 'diff_not_conflict' || err.code === 'worktree_missing'
+            ? 409
+            : 400
       sendError(res, status, err.code, err.message)
       return
     }

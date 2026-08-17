@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -204,5 +204,69 @@ describe('resolveParallelConflict', () => {
     })
 
     expect(() => resolveParallelConflict(thread.id, diff.id, 'child-a', parentCwd)).toThrow(DiffConflictResolutionError)
+  })
+
+  /**
+   * Worktree do vencedor sumiu entre o batch e a resolução (prune, restart, limpeza de disco).
+   * Antes do fix isso era indistinguível de "o filho apagou o arquivo": o arquivo do pai era
+   * removido e o diff promovia mesmo assim, com hunks de uma alteração que nunca aterrissou.
+   */
+  it('recusa a resolução quando o worktree do vencedor não existe mais, sem tocar no arquivo do pai', () => {
+    const { thread, parentCwd } = makeParent()
+    writeFileSync(join(parentCwd, 'shared.ts'), 'conteudo original\n')
+
+    const winnerWorktree = makeDir(`child-sumido-${Math.random()}`)
+    const diff = createDiff({
+      threadId: thread.id,
+      file: 'shared.ts',
+      additions: 1,
+      deletions: 1,
+      hunks: [],
+      provider: 'claude',
+      status: 'conflict',
+      conflictCandidates: [
+        { childThreadId: 'child-a', subagentName: 'writer-a', hunks: [], additions: 1, deletions: 1, worktreePath: winnerWorktree },
+        { childThreadId: 'child-b', subagentName: 'writer-b', hunks: [], additions: 1, deletions: 1, worktreePath: makeDir(`child-b-${Math.random()}`) },
+      ],
+    })
+
+    rmSync(winnerWorktree, { recursive: true, force: true })
+
+    expect(() => resolveParallelConflict(thread.id, diff.id, 'child-a', parentCwd)).toThrow(
+      DiffConflictResolutionError
+    )
+    // O estado tem de sobreviver ao erro: o arquivo do pai intacto e o diff ainda resolvível.
+    expect(readFileSync(join(parentCwd, 'shared.ts'), 'utf-8')).toBe('conteudo original\n')
+    expect(getDiff(diff.id)?.status).toBe('conflict')
+    expect(getDiff(diff.id)?.conflictCandidates).toHaveLength(2)
+  })
+
+  /**
+   * O caso legítimo que o anterior não pode atropelar: worktree presente e o filho realmente
+   * apagou o arquivo. Aí remover no pai é a resolução correta.
+   */
+  it('resolve para remoção quando o worktree existe e o filho apagou o arquivo', () => {
+    const { thread, parentCwd } = makeParent()
+    writeFileSync(join(parentCwd, 'shared.ts'), 'conteudo original\n')
+
+    const winnerWorktree = makeDir(`child-apagou-${Math.random()}`)
+    const diff = createDiff({
+      threadId: thread.id,
+      file: 'shared.ts',
+      additions: 0,
+      deletions: 1,
+      hunks: [],
+      provider: 'claude',
+      status: 'conflict',
+      conflictCandidates: [
+        { childThreadId: 'child-a', subagentName: 'writer-a', hunks: [], additions: 0, deletions: 1, worktreePath: winnerWorktree },
+        { childThreadId: 'child-b', subagentName: 'writer-b', hunks: [], additions: 1, deletions: 0, worktreePath: makeDir(`child-b2-${Math.random()}`) },
+      ],
+    })
+
+    const resolved = resolveParallelConflict(thread.id, diff.id, 'child-a', parentCwd)
+
+    expect(resolved.status).toBe('pending')
+    expect(existsSync(join(parentCwd, 'shared.ts'))).toBe(false)
   })
 })
