@@ -1832,6 +1832,49 @@ describe('handleThreadsRequest', () => {
       rmSync(childA, { recursive: true, force: true })
     })
 
+    it('devolve 409 worktree_missing quando o worktree do vencedor sumiu, sem tocar no arquivo do pai', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main' })
+      writeFileSync(join(dir, 'shared.ts'), 'conteudo original\n')
+
+      const sumido = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f18_conflict_gone_'))
+      const diff = createDiff({
+        threadId: thread.id,
+        file: 'shared.ts',
+        additions: 1,
+        deletions: 1,
+        hunks: [],
+        provider: 'claude',
+        status: 'conflict',
+        conflictCandidates: [
+          { childThreadId: 'child-a', subagentName: 'writer-a', hunks: [], additions: 1, deletions: 1, worktreePath: sumido },
+        ],
+      })
+      rmSync(sumido, { recursive: true, force: true })
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${thread.id}/diffs/${diff.id}/resolve-conflict`,
+        { winningChildThreadId: 'child-a' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+
+      expect(status).toBe(409)
+      const err = (body as { error: { code: string; message: string } }).error
+      expect(err.code).toBe('worktree_missing')
+      // A mensagem nomeia o filho: é ela que chega na faixa de erro do DiffViewer.
+      expect(err.message).toContain('writer-a')
+      // Estado sobrevive ao erro — arquivo intacto e conflito ainda resolvível pelo outro candidato.
+      expect(readFileSync(join(dir, 'shared.ts'), 'utf-8')).toBe('conteudo original\n')
+      expect(getDiff(diff.id)?.status).toBe('conflict')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
     it('rejects a non-conflict diffId with 409 diff_not_conflict', async () => {
       const dir = makeProjectDir()
       const project = createProject({ path: dir })

@@ -126,6 +126,17 @@ export function resolveParallelConflict(parentThreadId: string, diffId: string, 
     )
   }
 
+  // O worktree do filho pode ter sumido entre o batch e a resolução (prune, restart do app, limpeza
+  // de disco). Sem esta guarda o `existsSync` do arquivo dá falso e a materialização interpreta como
+  // "o filho apagou este arquivo": o arquivo do pai seria removido e o diff promovido com hunks de
+  // uma alteração que nunca aterrissou. Ausência do worktree não é ausência do arquivo.
+  if (!existsSync(winner.worktreePath)) {
+    throw new DiffConflictResolutionError(
+      'worktree_missing',
+      `O worktree de "${winner.subagentName}" não existe mais; não dá para materializar essa versão.`
+    )
+  }
+
   materializeFileIntoParent(winner.worktreePath, parentCwd, diff.file)
 
   const promoted = promoteDiffFromConflict(diffId, {

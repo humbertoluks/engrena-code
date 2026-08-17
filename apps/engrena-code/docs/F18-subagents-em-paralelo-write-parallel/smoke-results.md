@@ -93,7 +93,57 @@ rodada boa passou a usar dois escritores dedicados.
 O item 7 é o que só o turno pago prova: no smoke com estado semeado os candidatos eram fabricados e
 não havia worktree nenhum de onde copiar, então "resolveu" significava apenas trocar o status.
 
-**Não exercitado:** erro do endpoint de resolução (`wp.error.resolve`) — exige derrubar o endpoint no
-meio, e o caminho de sucesso é o que estava em aberto.
+**Caminho de erro:** fechado logo depois, na seção abaixo.
 
 **Limpeza:** worktrees removidos, fixture de volta ao commit, subagents de smoke apagados do catálogo.
+
+
+## Erro ao resolver conflito (`wp.error.resolve`) — 2026-08-17
+
+Último item aberto do F18. Ao ir atrás de como forçar a falha, o caminho de erro revelou **um defeito
+real**, e não só a falta de um teste.
+
+### O defeito
+
+`materializeFileIntoParent` decidia tudo por `existsSync(src)` no arquivo dentro do worktree do
+vencedor. Se o arquivo não estava lá, a função concluía "o filho apagou este arquivo" e **removia o
+arquivo no cwd do pai**. Só que o mesmo `existsSync` dá falso quando o **worktree inteiro** sumiu — e
+ele some por caminhos normais: `git worktree prune`, restart do app, limpeza de disco, thread do filho
+apagada. Nesse caso a resolução:
+
+1. apagava o arquivo do pai, que estava íntegro;
+2. promovia o diff a `pending` carregando os hunks do vencedor (`+1/−1`), descrevendo uma alteração
+   que nunca aterrissou;
+3. zerava os candidatos, tirando do usuário a chance de resolver pelo outro filho.
+
+Ausência do worktree não é ausência do arquivo. `resolveParallelConflict` passou a checar o worktree
+antes de materializar e recusa com `worktree_missing`; o handler mapeia para **409**, junto de
+`diff_not_conflict`, porque é estado e não pedido malformado.
+
+### Confirmado ao vivo
+
+Contra o servidor real, com um conflito semeado apontando para um worktree inexistente (sem turno pago
+— o que se testa aqui é o endpoint, não o batch):
+
+```
+POST /api/threads/:id/diffs/:diffId/resolve-conflict   {"winningChildThreadId":"child-sumido"}
+
+HTTP 409
+{"error":{"code":"worktree_missing",
+          "message":"O worktree de \"writer-a\" nao existe mais; nao da para materializar essa versao."}}
+```
+
+E o que mais importa: o estado sobreviveu ao erro. Arquivo do pai intacto (`alvo inicial`), diff ainda
+`conflict` com os **2** candidatos de pé — dá para tentar de novo pelo outro filho.
+
+A mensagem nomeia o subagent de propósito. O `DiffViewer` faz `setError(result.error ?? COPY.errorResolve)`,
+então a faixa mostra essa frase específica em vez do texto genérico de `wp.error.resolve` — o que
+resolve o `TODO se API devolver message` anotado no `copy.md`. O genérico segue como fallback para
+erro sem corpo.
+
+### Cobertura
+
+Três casos novos, todos vermelhos antes do fix e verdes depois: `parallel-merge.test.ts` com o worktree
+sumido (recusa, arquivo intacto, diff ainda resolvível) e com o caso legítimo que não pode ser
+atropelado (worktree presente e o filho realmente apagou o arquivo → remover é a resolução certa); e
+`threads-handler.test.ts` com o 409 `worktree_missing` ponta a ponta pelo handler.
