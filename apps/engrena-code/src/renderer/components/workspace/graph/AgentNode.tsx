@@ -1,7 +1,7 @@
 import type { Node, NodeProps } from '@xyflow/react'
 import { Handle, Position } from '@xyflow/react'
 import { StatusDot, type DotVariant } from '@engrena/ui'
-import { formatDurationSeconds } from '../chatHistory.logic'
+import { activityLabelForTool, formatDurationSeconds } from '../chatHistory.logic'
 import type { ExecutionNode, ExecutionNodeKind, ExecutionNodeStatus } from './executionGraph.logic'
 import { GRAPH_COPY } from './graphCopy'
 
@@ -47,6 +47,9 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const duration =
     data.durationMs != null && data.durationMs >= 0 ? formatDurationSeconds(data.durationMs) : null
   const running = data.status === 'running'
+  // F29: enquanto o filho roda, o status genérico dá lugar ao que ele faz agora. Rótulo derivado
+  // (`activityLabelForTool`), como no shimmer do pai — o nome cru da tool não é copy de UI.
+  const activeLabel = running && data.activeTool ? `${activityLabelForTool(data.activeTool)}…` : null
 
   return (
     <div
@@ -76,7 +79,7 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
             </span>
           </div>
           <div className="mt-[2px] flex items-center gap-sm text-[11px] text-muted">
-            <span>{GRAPH_COPY.status[data.status] ?? data.status}</span>
+            <span>{activeLabel ?? GRAPH_COPY.status[data.status] ?? data.status}</span>
             {meta ? <span className="truncate">{meta}</span> : null}
             {duration ? <span className="font-mono tabular-nums">{duration}</span> : null}
           </div>

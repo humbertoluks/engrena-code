@@ -4,9 +4,11 @@ import {
   decideThreadStateResync,
   isActiveThreadState,
   isEventForThread,
+  isExecutionStreamEvent,
   isSettledThreadState,
   planReconnect,
   reconcilesTurnEnd,
+  refetchesHistory,
   reconnectDelayMs,
   RECONNECT_BASE_DELAY_MS,
   RECONNECT_MAX_DELAY_MS,
@@ -14,6 +16,7 @@ import {
   shouldRefetchHistoryOnResync,
   TURN_RECONCILED_STATES,
 } from './threadStream.logic'
+import type { StreamEvent } from '../services/ws-client'
 import type { ThreadState } from '../services/threads-service'
 
 /** Fonte de aleatoriedade determinística: consome a lista e repete o último valor. */
@@ -253,6 +256,30 @@ describe('decideThreadStateResync', () => {
           changed && isActiveThreadState(localState) && reconcilesTurnEnd(serverState)
         )
       }
+    }
+  })
+})
+
+describe('roteamento de eventos de execução (F29)', () => {
+  const execEvents = [
+    { type: 'tool_call.start', threadId: 't', id: 'x', name: 'Bash', params: {} },
+    { type: 'tool_call.result', threadId: 't', id: 'x', status: 'completed', result: null },
+    { type: 'subagent.start', threadId: 't', childThreadId: 'c1', name: 'reviewer' },
+    { type: 'subagent.result', threadId: 't', childThreadId: 'c1', status: 'completed' },
+    { type: 'subagent.tool_call.start', threadId: 't', childThreadId: 'c1', id: 'tu', name: 'Read' },
+    { type: 'subagent.tool_call.result', threadId: 't', childThreadId: 'c1', id: 'tu', status: 'completed' },
+  ] as unknown as StreamEvent[]
+
+  it('reconhece os eventos que alimentam o overlay do grafo', () => {
+    for (const event of execEvents) expect(isExecutionStreamEvent(event)).toBe(true)
+    expect(isExecutionStreamEvent({ type: 'message.delta', threadId: 't', text: 'x' })).toBe(false)
+    expect(isExecutionStreamEvent({ type: 'diff.ready', threadId: 't', diffId: 'd', file: 'a.ts' })).toBe(false)
+  })
+
+  it('não refetcha o histórico só por atividade de tool do filho', () => {
+    for (const event of execEvents) {
+      const isChildTool = event.type.startsWith('subagent.tool_call.')
+      expect(refetchesHistory(event)).toBe(!isChildTool)
     }
   })
 })

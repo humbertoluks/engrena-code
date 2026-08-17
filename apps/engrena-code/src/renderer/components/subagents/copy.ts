@@ -128,6 +128,7 @@ export const SUBAGENTS_COPY = {
   'subagentsRun.timeline.status.error': 'erro',
   'subagentsRun.timeline.status.timeout': 'timeout',
   'subagentsRun.timeline.open': 'Abrir o run do subagent (auditoria)',
+  'subagentsRun.timeline.tools': '{N} ações',
   'subagentsRun.audit.aria': 'Run do subagent {name}',
   'subagentsRun.audit.close': 'Fechar',
   'subagentsRun.audit.empty.waiting': 'Aguardando a primeira resposta do subagent…',

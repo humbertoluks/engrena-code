@@ -46,7 +46,9 @@ import { useChatTimeline } from './useChatTimeline'
 import { useThreadStream } from './useThreadStream'
 import {
   decideThreadStateResync,
+  isExecutionStreamEvent,
   isSettledThreadState,
+  refetchesHistory,
   reconcilesTurnEnd,
   shouldRefetchHistoryOnResync,
 } from './threadStream.logic'
@@ -565,20 +567,12 @@ export function usePrincipalWorkspace() {
       void loadMemoryStatus(event.projectId)
       return
     }
-    if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
+    // Eventos de execução: overlay otimista imediato e, quando o evento tem contrapartida no
+    // histórico persistido, refetch que traz o dado canónico. Quem separa os dois grupos é
+    // `refetchesHistory` (threadStream.logic.ts) — decisão única, testada lá.
+    if (isExecutionStreamEvent(event)) {
       applyLiveStreamEvent(event)
-      void loadHistory(event.threadId, { background: true })
-      return
-    }
-    if (event.type === 'subagent.start' || event.type === 'subagent.result') {
-      // Overlay imediato (F29) + refetch F15 que traz subagentRuns canónicos.
-      applyLiveStreamEvent(event)
-      void loadHistory(event.threadId, { background: true })
-      return
-    }
-    if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
-      applyLiveStreamEvent(event)
-      void loadHistory(event.threadId, { background: true })
+      if (refetchesHistory(event)) void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'gate.opened') {

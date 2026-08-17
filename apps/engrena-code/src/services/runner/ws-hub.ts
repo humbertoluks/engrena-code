@@ -60,6 +60,25 @@ export type StreamEvent =
     }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }
+  /**
+   * Atividade de ferramenta **do filho**, trafegando no fio do pai (F29).
+   *
+   * Tipo próprio em vez de reusar `tool_call.*`: aqueles significam "tool desta thread" e todo
+   * consumidor atual os trata assim (o de `usePrincipalWorkspace` refetcha o histórico do pai a
+   * cada um). Um `childThreadId` opcional em `tool_call.*` obrigaria cada consumidor a lembrar de
+   * filtrar, e quem esquecesse contaria tool do filho como do pai.
+   *
+   * Payload deliberadamente magro — sem `params`, sem `result`. É sinal de vida e de progresso,
+   * não auditoria: no batch paralelo do F18 são até 4 filhos emitindo ao mesmo tempo, e o corpo
+   * das tools do filho não tem consumidor. O que sobrevive ao turno é a contagem, em
+   * `subagent_runs.action_count`.
+   *
+   * `threadId` é sempre o **pai** (o fio); `childThreadId` diz de quem é a tool. `id` é o id do
+   * provider no stream do filho: cada filho é uma sessão de CLI distinta, então ids podem repetir
+   * entre filhos — correlacionar sempre por `childThreadId` + `id`, nunca por `id` sozinho.
+   */
+  | { type: 'subagent.tool_call.start'; threadId: string; childThreadId: string; id: string; name: string }
+  | { type: 'subagent.tool_call.result'; threadId: string; childThreadId: string; id: string; status: string }
   | { type: 'memory.entry'; threadId: string; projectId: string }
   | {
       type: 'pipeline.state'

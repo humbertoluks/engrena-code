@@ -33,6 +33,11 @@ export interface ExecutionNode {
   meta: string | null
   /** childThreadId / pipeline stage row id / batch id — chave estável de domínio. */
   refId: string
+  /**
+   * Nó de subagente: ferramenta que o filho executa agora (F29). Campo próprio de propósito —
+   * `label` é o nome do subagente e é o que identifica o nó na tela.
+   */
+  activeTool?: string | null
 }
 
 export interface ExecutionEdge {
@@ -89,6 +94,19 @@ export interface LiveGraphOverlay {
   optimisticRuns: OptimisticSubagentRun[]
   /** Stages otimistas indexados por stageId de domínio. */
   optimisticStages: OptimisticStage[]
+  /**
+   * Atividade de ferramenta dos filhos ao vivo (F29), indexada por `childThreadId`. Agregado:
+   * o fio do pai não carrega params/result, então aqui só cabe "quantas" e "qual agora".
+   */
+  childTools: Record<string, ChildToolActivity>
+}
+
+export interface ChildToolActivity {
+  count: number
+  /** Ferramenta em execução agora; `null` quando a última já devolveu resultado. */
+  currentName: string | null
+  /** Id da chamada corrente — usado para ignorar resultado atrasado de uma tool anterior. */
+  currentId: string | null
 }
 
 export interface OptimisticSubagentRun {
@@ -122,6 +140,7 @@ export function emptyLiveOverlay(): LiveGraphOverlay {
     rootToolDelta: 0,
     optimisticRuns: [],
     optimisticStages: [],
+    childTools: {},
   }
 }
 
@@ -524,7 +543,27 @@ export function buildExecutionGraph(input: BuildExecutionGraphInput): ExecutionG
   // Silencia unused — toolById reservado se quisermos enriquecer depois
   void toolById
 
-  return { nodes, edges }
+  return { nodes: applyChildToolActivity(nodes, overlay.childTools), edges }
+}
+
+/**
+ * Enriquece os nós de subagente com a atividade ao vivo (F29), num passe só — os quatro pontos que
+ * criam nó de subagente (batch, linkado, órfão, otimista) recebem o mesmo tratamento sem repetir
+ * a regra em cada um.
+ *
+ * Enquanto o filho roda, o ao vivo manda: `action_count` só é gravado no fechamento do run, então
+ * durante a execução o valor do banco é zero. Depois de fechado, o banco manda — ele é quem
+ * sobrevive ao refresh.
+ */
+function applyChildToolActivity(nodes: ExecutionNode[], childTools: Record<string, ChildToolActivity>): ExecutionNode[] {
+  if (Object.keys(childTools).length === 0) return nodes
+  return nodes.map((node) => {
+    if (node.kind !== 'subagent') return node
+    const live = childTools[node.refId]
+    if (!live) return node
+    if (node.status !== 'running') return { ...node, count: Math.max(node.count, live.count) }
+    return { ...node, count: Math.max(node.count, live.count), activeTool: live.currentName }
+  })
 }
 
 function subagentNodeFromRun(run: SubagentRun): ExecutionNode {
@@ -599,6 +638,34 @@ export function applyLiveEvent(overlay: LiveGraphOverlay, event: StreamEvent, no
             text: existing?.text ?? null,
           },
         ],
+      }
+    }
+
+    case 'subagent.tool_call.start': {
+      const prev = overlay.childTools[event.childThreadId]
+      return {
+        ...overlay,
+        childTools: {
+          ...overlay.childTools,
+          [event.childThreadId]: {
+            count: (prev?.count ?? 0) + 1,
+            currentName: event.name,
+            currentId: event.id,
+          },
+        },
+      }
+    }
+
+    case 'subagent.tool_call.result': {
+      const prev = overlay.childTools[event.childThreadId]
+      // Resultado atrasado de uma tool anterior não pode apagar a que está rodando agora.
+      if (!prev || prev.currentId !== event.id) return overlay
+      return {
+        ...overlay,
+        childTools: {
+          ...overlay.childTools,
+          [event.childThreadId]: { ...prev, currentName: null, currentId: null },
+        },
       }
     }
 

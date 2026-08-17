@@ -245,6 +245,7 @@ export function PrincipalScreen(): ReactElement {
                     toolCalls={ws.toolCalls}
                     subagentRuns={ws.subagentRuns}
                     onOpenSubagentRun={ws.openSubagentRun}
+                    childTools={ws.liveGraphOverlay.childTools}
                     loading={ws.historyLoading}
                     error={ws.historyError}
                     streamingText={ws.streamingText}

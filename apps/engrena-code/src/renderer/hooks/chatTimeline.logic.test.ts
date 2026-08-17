@@ -280,6 +280,24 @@ describe('liveGraphOverlay', () => {
     expect(next.liveGraphOverlay).toEqual(emptyChatTimeline().liveGraphOverlay)
   })
 
+  it('preserva a atividade de tool do filho no histórico canónico (F29)', () => {
+    const withChildTool = chatTimelineReducer(emptyChatTimeline(), {
+      type: 'live_event_applied',
+      event: {
+        type: 'subagent.tool_call.start',
+        threadId: 't1',
+        childThreadId: 'c1',
+        id: 'tu_1',
+        name: 'Read',
+      } as StreamEvent,
+    })
+    const next = chatTimelineReducer(withChildTool, { type: 'history_loaded', history: snapshot() })
+    // Sem contrapartida no histórico (`action_count` só é gravado no fechamento do run): zerar
+    // aqui apagaria a atividade a cada refetch disparado pelas tools do próprio pai.
+    expect(next.liveGraphOverlay.childTools.c1).toEqual({ count: 1, currentName: 'Read', currentId: 'tu_1' })
+    expect(next.liveGraphOverlay.optimisticRuns).toEqual([])
+  })
+
   it('zera ao selecionar outra thread', () => {
     const withOverlay = chatTimelineReducer(emptyChatTimeline(), {
       type: 'live_event_applied',

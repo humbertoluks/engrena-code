@@ -364,6 +364,95 @@ describe('runDelegatedSubagentTurn — F15 hardening', () => {
     expect(resultEvent).toMatchObject({ threadId: parentThread.id, status: 'completed' })
     expect(resultEvent?.childThreadId).toBe(startEvent?.childThreadId)
   })
+
+  it('streams the child tool activity on the parent WS, aggregated and without params/result (F29)', async () => {
+    const { project, parentThread } = makeContext()
+    const subagent = linkSubagent(project.id)
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'tu_1', name: 'Read', params: { file_path: '/segredo.txt' } })
+      input.onEvent({ type: 'tool-result', id: 'tu_1', status: 'completed', result: 'conteudo do arquivo' })
+      input.onEvent({ type: 'tool-start', id: 'tu_2', name: 'Grep', params: { pattern: 'x' } })
+      input.onEvent({ type: 'tool-result', id: 'tu_2', status: 'completed', result: 'match' })
+      return { text: 'ok' }
+    })
+
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(parentThread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await runDelegatedSubagentTurn(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      { name: subagent.name, task: 't' }
+    )
+
+    const childThreadId = received.find((e) => e.type === 'subagent.start')?.childThreadId
+    const starts = received.filter((e) => e.type === 'subagent.tool_call.start')
+    const results = received.filter((e) => e.type === 'subagent.tool_call.result')
+
+    expect(starts).toHaveLength(2)
+    expect(results).toHaveLength(2)
+    expect(starts[0]).toEqual({
+      type: 'subagent.tool_call.start',
+      threadId: parentThread.id,
+      childThreadId,
+      id: 'tu_1',
+      name: 'Read',
+    })
+    expect(results[1]).toEqual({
+      type: 'subagent.tool_call.result',
+      threadId: parentThread.id,
+      childThreadId,
+      id: 'tu_2',
+      status: 'completed',
+    })
+    // O fio do pai é agregado: nada do corpo da tool do filho pode vazar nele.
+    expect(JSON.stringify(starts)).not.toContain('segredo.txt')
+    expect(JSON.stringify(results)).not.toContain('conteudo do arquivo')
+    // E o pai não ganha tool_call nenhuma por conta do filho.
+    expect(received.some((e) => e.type === 'tool_call.start' || e.type === 'tool_call.result')).toBe(false)
+  })
+
+  it('persists the child tool count in subagent_runs.actionCount when the run completes (F29)', async () => {
+    const { project, parentThread } = makeContext()
+    const subagent = linkSubagent(project.id)
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'a', name: 'Read', params: {} })
+      input.onEvent({ type: 'tool-result', id: 'a', status: 'completed', result: null })
+      input.onEvent({ type: 'tool-start', id: 'b', name: 'Bash', params: {} })
+      return { text: 'ok' }
+    })
+
+    await runDelegatedSubagentTurn(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      { name: subagent.name, task: 't' }
+    )
+
+    const run = listSubagentRunsForParentThread(parentThread.id)[0]
+    expect(run?.status).toBe('completed')
+    expect(run?.actionCount).toBe(2)
+  })
+
+  it('keeps the child tool count when the run fails — the failed run is the one worth auditing (F29)', async () => {
+    const { project, parentThread } = makeContext()
+    const subagent = linkSubagent(project.id)
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'a', name: 'Read', params: {} })
+      input.onEvent({ type: 'tool-start', id: 'b', name: 'Bash', params: {} })
+      throw new Error('estourou no meio')
+    })
+
+    await runDelegatedSubagentTurn(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      { name: subagent.name, task: 't' }
+    )
+
+    const run = listSubagentRunsForParentThread(parentThread.id)[0]
+    expect(run?.status).toBe('error')
+    expect(run?.actionCount).toBe(2)
+  })
 })
 
 describe('runDelegatedSubagentTurn — diffs unificados (F15 Fase 3)', () => {
@@ -514,6 +603,40 @@ describe('runParallelDelegatedBatch (F18)', () => {
     expect(runs).toHaveLength(2)
     expect(new Set(runs.map((r) => r.parallelBatchId))).toEqual(new Set([batch.parallelBatchId]))
   }, 20000)
+
+  it('cada filho do batch carimba o próprio childThreadId na atividade de tool (F29)', async () => {
+    const { project, parentThread } = makeGitContext()
+    linkSubagent(project.id, { name: 'implementer-a' })
+    linkSubagent(project.id, { name: 'implementer-b' })
+
+    // Mesmo `id` de tool nos dois filhos: sessões de CLI distintas podem repetir, e é o
+    // `childThreadId` que separa as duas execuções no fio do pai.
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'tu_1', name: 'Read', params: {} })
+      input.onEvent({ type: 'tool-result', id: 'tu_1', status: 'completed', result: null })
+      return { text: 'ok' }
+    })
+
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(parentThread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await runParallelDelegatedBatch(
+      { project, parentThread, parentTurnId: 'turn-1' },
+      [
+        { name: 'implementer-a', task: 'parte a' },
+        { name: 'implementer-b', task: 'parte b' },
+      ]
+    )
+
+    const starts = received.filter((e) => e.type === 'subagent.tool_call.start')
+    expect(starts).toHaveLength(2)
+    expect(new Set(starts.map((e) => e.childThreadId)).size).toBe(2)
+
+    const runs = listSubagentRunsForParentThread(parentThread.id)
+    expect(runs).toHaveLength(2)
+    expect(runs.every((r) => r.actionCount === 1)).toBe(true)
+  }, 30_000)
 
   it('test_merge_same_path_conflict — two children writing the same file end up as a conflict diff, not applied to the parent', async () => {
     const { project, parentThread } = makeGitContext()

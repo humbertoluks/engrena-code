@@ -13,6 +13,7 @@
  */
 
 import type { ThreadState } from '../services/threads-service'
+import type { StreamEvent } from '../services/ws-client'
 
 /** Primeiro passo do backoff. */
 export const RECONNECT_BASE_DELAY_MS = 1_000
@@ -132,6 +133,41 @@ export function isSettledThreadState(state: string | null | undefined): boolean 
 
 export function reconcilesTurnEnd(state: string | null | undefined): boolean {
   return isOneOf(TURN_RECONCILED_STATES, state)
+}
+
+/**
+ * Eventos de execução que o overlay do grafo/timeline consome (`applyLiveEvent`). Agrupados aqui
+ * para o handler do socket tratá-los num ramo só, em vez de repetir a mesma dupla de chamadas.
+ */
+const EXECUTION_STREAM_EVENT_TYPES = [
+  'tool_call.start',
+  'tool_call.result',
+  'subagent.start',
+  'subagent.result',
+  'subagent.tool_call.start',
+  'subagent.tool_call.result',
+  'pipeline.state',
+  'pipeline.stage',
+] as const
+
+type ExecutionStreamEventType = (typeof EXECUTION_STREAM_EVENT_TYPES)[number]
+
+export function isExecutionStreamEvent(event: StreamEvent): event is Extract<
+  StreamEvent,
+  { type: ExecutionStreamEventType }
+> {
+  return (EXECUTION_STREAM_EVENT_TYPES as readonly string[]).includes(event.type)
+}
+
+/**
+ * O evento tem contrapartida no `GET /history`? Só então vale o refetch de fundo.
+ *
+ * `subagent.tool_call.*` (F29) é a exceção: é agregado — só id, nome e status — e não escreve nada
+ * no histórico do pai, então o refetch não traria dado novo. E é justo o evento de maior volume:
+ * no batch do F18 são até 4 filhos emitindo em paralelo, o que viraria uma rajada de GETs por tool.
+ */
+export function refetchesHistory(event: StreamEvent): boolean {
+  return event.type !== 'subagent.tool_call.start' && event.type !== 'subagent.tool_call.result'
 }
 
 export interface ThreadStateResyncDecision {
