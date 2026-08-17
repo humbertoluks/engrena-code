@@ -8,17 +8,24 @@ runbook prova que o **produto instalado** funciona na máquina de destino.
 **Duração:** ~40 min sem turno pago (Roteiros A, C, D) · ~75 min com turno pago (todos).
 **Última revisão:** 2026-08-17.
 
+> **Como marcar.** Cada check começa em `☐`. Troque por **`✅`** se passou ou por **`❌`** se falhou.
+> Todo `❌` vira uma linha em §8 com a evidência. `❌` em check **BLOQUEIA** reprova a versão na hora —
+> pare o roteiro, registre e devolva para correção.
+>
+> Copie este arquivo para `docs/homologacao/<versão>.md` antes de preencher, para o template no repo
+> ficar sempre em branco.
+
 ---
 
 ## 1. Critério de aprovação
 
 A versão é **aprovada** quando:
 
-- Todos os checks marcados **BLOQUEIA** passam.
-- Nenhum check deixa dado do usuário em estado pior do que encontrou (cofre, banco, repositórios).
-- Cada falha não-bloqueante está registrada em §8 com ID, evidência e decisão (aceita / corrige antes).
+- Todos os checks marcados **BLOQUEIA** estão `✅`.
+- Nenhum check deixou dado do usuário em estado pior do que encontrou (cofre, banco, repositórios).
+- Cada `❌` não-bloqueante está registrado em §8 com evidência e decisão (aceita / corrige antes).
 
-Um único **BLOQUEIA** vermelho reprova a versão. Não existe aprovação parcial.
+Um único **BLOQUEIA** em `❌` reprova a versão. Não existe aprovação parcial.
 
 ---
 
@@ -37,6 +44,15 @@ Um único **BLOQUEIA** vermelho reprova a versão. Não existe aprovação parci
 **Caminho curto não é preferência.** `git worktree` falha com `fatal: '$GIT_DIR' too big` em caminhos
 profundos no Windows, e o F13/F18 usam worktree. Repositório de homologação fora de `Documents`,
 `OneDrive` e de qualquer árvore longa.
+
+**Montar o repositório de teste em 30 segundos:**
+
+```powershell
+mkdir D:\temp\hml; cd D:\temp\hml
+git init
+"# HML" | Out-File README.md -Encoding utf8
+git add -A; git commit -m "chore: commit inicial"
+```
 
 ---
 
@@ -60,9 +76,10 @@ senha é a do usuário — e um erro de digitação repetido aciona o backoff de
 
 ### 3.2 Antes de começar
 
-- [ ] Fechar qualquer instância do EngrenaCode e do `pnpm dev` (as duas disputam a porta 5174).
-- [ ] Confirmar que **nada** escuta em 5174: `Get-NetTCPConnection -LocalPort 5174 -State Listen`.
-- [ ] Se for perfil real, copiar `%APPDATA%\engrena-code\vault.enc` e `engrenacode.db` para backup.
+- ☐ Fechar qualquer instância do EngrenaCode e do `pnpm dev` (as duas disputam a porta 5174).
+- ☐ Confirmar que **nada** escuta em 5174: `Get-NetTCPConnection -LocalPort 5174 -State Listen`.
+- ☐ Se for perfil real, copiar `%APPDATA%\engrena-code\vault.enc` e `engrenacode.db` para backup.
+- ☐ Confirmar que `ANTHROPIC_API_KEY` não está no ambiente: `echo $env:ANTHROPIC_API_KEY` sai vazio.
 
 **Nunca** derrube processo por nome (`Stop-Process -Name node`): isso mata Electron e Vite de outras
 sessões. Sempre por porta ou PID.
@@ -73,18 +90,34 @@ sessões. Sempre por porta ou PID.
 
 Prova que o app instala, abre, destrava e navega. Nenhum passo aqui gasta token.
 
-| ID | Passo | Esperado | Peso |
-|---|---|---|---|
-| A1 | Executar o instalador NSIS | Escolha de diretório oferecida; atalhos de Desktop e Menu Iniciar criados | BLOQUEIA |
-| A2 | Olhar o ícone do `.exe` e do atalho | Ícone do EngrenaCode, não o do Electron nem quadrado preto | — |
-| A3 | Abrir o app | Splash e, em seguida, a tela de destravamento | BLOQUEIA |
-| A4 | Destravar com a senha | Entra no `#dashboard`; o nome do workspace aparece no topo | BLOQUEIA |
-| A5 | Destravar com senha errada 3× | Recusa com mensagem clara e backoff crescente; **não** apaga nem recria o cofre | BLOQUEIA |
-| A6 | Percorrer as 9 telas do menu | `#dashboard` `#principal` `#configuracao` `#subagents` `#skills` `#rules` `#mcps` `#registros` `#consumo` abrem sem tela branca | BLOQUEIA |
-| A7 | Alternar tema (botão do topo) | Claro / Escuro / Sistema aplicam na hora e sobrevivem ao restart | — |
-| A8 | Conferir o catálogo semente | `#skills` com 12 skills e `#subagents` com 8 subagents no perfil novo | — |
-| A9 | Adicionar o repositório de teste em `#principal` | Projeto aparece na barra lateral com o nome da pasta | BLOQUEIA |
-| A10 | Fechar e reabrir o app | Cofre volta travado; depois de destravar, o projeto continua lá | BLOQUEIA |
+- ✅ **A1 · BLOQUEIA** — Executar o instalador NSIS
+  - **Esperado:** escolha de diretório oferecida; atalhos de Desktop e Menu Iniciar criados
+  - **Exemplo:** duplo clique em `EngrenaCode Setup 0.0.0.exe` → instala por usuário, sem pedir admin
+- ✅ **A2** — Olhar o ícone do `.exe` e do atalho
+  - **Esperado:** ícone do EngrenaCode, não o do Electron nem quadrado preto
+  - **Exemplo:** se sair preto, limpe o cache do Explorer (`ie4uinit.exe -show`) antes de reprovar
+- ✅ **A3 · BLOQUEIA** — Abrir o app
+  - **Esperado:** splash e, em seguida, a tela de destravamento
+- ✅ **A4 · BLOQUEIA** — Destravar com a senha
+  - **Esperado:** entra no `#dashboard`; o nome do workspace aparece no topo
+  - **Exemplo:** Workspace `hml`, senha do cofre → topo mostra `hml` ao lado do seletor de tema
+- ✅ **A5 · BLOQUEIA** — Destravar com senha errada 3×
+  - **Esperado:** recusa com mensagem clara e backoff crescente; **não** apaga nem recria o cofre
+  - **Exemplo:** digite `errado1`, `errado2`, `errado3`; depois a senha certa ainda entra
+- ✅ **A6 · BLOQUEIA** — Percorrer as 9 telas do menu
+  - **Esperado:** `#dashboard` `#principal` `#configuracao` `#subagents` `#skills` `#rules` `#mcps` `#registros` `#consumo` abrem sem tela branca
+- ✅ **A7** — Alternar tema pelo botão do topo
+  - **Esperado:** Claro / Escuro / Sistema aplicam na hora e sobrevivem ao restart
+  - **Exemplo:** deixe em Claro, feche e reabra o app; tem de voltar em Claro
+- ✅ **A8** — Conferir o catálogo semente
+  - **Esperado:** `#skills` com 12 skills e `#subagents` com 8 subagents no perfil novo
+  - **Exemplo:** em `#skills` devem estar `code-review`, `write-tests`, `commit-message` entre as 12
+- ☐ **A9 · BLOQUEIA** — Adicionar o repositório de teste em `#principal`
+  - **Esperado:** projeto aparece na barra lateral com o nome da pasta
+  - **Exemplo:** botão **Adicionar projeto** → escolher `D:\temp\hml` → card `hml` na lista, com **Nova thread** e **Remover projeto** ao passar o mouse
+- ☐ **A10 · BLOQUEIA** — Fechar e reabrir o app
+  - **Esperado:** cofre volta travado; depois de destravar, o projeto continua lá
+  - **Exemplo:** o card `hml` tem de reaparecer sem precisar adicionar de novo
 
 **Evidência de A5:** o cofre corrompido responde diferente de senha errada (`vault_corrupted`). Se
 aparecer mensagem de cofre danificado com a senha certa, é reprovação imediata — pare e restaure o backup.
@@ -99,42 +132,86 @@ Gasta cota da assinatura. Só depois do Roteiro A verde.
 processo filho `claude` autentica por API key em vez da assinatura já logada, e o consumo vai para a
 conta errada (às vezes com saldo zero).
 
-| ID | Passo | Esperado | Peso |
-|---|---|---|---|
-| B1 | Nova thread no projeto, access **Supervised**, pedir a leitura de um arquivo | Indicador de atividade aparece; o rótulo acompanha a ferramenta corrente | BLOQUEIA |
-| B2 | Durante o turno, olhar o Work log | Cada ferramenta aparece com início e fim | — |
-| B3 | Pedir uma **escrita** em arquivo | Card de permissão inline na timeline, com as opções | BLOQUEIA |
-| B4 | Clicar em "Permitir" | O clique **preenche o composer**; a concessão só acontece no Enviar | BLOQUEIA |
-| B5 | Enviar | Ferramenta executa; o diff aparece na aba Diff | BLOQUEIA |
-| B6 | Aceitar o diff | Arquivo alterado no repositório; entrada em `#registros` | BLOQUEIA |
-| B7 | Rejeitar um segundo diff | Arquivo volta ao estado anterior | BLOQUEIA |
-| B8 | Responder um follow-up ("sim") na mesma thread | O agente entende o contexto (usa `--resume`), não pergunta "qual tarefa?" | BLOQUEIA |
-| B9 | Disparar turno longo e clicar em **Parar** | Ferramenta cancelada em segundos, processo morto, thread assentada em `cancelled` | BLOQUEIA |
-| B10 | Enviar durante turno em execução | Mensagem entra na fila e roda no turno seguinte | — |
-| B11 | Trocar access para **Auto-accept edits** e pedir edição | Edição passa direto; Bash ainda abre card | — |
-| B12 | Usar "Permitir todos" numa ferramenta | Próxima chamada da mesma ferramenta não pergunta mais nesta thread | — |
-| B13 | Abrir a aba **Grafo** durante uma delegação | Nó do subagente com ferramenta corrente e contador subindo | — |
-| B14 | Conferir `#consumo` | Turnos aparecem com custo; `cost_source` coerente com assinatura | BLOQUEIA |
+- ☐ **B1 · BLOQUEIA** — Nova thread no projeto, access **Supervised**, pedir a leitura de um arquivo
+  - **Esperado:** indicador de atividade aparece; o rótulo acompanha a ferramenta corrente
+  - **Exemplo de prompt:** `Leia o README.md e resuma em 3 linhas.`
+- ☐ **B2** — Durante o turno, abrir o Work log
+  - **Esperado:** cada ferramenta aparece com início e fim
+  - **Exemplo:** para o prompt de B1, ao menos um `Read` do `README.md`
+- ☐ **B3 · BLOQUEIA** — Pedir uma **escrita** em arquivo
+  - **Esperado:** card de permissão inline na timeline, com as opções
+  - **Exemplo de prompt:** `Crie o arquivo hml.txt com a palavra homologado.`
+- ☐ **B4 · BLOQUEIA** — Clicar em "Permitir" no card
+  - **Esperado:** o clique **preenche o composer** e nada mais; a concessão só acontece no Enviar
+  - **Exemplo:** depois do clique, o composer mostra o texto da opção e o arquivo ainda **não** existe no disco
+- ☐ **B5 · BLOQUEIA** — Enviar
+  - **Esperado:** ferramenta executa; o diff aparece na aba **Diff**
+  - **Exemplo:** `hml.txt` listado com 1 adição
+- ☐ **B6 · BLOQUEIA** — Aceitar o diff
+  - **Esperado:** arquivo alterado no repositório; entrada em `#registros`
+  - **Exemplo:** `Get-Content D:\temp\hml\hml.txt` devolve `homologado`
+- ☐ **B7 · BLOQUEIA** — Rejeitar um segundo diff
+  - **Esperado:** arquivo volta ao estado anterior
+  - **Exemplo de prompt:** `Acrescente uma segunda linha em hml.txt.` — depois do rejeitar, `git status` fica limpo
+- ☐ **B8 · BLOQUEIA** — Responder um follow-up na mesma thread
+  - **Esperado:** o agente entende o contexto (usa `--resume`), não pergunta "qual tarefa?"
+  - **Exemplo:** peça `Quer que eu apague o arquivo?` e responda só `sim` — o agente sabe qual arquivo
+- ☐ **B9 · BLOQUEIA** — Disparar turno longo e clicar em **Parar**
+  - **Esperado:** ferramenta cancelada em segundos, processo morto, thread assentada em `cancelled`
+  - **Exemplo de prompt:** `Rode python -m http.server 8931 no terminal.` — o comando bloqueia em foreground; depois do Parar a porta 8931 tem de ficar livre
+- ☐ **B10** — Enviar durante turno em execução
+  - **Esperado:** mensagem entra na fila e roda no turno seguinte
+  - **Exemplo:** o composer mostra **Parar** e **Enviar** juntos, e a fila aparece com "1 na fila"
+- ☐ **B11** — Trocar access para **Auto-accept edits** e pedir edição
+  - **Esperado:** edição passa direto; Bash ainda abre card
+  - **Exemplo de prompt:** `Troque a palavra homologado por aprovado em hml.txt e depois rode git status.`
+- ☐ **B12** — Usar "Permitir todos" numa ferramenta
+  - **Esperado:** próxima chamada da mesma ferramenta não pergunta mais **nesta** thread
+  - **Exemplo:** conceder em um `Bash`, pedir outro `Bash` e ver que não abre card
+- ☐ **B13** — Abrir a aba **Grafo** durante uma delegação
+  - **Esperado:** nó do subagente com ferramenta corrente e contador subindo
+  - **Exemplo de prompt:** `Delegue ao subagente explorer um mapa das pastas do projeto.`
+- ☐ **B14 · BLOQUEIA** — Conferir `#consumo`
+  - **Esperado:** turnos aparecem com custo; origem coerente com assinatura
+  - **Exemplo:** os turnos de B1–B9 somam valor > 0 e o projeto `hml` aparece na lista
 
-**B4 é contrato de produto, não detalhe.** Se o clique no card conceder sozinho, é reprovação: a decisão
-tem de passar pelo Enviar.
+**B4 é contrato de produto, não detalhe.** Se o clique no card conceder sozinho, é `❌` bloqueante: a
+decisão tem de passar pelo Enviar.
 
 ---
 
 ## 6. Roteiro C — Governança, segredos e integrações
 
-| ID | Passo | Esperado | Peso |
-|---|---|---|---|
-| C1 | `#configuracao` → salvar token do GitHub | Salvo no cofre; status vira conectado | BLOQUEIA |
-| C2 | Commit + push + PR pelo painel de Git | PR criado; título e corpo editáveis antes de enviar | BLOQUEIA |
-| C3 | Forçar erro de push (token inválido) | Mensagem **sem** o segredo em claro — nada de `x-access-token:ghp_...` na tela | BLOQUEIA |
-| C4 | `#rules` → criar rule e vincular ao projeto | Rule entra no turno seguinte (o agente obedece) | — |
-| C5 | Criar modo de chat com filtro de skills/rules | Só o que o modo lista chega ao turno; o resto não | — |
-| C6 | Ditado por voz no composer | Áudio vira texto no cursor (exige chave OpenAI/Groq) | — |
-| C7 | `#mcps` → instalar preset sem segredo | Server aparece e conecta | — |
-| C8 | `#registros` → filtrar por tipo | Entradas de tool, git e task aparecem com filtro funcionando | — |
-| C9 | `#consumo` → definir limite e estourar | Faixa de aviso em 80% e bloqueio de turno em 100% | BLOQUEIA |
-| C10 | Terminal no dock | Abre shell real, aceita comando, fecha sem deixar processo órfão | — |
+- ☐ **C1 · BLOQUEIA** — `#configuracao` → salvar token do GitHub
+  - **Esperado:** salvo no cofre; status vira conectado
+  - **Exemplo:** depois de salvar, o card de saúde no `#dashboard` mostra GitHub em verde
+- ☐ **C2 · BLOQUEIA** — Commit + push + PR pelo painel de Git
+  - **Esperado:** PR criado; título e corpo editáveis antes de enviar
+  - **Exemplo:** usar um repositório de teste **seu** no GitHub como `origin`; o PR abre em branch nova, nunca na default
+- ☐ **C3 · BLOQUEIA** — Forçar erro de push com token inválido
+  - **Esperado:** mensagem **sem** o segredo em claro
+  - **Exemplo:** salve o token `ghp_invalido123` e tente push — a mensagem não pode conter `x-access-token:ghp_...`; o esperado é `***@github.com/...`
+- ☐ **C4** — `#rules` → criar rule e vincular ao projeto
+  - **Esperado:** rule entra no turno seguinte e o agente obedece
+  - **Exemplo:** rule `so-ingles` com "Responda sempre em inglês"; pergunte em português e a resposta tem de vir em inglês
+- ☐ **C5** — Criar modo de chat com filtro de skills/rules
+  - **Esperado:** só o que o modo lista chega ao turno; o resto não
+  - **Exemplo:** no picker **Modo**, desmarque tudo menos `code-review`, salve como `revisor`, e peça `Liste as skills disponíveis` — só `code-review` deve ser anunciada
+- ☐ **C6** — Ditado por voz no composer
+  - **Esperado:** áudio vira texto no cursor (exige chave OpenAI/Groq)
+  - **Exemplo:** botão 🎙️, falar uma frase curta, parar — o texto entra no ponto do cursor, sem apagar o que já estava escrito
+- ☐ **C7** — `#mcps` → instalar preset sem segredo
+  - **Esperado:** server aparece e conecta
+  - **Exemplo:** preset `filesystem`, que não pede credencial
+- ☐ **C8** — `#registros` → filtrar por tipo
+  - **Esperado:** entradas de tool, git e task aparecem com o filtro funcionando
+  - **Exemplo:** o `Commit` de C2 e os `Read`/`Write` de B1–B6 têm de estar lá
+- ☐ **C9 · BLOQUEIA** — `#consumo` → definir limite e estourar
+  - **Esperado:** faixa de aviso em 80% e bloqueio de turno em 100%
+  - **Exemplo:** com consumo já > 0, defina o limite num valor abaixo do gasto atual e tente novo turno — tem de recusar com link para ajustar
+- ☐ **C10** — Terminal no dock
+  - **Esperado:** abre shell real, aceita comando, fecha sem deixar processo órfão
+  - **Exemplo:** botão **Terminal** → `git status` → fechar a aba → nenhum `pwsh`/`cmd` órfão no Gerenciador de Tarefas
 
 **C3 é de segurança.** Qualquer segredo visível em mensagem de erro reprova a versão, mesmo que todo o
 resto passe.
@@ -143,15 +220,26 @@ resto passe.
 
 ## 7. Roteiro D — Resiliência
 
-| ID | Passo | Esperado | Peso |
-|---|---|---|---|
-| D1 | Matar o app durante um turno e reabrir | Thread presa em `running` é reconciliada para `error` com motivo em `#registros` | BLOQUEIA |
-| D2 | Derrubar o WebSocket (fechar/reabrir a janela) | Ao voltar, o composer reflete o estado real do backend — sem ficar preso em "Executando…" | BLOQUEIA |
-| D3 | Execução em **Worktree** | Turno roda em worktree separada; o repositório principal não é tocado até o aceite | BLOQUEIA |
-| D4 | Delegar a 2+ subagentes em paralelo no mesmo arquivo | Diff nasce em `conflict` com um candidato por filho | — |
-| D5 | Apagar a pasta da worktree vencedora e tentar resolver o conflito | Recusa com "worktree não existe mais"; arquivo do pai **intacto** e conflito ainda resolvível | BLOQUEIA |
-| D6 | Abrir 2 threads no mesmo projeto e disparar as duas | A segunda recusa com `thread_busy` (lease de projeto), sem corromper estado | BLOQUEIA |
-| D7 | Criar `.engrena/modes/x.chatmode.md` com o projeto já aberto | Abrir o picker de modo mostra o arquivo, sem precisar trocar de projeto | — |
+- ☐ **D1 · BLOQUEIA** — Matar o app durante um turno e reabrir
+  - **Esperado:** thread presa em `running` é reconciliada para `error` com motivo em `#registros`
+  - **Exemplo:** dispare o prompt longo de B9 e mate o processo por PID no meio
+- ☐ **D2 · BLOQUEIA** — Derrubar o WebSocket
+  - **Esperado:** ao voltar, o composer reflete o estado real do backend — sem ficar preso em "Executando…"
+  - **Exemplo:** com a thread ociosa, feche e reabra a janela; o composer tem de mostrar **Enviar**, não **Parar**
+- ☐ **D3 · BLOQUEIA** — Execução em **Worktree**
+  - **Esperado:** turno roda em worktree separada; o repositório principal não é tocado até o aceite
+  - **Exemplo:** thread nova com execution **Worktree**, peça uma escrita e rode `git worktree list` — a pasta do projeto principal continua sem a alteração
+- ☐ **D4** — Delegar a 2+ subagentes em paralelo no mesmo arquivo
+  - **Esperado:** diff nasce em `conflict`, com um candidato por filho
+  - **Exemplo:** dois subagentes que **escrevem** (um agente read-only recusa a escrita e o conflito nunca acontece — não é defeito)
+- ☐ **D5 · BLOQUEIA** — Apagar a pasta da worktree vencedora e tentar resolver o conflito
+  - **Esperado:** recusa com "worktree não existe mais"; arquivo do pai **intacto** e conflito ainda resolvível
+  - **Exemplo:** `Remove-Item -Recurse -Force <worktree do filho>` e então escolher esse filho como vencedor
+- ☐ **D6 · BLOQUEIA** — Abrir 2 threads no mesmo projeto e disparar as duas
+  - **Esperado:** a segunda recusa com `thread_busy` (lease de projeto), sem corromper estado
+- ☐ **D7** — Criar `.engrena/modes/x.chatmode.md` com o projeto já aberto
+  - **Esperado:** abrir o picker de modo mostra o arquivo, sem precisar trocar de projeto
+  - **Exemplo:** arquivo com frontmatter `model: haiku` e corpo `Só revise.` → o modo aparece como `x (do repositório)`, sem ✎ nem × (arquivo do repo é somente leitura)
 
 ---
 
@@ -161,22 +249,27 @@ Preencher a cada rodada e anexar ao PR de release.
 
 ```
 Versão empacotada:  ______   Commit: ______   Data: ______
-Perfil usado:       ( ) isolado  ( ) real
+Perfil usado:       ☐ isolado   ☐ real
 Executado por:      ______
 
 Roteiro A: __/10    Roteiro B: __/14    Roteiro C: __/10    Roteiro D: __/7
 
-Falhas:
-| ID | O que aconteceu | Evidência (print/log/linha do banco) | Decisão |
-|----|-----------------|--------------------------------------|---------|
-|    |                 |                                      |         |
+Falhas (uma linha por ❌):
+| ID | O que aconteceu | Evidência (print/log/linha do banco) | BLOQUEIA? | Decisão |
+|----|-----------------|--------------------------------------|-----------|---------|
+|    |                 |                                      |           |         |
 
-Veredito: ( ) APROVADA   ( ) REPROVADA
+Veredito:  ☐ APROVADA   ☐ REPROVADA
 ```
 
-**Evidência barata:** em vez de instrumentar a UI, ler o banco direto. `%APPDATA%\engrena-code\engrenacode.db`
-(ou o `ENGRENACODE_USER_DATA` do perfil isolado) com `node:sqlite`: `log_entries` mostra hook e gate,
-`subagent_runs` mostra `action_count` e status, `diffs` mostra status e candidatos.
+**Evidência barata:** em vez de instrumentar a UI, ler o banco direto.
+`%APPDATA%\engrena-code\engrenacode.db` (ou o `ENGRENACODE_USER_DATA` do perfil isolado) com
+`node:sqlite`: `log_entries` mostra hook e gate, `subagent_runs` mostra `action_count` e status,
+`diffs` mostra status e candidatos.
+
+```powershell
+node -e "const{DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(process.env.ENGRENACODE_USER_DATA+'/engrenacode.db');console.log(db.prepare('SELECT kind,message FROM log_entries ORDER BY created_at DESC LIMIT 10').all())"
+```
 
 ---
 
