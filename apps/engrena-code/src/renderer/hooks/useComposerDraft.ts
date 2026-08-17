@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { projectsService } from '../services/projects-service'
 import { threadsService, type ComposerCatalog } from '../services/threads-service'
 import {
@@ -69,6 +69,12 @@ export function useComposerDraft(input: {
 
   const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
   const [composer, setComposer] = useState<ComposerDraft>(emptyDraft)
+  /**
+   * Espelho síncrono do rascunho. Existe para `attach`/`detach` decidirem sem ler estado dentro de
+   * um updater; é escrito em `applyComposer`, antes do `setComposer`, e não num efeito — efeito só
+   * roda depois do render, e duas chamadas no mesmo tick veriam o valor velho.
+   */
+  const composerRef = useRef<ComposerDraft>(emptyDraft())
 
   // Contexto implícito: arquivo aberto no viewer (+ seleção), espelhando `chatImplicitContext.ts`
   // do VS Code. Vira chip removível e pode ser desligado — nunca entra escondido no turno.
@@ -101,7 +107,7 @@ export function useComposerDraft(input: {
   // biome-ignore lint/correctness/useExhaustiveDependencies: as deps são os 6 campos da thread, um a um; o objeto inteiro muda de identidade a cada refetch.
   useEffect(() => {
     if (!selectedThread) return
-    setComposer((prev) => rehydrateFromThread(prev, selectedThread))
+    applyComposer((prev) => rehydrateFromThread(prev, selectedThread))
   }, [
     selectedThread?.id,
     selectedThread?.model,
@@ -117,42 +123,71 @@ export function useComposerDraft(input: {
     [composer.attachments, activeFile, implicitContextEnabled]
   )
 
-  const updateComposer = useCallback((patch: Partial<ComposerDraft>) => {
-    setComposer((prev) => ({ ...prev, ...patch }))
+  /**
+   * Único ponto de escrita do rascunho: aplica o updater sobre o valor corrente, atualiza o espelho
+   * e entrega o resultado pronto ao React. Todo caminho que muda o composer passa por aqui — se um
+   * deles chamasse `setComposer` direto, o espelho divergiria e `attach` decidiria por um estado
+   * que não existe mais.
+   */
+  const applyComposer = useCallback((updater: (prev: ComposerDraft) => ComposerDraft) => {
+    const next = updater(composerRef.current)
+    composerRef.current = next
+    setComposer(next)
   }, [])
+
+  const updateComposer = useCallback(
+    (patch: Partial<ComposerDraft>) => {
+      applyComposer((prev) => ({ ...prev, ...patch }))
+    },
+    [applyComposer]
+  )
 
   const clearTextAndImages = useCallback(() => {
-    setComposer(clearTextAndImagesPatch)
-  }, [])
+    applyComposer(clearTextAndImagesPatch)
+  }, [applyComposer])
 
   const clearDraftAfterSend = useCallback(() => {
-    setComposer(clearDraftAfterSendPatch)
-  }, [])
+    applyComposer(clearDraftAfterSendPatch)
+  }, [applyComposer])
 
   const clearAttachError = useCallback(() => setAttachError(null), [])
 
-  const attach = useCallback((attachment: ComposerAttachment) => {
-    setComposer((prev) => {
-      const result = addAttachment(prev.attachments, attachment)
+  /**
+   * `attach`/`detach` decidem **fora** do updater, lendo o rascunho por `composerRef`.
+   *
+   * Antes eles chamavam `setAttachError`/`setImplicitContextEnabled` de dentro do updater de
+   * `setComposer`. Updater tem de ser puro: o React o executa durante o render seguinte e, em
+   * StrictMode, duas vezes — o efeito colateral ia junto nas duas. O `composerRef` é atualizado
+   * na hora, em `applyComposer`, e não no efeito de render, para que duas chamadas no mesmo tick
+   * (anexar dois arquivos seguidos) leiam a lista já com o primeiro anexo dentro.
+   */
+  const attach = useCallback(
+    (attachment: ComposerAttachment) => {
+      const result = addAttachment(composerRef.current.attachments, attachment)
       if (!result.ok) {
         setAttachError(result.message)
-        return prev
+        return
       }
       setAttachError(null)
-      return { ...prev, attachments: result.attachments }
-    })
-  }, [])
+      applyComposer((prev) => ({ ...prev, attachments: result.attachments }))
+    },
+    [applyComposer]
+  )
 
   /** Chip implícito não sai da lista explícita — remover significa desligar o implícito. */
-  const detach = useCallback((id: string) => {
-    setAttachError(null)
-    setComposer((prev) => {
-      const next = removeAttachmentFromList(prev.attachments, id)
-      if (next.length !== prev.attachments.length) return { ...prev, attachments: next }
+  const detach = useCallback(
+    (id: string) => {
+      setAttachError(null)
+      const current = composerRef.current.attachments
+      const next = removeAttachmentFromList(current, id)
+      if (next.length !== current.length) {
+        applyComposer((prev) => ({ ...prev, attachments: next }))
+        return
+      }
       setImplicitContextEnabled(false)
-      return prev
-    })
-  }, [])
+    },
+    [applyComposer]
+  )
 
   /**
    * `#codebase`: busca trechos pelo texto que já está no composer e anexa os melhores como chips
@@ -193,7 +228,7 @@ export function useComposerDraft(input: {
     composerCatalog,
     composer,
     updateComposer,
-    updateDraft: setComposer,
+    updateDraft: applyComposer,
     clearTextAndImages,
     clearDraftAfterSend,
     composerAttachments,

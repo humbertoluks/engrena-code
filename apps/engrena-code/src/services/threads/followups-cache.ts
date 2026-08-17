@@ -7,9 +7,20 @@
  * apareciam — embaixo da mensagem errada.
  */
 
+/**
+ * Teto do cache. Sugestão é conveniência de UI, não dado: guardar mais que isso num processo longo
+ * é ocupar memória com resposta que ninguém vai pedir de novo. O `DELETE` da thread já limpa a
+ * entrada dela, mas nada limpava o acúmulo de threads que só foram abertas e deixadas de lado.
+ */
+export const MAX_CACHED_THREADS = 50
+
+/** Sugestão velha não vale ser servida: o contexto do turno já mudou. */
+export const FOLLOWUPS_TTL_MS = 60 * 60 * 1000
+
 interface CacheEntry {
   messageId: string
   followups: string[]
+  createdAt: number
 }
 
 const cache = new Map<string, CacheEntry>()
@@ -17,7 +28,24 @@ const inflight = new Map<string, { messageId: string; promise: Promise<string[]>
 
 export function getCachedFollowups(threadId: string, messageId: string): string[] | null {
   const entry = cache.get(threadId)
-  return entry !== undefined && entry.messageId === messageId ? entry.followups : null
+  if (entry === undefined || entry.messageId !== messageId) return null
+  if (Date.now() - entry.createdAt > FOLLOWUPS_TTL_MS) {
+    cache.delete(threadId)
+    return null
+  }
+  return entry.followups
+}
+
+/**
+ * Poda na escrita, que é o único momento em que o cache cresce. `Map` itera na ordem de inserção,
+ * e cada gravação reinsere a thread, então a primeira chave é sempre a menos recentemente escrita.
+ */
+function evictOldestIfNeeded(): void {
+  while (cache.size > MAX_CACHED_THREADS) {
+    const oldest = cache.keys().next()
+    if (oldest.done === true) return
+    cache.delete(oldest.value)
+  }
 }
 
 /**
@@ -37,7 +65,9 @@ export async function resolveFollowups(
 
   const promise = generate()
     .then((followups) => {
-      cache.set(threadId, { messageId, followups })
+      cache.delete(threadId)
+      cache.set(threadId, { messageId, followups, createdAt: Date.now() })
+      evictOldestIfNeeded()
       return followups
     })
     .catch(() => [])

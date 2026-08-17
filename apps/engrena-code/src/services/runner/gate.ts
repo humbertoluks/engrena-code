@@ -586,7 +586,39 @@ export interface OpenGateInfo {
   expiresAt: number | null
 }
 
+/**
+ * Fecha as linhas cujo `expires_at` já passou mas que continuam `open`.
+ *
+ * O caminho normal de expiração é o `setTimeout` armado em `openPermissionGate`, que vive na
+ * memória deste processo. Ele não cobre a máquina que dormiu, o processo suspenso nem o relógio
+ * que andou: nesses casos a linha fica vencida e aberta, e o snapshot ressuscitaria na tela um card
+ * que ninguém consegue mais responder — justamente no reconnect, que é quando o snapshot é lido.
+ *
+ * Fechar aqui é o mesmo desfecho que o timer daria: permissão nega (fail-closed), pergunta é
+ * rejeitada. Se a continuação ainda existir, ela é liberada com o mesmo motivo.
+ */
+function expireDueGates(threadId: string, now = Date.now()): void {
+  for (const gate of listOpenThreadGates(threadId)) {
+    // Sem prazo não há vencimento a cobrar: quem fecha esse gate é a resposta ou o cancel.
+    if (gate.expiresAt === null || gate.expiresAt > now) continue
+    if (gate.kind === 'question') {
+      closeGate(
+        gate.id,
+        'expired',
+        { kind: 'question', answer: null, message: GATE_ABANDONED_MESSAGE },
+        'gate_expired',
+        { restoreRunning: false }
+      )
+      continue
+    }
+    closeGate(gate.id, 'expired', { kind: 'permission', allow: false }, 'permission_timeout')
+  }
+}
+
 export function listOpenGates(threadId: string): OpenGateInfo[] {
+  // Nunca devolver gate vencido: o snapshot é lido no reconnect, e é ali que um card morto
+  // voltaria à tela com o backend já sem nada pendente.
+  expireDueGates(threadId)
   return listOpenThreadGates(threadId).map((gate) => ({
     gateId: gate.id,
     threadId: gate.threadId,
