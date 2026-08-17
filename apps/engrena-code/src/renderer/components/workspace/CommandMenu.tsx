@@ -10,6 +10,7 @@ const COPY = {
   promptsGroup: 'Prompts salvos',
   fromRepo: 'do repositório',
   removePrompt: 'Remover prompt salvo',
+  editPrompt: 'Editar prompt salvo',
   spec: '/spec',
   specDesc: 'Gera spec.md + plan.md como texto estruturado na thread (não grava ficheiro).',
   featdevelop: '/featdevelop',
@@ -36,6 +37,8 @@ export interface CommandMenuProps {
   /** Prompts salvos do projeto (F28 §3.4) — dividem o mesmo menu `/` com os comandos. */
   prompts?: readonly SavedPromptItem[]
   onSelectPrompt?: (prompt: SavedPromptItem) => void
+  /** Abre o prompt para edição no composer (o corpo vira o texto do composer). */
+  onEditPrompt?: (prompt: SavedPromptItem) => void
   onDeletePrompt?: (id: string) => void
 }
 
@@ -44,6 +47,7 @@ export function CommandMenu({
   onSelect,
   prompts = [],
   onSelectPrompt,
+  onEditPrompt,
   onDeletePrompt,
 }: Readonly<CommandMenuProps>): ReactElement {
   const matches = matchSlashCommands(query)
@@ -105,6 +109,20 @@ export function CommandMenu({
                   {prompt.source === 'file' ? ` (${COPY.fromRepo})` : ''}
                 </span>
               </button>
+              {prompt.source === 'db' && prompt.id !== null && onEditPrompt ? (
+                <button
+                  type="button"
+                  aria-label={`${COPY.editPrompt}: ${prompt.name}`}
+                  title={COPY.editPrompt}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onEditPrompt(prompt)
+                  }}
+                  className="shrink-0 rounded-md px-xs py-[2px] text-[11px] text-muted opacity-0 hover:text-accent group-focus-within/prompt:opacity-100 group-hover/prompt:opacity-100"
+                >
+                  ✎
+                </button>
+              ) : null}
               {prompt.source === 'db' && prompt.id !== null && onDeletePrompt ? (
                 <button
                   type="button"

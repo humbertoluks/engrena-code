@@ -35,6 +35,9 @@ export interface SavedPromptInput {
   body: string
 }
 
+/** Patch do PUT: campo ausente fica como está no banco (o handler não sobrescreve com null). */
+export type SavedPromptPatchInput = Partial<SavedPromptInput>
+
 export interface ChatModeInput {
   name: string
   description?: string
@@ -48,6 +51,8 @@ export interface ChatModeInput {
   rules?: string[] | null
 }
 
+export type ChatModePatchInput = Partial<ChatModeInput>
+
 export const promptLibraryService = {
   listPrompts: (projectId: string): Promise<{ prompts: SavedPromptItem[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/projects/${projectId}/prompts`),
@@ -58,6 +63,11 @@ export const promptLibraryService = {
   ): Promise<{ prompt?: SavedPromptItem } & ApiErrorBody> =>
     apiRequest('POST', `/api/projects/${projectId}/prompts`, input),
 
+  updatePrompt: (
+    id: string,
+    patch: SavedPromptPatchInput
+  ): Promise<{ prompt?: SavedPromptItem } & ApiErrorBody> => apiRequest('PUT', `/api/prompts/${id}`, patch),
+
   deletePrompt: (id: string): Promise<{ deleted?: boolean } & ApiErrorBody> =>
     apiRequest('DELETE', `/api/prompts/${id}`),
 
@@ -66,6 +76,9 @@ export const promptLibraryService = {
 
   createMode: (projectId: string, input: ChatModeInput): Promise<{ mode?: ChatModeItem } & ApiErrorBody> =>
     apiRequest('POST', `/api/projects/${projectId}/modes`, input),
+
+  updateMode: (id: string, patch: ChatModePatchInput): Promise<{ mode?: ChatModeItem } & ApiErrorBody> =>
+    apiRequest('PUT', `/api/modes/${id}`, patch),
 
   deleteMode: (id: string): Promise<{ deleted?: boolean } & ApiErrorBody> =>
     apiRequest('DELETE', `/api/modes/${id}`),

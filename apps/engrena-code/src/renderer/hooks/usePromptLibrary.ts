@@ -4,21 +4,38 @@ import {
   type ChatModeItem,
   type SavedPromptItem,
 } from '../services/prompt-library-service'
+import { skillsService } from '../services/skills-service'
+import { rulesService } from '../services/rules-service'
 import {
   applyChatModeByName,
   clearChatModeIfSelected,
+  renameChatModeIfSelected,
+  selectableRuleNames,
+  selectableSkillNames,
   validateChatModeName,
   validateSavedPrompt,
+  EMPTY_MODE_CATALOG,
+  type ChatModeFormDraft,
+  type ModeCatalogOptions,
   type PromptLibraryDraft,
 } from './promptLibrary.logic'
 
 export interface PromptLibraryApi {
   savedPrompts: SavedPromptItem[]
   chatModes: ChatModeItem[]
+  /** Skills/rules que o projeto resolve hoje — é o que o seletor do modo pode oferecer. */
+  modeCatalog: ModeCatalogOptions
   libraryError: string | null
   applyChatMode: (name: string | null) => void
   savePromptFromComposer: (rawName: string) => Promise<boolean>
-  saveChatModeFromComposer: (rawName: string, instructions?: string) => Promise<boolean>
+  saveChatModeFromComposer: (form: ChatModeFormDraft) => Promise<boolean>
+  updateSavedPromptFromComposer: (id: string, rawName: string, rawText: string) => Promise<boolean>
+  updateChatModeFromComposer: (
+    id: string,
+    previousName: string,
+    form: ChatModeFormDraft,
+    options?: { capturePreset?: boolean }
+  ) => Promise<boolean>
   deleteSavedPrompt: (id: string) => Promise<void>
   deleteChatMode: (id: string, name: string) => Promise<void>
 }
@@ -54,17 +71,26 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
 
   const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>([])
   const [chatModes, setChatModes] = useState<ChatModeItem[]>([])
+  const [modeCatalog, setModeCatalog] = useState<ModeCatalogOptions>(EMPTY_MODE_CATALOG)
   const [libraryError, setLibraryError] = useState<string | null>(null)
 
+  // As quatro chamadas saem juntas: o seletor de skills/rules do formulário de modo precisa do
+  // catálogo no mesmo instante em que a lista de modos aparece, e encadear viraria waterfall.
   const loadPromptLibrary = useCallback(
     async (loadProjectId: string) => {
-      const [prompts, modes] = await Promise.all([
+      const [prompts, modes, skills, rules] = await Promise.all([
         promptLibraryService.listPrompts(loadProjectId),
         promptLibraryService.listModes(loadProjectId),
+        skillsService.listForProject(loadProjectId),
+        rulesService.listForProject(loadProjectId),
       ])
       if (!mountedRef.current) return
       if (!prompts.error) setSavedPrompts(prompts.prompts)
       if (!modes.error) setChatModes(modes.modes)
+      setModeCatalog({
+        skills: Array.isArray(skills) ? selectableSkillNames(skills) : [],
+        rules: rules.error ? [] : selectableRuleNames(rules.rules),
+      })
     },
     [mountedRef]
   )
@@ -73,6 +99,7 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
     if (!projectId) {
       setSavedPrompts([])
       setChatModes([])
+      setModeCatalog(EMPTY_MODE_CATALOG)
       return
     }
     void loadPromptLibrary(projectId)
@@ -112,9 +139,9 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
 
   /** O modo nasce do que já está no composer — é o preset que o usuário acabou de montar na mão. */
   const saveChatModeFromComposer = useCallback(
-    async (rawName: string, instructions = ''): Promise<boolean> => {
+    async (form: ChatModeFormDraft): Promise<boolean> => {
       if (!projectId) return false
-      const valid = validateChatModeName(rawName)
+      const valid = validateChatModeName(form.name)
       if (!valid.ok) {
         setLibraryError(valid.error)
         return false
@@ -127,7 +154,9 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
         reasoningLevel: draftReasoningLevel,
         accessLevel: draftAccessLevel,
         executionMode: draftExecutionMode,
-        instructions,
+        instructions: form.instructions,
+        skills: form.skills,
+        rules: form.rules,
       })
       if (res.error) {
         setLibraryError(res.error.message)
@@ -138,6 +167,86 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
       // recém-criado, e a pill ficaria no modo antigo. O preset já é o estado atual do composer.
       updateDraft((prev) => ({ ...prev, chatMode: name }))
       await loadPromptLibrary(projectId)
+      return true
+    },
+    [
+      projectId,
+      draftProvider,
+      draftModel,
+      draftReasoningLevel,
+      draftAccessLevel,
+      draftExecutionMode,
+      updateDraft,
+      loadPromptLibrary,
+    ]
+  )
+
+  /**
+   * Edição do prompt salvo: o corpo é o texto que está no composer agora — mesmo caminho da
+   * criação, só que com PUT. `id` vem do menu `/`, então só prompt do banco chega aqui (os do
+   * repositório são somente leitura e não expõem o lápis).
+   */
+  const updateSavedPromptFromComposer = useCallback(
+    async (id: string, rawName: string, rawText: string): Promise<boolean> => {
+      const valid = validateSavedPrompt(rawName, rawText)
+      if (!valid.ok) {
+        setLibraryError(valid.error)
+        return false
+      }
+      const res = await promptLibraryService.updatePrompt(id, valid.value)
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      if (projectId) await loadPromptLibrary(projectId)
+      return true
+    },
+    [projectId, loadPromptLibrary]
+  )
+
+  /**
+   * Edição do modo salvo. Por padrão mexe só em nome/instruções/skills/rules e **preserva** o
+   * preset gravado: quem abre o lápis para corrigir uma instrução não espera levar junto o
+   * provider/modelo que estiver no composer naquele instante. `capturePreset` é o opt-in explícito
+   * do formulário para regravar o preset com o estado atual do composer.
+   */
+  const updateChatModeFromComposer = useCallback(
+    async (
+      id: string,
+      previousName: string,
+      form: ChatModeFormDraft,
+      options: { capturePreset?: boolean } = {}
+    ): Promise<boolean> => {
+      const valid = validateChatModeName(form.name)
+      if (!valid.ok) {
+        setLibraryError(valid.error)
+        return false
+      }
+      const name = valid.value
+      const res = await promptLibraryService.updateMode(id, {
+        name,
+        instructions: form.instructions,
+        skills: form.skills,
+        rules: form.rules,
+        ...(options.capturePreset === true
+          ? {
+              provider: draftProvider,
+              model: draftModel,
+              reasoningLevel: draftReasoningLevel,
+              accessLevel: draftAccessLevel,
+              executionMode: draftExecutionMode,
+            }
+          : {}),
+      })
+      if (res.error) {
+        setLibraryError(res.error.message)
+        return false
+      }
+      setLibraryError(null)
+      // Renomear não pode deixar a pill apontando para um modo que não existe mais.
+      updateDraft((prev) => renameChatModeIfSelected(prev, previousName, name))
+      if (projectId) await loadPromptLibrary(projectId)
       return true
     },
     [
@@ -180,10 +289,13 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
   return {
     savedPrompts,
     chatModes,
+    modeCatalog,
     libraryError,
     applyChatMode,
     savePromptFromComposer,
     saveChatModeFromComposer,
+    updateSavedPromptFromComposer,
+    updateChatModeFromComposer,
     deleteSavedPrompt,
     deleteChatMode,
   }

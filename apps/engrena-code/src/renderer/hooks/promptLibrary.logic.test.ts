@@ -1,9 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import type { ChatModeItem } from '../services/prompt-library-service'
+import type { SkillLinkState } from '../services/skills-service'
+import type { RuleLinkState } from '../services/rules-service'
 import {
   applyChatModeByName,
   applyModeToDraft,
+  chatModeFormFrom,
   clearChatModeIfSelected,
+  isModeCatalogChecked,
+  renameChatModeIfSelected,
+  selectableRuleNames,
+  selectableSkillNames,
+  toggleModeCatalogName,
   PROMPT_LIBRARY_COPY,
   validateChatModeName,
   validateSavedPrompt,
@@ -34,6 +42,8 @@ function mode(patch: Partial<ChatModeItem> = {}): ChatModeItem {
     accessLevel: 'supervised',
     executionMode: 'worktree',
     instructions: '',
+    skills: null,
+    rules: null,
     source: 'db',
     file: null,
     ...patch,
@@ -183,5 +193,133 @@ describe('validateChatModeName', () => {
 
   it('mantém a mensagem PT-BR literal', () => {
     expect(PROMPT_LIBRARY_COPY.modeNameRequired).toBe('Dê um nome ao modo antes de salvar.')
+  })
+})
+
+// ── Catálogo do modo (skills/rules no formulário do composer) ─────────────────
+
+function skillLink(patch: Partial<SkillLinkState> = {}): SkillLinkState {
+  return {
+    id: 'sk-1',
+    name: 'revisao',
+    description: '',
+    category: null,
+    enabled: true,
+    createdAt: 0,
+    updatedAt: 0,
+    linked: true,
+    enabledInProject: true,
+    sortOrder: null,
+    ...patch,
+  }
+}
+
+function ruleLink(patch: Partial<RuleLinkState> = {}): RuleLinkState {
+  return {
+    id: 'rl-1',
+    name: 'pt-br',
+    description: null,
+    category: null,
+    isGlobal: false,
+    enabled: true,
+    createdAt: 0,
+    updatedAt: 0,
+    linked: true,
+    activeInProject: true,
+    suppressedHere: false,
+    enabledInProject: true,
+    sortOrder: null,
+    contentBytes: 0,
+    ...patch,
+  }
+}
+
+describe('selectableSkillNames', () => {
+  it('oferece só o que o turno resolve — mesmo predicado de resolveSkillsForProject', () => {
+    const names = selectableSkillNames([
+      skillLink({ id: 'a', name: 'ativa' }),
+      skillLink({ id: 'b', name: 'nao-vinculada', linked: false, enabledInProject: null }),
+      skillLink({ id: 'c', name: 'desligada-global', enabled: false }),
+      skillLink({ id: 'd', name: 'desligada-no-projeto', enabledInProject: false }),
+    ])
+    expect(names).toEqual(['ativa'])
+  })
+})
+
+describe('selectableRuleNames', () => {
+  it('oferece só as rules ativas no projeto — mesmo predicado de resolveForTurn', () => {
+    const names = selectableRuleNames([
+      ruleLink({ id: 'a', name: 'ativa' }),
+      ruleLink({ id: 'b', name: 'suprimida', activeInProject: false, suppressedHere: true }),
+      ruleLink({ id: 'c', name: 'desligada', enabled: false }),
+    ])
+    expect(names).toEqual(['ativa'])
+  })
+})
+
+describe('toggleModeCatalogName', () => {
+  const all = ['a', 'b', 'c']
+
+  it('desmarcar a partir de "todas" materializa a lista com o resto', () => {
+    expect(toggleModeCatalogName(null, 'b', all)).toEqual(['a', 'c'])
+  })
+
+  it('desmarcar de uma lista explícita remove só aquele nome', () => {
+    expect(toggleModeCatalogName(['a', 'c'], 'c', all)).toEqual(['a'])
+  })
+
+  it('marcar de volta respeita a ordem do catálogo, não a ordem do clique', () => {
+    expect(toggleModeCatalogName(['c'], 'a', all)).toEqual(['a', 'c'])
+  })
+
+  it('desmarcar o último vira lista vazia (nenhuma), não "todas"', () => {
+    expect(toggleModeCatalogName(['a'], 'a', all)).toEqual([])
+  })
+
+  it('remarcar tudo continua sendo lista explícita — só o botão "Todas" volta para null', () => {
+    expect(toggleModeCatalogName(['a', 'b'], 'c', all)).toEqual(all)
+  })
+})
+
+describe('isModeCatalogChecked', () => {
+  it('sem filtro tudo aparece marcado', () => {
+    expect(isModeCatalogChecked(null, 'qualquer')).toBe(true)
+  })
+
+  it('lista vazia não marca nada', () => {
+    expect(isModeCatalogChecked([], 'a')).toBe(false)
+  })
+
+  it('lista explícita marca só o que está nela', () => {
+    expect(isModeCatalogChecked(['a'], 'a')).toBe(true)
+    expect(isModeCatalogChecked(['a'], 'b')).toBe(false)
+  })
+})
+
+describe('chatModeFormFrom', () => {
+  it('copia as listas em vez de compartilhar a referência do modo salvo', () => {
+    const saved = mode({ name: 'revisor', instructions: 'só leitura', skills: ['a'], rules: ['r'] })
+    const form = chatModeFormFrom(saved)
+    form.skills?.push('b')
+    expect(saved.skills).toEqual(['a'])
+    expect(form).toEqual({ name: 'revisor', instructions: 'só leitura', skills: ['a', 'b'], rules: ['r'] })
+  })
+
+  it('preserva o null de "sem filtro"', () => {
+    const form = chatModeFormFrom(mode({ skills: null, rules: null }))
+    expect(form.skills).toBeNull()
+    expect(form.rules).toBeNull()
+  })
+})
+
+describe('renameChatModeIfSelected', () => {
+  it('a pill segue o novo nome quando era ela a selecionada', () => {
+    const next = renameChatModeIfSelected(draft({ chatMode: 'antigo' }), 'antigo', 'novo')
+    expect(next.chatMode).toBe('novo')
+  })
+
+  it('renomear outro modo devolve a mesma referência', () => {
+    const base = draft({ chatMode: 'outro' })
+    expect(renameChatModeIfSelected(base, 'antigo', 'novo')).toBe(base)
   })
 })

@@ -28,6 +28,7 @@ import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, type SlashT
 import { deriveChatSurface, type ComposerPlaceholderKey } from './chatSurface.logic'
 import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { ComposerModePicker } from './ComposerModePicker'
+import { EMPTY_MODE_CATALOG, type ChatModeFormDraft, type ModeCatalogOptions } from '../../hooks/promptLibrary.logic'
 import type { ChatModeItem, SavedPromptItem } from '../../services/prompt-library-service'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
 import { VoiceMicButton } from './VoiceMicButton'
@@ -72,6 +73,8 @@ const COPY = {
   savePromptPlaceholder: 'Nome do prompt…',
   savePromptConfirm: 'Salvar',
   savePromptCancel: 'Cancelar',
+  editPromptBadge: (name: string) => `editando /${name}`,
+  editPromptTitle: 'O texto do composer vira o novo corpo deste prompt salvo',
   codebase: '#codebase',
   codebaseTitle: 'Buscar trechos do projeto para o pedido escrito no composer e anexar como contexto',
   codebaseBusy: 'Buscando…',
@@ -114,9 +117,18 @@ export interface TaskComposerProps {
   savedPrompts?: readonly SavedPromptItem[]
   chatModes?: readonly ChatModeItem[]
   libraryError?: string | null
+  /** Skills/rules que o projeto resolve hoje — teto do filtro do modo (F28 §3.4). */
+  modeCatalog?: ModeCatalogOptions
   onApplyChatMode?: (name: string | null) => void
   onSavePrompt?: (name: string) => Promise<boolean>
-  onSaveChatMode?: (name: string, instructions: string) => Promise<boolean>
+  onUpdateSavedPrompt?: (id: string, name: string, text: string) => Promise<boolean>
+  onSaveChatMode?: (form: ChatModeFormDraft) => Promise<boolean>
+  onUpdateChatMode?: (
+    id: string,
+    previousName: string,
+    form: ChatModeFormDraft,
+    options: { capturePreset: boolean }
+  ) => Promise<boolean>
   onDeleteSavedPrompt?: (id: string) => void
   onDeleteChatMode?: (id: string, name: string) => void
   updateComposer: (patch: Partial<ComposerDraft>) => void
@@ -155,10 +167,13 @@ export function TaskComposer({
   codebaseBusy = false,
   savedPrompts = [],
   chatModes = [],
+  modeCatalog = EMPTY_MODE_CATALOG,
   libraryError = null,
   onApplyChatMode,
   onSavePrompt,
+  onUpdateSavedPrompt,
   onSaveChatMode,
+  onUpdateChatMode,
   onDeleteSavedPrompt,
   onDeleteChatMode,
   updateComposer,
@@ -187,6 +202,8 @@ export function TaskComposer({
   const [slashError, setSlashError] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [promptNameDraft, setPromptNameDraft] = useState<string | null>(null)
+  /** Prompt salvo aberto para edição pelo lápis do menu `/`; `null` = o campo salva um novo. */
+  const [editingPrompt, setEditingPrompt] = useState<{ id: string; name: string } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   function handleVoiceTranscript(text: string): void {
@@ -272,11 +289,36 @@ export function TaskComposer({
     })
   }
 
+  /**
+   * Editar prompt salvo: o corpo dele vira o texto do composer (é o editor que já existe) e o
+   * campo de nome passa a salvar por cima. Substituir o texto é aceitável porque o menu `/` só
+   * está aberto quando o composer tem o gatilho digitado, não um rascunho longo.
+   */
+  function handleEditSavedPrompt(prompt: SavedPromptItem): void {
+    if (prompt.id === null) return
+    updateComposer({ text: prompt.body })
+    setEditingPrompt({ id: prompt.id, name: prompt.name })
+    setPromptNameDraft(prompt.name)
+    setSlashTrigger(null)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  function cancelPromptDraft(): void {
+    setPromptNameDraft(null)
+    setEditingPrompt(null)
+  }
+
   async function handleSavePrompt(): Promise<void> {
-    if (promptNameDraft === null || onSavePrompt === undefined) return
+    if (promptNameDraft === null) return
     const name = promptNameDraft.trim()
     if (name === '') return
-    if (await onSavePrompt(name)) setPromptNameDraft(null)
+    if (editingPrompt !== null) {
+      if (onUpdateSavedPrompt === undefined) return
+      if (await onUpdateSavedPrompt(editingPrompt.id, name, composer.text)) cancelPromptDraft()
+      return
+    }
+    if (onSavePrompt === undefined) return
+    if (await onSavePrompt(name)) cancelPromptDraft()
   }
 
   function handleSelectSlashCommand(name: SlashCommandName): void {
@@ -479,6 +521,7 @@ export function TaskComposer({
               onSelect={handleSelectSlashCommand}
               prompts={savedPrompts}
               onSelectPrompt={handleSelectSavedPrompt}
+              onEditPrompt={onUpdateSavedPrompt ? handleEditSavedPrompt : undefined}
               onDeletePrompt={onDeleteSavedPrompt}
             />
           ) : mention !== null && projectId ? (
@@ -553,13 +596,15 @@ export function TaskComposer({
               disabled={disabled || surface.composerMode === 'stopping'}
               onChange={(v) => void onAccessLevelChange(v)}
             />
-            {onApplyChatMode && onSaveChatMode && onDeleteChatMode ? (
+            {onApplyChatMode && onSaveChatMode && onUpdateChatMode && onDeleteChatMode ? (
               <ComposerModePicker
                 modes={chatModes}
+                catalog={modeCatalog}
                 value={composer.chatMode}
                 disabled={disabled}
                 onApply={onApplyChatMode}
                 onSave={onSaveChatMode}
+                onUpdate={onUpdateChatMode}
                 onDelete={onDeleteChatMode}
               />
             ) : null}
@@ -617,13 +662,18 @@ export function TaskComposer({
                       }
                       if (e.key === 'Escape') {
                         e.preventDefault()
-                        setPromptNameDraft(null)
+                        cancelPromptDraft()
                       }
                     }}
                     placeholder={COPY.savePromptPlaceholder}
                     aria-label={COPY.savePromptPlaceholder}
                     className="w-[150px] rounded-md border border-border bg-surface px-xs py-[3px] text-[11.5px] text-fg placeholder:text-muted focus:border-accent focus:outline-none"
                   />
+                  {editingPrompt !== null ? (
+                    <span title={COPY.editPromptTitle} className="font-mono text-[10.5px] text-accent">
+                      {COPY.editPromptBadge(editingPrompt.name)}
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void handleSavePrompt()}
@@ -634,7 +684,7 @@ export function TaskComposer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPromptNameDraft(null)}
+                    onClick={cancelPromptDraft}
                     className="rounded-md px-xs py-[3px] text-[11px] text-muted hover:text-fg"
                   >
                     {COPY.savePromptCancel}

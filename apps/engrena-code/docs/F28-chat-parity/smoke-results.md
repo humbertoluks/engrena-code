@@ -184,8 +184,7 @@ versionado no repo não vira porta de entrada para skill ou rule que ninguém ap
 
 **Onde declara:** frontmatter dos `.engrena/modes/*.chatmode.md`, colunas `skills_json`/`rules_json`
 (migração `020_chat_mode_catalog`) e os campos `skills`/`rules` no POST/PUT de `/api/projects/:id/modes`.
-O formulário de salvar modo do composer **não** ganhou seletores nesta fatia: isso cai junto da outra
-pendência, a de editar prompt/modo pela própria UI.
+O formulário de salvar modo do composer ganhou os seletores na fatia seguinte (seção abaixo).
 
 **O filtro entra na origem, não só no texto.** `createSkillSnapshot` recebe a lista e filtra o snapshot
 inteiro — o mesmo que alimenta o arquivo lido pela tool `load_skill`. Anunciar menos no system prompt e
@@ -206,3 +205,63 @@ continuar servindo tudo deixaria a restrição valendo só de fachada.
 - **Não exercitado:** turno pago real com modo filtrando. O filtro é resolvido inteiramente antes do CLI
   (snapshot e blocos já montados), e os testes acima passam pelo `dispatchNewThread` de verdade — o que
   sobraria para o turno pago provar é o CLI, que não toca nisso.
+
+
+---
+
+## Edição de prompt/modo salvo pela própria UI (2026-08-17)
+
+Fecha a última pendência do F28. Antes desta fatia, prompt e modo salvos só mudavam por API ou por
+arquivo do repositório: a UI criava e apagava, nunca editava — e o filtro de skills/rules do modo, que
+já existia no banco e na API, não tinha superfície nenhuma no composer.
+
+**O que entrou**
+
+| Superfície | Gesto |
+|---|---|
+| Menu `/` (prompts salvos) | ✎ traz o corpo do prompt para o composer e o campo de nome passa a salvar por cima (PUT) |
+| Picker de modo | ✎ abre o mesmo formulário pré-preenchido; Salvar vira PUT no lugar de POST |
+| Formulário de modo | seletores de **Skills do modo** e **Rules do modo**, com o tri-estado do contrato |
+| Formulário de modo (só em edição) | caixa **Regravar preset com o composer atual**, desmarcada por padrão |
+
+**Tri-estado do seletor.** É o mesmo contrato de `skills:` no frontmatter, agora clicável: botão
+**Todas** = `null` (sem filtro, o modo acompanha o que o projeto vincular depois); desmarcar um item a
+partir de "Todas" materializa a lista com todos menos ele; desmarcar tudo grava `[]` (nenhuma), com um
+aviso explícito na UI. Remarcar todos **não** volta para `null` — lista explícita congela o catálogo de
+hoje, e quem quer acompanhar o projeto usa o botão Todas.
+
+**O que o seletor oferece.** Só o que o turno de fato resolve para aquele projeto: skills com
+`linked && enabled && enabledInProject`, rules com `enabled && activeInProject` — os mesmos predicados
+de `resolveSkillsForProject` e `resolveForTurn`. Oferecer mais faria o modo parecer filtrar algo que
+nunca esteve no catálogo.
+
+**Preset preservado por padrão.** Editar para corrigir uma instrução não pode arrastar junto o
+provider/modelo/access que estiver no composer naquele instante. Regravar o preset é opt-in explícito.
+
+### Verificação ao vivo
+
+App real (`pnpm dev`) em `userData` isolado por `ENGRENACODE_USER_DATA` — vault novo, banco novo, nada
+tocado no perfil do usuário. Projeto `D:/temp/smokefx` com 3 das 12 skills vinculadas
+(`code-review`, `commit-message`, `write-tests`) e 2 rules ativas (`pt-br` global, `sem-emoji` do
+projeto). UI dirigida por `playwright-cli` em `localhost:5173`; conferência por GET na API 5174.
+
+| # | Gesto na UI | Esperado | Resultado |
+|---|---|---|---|
+| 1 | abrir o picker de modo | seletores listam exatamente as 3 skills vinculadas e as 2 rules ativas, todas marcadas | **pass** |
+| 2 | desmarcar `commit-message` e `sem-emoji`, salvar como "Revisor Curado" | `skills: [code-review, write-tests]`, `rules: [pt-br]`, nome slugificado | **pass** |
+| 3 | ✎ no modo salvo | formulário pré-preenchido com nome, instruções e o filtro gravado (as duas caixas desmarcadas) | **pass** |
+| 4 | remarcar `commit-message`, botão **Todas** nas rules, renomear e salvar | mesmo `id` (PUT, não linha nova), `skills` com os 3 nomes, `rules: null`, pill segue o novo nome | **pass** |
+| 5 | o mesmo salvamento, com **Regravar preset** desmarcada | `accessLevel` continua `auto-accept-edits` mesmo com o composer já em outro estado | **pass** |
+| 6 | trocar o access para Full access e editar com **Regravar preset** marcada | `accessLevel` passa a `full-access` | **pass** |
+| 7 | desmarcar as 3 skills e salvar modo novo | `skills: []` no banco, distinto de `null`, com o aviso "Nenhuma — o turno roda sem esta fonte" na UI | **pass** |
+| 8 | modo vindo de `.engrena/modes/*.chatmode.md` | aparece com "(do repositório)" e **sem** ✎ e sem × — somente leitura | **pass** |
+| 9 | ✎ no prompt salvo do menu `/`, editar texto e nome, salvar | mesmo `id`, corpo e nome novos, sintaxe `${input:…}` preservada | **pass** |
+
+**Nota de leitura, não defeito:** a lista de modos/prompts só é recarregada na troca de projeto ou depois
+de uma mutação. Um `.chatmode.md` criado no repo com o projeto já selecionado aparece na API na hora, mas
+no picker só depois de trocar de projeto ou recarregar. É o comportamento que já existia antes desta
+fatia.
+
+**Não exercitado:** turno pago com um modo editado pela UI. O caminho que o turno percorre é o mesmo já
+coberto na seção anterior (`createSkillSnapshot` + `composeBlockForTurn` a partir das colunas), e o que
+esta fatia acrescenta termina no PUT — provado acima por GET na API.

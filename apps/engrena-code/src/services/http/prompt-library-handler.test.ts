@@ -175,4 +175,35 @@ describe('modos', () => {
     expect((await call('DELETE', `/api/modes/${id}`)).status).toBe(200)
     expect((await call('GET', `/api/projects/${projectId}/modes`)).json.modes).toEqual([])
   })
+
+  /** É o caminho que o formulário do composer usa ao editar um modo salvo (F28 §3.4). */
+  it('PUT muda o filtro de skills/rules e distingue lista vazia de "sem filtro"', async () => {
+    const created = await call('POST', `/api/projects/${projectId}/modes`, {
+      name: 'curado',
+      skills: ['revisao'],
+      rules: ['pt-br'],
+    })
+    const id = created.json.mode.id
+    expect(created.json.mode).toMatchObject({ skills: ['revisao'], rules: ['pt-br'] })
+
+    const narrowed = await call('PUT', `/api/modes/${id}`, { skills: ['revisao', 'testes'], rules: [] })
+    expect(narrowed.json.mode.skills).toEqual(['revisao', 'testes'])
+    // `[]` é "nenhuma rule", não "todas": o PUT precisa preservar a diferença.
+    expect(narrowed.json.mode.rules).toEqual([])
+
+    const cleared = await call('PUT', `/api/modes/${id}`, { skills: null })
+    expect(cleared.json.mode.skills).toBeNull()
+    expect(cleared.json.mode.rules).toEqual([])
+
+    // Campo ausente no patch não mexe no que já está gravado.
+    const untouched = await call('PUT', `/api/modes/${id}`, { instructions: 'Só revise.' })
+    expect(untouched.json.mode).toMatchObject({ instructions: 'Só revise.', skills: null, rules: [] })
+  })
+
+  it('PUT recusa skills com shape errado em vez de salvar sem filtro', async () => {
+    const created = await call('POST', `/api/projects/${projectId}/modes`, { name: 'shape' })
+    const res = await call('PUT', `/api/modes/${created.json.mode.id}`, { skills: 'revisao,testes' })
+    expect(res.status).toBe(400)
+    expect(res.json.error.code).toBe('validation_error')
+  })
 })
