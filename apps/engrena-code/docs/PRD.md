@@ -1285,7 +1285,7 @@ graph TD
 - [x] Accept/reject por arquivo; git mutável bloqueado com thread running
 - [x] Segunda execução no mesmo projeto retorna thread_busy
 - [x] Skills, rules e subagents vinculados participam do turno conforme F05–F07 (rules + load_skill F12 ok; `call_subagent` E2E confirmado real em F15)
-- [ ] Supervised: modal com Negar / Permitir / **Permitir todos** (don’t ask again por ferramenta na thread até o fim da sessão do processo)
+- [x] Supervised: modal com Negar / Permitir / **Permitir todos** (don’t ask again por ferramenta na thread até o fim da sessão do processo) — card inline com os quatro botões, exercitado ao vivo em 2026-08-16/17 (`docs/F03-workspace/smoke-results.md`); a allowlist da thread é o don't-ask-again
 
 ### F04. Dashboard
 - [x] Pós-unlock abre `#dashboard` com saúde de config e 4 cards numéricos
@@ -1350,7 +1350,7 @@ graph TD
 ### F14. Fluxo Git Completo
 - [x] UI expõe Commit, Commit & push e Commit, push & PR bloqueados com thread running
 - [x] “Gerar com IA” preenche subject (e title/body de PR) via provider da thread; usuário edita antes de confirmar
-- [x] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração
+- [x] PR sucesso devolve URL abrível; ausência de token GitHub aponta para Configuração — chamada real contra a API do GitHub exercitada ao vivo em 2026-08-17 (PR `#14`, criado pela UI e fechado em seguida); o 422 de branch não pushada deixou de chegar como "Validation Failed" cru
 - [x] Falha de textgen não impede commit manual
 
 ### F15. Runtime de SubAgents
@@ -1428,9 +1428,9 @@ graph TD
 
 ### F27. Ditado por Voz (STT)
 - [x] Botão de microfone grava e transcreve para o composer como rascunho editável
-- [ ] Usuário revisa/edita a transcrição antes de Enviar; nada é enviado automaticamente
+- [x] Usuário revisa/edita a transcrição antes de Enviar; nada é enviado automaticamente — `useVoiceInput` entrega o texto por `onTranscript` como rascunho do composer, sem despachar turno
 - [x] Sem permissão de microfone, CTA fica desabilitado com explicação
-- [ ] Falha de transcrição preserva o áudio gravado para nova tentativa
+- [x] Falha de transcrição preserva o áudio gravado para nova tentativa — o blob da tentativa que falhou fica guardado e `retry()` o reenvia (gap achado e corrigido na Verificação Final de F27)
 
 ### F29. Monitor de execução (grafo)
 - [x] Aba Grafo no workspace projeta root + subagents/stages/batches a partir do history da thread
@@ -1459,7 +1459,7 @@ graph TD
 - [x] GitActions (F14) consome token GitHub (F02) e estado da thread (F03) para Commit/push/PR com textgen
 - [x] Composer (F16) envia model/reasoning/@file/imagens no follow-up do Workspace (F03)
 - [x] Seeds (F17) aparecem nas contagens do Dashboard (F04) e nas telas F05/F07 após o primeiro unlock (F01)
-- [ ] `call_subagent` paralelo (F18) reusa gate/idle/usage_events de F07/F15 e worktree isolado de F13 por filho
+- [x] `call_subagent` paralelo (F18) reusa gate/idle/usage_events de F07/F15 e worktree isolado de F13 por filho — o batch chama o mesmo `runDelegatedSubagentTurn` do caminho serial, e o teste de batch prova um `usage_event` por filho no turno do pai, com dois worktrees distintos
 - [x] Tools `repo_graph_*` (F19) chegam ao turno pelo mesmo MCP interno `engrenacode` de F12
 - [x] Bloco de memória (F20) é injetado no system prompt do Workspace (F03) com a mesma precedência de Rules (F06)
 - [x] `ask_user_question` (F21) pausa e retoma o dispatch do Workspace (F03) sem quebrar lease/thread_busy

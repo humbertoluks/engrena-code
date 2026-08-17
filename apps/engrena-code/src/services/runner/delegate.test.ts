@@ -464,6 +464,57 @@ describe('runParallelDelegatedBatch (F18)', () => {
     expect(diffs.every((d) => d.status === 'pending')).toBe(true)
   }, 30_000)
 
+  /**
+   * PRD §9 (F18): "call_subagent paralelo reusa gate/idle/usage_events de F07/F15 e worktree
+   * isolado de F13 por filho". O reuso é estrutural — o batch chama o mesmo
+   * `runDelegatedSubagentTurn` do caminho serial — mas nada provava isso do lado paralelo, e
+   * critério sem evidência envelhece como suposição.
+   */
+  it('cada filho do batch grava o próprio usage_event no turno do pai, com worktree isolado', async () => {
+    const { project, parentThread } = makeGitContext()
+    linkSubagent(project.id, { name: 'implementer-a', model: 'claude-haiku-4-5' })
+    linkSubagent(project.id, { name: 'implementer-b', model: 'claude-haiku-4-5' })
+
+    const cwds: string[] = []
+    setRunCliTurnForTesting(async (input) => {
+      cwds.push(input.cwd)
+      return {
+        text: 'ok',
+        usage: { inputTokens: 20, outputTokens: 5, cacheReadTokens: null, cacheCreationTokens: null },
+        costUsd: 0.001,
+      }
+    })
+
+    const batch = await runParallelDelegatedBatch(
+      { project, parentThread, parentTurnId: 'turn-parent-parallel' },
+      [
+        { name: 'implementer-a', task: 'parte a' },
+        { name: 'implementer-b', task: 'parte b' },
+      ]
+    )
+
+    expect(batch.results).toHaveLength(2)
+    expect(batch.results.every((r) => r.status === 'completed')).toBe(true)
+
+    // Worktree isolado por filho (F13): dois caminhos, e nenhum deles é o diretório do projeto.
+    expect(new Set(cwds).size).toBe(2)
+    expect(cwds.some((c) => c === project.path)).toBe(false)
+
+    // usage_event por filho (F07/F15), todos amarrados ao mesmo turno do pai.
+    const page = getThreadEvents(parentThread.id, undefined, 10, 0)
+    expect(page.events).toHaveLength(2)
+    expect(page.events.every((e) => e.source === 'subagent')).toBe(true)
+    expect(page.events.every((e) => e.turnId === 'turn-parent-parallel')).toBe(true)
+    expect(new Set(page.events.map((e) => e.subagentName))).toEqual(
+      new Set(['implementer-a', 'implementer-b'])
+    )
+
+    // E o registro de execução de cada filho, com o batch identificado.
+    const runs = listSubagentRunsForParentThread(parentThread.id)
+    expect(runs).toHaveLength(2)
+    expect(new Set(runs.map((r) => r.parallelBatchId))).toEqual(new Set([batch.parallelBatchId]))
+  }, 20000)
+
   it('test_merge_same_path_conflict — two children writing the same file end up as a conflict diff, not applied to the parent', async () => {
     const { project, parentThread } = makeGitContext()
     const a = linkSubagent(project.id, { name: 'implementer-a' })
