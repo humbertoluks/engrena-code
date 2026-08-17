@@ -54,5 +54,46 @@ Rodada posterior, no contexto do F29 (`docs/F29-monitor-de-execucao/smoke-result
 
 ## Não exercitado
 
-- Conflito de path com turno pago real (2 filhos reais escrevendo o mesmo arquivo) — o caminho de conflito foi provado ponta a ponta com worktrees git reais em teste de integração (`delegate.test.ts`) e com estado semeado no smoke visual acima; não repetido com custo de API adicional já que a lógica de materialização é idêntica à do caso disjunto, que o turno pago acima já exercitou e corrigiu.
 - Erro ao resolver conflito (`wp.error.resolve`) — caminho de sucesso confirmado; falha do endpoint não forçada neste smoke.
+
+
+## Conflito de path com 2 filhos reais (2026-08-17)
+
+Fecha o último item que estava como não exercitado. Antes disso o conflito só tinha sido visto em
+teste de integração (worktrees git reais, mas sem passar pelo `dispatch.ts` inteiro) e no smoke visual
+com candidatos semeados direto no SQLite — nenhum dos dois materializa nada a partir de um worktree de
+filho de verdade.
+
+**Método:** `pnpm dev` real, vault e projeto reais, turno disparado pela API loopback em `full-access`.
+Projeto fixture git em path curto. Dois subagents dedicados (`smoke-writer-a`/`smoke-writer-b`,
+provider `inherit`), uma única chamada `call_subagent` com `tasks[]` de 2 itens, ambos mandados
+sobrescrever **o mesmo** `alvo.txt` com conteúdos distinguíveis.
+
+### Tentativa que não produziu conflito, e por quê
+
+A primeira rodada usou `explorer` e `implementer` do catálogo. O `explorer` **recusou escrever** — é
+read-only pela própria definição do agente — então só um filho tocou o arquivo, o path virou exclusivo
+e saiu um diff `pending` comum. Não é defeito do produto: é o batch se comportando como deve quando só
+um filho escreve. Ficou o aprendizado de que o conflito exige subagents que de fato escrevem, e a
+rodada boa passou a usar dois escritores dedicados.
+
+### Confirmado ao vivo
+
+| # | O que | Resultado |
+|---|---|---|
+| 1 | Os dois filhos escrevem o mesmo path | `smoke-writer-a` e `smoke-writer-b` fecharam `completed`, mesmo `parallel_batch_id` |
+| 2 | Diff único, sem duplicata | **1** linha em `diffs` para `alvo.txt` — nem 0 nem 2 (é a regressão que o turno de paths disjuntos achou em 2026-08-08) |
+| 3 | Status e candidatos | `conflict` com **2** candidatos, cada um com o `worktreePath` do seu filho e `+1/−1` |
+| 4 | cwd do pai intocado | `alvo.txt` seguia com `alvo inicial` — o path em conflito **não** é materializado, ao contrário do exclusivo |
+| 5 | Worktrees retidos e sujos | os dois presentes em `git worktree list`, cada um com `M alvo.txt` e o seu próprio conteúdo |
+| 6 | Resolução com filho vencedor | `POST resolve-conflict` com `winningChildThreadId` do `smoke-writer-a` → diff volta a `pending`, candidatos zerados |
+| 7 | Conteúdo certo aterrissou | cwd do pai passou a ter `ESCRITO PELO WRITER A` — o do vencedor, não o do perdedor |
+| 8 | Diff volta a ser aceitável | `POST accept` respondeu `applied: true` e o diff fechou em `accepted` (em `conflict` o `apply-diff` recusa com 409 `diff_conflict`) |
+
+O item 7 é o que só o turno pago prova: no smoke com estado semeado os candidatos eram fabricados e
+não havia worktree nenhum de onde copiar, então "resolveu" significava apenas trocar o status.
+
+**Não exercitado:** erro do endpoint de resolução (`wp.error.resolve`) — exige derrubar o endpoint no
+meio, e o caminho de sucesso é o que estava em aberto.
+
+**Limpeza:** worktrees removidos, fixture de volta ao commit, subagents de smoke apagados do catálogo.
