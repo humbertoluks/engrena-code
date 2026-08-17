@@ -3,9 +3,13 @@ import {
   applyPromptVariables,
   composeModeBlock,
   extractPromptVariables,
+  filterByModeCatalog,
+  MODE_CATALOG_MAX,
+  parseNameList,
   isValidPromptName,
   renderPromptForComposer,
   slugifyPromptName,
+  validateModeCatalog,
   validateModeInstructions,
   validatePromptFields,
 } from './prompt-spec.js'
@@ -100,5 +104,56 @@ describe('composeModeBlock', () => {
   it('modo ausente ou sem instrução não vira bloco', () => {
     expect(composeModeBlock(null)).toBe('')
     expect(composeModeBlock({ name: 'preset', instructions: '   ' })).toBe('')
+  })
+})
+
+describe('parseNameList', () => {
+  it('lê lista separada por vírgula e lista entre colchetes', () => {
+    expect(parseNameList('a, b')).toEqual(['a', 'b'])
+    expect(parseNameList("['a', 'b']")).toEqual(['a', 'b'])
+  })
+
+  it('dedupe é case-insensitive e preserva a primeira grafia', () => {
+    expect(parseNameList('Skill, skill, outra')).toEqual(['Skill', 'outra'])
+  })
+
+  it('chave ausente ou em branco vira null; lista vazia explícita vira []', () => {
+    expect(parseNameList(undefined)).toBeNull()
+    expect(parseNameList('   ')).toBeNull()
+    expect(parseNameList('[]')).toEqual([])
+  })
+
+  it('corta no teto do catálogo', () => {
+    const many = Array.from({ length: MODE_CATALOG_MAX + 10 }, (_, i) => `s${i}`).join(', ')
+    expect(parseNameList(many)).toHaveLength(MODE_CATALOG_MAX)
+  })
+})
+
+describe('filterByModeCatalog', () => {
+  const items = [{ name: 'alfa' }, { name: 'Beta' }, { name: 'gama' }]
+
+  it('null devolve a lista intacta', () => {
+    expect(filterByModeCatalog(items, null)).toEqual(items)
+  })
+
+  it('filtra por nome, ignorando caixa, e descarta nome que não está no catálogo', () => {
+    expect(filterByModeCatalog(items, ['beta', 'fora-do-catalogo'])).toEqual([{ name: 'Beta' }])
+  })
+
+  it('lista vazia filtra tudo', () => {
+    expect(filterByModeCatalog(items, [])).toEqual([])
+  })
+})
+
+describe('validateModeCatalog', () => {
+  it('aceita ausente e lista de strings', () => {
+    expect(validateModeCatalog(undefined, 'skills')).toBeNull()
+    expect(validateModeCatalog(['a'], 'rules')).toBeNull()
+  })
+
+  it('rejeita shape errado e lista acima do teto', () => {
+    expect(validateModeCatalog('a,b', 'skills')?.field).toBe('skills')
+    expect(validateModeCatalog([1, 2], 'rules')?.field).toBe('rules')
+    expect(validateModeCatalog(Array.from({ length: MODE_CATALOG_MAX + 1 }, () => 'x'), 'skills')).not.toBeNull()
   })
 })

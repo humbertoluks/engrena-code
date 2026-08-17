@@ -127,3 +127,84 @@ export function composeModeBlock(mode: { name: string; instructions: string } | 
   if (mode === null || mode.instructions.trim() === '') return ''
   return `## Modo de chat: ${mode.name}\n${mode.instructions.trim()}`
 }
+
+// ── Catálogo do modo: skills/rules que ele deixa ativas no turno (F28 §3.4) ──
+//
+// Semântica de **filtro**, decidida com o usuário: o modo restringe o que o projeto já vincula,
+// nunca liga o que o projeto não vinculou. O catálogo do projeto continua sendo o teto — assim
+// um modo versionado no repo não vira porta de entrada para skill/rule que ninguém aprovou ali.
+
+/** Teto por lista: modo é curadoria, não inventário. */
+export const MODE_CATALOG_MAX = 50
+
+/**
+ * Lê a lista de nomes de um valor de frontmatter. Aceita as duas formas que aparecem na prática:
+ * `skills: a, b` e `skills: ['a', 'b']` (a segunda é a do Copilot).
+ *
+ * `undefined`/ausente e valor em branco devolvem `null` — "o modo não fala do assunto", que é
+ * diferente de `[]` (lista vazia explícita = nenhuma skill). A distinção importa: um `skills:`
+ * digitado sem valor por engano não pode apagar o catálogo inteiro do turno.
+ */
+export function parseNameList(raw: string | undefined | null): string[] | null {
+  if (raw === undefined || raw === null) return null
+  const trimmed = raw.trim()
+  if (trimmed === '') return null
+  const inner = /^\[([\s\S]*)\]$/.exec(trimmed)
+  const body = inner === null ? trimmed : inner[1]
+  if (inner !== null && body.trim() === '') return []
+  const names = body
+    .split(',')
+    .map((part) => part.trim().replace(/^['"]|['"]$/g, '').trim())
+    .filter((part) => part !== '')
+  return dedupeNames(names).slice(0, MODE_CATALOG_MAX)
+}
+
+function dedupeNames(names: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of names) {
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+  }
+  return out
+}
+
+/**
+ * Valida a lista vinda da API. `undefined`/`null` passam (modo não filtra). Shape errado é 400 em
+ * vez de silêncio: um `skills: "a,b"` mandado como string seria normalizado para `null` e o modo
+ * pareceria salvo sem filtro nenhum.
+ */
+export function validateModeCatalog(value: unknown, field: 'skills' | 'rules'): PromptSpecError | null {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    return { field, message: `Campo "${field}" deve ser uma lista de nomes.` }
+  }
+  if (value.length > MODE_CATALOG_MAX) {
+    return { field, message: `Campo "${field}" aceita até ${MODE_CATALOG_MAX} nomes.` }
+  }
+  return null
+}
+
+/** Normaliza uma lista vinda da API (array cru) para o mesmo formato do frontmatter. */
+export function normalizeNameList(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null
+  if (!Array.isArray(value)) return null
+  const names = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim())
+  return dedupeNames(names.filter((name) => name !== '')).slice(0, MODE_CATALOG_MAX)
+}
+
+/**
+ * Filtra itens do catálogo do projeto pelos nomes que o modo deixou ativos. `allowed === null`
+ * (modo sem a chave, ou nenhum modo) devolve a lista intacta. Comparação case-insensitive:
+ * quem escreve o modo à mão não deve tropeçar em maiúscula.
+ */
+export function filterByModeCatalog<T extends { name: string }>(
+  items: readonly T[],
+  allowed: readonly string[] | null | undefined
+): T[] {
+  if (allowed === null || allowed === undefined) return [...items]
+  const wanted = new Set(allowed.map((name) => name.trim().toLowerCase()))
+  return items.filter((item) => wanted.has(item.name.trim().toLowerCase()))
+}

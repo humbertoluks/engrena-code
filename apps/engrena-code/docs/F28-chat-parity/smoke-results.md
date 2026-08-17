@@ -114,6 +114,7 @@ desconhecido não vira bloco, turno sem modo não ganha bloco.
 **Não implementado nesta onda:** o plano previa que o modo também ligasse skills/rules do projeto; ficou de
 fora — o modo cobre provider, modelo, reasoning, access, execution e instruções. Instruções pela UI existem
 no formulário de salvar; edição posterior de prompt/modo só via API ou arquivo do repo.
+**Fechado em 2026-08-17** — ver "Modo de chat filtrando skills/rules" no fim deste arquivo.
 
 ---
 
@@ -162,3 +163,46 @@ enviando pelo botão (o texto se perderia).
 puder.`, `Waiting for your approval.`, `Let me know.`), afirmação comum sem pedido (`Instalei as
 dependências…`, `Aguardo o build terminar…`) não vira decisão, pedido no meio do texto com relato
 depois não conta.
+
+
+---
+
+## Modo de chat filtrando skills/rules do projeto (2026-08-17)
+
+Fecha a lacuna declarada acima.
+
+**Semântica: filtro, nunca ativação.** O modo restringe o que o projeto já vincula; o catálogo do projeto
+continua sendo o teto. Nome que o projeto não vinculou é ignorado em silêncio — assim um `.chatmode.md`
+versionado no repo não vira porta de entrada para skill ou rule que ninguém aprovou naquele projeto.
+
+| Valor no modo | Efeito no turno |
+|---|---|
+| chave ausente | tudo que o projeto vincula (comportamento de sempre) |
+| `skills: a, b` ou `skills: ['a', 'b']` | só `a` e `b`, interseção com o vínculo do projeto |
+| `skills: []` | nenhuma skill |
+| `skills:` (em branco) | tratado como ausente — um campo digitado sem valor por engano não pode zerar o catálogo |
+
+**Onde declara:** frontmatter dos `.engrena/modes/*.chatmode.md`, colunas `skills_json`/`rules_json`
+(migração `020_chat_mode_catalog`) e os campos `skills`/`rules` no POST/PUT de `/api/projects/:id/modes`.
+O formulário de salvar modo do composer **não** ganhou seletores nesta fatia: isso cai junto da outra
+pendência, a de editar prompt/modo pela própria UI.
+
+**O filtro entra na origem, não só no texto.** `createSkillSnapshot` recebe a lista e filtra o snapshot
+inteiro — o mesmo que alimenta o arquivo lido pela tool `load_skill`. Anunciar menos no system prompt e
+continuar servindo tudo deixaria a restrição valendo só de fachada.
+
+### Verificação
+
+- **Migração contra o banco real do usuário:** `020_chat_mode_catalog` aplicada, `chat_modes` com
+  `skills_json`/`rules_json`, nenhuma linha existente perdida.
+- **API ao vivo** (loopback 5174, cofre destravado): POST com
+  `skills: ["skill-a","skill-a","Skill-A","outra"]` e `rules: []` devolveu `skills: ["skill-a","outra"]`
+  (dedupe case-insensitive, primeira grafia preservada) e `rules: []` distinto de `null`; o GET seguinte
+  trouxe o mesmo. `skills: "a,b"` (string em vez de lista) devolveu **400**, em vez de virar `null` em
+  silêncio. Modo de smoke apagado no fim — o projeto voltou a zero modos.
+- **Composição do prompt:** três casos em `dispatch.test.ts` capturam o `systemPrompt` real entregue ao
+  runner — modo com `skills`/`rules` filtrando skill e rule; modo sem as chaves deixando o catálogo
+  inteiro passar; modo de arquivo filtrando pelo frontmatter e ignorando nome que o projeto não vinculou.
+- **Não exercitado:** turno pago real com modo filtrando. O filtro é resolvido inteiramente antes do CLI
+  (snapshot e blocos já montados), e os testes acima passam pelo `dispatchNewThread` de verdade — o que
+  sobraria para o turno pago provar é o CLI, que não toca nisso.

@@ -87,4 +87,18 @@ describe('readModeFiles', () => {
     expect(mode.provider).toBeNull()
     expect(mode.instructions).toBe('')
   })
+
+  it('lê skills/rules do frontmatter nas duas formas', () => {
+    writeMode('focado.chatmode.md', "---\nskills: ['a', 'b']\nrules: uma, outra\n---\nSó o essencial.")
+    const [mode] = readModeFiles(root)
+    expect(mode.skills).toEqual(['a', 'b'])
+    expect(mode.rules).toEqual(['uma', 'outra'])
+  })
+
+  it('modo sem as chaves não filtra nada (null, não lista vazia)', () => {
+    writeMode('solto.chatmode.md', '---\nmodel: haiku\n---\nSem filtro.')
+    const [mode] = readModeFiles(root)
+    expect(mode.skills).toBeNull()
+    expect(mode.rules).toBeNull()
+  })
 })

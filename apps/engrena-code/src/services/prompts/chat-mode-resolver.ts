@@ -15,6 +15,13 @@ export interface ResolvedChatMode {
   accessLevel: string | null
   executionMode: string | null
   instructions: string
+  /**
+   * Skills/rules do projeto que este modo deixa ativas no turno. `null` = o modo não fala do
+   * assunto e o turno usa tudo que o projeto vincula. É **filtro**, nunca ativação: nome que o
+   * projeto não vinculou é ignorado (`filterByModeCatalog`).
+   */
+  skills: string[] | null
+  rules: string[] | null
 }
 
 export function resolveChatMode(
@@ -34,6 +41,8 @@ export function resolveChatMode(
       accessLevel: stored.accessLevel,
       executionMode: stored.executionMode,
       instructions: stored.instructions,
+      skills: stored.skills,
+      rules: stored.rules,
     }
   }
 
@@ -48,5 +57,7 @@ export function resolveChatMode(
     accessLevel: fromFile.accessLevel,
     executionMode: fromFile.executionMode,
     instructions: fromFile.instructions,
+    skills: fromFile.skills,
+    rules: fromFile.rules,
   }
 }

@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { slugifyPromptName } from './prompt-spec.js'
+import { parseNameList, slugifyPromptName } from './prompt-spec.js'
 
 export const PROMPT_DIR = join('.engrena', 'prompts')
 export const MODE_DIR = join('.engrena', 'modes')
@@ -101,6 +101,9 @@ export interface FileChatMode {
   accessLevel: string | null
   executionMode: string | null
   instructions: string
+  /** `skills:`/`rules:` do frontmatter — `null` quando a chave não aparece (ver prompt-spec). */
+  skills: string[] | null
+  rules: string[] | null
   file: string
 }
 
@@ -126,6 +129,8 @@ export function readModeFiles(projectRoot: string): FileChatMode[] {
       accessLevel: orNull(data.access ?? data.accesslevel),
       executionMode: orNull(data.execution ?? data.executionmode),
       instructions: body,
+      skills: parseNameList(data.skills),
+      rules: parseNameList(data.rules),
       file: `${MODE_DIR.replace(/\\/g, '/')}/${fileName}`,
     })
   }
