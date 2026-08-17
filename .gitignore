@@ -31,3 +31,6 @@ release
 .playwright-cli/
 .claude/settings.local.json
 .claude/launch.json
+
+# Artefatos de smoke (screenshots soltos na raiz)
+login-state.png
