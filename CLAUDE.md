@@ -60,6 +60,7 @@ Leia apenas os arquivos relevantes para a tarefa em andamento:
 | `apps/engrena-code/docs/PROGRESS.md` | Status real F01–F11 (feito vs pendente); não usar `_reversa_forward` actions como progresso |
 | `apps/engrena-code/docs/PRD.md` | Visão completa Code, features F01–F11, critérios de aceitação |
 | `apps/engrena-code/docs/DEVELOPMENT.md` | Setup inicial, deps, vite/biome/tsconfig, correções aplicadas, dev/build |
+| `apps/engrena-code/docs/RUNBOOK-HOMOLOGACAO.md` | Validar o build empacotado antes de liberar versão: roteiros A–D, critério de aprovação, rollback, armadilhas de ambiente |
 | `apps/engrena-code/docs/F01-vault-e-sessao-local/spec.md` | Spec de Vault: encryption, unlock gate, IPC, erro handling |
 | `apps/engrena-code/docs/F01.1-design-system/spec.md` | Tokens, tema tri-modo, Shiki/xterm, superfícies |
 | `apps/engrena-code/docs/F28-chat-parity/smoke-results.md` | Paridade de chat com o Copilot Chat (contexto/anexos, histórico, `#codebase`, exclusions, prompts salvos e modos): o que já foi validado ao vivo e o que ficou só em unitário |
