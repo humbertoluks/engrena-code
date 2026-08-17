@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { Project } from '../../services/projects-service'
 import type { Thread } from '../../services/threads-service'
+import { EXPORT_COPY } from './threadExportDownload.logic'
 import {
   ChevronIcon,
   DownloadIcon,
@@ -30,6 +31,7 @@ const COPY = {
   threadRename: 'Renomear conversa',
   threadRenameAria: 'Novo nome da conversa',
   threadExport: 'Exportar conversa (markdown)',
+  exportDismiss: 'Dispensar erro de exportação',
   expandProject: 'Expandir projeto',
   collapseProject: 'Recolher projeto',
 } as const
@@ -65,6 +67,8 @@ const STATE_DOT: Record<Thread['state'], string> = {
   // F21: pausada aguardando resposta do usuário — mesma cor de "busy" de `running`; o `ui.md` de F21
   // especifica o card da timeline e deliberadamente não redefine o ponto da árvore.
   waiting_user: 'bg-accent',
+  // PreToolUse pendente (Sprint 2) — busy como running; distinto de waiting_user no DB.
+  waiting_permission: 'bg-accent',
   // Cancelada pelo usuário: assentou, não é falha — neutro como `idle`, nunca o vermelho de `error`.
   cancelled: 'bg-muted',
 }
@@ -73,12 +77,14 @@ const STATE_DOT: Record<Thread['state'], string> = {
 function ThreadRow({
   thread,
   selected,
+  exporting,
   onSelect,
   onRename,
   onExport,
 }: Readonly<{
   thread: Thread
   selected: boolean
+  exporting: boolean
   onSelect: () => void
   onRename?: (threadId: string, title: string | null) => void
   onExport?: (threadId: string, format: 'md' | 'json') => void
@@ -144,33 +150,33 @@ function ThreadRow({
         ) : null}
         <span className="ml-auto shrink-0 pl-xs font-mono text-[10.5px] text-muted">{relativeAge(thread.updatedAt)}</span>
       </button>
-      <span className="flex shrink-0 items-center opacity-0 transition-opacity group-focus-within/thread:opacity-100 group-hover/thread:opacity-100">
-        {onRename ? (
-          <button
-            type="button"
-            // preventDefault no mousedown evita que o botão roube foco e o input
-            // recém-montado dispare onBlur (fecha a edição no mesmo clique).
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={startEdit}
-            aria-label={COPY.threadRename}
-            title={COPY.threadRename}
-            className={ROW_ICON_BTN}
-          >
-            <PencilIcon />
-          </button>
-        ) : null}
-        {onExport ? (
-          <button
-            type="button"
-            onClick={() => onExport(thread.id, 'md')}
-            aria-label={COPY.threadExport}
-            title={COPY.threadExport}
-            className={ROW_ICON_BTN}
-          >
-            <DownloadIcon />
-          </button>
-        ) : null}
-      </span>
+      {onRename ? (
+        <button
+          type="button"
+          // preventDefault no mousedown evita que o botão roube foco e o input
+          // recém-montado dispare onBlur (fecha a edição no mesmo clique).
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={startEdit}
+          aria-label={COPY.threadRename}
+          title={COPY.threadRename}
+          className={`${ROW_ICON_BTN} opacity-0 transition-opacity group-focus-within/thread:opacity-100 group-hover/thread:opacity-100`}
+        >
+          <PencilIcon />
+        </button>
+      ) : null}
+      {onExport ? (
+        <button
+          type="button"
+          onClick={() => onExport(thread.id, 'md')}
+          disabled={exporting}
+          aria-busy={exporting}
+          aria-label={COPY.threadExport}
+          title={COPY.threadExport}
+          className={`${ROW_ICON_BTN} text-muted`}
+        >
+          <DownloadIcon />
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -191,6 +197,10 @@ export interface ProjectTreeProps {
   onSearchThreads?: (projectId: string, query: string) => void
   onRenameThread?: (threadId: string, title: string | null) => void
   onExportThread?: (threadId: string, format: 'md' | 'json') => void
+  /** Progresso/erro do download — fora do composer (PermissionPrompt cobre sendError). */
+  exporting?: boolean
+  exportError?: string | null
+  onDismissExportError?: () => void
 }
 
 export function ProjectTree({
@@ -209,6 +219,9 @@ export function ProjectTree({
   onSearchThreads,
   onRenameThread,
   onExportThread,
+  exporting = false,
+  exportError = null,
+  onDismissExportError,
 }: Readonly<ProjectTreeProps>): ReactElement {
   const [threadQuery, setThreadQuery] = useState('')
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -266,7 +279,31 @@ export function ProjectTree({
   }
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-sm">
+    <div className="relative flex h-full flex-col rounded-xl border border-border bg-surface p-sm">
+      {/* z-[60] acima do PermissionPrompt (z-50): erro de export não fica escondido no composer. */}
+      {exportError !== null ? (
+        <div
+          role="alert"
+          className="pointer-events-auto fixed bottom-md left-md z-[60] flex max-w-[min(24rem,90vw)] items-start gap-xs rounded-lg border border-red/40 bg-surface px-sm py-xs text-[12px] text-red shadow-lg"
+        >
+          <p className="min-w-0 flex-1">{exportError}</p>
+          {onDismissExportError ? (
+            <button
+              type="button"
+              onClick={onDismissExportError}
+              aria-label={COPY.exportDismiss}
+              className="shrink-0 rounded-md px-xs text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {exporting ? (
+        <p aria-live="polite" className="mb-xs px-xs text-[11px] text-muted">
+          {EXPORT_COPY.exporting}
+        </p>
+      ) : null}
       <div className="mb-sm flex items-center justify-between gap-xs px-xs">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.07em] text-muted">{COPY.header}</h2>
         <div className="flex items-center gap-[2px]">
@@ -370,6 +407,7 @@ export function ProjectTree({
                             key={thread.id}
                             thread={thread}
                             selected={thread.id === selectedThreadId}
+                            exporting={exporting}
                             onSelect={() => onSelectThread(thread.id)}
                             onRename={onRenameThread}
                             onExport={onExportThread}

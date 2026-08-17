@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import http from 'http'
+import { openQuestionGate, type GateAnswer } from './gate.js'
 
 /** Nome qualificado como o provider CLI reporta a tool (mesmo padrão de `CALL_SUBAGENT_TOOL_NAME`/`LOAD_SKILL_TOOL_NAME`). */
 export const ASK_USER_QUESTION_TOOL_NAME = 'mcp__engrenacode__ask_user_question'
@@ -10,22 +11,8 @@ export interface AskUserQuestionRequest {
   multiSelect?: boolean
 }
 
-export interface AskUserQuestionAnswer {
-  selectedOptions?: string[]
-  freeText?: string | null
-}
-
-interface PendingQuestion {
-  resolve: (answer: AskUserQuestionAnswer) => void
-  reject: (reason: string) => void
-}
-
-/**
- * Ponte entre o `POST /ask` do MCP interno (dentro do turno) e o `POST /api/threads/:id/answer`
- * (fora do turno, disparado pela UI) — os dois HTTP handlers só compartilham o threadId, então
- * o resolver pendente vive num map em nível de módulo em vez de estado local do servidor.
- */
-const pending = new Map<string, PendingQuestion>()
+/** O fato "há pergunta pendente" e a resposta vivem no ThreadGate; aqui é só a forma da resposta. */
+export type AskUserQuestionAnswer = GateAnswer
 
 export interface AskUserQuestionServerHandle {
   port: number
@@ -39,26 +26,24 @@ function answerToText(answer: AskUserQuestionAnswer): string {
   return (answer.selectedOptions ?? []).join(', ')
 }
 
-/**
- * Registra um resolver pendente para `threadId` e devolve a Promise que resolve/rejeita quando
- * `resolveAskUserQuestion`/`rejectAskUserQuestion` for chamado — mesmo mapa `pending` do `POST
- * /ask` do MCP (F21), mas sem precisar de um request HTTP em aberto. Usado pelo checkpoint do
- * pipeline-runner (F22), que pausa fora de qualquer tool-call de um CLI ao vivo.
- */
-export function waitForAnswer(threadId: string): Promise<AskUserQuestionAnswer> {
-  return new Promise((resolve, reject) => {
-    pending.set(threadId, {
-      resolve,
-      reject: (reason) => reject(new Error(reason)),
-    })
-  })
+/** Corpo do `POST /ask` vira payload consultável do gate; corpo inválido não derruba a pergunta. */
+function parseQuestion(body: string): unknown {
+  try {
+    return JSON.parse(body) as unknown
+  } catch {
+    return null
+  }
 }
 
 /**
  * Servidor HTTP loopback efêmero por turno (mesmo padrão estrutural de
  * `delegate.ts:createDelegationServer`, F15) — mas em vez de responder de imediato, segura a
- * resposta HTTP do `POST /ask` em aberto até `resolveAskUserQuestion`/`rejectAskUserQuestion`
- * ser chamado por um request externo desacoplado.
+ * resposta HTTP do `POST /ask` em aberto até o gate de pergunta ser resolvido (`POST /answer` ou
+ * `POST /gate/:gateId/resolve`) ou rejeitado (cancel/fim de turno).
+ *
+ * Este módulo é **só** o servidor: quem é dono do fato "esta thread espera decisão humana", de quem
+ * responde primeiro e da persistência é `gate.ts`. Cada request abre o seu próprio gate, então duas
+ * perguntas no mesmo turno coexistem em vez de a segunda sobrescrever a primeira.
  */
 export function createAskUserQuestionServer(threadId: string): Promise<AskUserQuestionServerHandle> {
   const token = randomBytes(24).toString('hex')
@@ -80,7 +65,21 @@ export function createAskUserQuestionServer(threadId: string): Promise<AskUserQu
       body += chunk.toString()
     })
     req.on('end', () => {
-      waitForAnswer(threadId).then(
+      const opened = openQuestionGate({ threadId, question: parseQuestion(body) })
+      if (!opened.ok) {
+        // Fail-closed: sem gate persistido ninguém consegue responder — devolve erro em vez de
+        // pendurar o `tools/call` do MCP filho até o fim do turno.
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'Não foi possível registrar a pergunta para o usuário.' }],
+            isError: true,
+          })
+        )
+        return
+      }
+
+      opened.answer.then(
         (answer) => {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ content: [{ type: 'text', text: answerToText(answer) }], isError: false }))
@@ -100,33 +99,10 @@ export function createAskUserQuestionServer(threadId: string): Promise<AskUserQu
       resolve({
         port,
         token,
-        close: () => {
-          pending.delete(threadId)
-          server.close()
-        },
+        // Só fecha o socket: expirar as perguntas pendentes é do chamador (`cancelThread` e o
+        // `finally` do turno já rejeitam **antes** de fechar o server, para o /ask preso sair).
+        close: () => server.close(),
       })
     })
   })
-}
-
-/** No-op silencioso se não há pergunta pendente para a thread (ex.: resposta duplicada, app reiniciado). */
-export function resolveAskUserQuestion(threadId: string, answer: AskUserQuestionAnswer): boolean {
-  const entry = pending.get(threadId)
-  if (!entry) return false
-  pending.delete(threadId)
-  entry.resolve(answer)
-  return true
-}
-
-/** Usado no cleanup de cancelamento/erro do turno (`dispatch.ts` `finally`) para liberar o `POST /ask` preso. */
-export function rejectAskUserQuestion(threadId: string, reason: string): boolean {
-  const entry = pending.get(threadId)
-  if (!entry) return false
-  pending.delete(threadId)
-  entry.reject(reason)
-  return true
-}
-
-export function hasPendingQuestion(threadId: string): boolean {
-  return pending.has(threadId)
 }

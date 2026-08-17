@@ -36,7 +36,8 @@ const {
   resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
 } = await import('../threads/followups.js')
 const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
-const { resolvePermissionRequest, hasPendingPermission } = await import('./permission-broker.js')
+const { resolvePermissionGate: resolvePermissionRequest, hasOpenPermissionGate: hasPendingPermission } =
+  await import('./gate.js')
 const { getThreadEvents, createUsageEvent } = await import('../db/repositories/usage-events.js')
 const { upsertUsageLimit } = await import('../db/repositories/usage-limits.js')
 const { ProviderError } = await import('./providers/cli-driver.js')
@@ -46,6 +47,9 @@ const {
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
 } = await import('./delegate.js')
 const { listPipelinesForThread } = await import('../db/repositories/pipelines.js')
+const { setClaudeCliVersionReaderForTesting, resetClaudeCliVersionReaderForTesting } = await import(
+  './providers/claude/cli-version.js'
+)
 
 function initGitRepo(path: string): void {
   execFileSync('git', ['init'], { cwd: path })
@@ -63,6 +67,9 @@ function makeProjectDir(): string {
 }
 
 beforeEach(() => {
+  // A checagem de versão do Claude CLI (aviso D3) roda fire-and-forget no dispatch: sem este stub
+  // ela spawna o binário real e o aviso da versão do host cairia no meio das asserções de stream.
+  setClaudeCliVersionReaderForTesting(async () => ({ outcome: 'unavailable' }))
   // Sugestões são geradas por um processo de provider próprio (fora do stub do dispatch): sem este
   // stub o fim de turno de qualquer teste com assinante do stream spawna o CLI real.
   setFollowupRunCliTurnForTesting(async () => ({ text: '[]' }))
@@ -96,6 +103,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
+  resetClaudeCliVersionReaderForTesting()
   closeDb()
   rmSync(process.env.ENGRENACODE_USER_DATA as string, { recursive: true, force: true })
 })
@@ -490,6 +498,104 @@ describe('dispatchNewThread', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0]?.threadId).toBe(thread.id)
     expect(entries[0]?.event).toBe('Read (completed)')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('Sprint 1 — permission-native-denial persists diagnosis + WS without command body', async () => {
+    const { nativeDenialDiagnosis } = await import('./providers/permission-contract.js')
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const diagnosis = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'mode',
+      brokerOutcome: 'never-requested',
+    })
+    const sensitiveCommand = 'sleep 30'
+
+    let releaseGate: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+
+    setRunCliTurnForTesting(async (input) => {
+      await gate
+      input.onEvent({
+        type: 'hook-started',
+        hookId: 'hook_1',
+        hookEvent: 'PreToolUse',
+        hookName: 'permission-broker',
+      })
+      input.onEvent({
+        type: 'hook-response',
+        hookId: 'hook_1',
+        hookEvent: 'PreToolUse',
+        hookName: 'permission-broker',
+        outcome: 'success',
+        exitCode: 0,
+      })
+      // Provider already strips tool_input; synthetic event must not carry command.
+      input.onEvent({
+        type: 'permission-native-denial',
+        toolName: 'Bash',
+        toolUseId: 'toolu_bg_bash_001',
+        decisionReasonType: 'mode',
+        decisionReason: null,
+      })
+      return { text: 'Preciso de aprovação no modal.' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'roda em background',
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: unknown[] = []
+    const fakeSocket = {
+      readyState: 1,
+      OPEN: 1,
+      send: (data: string) => received.push(JSON.parse(data)),
+    }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+    releaseGate?.()
+
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    const denial = received.find((e) => (e as { type: string }).type === 'permission.native_denial') as
+      | {
+          type: string
+          toolName: string
+          code: string
+          message: string
+          brokerOutcome?: string
+          toolUseId?: string
+          decisionReasonType?: string | null
+        }
+      | undefined
+    expect(denial).toBeDefined()
+    expect(denial?.code).toBe('permission_native_denial')
+    expect(denial?.toolName).toBe('Bash')
+    expect(denial?.message).toBe(diagnosis)
+    expect(denial?.toolUseId).toBe('toolu_bg_bash_001')
+    expect(denial?.decisionReasonType).toBe('mode')
+    // Nenhuma consulta ao broker neste turno: o diagnóstico continua sendo o do caso "broker
+    // nunca viu a tool", agora nomeado em vez de derivado de um booleano (R09).
+    expect(denial?.brokerOutcome).toBe('never-requested')
+
+    const toolLogs = listLogEntries({ kind: 'tool' })
+    expect(toolLogs.some((e) => e.event === diagnosis)).toBe(true)
+    expect(toolLogs.some((e) => e.event.includes('hook started: permission-broker'))).toBe(true)
+    expect(toolLogs.some((e) => e.event.includes('hook response: permission-broker'))).toBe(true)
+
+    const wire = JSON.stringify({ received, logs: toolLogs.map((e) => e.event) })
+    expect(wire).not.toContain(sensitiveCommand)
+    expect(wire).not.toContain('tool_input')
+    expect(wire).toContain(diagnosis)
+
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -1584,7 +1690,7 @@ describe('usage limit gate (F25)', () => {
 })
 
 describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised"', () => {
-  it('emits permission.request over WS, blocks the hook (--settings) até POST /permission resolver com allow', async () => {
+  it('emits gate.opened over WS, blocks the hook (--settings) até o gate ser resolvido com allow', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1617,11 +1723,14 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const req = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string; toolName: string }
     expect(req.toolName).toBe('Write')
+    expect(getThread(thread.id)?.state).toBe('waiting_permission')
+    expect(received.some((e) => e.type === 'state.change' && e.state === 'waiting_permission')).toBe(true)
 
-    expect(resolvePermissionRequest(req.requestId, true).ok).toBe(true)
+    expect(resolvePermissionRequest(thread.id, req.gateId, true).ok).toBe(true)
+    expect(getThread(thread.id)?.state).toBe('running')
 
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
@@ -1629,13 +1738,13 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     expect(capturedPort).toBeDefined()
     expect(capturedToken).toBeTruthy()
     expect(capturedAllow).toBe(true)
-    // `permission.resolved` só é emitido pelo handler HTTP (threads-handler.ts), não por
-    // `resolvePermissionRequest` em si — coberto em threads-handler.test.ts (fluxo end-to-end).
+    // O `gate.resolved` sai de dentro do gate; o fluxo end-to-end pela rota HTTP
+    // (`POST /api/threads/:id/gate/:gateId/resolve`) está coberto em threads-handler.test.ts.
 
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('deny explícito (POST /permission allow=false) devolve allow:false pro hook', async () => {
+  it('deny explícito (resolvePermissionGate allow=false) devolve allow:false pro hook', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1664,9 +1773,9 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const req = received.find((e) => e.type === 'permission.request') as { requestId: string }
-    expect(resolvePermissionRequest(req.requestId, false).ok).toBe(true)
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string }
+    expect(resolvePermissionRequest(thread.id, req.gateId, false).ok).toBe(true)
 
     await dispatchPromise
     await waitForState(thread.id, ['idle', 'error'])
@@ -1703,12 +1812,13 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
     expect(hasPendingPermission(thread.id)).toBe(true)
 
-    // Turno ainda ativo (controller registrado) — cancelThread aborta o processo do provider, que
-    // aborta o fetch preso no `POST /permission`; o `finally` de dispatch.ts limpa o pendente.
+    // Deny + close servers BEFORE abort — pending limpa na hora (não só no finally).
     expect(cancelThread(thread.id)).toBe(true)
+    expect(hasPendingPermission(thread.id)).toBe(false)
+    expect(getThread(thread.id)?.state).toBe('stopping')
 
     await dispatchPromise
     await waitForState(thread.id, ['cancelled', 'idle', 'error'])
@@ -1719,7 +1829,111 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('não cria PermissionBroker fora de supervised (auto-accept-edits não gera --settings/porta)', async () => {
+  it('cancel durante tool running marca a tool call como cancelled (não fica running)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({ type: 'tool-start', id: 'bash-1', name: 'Bash', params: { command: 'sleep 999' } })
+      await new Promise<void>((resolve, reject) => {
+        if (input.signal?.aborted) {
+          reject(new Error('aborted'))
+          return
+        }
+        input.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+      return { text: 'nunca' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    await waitFor(() => listToolCallsForThread(thread.id).some((tc) => tc.status === 'running'))
+
+    expect(cancelThread(thread.id)).toBe(true)
+    expect(listToolCallsForThread(thread.id).every((tc) => tc.status !== 'running')).toBe(true)
+    expect(listToolCallsForThread(thread.id)[0]?.status).toBe('cancelled')
+
+    await dispatchPromise.catch(() => {})
+    await waitForState(thread.id, ['cancelled', 'idle', 'error'])
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('cancel durante ask_user_question rejeita a pergunta pendente antes do abort', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const { hasOpenQuestionGate, openQuestionGate } = await import('./gate.js')
+    const waitForAnswer = (threadId: string): Promise<unknown> => {
+      const opened = openQuestionGate({ threadId })
+      return opened.ok ? opened.answer : Promise.reject(new Error('gate não abriu'))
+    }
+
+    let askRejected = false
+    setRunCliTurnForTesting(async (input) => {
+      input.onEvent({
+        type: 'tool-start',
+        id: 'ask-1',
+        name: ASK_USER_QUESTION_TOOL_NAME,
+        params: { question: 'Continuar?' },
+      })
+      const [thr] = listThreadsForProject(project.id)
+      const askPromise = waitForAnswer(thr.id).then(
+        () => {
+          askRejected = false
+        },
+        () => {
+          askRejected = true
+        }
+      )
+      await waitFor(() => hasOpenQuestionGate(thr.id))
+      await new Promise<void>((resolve, reject) => {
+        if (input.signal?.aborted) {
+          reject(new Error('aborted'))
+          return
+        }
+        input.signal?.addEventListener(
+          'abort',
+          () => {
+            void askPromise
+            reject(new Error('aborted'))
+          },
+          { once: true }
+        )
+      })
+      return { text: 'nunca' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    await waitFor(() => hasOpenQuestionGate(thread.id))
+
+    expect(cancelThread(thread.id)).toBe(true)
+    expect(hasOpenQuestionGate(thread.id)).toBe(false)
+
+    await dispatchPromise.catch(() => {})
+    await waitForState(thread.id, ['cancelled', 'idle', 'error'])
+    expect(askRejected).toBe(true)
+    expect(getThread(thread.id)?.state).toBe('cancelled')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('não cria PermissionBroker em full-access (bypassPermissions não precisa de porta)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -1733,12 +1947,60 @@ describe('PermissionBroker (supervised) — F21-like flow pro nível "Supervised
       projectId: project.id,
       prompt: 'oi',
       provider: 'claude',
-      accessLevel: 'auto-accept-edits',
+      accessLevel: 'full-access',
       executionMode: 'main',
     })
     await waitForState(thread.id, ['idle', 'error'])
 
     expect(capturedPort).toBeUndefined()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('auto-accept-edits monta o broker: Write passa sem UI e Bash abre gate.opened', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    let writeAllowed: boolean | undefined
+    let bashAllowed: boolean | undefined
+    setRunCliTurnForTesting(async (input) => {
+      const ask = async (toolName: string, toolInput: unknown): Promise<boolean> => {
+        const res = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+          body: JSON.stringify({ toolName, toolInput }),
+        })
+        return ((await res.json()) as { allow: boolean }).allow
+      }
+      writeAllowed = await ask('Write', { file_path: 'x.txt' })
+      bashAllowed = await ask('Bash', { command: 'npm install' })
+      return { text: 'ok' }
+    })
+
+    const dispatchPromise = dispatchNewThread({
+      projectId: project.id,
+      prompt: 'instala as deps',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+
+    const [thread] = listThreadsForProject(project.id)
+    const received: Array<Record<string, unknown>> = []
+    const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
+    subscribe(thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
+
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const req = received.find((e) => e.type === 'gate.opened') as { gateId: string; toolName: string }
+    // Só o Bash pediu: edição de arquivo é auto-aceita pelo nível, sem modal.
+    expect(req.toolName).toBe('Bash')
+    expect(received.filter((e) => e.type === 'gate.opened')).toHaveLength(1)
+
+    expect(resolvePermissionRequest(thread.id, req.gateId, true).ok).toBe(true)
+    await dispatchPromise
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(writeAllowed).toBe(true)
+    expect(bashAllowed).toBe(true)
     rmSync(dir, { recursive: true, force: true })
   })
 })

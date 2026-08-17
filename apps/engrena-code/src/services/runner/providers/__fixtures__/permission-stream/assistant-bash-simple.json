@@ -1,0 +1,21 @@
+{
+  "type": "assistant",
+  "message": {
+    "id": "msg_fixture_simple_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_bash_simple_001",
+        "name": "Bash",
+        "input": {
+          "command": "ls",
+          "description": "list cwd"
+        }
+      }
+    ]
+  },
+  "session_id": "sess_fixture_perm_001"
+}

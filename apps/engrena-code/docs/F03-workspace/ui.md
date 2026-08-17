@@ -62,7 +62,7 @@ Ordem obrigatória no viewport (conteúdo sob o `AppShell` ~40px):
    4. **Ambiente** / **Arquivos** (`FileExplorer`, lazy no 1º open) / **Thread** / **Repositório** (fechados)
    5. **CodeGraph** (badge no summary; abre se missing/error)
    6. **Repo Harness** (aberto por padrão — Rules/Skills/SubAgents/MCPs/Memória)
-5. **Overlays:** `AddProjectModal`; `PermissionPrompt` (access Supervised); erros inline no composer; `FileViewerModal` (leitura de arquivo do explorer).
+5. **Overlays:** `AddProjectModal`; erros inline no composer; `FileViewerModal` (leitura de arquivo do explorer). `PermissionPrompt` **não** é overlay: é card inline na timeline (ver abaixo).
 
 **Alinhamento do card / painel:** sidebars em cartões soltos (`rounded-xl border border-border bg-surface`); centro com composer `mx-auto max-w-5xl`  
 **Largura máx.:** centro chat/composer `max-w-5xl`; modal adicionar projeto `max-w-md` / card padrão
@@ -337,19 +337,21 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `harness.subagents` | SubAgents |
 | `harness.link.count` | {N} vinculado \| {N} vinculados |
 
-### Permission (Supervised)
+### Permission (card inline na timeline)
 
 | Slot | Texto |
 |------|-------|
+| `permission.header` | O agente precisa de permissão |
 | `permission.title` | Permitir a ferramenta {toolName}? |
 | `permission.queue` | +{N} na fila |
-| `permission.label.tool` | Ferramenta |
-| `permission.label.params` | Parâmetros |
+| `permission.label.params` | Parâmetros (`<details>`, fechado) |
+| `permission.hint` | Escolher aqui preenche o composer — envie (ou digite sim/não/permitir todos) para conceder. |
 | `permission.deny` | Negar |
 | `permission.allow` | Permitir |
 | `permission.allowAll` | Permitir todos |
 | `permission.allowAll.hint` | Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code). |
-| `permission.composer.pending` | Há uma permissão pendente. Use Permitir, Permitir todos ou Negar no modal (ou responda sim/não/permitir todos). |
+| `permission.allowProject` | Sempre neste projeto |
+| `permission.composer.pending` | Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat e envie). |
 
 ## Campos e controles
 
@@ -395,7 +397,7 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `diffAccepted` / `diffRejected` | todos revisados / reject terminal | banners de sucesso/rejeição; Abrir PR se aplicável |
 | `thread_busy` | HTTP 409 `thread_busy` | mensagem `error.threadBusy` no ponto da ação; **sem** badge dedicado na fonte |
 | `gitBusy` | stage ≠ null **ou** thread running | botões git disabled |
-| `permissionOpen` | tool call Supervised | modal Negar / Permitir / Permitir todos; composer: sim/não/permitir todos; outro texto → hint `permission.composer.pending` (não enfileira). Permitir todos = don’t ask again por `toolName` nesta thread até fim do processo |
+| `permissionOpen` | tool call pedindo permissão | card inline no fim da timeline com Permitir / Permitir todos / Sempre neste projeto / Negar — o clique **preenche o composer**; concede o Enviar ou o texto digitado (sim/não/permitir todos); outro texto → hint `permission.composer.pending` (não enfileira). Permitir todos = don’t ask again por `toolName` nesta thread até fim do processo |
 | `harnessLive` | F05–F07 | Skills/Rules/SubAgents com counts e modais reais |
 
 ## Componentes sugeridos
@@ -413,7 +415,8 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `DiffFile` | card por arquivo; dfhead com checkbox + badge + Aceitar/Rejeitar |
 | `Checkbox` | seleção de subset pending |
 | `Badge` | status pendente / aceito / rejeitado |
-| `Modal` / `Dialog` | AddProjectModal, PermissionPrompt |
+| `Modal` / `Dialog` | AddProjectModal |
+| Card inline na timeline | PermissionPrompt, AskUserQuestionCard |
 
 ## Aceite visual
 

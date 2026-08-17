@@ -82,3 +82,10 @@ export function resolveHighlightLanguage(lang: string | null): HighlightLanguage
   if (HIGHLIGHT_LANGUAGE_SET.has(normalized)) return normalized as HighlightLanguage
   return 'text'
 }
+
+/** Full GFM+Shiki is expensive per delta — stream with a light path until the bubble settles. */
+export type MarkdownRenderPath = 'light' | 'full'
+
+export function selectMarkdownRenderPath(streaming: boolean): MarkdownRenderPath {
+  return streaming ? 'light' : 'full'
+}

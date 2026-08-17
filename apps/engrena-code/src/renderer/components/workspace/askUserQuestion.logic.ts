@@ -23,7 +23,9 @@ export function findPendingAskUserQuestion(toolCalls: ToolCall[]): PendingAskUse
     return {
       toolCallId: call.id,
       prompt: typeof params.prompt === 'string' ? params.prompt : '',
-      options: Array.isArray(params.options) ? params.options.filter((o): o is string => typeof o === 'string') : [],
+      options: Array.isArray(params.options)
+        ? params.options.filter((o): o is string => typeof o === 'string')
+        : [],
       multiSelect: params.multiSelect === true,
     }
   }
@@ -36,13 +38,51 @@ export function validateAnswer(selectedOptions: string[], freeText: string): boo
 }
 
 /**
- * Escolha única e sem texto livre digitado: o clique na opção já é a resposta inteira, então
- * enviar é um passo só — o mesmo que os botões de decisão do fallback fazem. Com múltipla escolha
- * (o usuário ainda vai marcar outras) ou com texto livre em andamento (que se perderia), o envio
- * continua no botão.
+ * @deprecated O card não envia mais no clique — só preenche o composer. Mantido para testes antigos.
  */
+export function fillsComposerOnOptionClick(multiSelect: boolean, _freeText = ''): boolean {
+  void multiSelect
+  void _freeText
+  return true
+}
+
+/** @deprecated use fillsComposerOnOptionClick */
 export function submitsOnOptionClick(multiSelect: boolean, freeText: string): boolean {
-  return !multiSelect && freeText.trim() === ''
+  return fillsComposerOnOptionClick(multiSelect, freeText)
+}
+
+/**
+ * Texto do composer principal → corpo de `POST /answer` enquanto `waiting_user`.
+ * Casa opção única; em multi, aceita lista separada por vírgula casando cada pedaço com uma opção.
+ * Senão, freeText.
+ */
+export function composerAnswerForQuestion(
+  text: string,
+  options: string[],
+  multiSelect = false
+): { selectedOptions: string[]; freeText: string | null } {
+  const trimmed = text.trim()
+  if (trimmed === '') return { selectedOptions: [], freeText: null }
+
+  const hit = options.find((o) => o.localeCompare(trimmed, undefined, { sensitivity: 'accent' }) === 0)
+  if (hit !== undefined) return { selectedOptions: [hit], freeText: null }
+
+  if (multiSelect && trimmed.includes(',')) {
+    const parts = trimmed
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => p !== '')
+    const selected: string[] = []
+    for (const part of parts) {
+      const match = options.find((o) => o.localeCompare(part, undefined, { sensitivity: 'accent' }) === 0)
+      if (match !== undefined && !selected.includes(match)) selected.push(match)
+    }
+    if (selected.length === parts.length && selected.length > 0) {
+      return { selectedOptions: selected, freeText: null }
+    }
+  }
+
+  return { selectedOptions: [], freeText: trimmed }
 }
 
 /** Copy de erro do envio de resposta (F21 `copy.md` — `askQuestion.error.*`). */

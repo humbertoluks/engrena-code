@@ -10,19 +10,30 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
-const { createThread, getThread } = await import('../db/repositories/threads.js')
+const { createThread, getThread, updateThread } = await import('../db/repositories/threads.js')
 const { createToolCall, appendMessage } = await import('../db/repositories/messages.js')
-const { createAskUserQuestionServer, hasPendingQuestion, ASK_USER_QUESTION_TOOL_NAME } = await import(
-  '../runner/ask-user-question.js'
-)
-const { createPermissionServer, hasPendingPermission } = await import('../runner/permission-broker.js')
+const { createAskUserQuestionServer } = await import('../runner/ask-user-question.js')
+const { createPermissionServer } = await import('../runner/permission-broker.js')
+const {
+  hasOpenPermissionGate: hasPendingPermission,
+  listOpenPermissionGates: listPendingPermissions,
+  resolvePermissionGate: resolvePermissionRequest,
+  expireOpenPermissionGates,
+  expireOpenQuestionGates,
+  openPermissionGate,
+  openQuestionGate,
+  hasOpenQuestionGate,
+  listOpenQuestionGates,
+} = await import('../runner/gate.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('../runner/dispatch.js')
 const { subscribe } = await import('../runner/ws-hub.js')
 const {
   setRunCliTurnForTesting: setFollowupRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetFollowupRunCliTurnForTesting,
 } = await import('../threads/followups.js')
-const { clearAllFollowupsForTesting } = await import('../threads/followups-cache.js')
+const { clearAllFollowupsForTesting, getCachedFollowups, resolveFollowups } = await import(
+  '../threads/followups-cache.js'
+)
 const {
   setRunCliTurnForTesting: setDelegateRunCliTurnForTesting,
   resetRunCliTurnForTesting: resetDelegateRunCliTurnForTesting,
@@ -163,6 +174,101 @@ describe('handleThreadsRequest', () => {
     expect(parsed.stream.ws).toBe(`/?threadId=${parsed.thread.id}`)
 
     await waitFor(() => getThread(parsed.thread.id)?.state === 'idle')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('carrega clientMessageId até a mensagem persistida e o devolve no histórico', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      {
+        prompt: 'primeiro',
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        clientMessageId: 'bolha-1',
+      },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const followReq = fakeReq(
+      'POST',
+      `/api/threads/${created.thread.id}/messages`,
+      { prompt: 'segundo', clientMessageId: 'bolha-2' },
+      session
+    )
+    await handleThreadsRequest(followReq, fakeRes())
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const historyReq = fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session)
+    const historyRes = fakeRes()
+    await handleThreadsRequest(historyReq, historyRes)
+    const { status, body } = await historyRes.result()
+    expect(status).toBe(200)
+    const messages = (body as { messages: Array<{ role: string; content: string; clientId: string | null }> }).messages
+    expect(messages.filter((m) => m.role === 'user').map((m) => m.clientId)).toEqual(['bolha-1', 'bolha-2'])
+    // Resposta do agente nasce no servidor: nunca carrega id de bolha.
+    expect(messages.filter((m) => m.role === 'assistant').every((m) => m.clientId === null)).toBe(true)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('mantém o contrato antigo: sem clientMessageId a mensagem persiste com clientId null', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const req = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    const { status, body } = await res.result()
+    expect(status).toBe(201)
+    const created = body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    const historyRes = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${created.thread.id}/history`, undefined, session),
+      historyRes
+    )
+    const messages = ((await historyRes.result()).body as { messages: Array<{ role: string; clientId: string | null }> })
+      .messages
+    expect(messages.find((m) => m.role === 'user')?.clientId).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rejeita clientMessageId que não seja texto curto não vazio (400 validation_error)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    for (const clientMessageId of [42, '', 'x'.repeat(129)]) {
+      const req = fakeReq(
+        'POST',
+        `/api/projects/${project.id}/threads`,
+        { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main', clientMessageId },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+    }
+
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -463,7 +569,7 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('permission endpoint accepts an allow decision (200) and unblocks the pending PreToolUse hook', async () => {
+  it('gate resolve accepts an allow decision (200) and unblocks the pending PreToolUse hook', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
 
@@ -493,14 +599,19 @@ describe('handleThreadsRequest', () => {
     const fakeSocket = { readyState: 1, OPEN: 1, send: (data: string) => received.push(JSON.parse(data)) }
     subscribe(created.thread.id, fakeSocket as unknown as Parameters<typeof subscribe>[1])
 
-    await waitFor(() => received.some((e) => e.type === 'permission.request'))
-    const permReq = received.find((e) => e.type === 'permission.request') as { requestId: string; toolName: string }
-    expect(permReq.toolName).toBe('Write')
+    await waitFor(() => received.some((e) => e.type === 'gate.opened'))
+    const gateOpened = received.find((e) => e.type === 'gate.opened') as {
+      gateId: string
+      kind: string
+      toolName: string
+    }
+    expect(gateOpened.kind).toBe('permission')
+    expect(gateOpened.toolName).toBe('Write')
 
     const req = fakeReq(
       'POST',
-      `/api/threads/${created.thread.id}/permission`,
-      { requestId: permReq.requestId, allow: true },
+      `/api/threads/${created.thread.id}/gate/${gateOpened.gateId}/resolve`,
+      { kind: 'permission', allow: true },
       session
     )
     const res = fakeRes()
@@ -511,40 +622,80 @@ describe('handleThreadsRequest', () => {
 
     await waitFor(() => getThread(created.thread.id)?.state === 'idle')
     expect(capturedAllow).toBe(true)
-    expect(received.some((e) => e.type === 'permission.resolved' && e.requestId === permReq.requestId && e.allow === true)).toBe(
-      true
-    )
+    expect(
+      received.some((e) => e.type === 'gate.resolved' && e.gateId === gateOpened.gateId && e.allow === true)
+    ).toBe(true)
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('permission endpoint returns 409 for an unknown/already-resolved requestId', async () => {
+  it('gate resolve returns 409 gate_thread_mismatch for a gateId of another thread', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
+
+    // Thread vizinha (turno trivial) — só para ter um :id diferente no path.
     setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+    const otherReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'outra', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const otherRes = fakeRes()
+    await handleThreadsRequest(otherReq, otherRes)
+    const other = (await otherRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(other.thread.id)?.state === 'idle')
+
+    let capturedAllow: boolean | undefined
+    setRunCliTurnForTesting(async (input) => {
+      const permRes = await fetch(`http://127.0.0.1:${input.permissionPort}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': input.permissionToken ?? '' },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.txt' } }),
+      })
+      capturedAllow = ((await permRes.json()) as { allow: boolean }).allow
+      return { text: 'ok' }
+    })
 
     const createReq = fakeReq(
       'POST',
       `/api/projects/${project.id}/threads`,
-      { prompt: 'oi', provider: 'claude', accessLevel: 'auto-accept-edits', executionMode: 'main' },
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
       session
     )
     const createRes = fakeRes()
     await handleThreadsRequest(createReq, createRes)
-    const created = (await createRes.result()).body as { thread: { id: string } }
+    const owner = (await createRes.result()).body as { thread: { id: string } }
 
-    const req = fakeReq(
+    await waitFor(() => listPendingPermissions(owner.thread.id).length === 1)
+    const gateId = listPendingPermissions(owner.thread.id)[0].requestId
+
+    // gateId da thread dona chegando pelo path da vizinha: não resolve.
+    const wrongReq = fakeReq(
       'POST',
-      `/api/threads/${created.thread.id}/permission`,
-      { requestId: 'does-not-exist', allow: true },
+      `/api/threads/${other.thread.id}/gate/${gateId}/resolve`,
+      { kind: 'permission', allow: true },
       session
     )
-    const res = fakeRes()
-    await handleThreadsRequest(req, res)
-    const { status, body } = await res.result()
-    expect(status).toBe(409)
-    expect((body as { error: { code: string } }).error.code).toBe('no_pending_permission')
+    const wrongRes = fakeRes()
+    await handleThreadsRequest(wrongReq, wrongRes)
+    const wrong = await wrongRes.result()
+    expect(wrong.status).toBe(409)
+    expect((wrong.body as { error: { code: string } }).error.code).toBe('gate_thread_mismatch')
+    expect(listPendingPermissions(owner.thread.id)).toHaveLength(1)
 
-    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+    // A thread dona continua conseguindo resolver depois da tentativa cruzada.
+    const rightReq = fakeReq(
+      'POST',
+      `/api/threads/${owner.thread.id}/gate/${gateId}/resolve`,
+      { kind: 'permission', allow: true },
+      session
+    )
+    const rightRes = fakeRes()
+    await handleThreadsRequest(rightReq, rightRes)
+    expect((await rightRes.result()).status).toBe(200)
+
+    await waitFor(() => getThread(owner.thread.id)?.state === 'idle')
+    expect(capturedAllow).toBe(true)
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -715,6 +866,36 @@ describe('handleThreadsRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('DELETE /api/threads/:id clears the followups cache of the thread', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    setRunCliTurnForTesting(async () => ({ text: 'ok' }))
+
+    const createReq = fakeReq(
+      'POST',
+      `/api/projects/${project.id}/threads`,
+      { prompt: 'oi', provider: 'claude', accessLevel: 'supervised', executionMode: 'main' },
+      session
+    )
+    const createRes = fakeRes()
+    await handleThreadsRequest(createReq, createRes)
+    const created = (await createRes.result()).body as { thread: { id: string } }
+    await waitFor(() => getThread(created.thread.id)?.state === 'idle')
+
+    // Gerador injetado: popular o cache não depende de rodar provider nenhum.
+    await resolveFollowups(created.thread.id, 'msg_1', async () => ['e agora?'])
+    expect(getCachedFollowups(created.thread.id, 'msg_1')).toEqual(['e agora?'])
+
+    const req = fakeReq('DELETE', `/api/threads/${created.thread.id}`, undefined, session)
+    const res = fakeRes()
+    await handleThreadsRequest(req, res)
+    expect((await res.result()).status).toBe(200)
+    // Sem o clear no DELETE, a entrada sobrevivia à thread e só morria com o processo.
+    expect(getCachedFollowups(created.thread.id, 'msg_1')).toBeNull()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('DELETE /api/threads/:id removes a main-mode thread (worktreeCleanup=none)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
@@ -823,7 +1004,47 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
 
-    it('upgrade from supervised allows pending PreToolUse permissions', async () => {
+    it('upgrade to auto-accept-edits allows a pending Write and keeps a pending Bash no modal', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'running',
+      })
+
+      const server = await createPermissionServer(thread.id, () => {})
+      const ask = (toolName: string, toolInput: unknown): Promise<Response> =>
+        fetch(`http://127.0.0.1:${server.port}/permission`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+          body: JSON.stringify({ toolName, toolInput }),
+        })
+
+      const writeFetch = ask('Write', { file_path: 'a.txt' })
+      const bashFetch = ask('Bash', { command: 'echo hi' })
+      await waitFor(() => listPendingPermissions(thread.id).length === 2)
+
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      expect((await res.result()).status).toBe(200)
+
+      expect(((await (await writeFetch).json()) as { allow: boolean }).allow).toBe(true)
+      const stillPending = listPendingPermissions(thread.id)
+      expect(stillPending).toHaveLength(1)
+      expect(stillPending[0].toolName).toBe('Bash')
+
+      resolvePermissionRequest(thread.id, stillPending[0].requestId, true)
+      expect(((await (await bashFetch).json()) as { allow: boolean }).allow).toBe(true)
+
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('upgrade to full-access allows every pending permission', async () => {
       const dir = makeProjectDir()
       const project = createProject({ path: dir })
       const thread = createThread({
@@ -842,7 +1063,7 @@ describe('handleThreadsRequest', () => {
       })
       await waitFor(() => hasPendingPermission(thread.id))
 
-      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'auto-accept-edits' }, session)
+      const req = fakeReq('PATCH', `/api/threads/${thread.id}`, { accessLevel: 'full-access' }, session)
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       expect((await res.result()).status).toBe(200)
@@ -856,8 +1077,8 @@ describe('handleThreadsRequest', () => {
     })
   })
 
-  describe('POST /api/threads/:id/answer (F21)', () => {
-    it('test_answer_happy_path resolves the pending /ask request with selectedOptions', async () => {
+  describe('GET /api/threads/:id/gate', () => {
+    function seedGatedThread(): { dir: string; threadId: string } {
       const dir = makeProjectDir()
       const project = createProject({ path: dir })
       const thread = createThread({
@@ -865,29 +1086,359 @@ describe('handleThreadsRequest', () => {
         provider: 'claude',
         accessLevel: 'supervised',
         executionMode: 'main',
-        state: 'waiting_user',
+        state: 'running',
       })
-      createToolCall({
-        threadId: thread.id,
-        name: ASK_USER_QUESTION_TOOL_NAME,
-        params: { prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] },
-        status: 'running',
+      return { dir, threadId: thread.id }
+    }
+
+    it('devolve os dois kinds abertos na ordem de abertura', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+      const question = openQuestionGate({ threadId, question: { prompt: 'Segue?', options: ['A'] } })
+      if (!permission.ok || !question.ok) throw new Error('gate não abriu')
+      void permission.decision
+      void question.answer.catch(() => {})
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect((body as { gates: Array<{ gateId: string; kind: string; toolName: string | null }> }).gates).toEqual([
+        expect.objectContaining({ gateId: permission.gate.requestId, kind: 'permission', toolName: 'Bash' }),
+        expect.objectContaining({ gateId: question.gate.gateId, kind: 'question', toolName: null }),
+      ])
+
+      expireOpenPermissionGates(threadId, 'turn_ended')
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    /**
+     * Snapshot de um gate aberto pelo broker de verdade (não por `openPermissionGate` direto): é
+     * assim que o card remonta depois de um reconnect, com `toolName`/`payload` intactos.
+     */
+    it('devolve o snapshot do gate aberto pelo broker e reivindica a rota', async () => {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state: 'waiting_permission',
       })
 
-      const askServer = await createAskUserQuestionServer(thread.id)
+      const seen: Array<{ requestId: string; toolName: string }> = []
+      const server = await createPermissionServer(thread.id, (info) => seen.push(info))
+      const pendingFetch = fetch(`http://127.0.0.1:${server.port}/permission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-permission-token': server.token },
+        body: JSON.stringify({ toolName: 'Write', toolInput: { file_path: 'x.ts' } }),
+      })
+      await waitFor(() => hasPendingPermission(thread.id))
+
+      const claimed = await handleThreadsRequest(
+        fakeReq('GET', `/api/threads/${thread.id}/gate`, undefined, session),
+        fakeRes()
+      )
+      expect(claimed).toBe(true)
+
+      const req = fakeReq('GET', `/api/threads/${thread.id}/gate`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      const gates = (body as { gates: Array<{ gateId: string; kind: string; toolName: string; payload: unknown }> })
+        .gates
+      expect(gates).toHaveLength(1)
+      expect(gates[0].gateId).toBe(seen[0].requestId)
+      expect(gates[0].kind).toBe('permission')
+      expect(gates[0].toolName).toBe('Write')
+      expect(gates[0].payload).toEqual({ file_path: 'x.ts' })
+      expect(listPendingPermissions(thread.id)).toHaveLength(1)
+
+      // limpa para o fetch do hook não ficar pendurado no afterEach
+      resolvePermissionRequest(thread.id, seen[0].requestId, false)
+      await pendingFetch
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 404 for an unknown thread', async () => {
+      const req = fakeReq('GET', '/api/threads/thr_missing/gate', undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(404)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+    })
+
+    it('rejects unauthorized requests with 401 unauthorized (vault unlocked, bad session)', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, 'invalid-token')
+      const res = fakeRes()
+      const claimed = await handleThreadsRequest(req, res)
+      expect(claimed).toBe(true)
+      const { status, body } = await res.result()
+      expect(status).toBe(401)
+      expect((body as { error: { code: string } }).error.code).toBe('unauthorized')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 423 vault_locked before 401 when the vault is locked', async () => {
+      const { dir, threadId } = seedGatedThread()
+      vaultService.lock()
+
+      const req = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, session)
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
+      const req2 = fakeReq('GET', `/api/threads/${threadId}/gate`, undefined, 'invalid-token')
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(423)
+      expect((second.body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
+  describe('POST /api/threads/:id/gate/:gateId/resolve', () => {
+    function seedGatedThread(state: 'running' | 'waiting_user' = 'running'): { dir: string; threadId: string } {
+      const dir = makeProjectDir()
+      const project = createProject({ path: dir })
+      const thread = createThread({
+        projectId: project.id,
+        provider: 'claude',
+        accessLevel: 'supervised',
+        executionMode: 'main',
+        state,
+      })
+      return { dir, threadId: thread.id }
+    }
+
+    it('resolve um gate de permissão pelo gateId (kind=permission)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const opened = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+      if (!opened.ok) throw new Error('gate não abriu')
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${opened.gate.requestId}/resolve`,
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ resolved: true, kind: 'permission', toolName: 'Bash' })
+      await expect(opened.decision).resolves.toMatchObject({ allow: true })
+      expect(hasPendingPermission(threadId)).toBe(false)
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('resolve a segunda pergunta da thread sem tocar na primeira (kind=question)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const first = openQuestionGate({ threadId, question: { prompt: 'Primeira?' } })
+      const second = openQuestionGate({ threadId, question: { prompt: 'Segunda?' } })
+      if (!first.ok || !second.ok) throw new Error('gate não abriu')
+      void first.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${second.gate.gateId}/resolve`,
+        { kind: 'question', selectedOptions: ['B'] },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ resolved: true, kind: 'question' })
+      await expect(second.answer).resolves.toEqual({ selectedOptions: ['B'], freeText: null })
+      // A pergunta mais antiga (a que o wire legado `/answer` alcançaria) continua pendente.
+      expect(getThread(threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('rejeita selectedOptions fora das opções do gate (400 validation_error)', async () => {
+      const { dir, threadId } = seedGatedThread()
+      const opened = openQuestionGate({ threadId, question: { prompt: 'Qual?', options: ['A', 'B'] } })
+      if (!opened.ok) throw new Error('gate não abriu')
+      void opened.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${opened.gate.gateId}/resolve`,
+        { kind: 'question', selectedOptions: ['Opção inexistente'] },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      // Gate segue aberto: validação não consome a pergunta.
+      expect(getThread(threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('devolve 409 gate_thread_mismatch e mantém o gate pendente na thread dona', async () => {
+      const owner = seedGatedThread()
+      const intruder = seedGatedThread()
+      const opened = openQuestionGate({ threadId: owner.threadId, question: { prompt: 'x' } })
+      if (!opened.ok) throw new Error('gate não abriu')
+      void opened.answer.catch(() => {})
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${intruder.threadId}/gate/${opened.gate.gateId}/resolve`,
+        { kind: 'question', freeText: 'oi' },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('gate_thread_mismatch')
+      expect(getThread(owner.threadId)?.state).toBe('waiting_user')
+
+      expireOpenQuestionGates(owner.threadId, 'turn_ended', 'Turno encerrado.')
+      rmSync(owner.dir, { recursive: true, force: true })
+      rmSync(intruder.dir, { recursive: true, force: true })
+    })
+
+    it('devolve 409 gate_not_found para gateId inexistente e 400 para kind inválido', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_inexistente/resolve`,
+        { kind: 'permission', allow: false },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(409)
+      expect((body as { error: { code: string } }).error.code).toBe('gate_not_found')
+
+      const req2 = fakeReq('POST', `/api/threads/${threadId}/gate/gate_x/resolve`, { kind: 'outro' }, session)
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(400)
+      expect((second.body as { error: { code: string } }).error.code).toBe('validation_error')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 404 for an unknown thread', async () => {
+      const req = fakeReq(
+        'POST',
+        '/api/threads/thr_missing/gate/gate_x/resolve',
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(404)
+      expect((body as { error: { code: string } }).error.code).toBe('thread_not_found')
+    })
+
+    it('rejects unauthorized requests with 401 unauthorized (vault unlocked, bad session)', async () => {
+      const { dir, threadId } = seedGatedThread()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        'invalid-token'
+      )
+      const res = fakeRes()
+      const claimed = await handleThreadsRequest(req, res)
+      expect(claimed).toBe(true)
+      const { status, body } = await res.result()
+      expect(status).toBe(401)
+      expect((body as { error: { code: string } }).error.code).toBe('unauthorized')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('returns 423 vault_locked before 401 when the vault is locked', async () => {
+      const { dir, threadId } = seedGatedThread()
+      vaultService.lock()
+
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        session
+      )
+      const res = fakeRes()
+      await handleThreadsRequest(req, res)
+      const { status, body } = await res.result()
+      expect(status).toBe(423)
+      expect((body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      // e com token inválido o cofre trancado ainda vence o 401 (ordem 423 → 401)
+      const req2 = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/gate_x/resolve`,
+        { kind: 'permission', allow: true },
+        'invalid-token'
+      )
+      const res2 = fakeRes()
+      await handleThreadsRequest(req2, res2)
+      const second = await res2.result()
+      expect(second.status).toBe(423)
+      expect((second.body as { error: { code: string } }).error.code).toBe('vault_locked')
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    /**
+     * Ponta a ponta do `ask_user_question` (F21): o `POST /ask` do MCP fica preso até a resolução
+     * do gate pelo `gateId` do card — o wire legado `POST /answer`, sem gateId, saiu com a rota.
+     */
+    it('test_answer_happy_path resolves the pending /ask request with selectedOptions', async () => {
+      const { dir, threadId } = seedGatedThread('waiting_user')
+
+      const askServer = await createAskUserQuestionServer(threadId)
       const askPromise = fetch(`http://127.0.0.1:${askServer.port}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
         body: JSON.stringify({ prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] }),
       })
-      await waitFor(() => hasPendingQuestion(thread.id))
+      await waitFor(() => hasOpenQuestionGate(threadId))
+      const [gate] = listOpenQuestionGates(threadId)
 
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['Incremental'] }, session)
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${gate.gateId}/resolve`,
+        { kind: 'question', selectedOptions: ['Incremental'] },
+        session
+      )
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       const { status, body } = await res.result()
       expect(status).toBe(200)
-      expect((body as { answered: boolean }).answered).toBe(true)
+      expect(body).toMatchObject({ resolved: true, kind: 'question' })
 
       const askResponse = await askPromise
       const askBody = (await askResponse.json()) as { content: Array<{ text: string }>; isError: boolean }
@@ -898,120 +1449,52 @@ describe('handleThreadsRequest', () => {
       rmSync(dir, { recursive: true, force: true })
     })
 
-    it('test_answer_thread_not_waiting returns 409 for a thread not in waiting_user', async () => {
-      const dir = makeProjectDir()
-      const project = createProject({ path: dir })
-      const thread = createThread({
-        projectId: project.id,
-        provider: 'claude',
-        accessLevel: 'supervised',
-        executionMode: 'main',
-        state: 'idle',
-      })
-
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['A'] }, session)
-      const res = fakeRes()
-      await handleThreadsRequest(req, res)
-      const { status, body } = await res.result()
-      expect(status).toBe(409)
-      expect((body as { error: { code: string } }).error.code).toBe('thread_not_waiting')
-
-      rmSync(dir, { recursive: true, force: true })
-    })
-
-    it('test_answer_no_pending_question returns 409 when waiting_user has no in-memory resolver (F21 §3.2)', async () => {
-      const dir = makeProjectDir()
-      const project = createProject({ path: dir })
-      const thread = createThread({
-        projectId: project.id,
-        provider: 'claude',
-        accessLevel: 'supervised',
-        executionMode: 'main',
-        state: 'waiting_user',
-      })
-
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['A'] }, session)
-      const res = fakeRes()
-      await handleThreadsRequest(req, res)
-      const { status, body } = await res.result()
-      expect(status).toBe(409)
-      expect((body as { error: { code: string } }).error.code).toBe('no_pending_question')
-
-      rmSync(dir, { recursive: true, force: true })
-    })
-
     it('test_answer_validation_error_empty_body rejects an answer with no options and no freeText', async () => {
-      const dir = makeProjectDir()
-      const project = createProject({ path: dir })
-      const thread = createThread({
-        projectId: project.id,
-        provider: 'claude',
-        accessLevel: 'supervised',
-        executionMode: 'main',
-        state: 'waiting_user',
-      })
+      const { dir, threadId } = seedGatedThread()
+      const opened = openQuestionGate({ threadId, question: { prompt: 'Qual?' } })
+      if (!opened.ok) throw new Error('gate não abriu')
+      void opened.answer.catch(() => {})
 
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, {}, session)
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${opened.gate.gateId}/resolve`,
+        { kind: 'question' },
+        session
+      )
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       const { status, body } = await res.result()
       expect(status).toBe(400)
       expect((body as { error: { code: string } }).error.code).toBe('validation_error')
+      // Corpo vazio não consome a pergunta.
+      expect(hasOpenQuestionGate(threadId)).toBe(true)
 
-      rmSync(dir, { recursive: true, force: true })
-    })
-
-    it('rejects selectedOptions outside the pending question options (400 validation_error)', async () => {
-      const dir = makeProjectDir()
-      const project = createProject({ path: dir })
-      const thread = createThread({
-        projectId: project.id,
-        provider: 'claude',
-        accessLevel: 'supervised',
-        executionMode: 'main',
-        state: 'waiting_user',
-      })
-      createToolCall({
-        threadId: thread.id,
-        name: ASK_USER_QUESTION_TOOL_NAME,
-        params: { prompt: 'Qual caminho seguir?', options: ['Big bang', 'Incremental'] },
-        status: 'running',
-      })
-
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { selectedOptions: ['Opção inexistente'] }, session)
-      const res = fakeRes()
-      await handleThreadsRequest(req, res)
-      const { status, body } = await res.result()
-      expect(status).toBe(400)
-      expect((body as { error: { code: string } }).error.code).toBe('validation_error')
-
+      expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
       rmSync(dir, { recursive: true, force: true })
     })
 
     it('accepts freeText alone without selectedOptions', async () => {
-      const dir = makeProjectDir()
-      const project = createProject({ path: dir })
-      const thread = createThread({
-        projectId: project.id,
-        provider: 'claude',
-        accessLevel: 'supervised',
-        executionMode: 'main',
-        state: 'waiting_user',
-      })
-      const askServer = await createAskUserQuestionServer(thread.id)
+      const { dir, threadId } = seedGatedThread('waiting_user')
+      const askServer = await createAskUserQuestionServer(threadId)
       const askPromise = fetch(`http://127.0.0.1:${askServer.port}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-ask-token': askServer.token },
         body: JSON.stringify({ prompt: 'Outra?' }),
       })
-      await waitFor(() => hasPendingQuestion(thread.id))
+      await waitFor(() => hasOpenQuestionGate(threadId))
+      const [gate] = listOpenQuestionGates(threadId)
 
-      const req = fakeReq('POST', `/api/threads/${thread.id}/answer`, { freeText: 'texto livre do usuário' }, session)
+      const req = fakeReq(
+        'POST',
+        `/api/threads/${threadId}/gate/${gate.gateId}/resolve`,
+        { kind: 'question', freeText: 'texto livre do usuário' },
+        session
+      )
       const res = fakeRes()
       await handleThreadsRequest(req, res)
       const { status, body } = await res.result()
       expect(status).toBe(200)
-      expect((body as { answered: boolean }).answered).toBe(true)
+      expect(body).toMatchObject({ resolved: true, kind: 'question' })
 
       const askResponse = await askPromise
       const askBody = (await askResponse.json()) as { content: Array<{ text: string }> }
@@ -1538,6 +2021,66 @@ describe('F28 Onda 2 — busca, renomear, exportar e voto', () => {
     const bad = fakeRes()
     await handleThreadsRequest(fakeReq('GET', `/api/threads/${thread.id}/export?format=pdf`, undefined, session), bad)
     expect((await bad.result()).status).toBe(400)
+
+    rmSync(dir, { recursive: true, force: true })
+  }), 20000
+
+  it('GET /threads/:id/export funciona em running, waiting_permission e cancelled com settlement', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      title: 'Export mid-turn',
+    })
+    appendMessage({ threadId: thread.id, role: 'user', content: 'faz algo', blocks: null })
+    createToolCall({
+      threadId: thread.id,
+      name: 'Write',
+      params: { path: 'a.ts' },
+      status: 'running',
+    })
+
+    updateThread(thread.id, { state: 'running' })
+    const running = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=md`, undefined, session),
+      running
+    )
+    const runningResult = await running.result()
+    const runningBody = runningResult.body as { content: string }
+    expect(runningResult.status).toBe(200)
+    expect(runningBody.content).toContain('Estado: running')
+    expect(runningBody.content).toContain('`Write` — running')
+
+    updateThread(thread.id, { state: 'waiting_permission' })
+    const waiting = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=json`, undefined, session),
+      waiting
+    )
+    const waitingBody = (await waiting.result()).body as { content: string; format: string; fileName: string }
+    expect(waitingBody.format).toBe('json')
+    expect(waitingBody.fileName.endsWith('.json')).toBe(true)
+    const waitingParsed = JSON.parse(waitingBody.content) as {
+      thread: { state: string }
+      toolCalls: Array<{ status: string }>
+    }
+    expect(waitingParsed.thread.state).toBe('waiting_permission')
+    expect(waitingParsed.toolCalls[0]?.status).toBe('running')
+
+    updateThread(thread.id, { state: 'cancelled' })
+    const cancelled = fakeRes()
+    await handleThreadsRequest(
+      fakeReq('GET', `/api/threads/${thread.id}/export?format=md`, undefined, session),
+      cancelled
+    )
+    const cancelledBody = (await cancelled.result()).body as { content: string }
+    expect(cancelledBody.content).toContain('Estado: cancelled')
+    expect(cancelledBody.content).toContain('`Write` — cancelled')
+    expect(cancelledBody.content).not.toContain('`Write` — running')
 
     rmSync(dir, { recursive: true, force: true })
   }), 20000

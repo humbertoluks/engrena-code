@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from './thread-export.js'
+import {
+  buildExportSnapshot,
+  exportFileName,
+  exportThreadAsJson,
+  exportThreadAsMarkdown,
+} from './thread-export.js'
 import type { Thread } from '../db/repositories/threads.js'
 import type { Message, ToolCall } from '../db/repositories/messages.js'
 
@@ -16,6 +21,7 @@ const thread: Thread = {
   title: 'Ajustar o Composer',
   systemPrompt: null,
   cliSessionId: null,
+  chatMode: null,
   createdAt: 1_700_000_000_000,
   updatedAt: 1_700_000_100_000,
 }
@@ -56,10 +62,26 @@ const toolCalls: ToolCall[] = [
   },
 ]
 
+function runningTool(name = 'Write'): ToolCall {
+  return {
+    id: 'tc_running',
+    threadId: thread.id,
+    messageId: null,
+    name,
+    params: { path: 'out.ts' },
+    status: 'running',
+    result: null,
+    seq: 2,
+    startedAt: 1_700_000_030_000,
+    endedAt: null,
+  }
+}
+
 describe('exportThreadAsMarkdown', () => {
   it('traz título, metadados e cada mensagem na ordem', () => {
     const md = exportThreadAsMarkdown({ thread, messages, toolCalls })
     expect(md.startsWith('# Ajustar o Composer')).toBe(true)
+    expect(md).toContain('Estado: idle')
     expect(md).toContain('claude (claude-haiku-4-5)')
     expect(md).toContain('## Você')
     expect(md).toContain('explique este arquivo')
@@ -73,15 +95,36 @@ describe('exportThreadAsMarkdown', () => {
     expect(md).toContain('`Read` — completed')
   })
 
-  it('não quebra com thread sem título nem mensagem sem texto', () => {
+  it('não quebra com thread sem título nem mensagem sem texto (conversa vazia de conteúdo)', () => {
     const md = exportThreadAsMarkdown({
       thread: { ...thread, title: null },
-      messages: [{ ...messages[0], content: null, blocks: null }],
+      messages: [],
       toolCalls: [],
     })
     expect(md).toContain('Conversa sem título')
-    expect(md).toContain('_(sem texto)_')
+    expect(md).toContain('Mensagens: 0 · Tool calls: 0')
     expect(md).not.toContain('## Work log')
+  })
+
+  it('em running mantém tool calls running no snapshot vivo', () => {
+    const md = exportThreadAsMarkdown({
+      thread: { ...thread, state: 'running' },
+      messages,
+      toolCalls: [...toolCalls, runningTool()],
+    })
+    expect(md).toContain('Estado: running')
+    expect(md).toContain('`Write` — running')
+  })
+
+  it('em cancelled assenta tool running como cancelled (não omite settlement)', () => {
+    const md = exportThreadAsMarkdown({
+      thread: { ...thread, state: 'cancelled' },
+      messages,
+      toolCalls: [...toolCalls, runningTool('Bash')],
+    })
+    expect(md).toContain('Estado: cancelled')
+    expect(md).toContain('`Bash` — cancelled')
+    expect(md).not.toContain('`Bash` — running')
   })
 })
 
@@ -92,6 +135,50 @@ describe('exportThreadAsJson', () => {
     expect(parsed.messages).toHaveLength(2)
     expect(parsed.toolCalls).toHaveLength(1)
     expect(typeof parsed.exportedAt).toBe('string')
+  })
+
+  it('em cancelled serializa tool settlement no JSON', () => {
+    const parsed = JSON.parse(
+      exportThreadAsJson({
+        thread: { ...thread, state: 'cancelled' },
+        messages,
+        toolCalls: [runningTool()],
+      })
+    ) as { toolCalls: ToolCall[] }
+    expect(parsed.toolCalls[0]?.status).toBe('cancelled')
+    expect(parsed.toolCalls[0]?.endedAt).not.toBeNull()
+  })
+
+  it('suporta payload grande sem truncar o conteúdo', () => {
+    const big = 'x'.repeat(250_000)
+    const json = exportThreadAsJson({
+      thread,
+      messages: [{ ...messages[0], content: big }],
+      toolCalls,
+    })
+    expect(json.length).toBeGreaterThan(250_000)
+    expect(json).toContain(big.slice(0, 64))
+    expect(json).toContain(big.slice(-64))
+  })
+})
+
+describe('buildExportSnapshot', () => {
+  it('não altera tools running enquanto waiting_permission', () => {
+    const snap = buildExportSnapshot({
+      thread: { ...thread, state: 'waiting_permission' },
+      messages,
+      toolCalls: [runningTool()],
+    })
+    expect(snap.toolCalls[0]?.status).toBe('running')
+  })
+
+  it('mapeia running → interrupted quando a thread está em error', () => {
+    const snap = buildExportSnapshot({
+      thread: { ...thread, state: 'error' },
+      messages,
+      toolCalls: [runningTool()],
+    })
+    expect(snap.toolCalls[0]?.status).toBe('interrupted')
   })
 })
 

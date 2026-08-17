@@ -25,6 +25,8 @@ import {
   type MentionQuery,
 } from './composer.logic'
 import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, type SlashTrigger } from './commandTrigger'
+import { deriveChatSurface, type ComposerPlaceholderKey } from './chatSurface.logic'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { ComposerModePicker } from './ComposerModePicker'
 import type { ChatModeItem, SavedPromptItem } from '../../services/prompt-library-service'
 import type { SlashCommandName } from '../../../services/runner/slash-commands.js'
@@ -36,6 +38,8 @@ const COPY = {
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
   placeholderFollowUp: 'Responder nesta conversa…  (Enter envia, Shift+Enter quebra linha)',
   placeholderRunning: 'Agente trabalhando — Enter enfileira para o próximo turno',
+  placeholderPermission: 'Permissão pendente — digite sim/não e Enter, ou escolha no card do chat',
+  placeholderQuestion: 'Resposta pendente — digite no composer ou escolha no card do chat e Enviar',
   placeholderStopping: 'Cancelando execução…',
   accessGroup: 'Access',
   accessSupervised: 'Supervised',
@@ -50,7 +54,6 @@ const COPY = {
   gitGateCtaLoading: 'Inicializando Git…',
   providerUnavailableTitle: 'Provider indisponível',
   providerUnavailableFallback: 'Provider indisponível para uso agora.',
-  send: 'Enviar',
   sendStop: 'Parar execução',
   errorSend: 'Falha ao enviar a mensagem.',
   limitBanner80: 'Você atingiu 80% do limite de consumo deste período.',
@@ -88,6 +91,16 @@ const EXECUTION_LABEL: Record<ThreadExecutionMode, string> = {
   worktree: COPY.executionWorktree,
 }
 
+/** Copy do placeholder por chave — a escolha da chave é de `deriveChatSurface`. */
+const PLACEHOLDER: Record<ComposerPlaceholderKey, string> = {
+  new: COPY.placeholderNew,
+  follow_up: COPY.placeholderFollowUp,
+  running: COPY.placeholderRunning,
+  permission: COPY.placeholderPermission,
+  question: COPY.placeholderQuestion,
+  stopping: COPY.placeholderStopping,
+}
+
 export interface TaskComposerProps {
   composer: ComposerDraft
   /** Anexos efetivos (explícitos + implícito do arquivo aberto). */
@@ -121,6 +134,13 @@ export interface TaskComposerProps {
   usageLimitStatus: UsageLimitStatusResponse | null
   onSend: () => void
   onCancel: () => void
+  /**
+   * Gate aberto da thread (`useThreadGate`): permissão faz o Enviar (não o Parar) resolver
+   * sim/não, pergunta faz o Enviar responder em vez de enfileirar.
+   */
+  gate?: ThreadGate | null
+  /** Bolha otimista do usuário ainda em voo (entra em `deriveChatSurface`). */
+  pendingActive?: boolean
   onGitInit: () => Promise<unknown>
   hasProject: boolean
 }
@@ -156,6 +176,8 @@ export function TaskComposer({
   usageLimitStatus,
   onSend,
   onCancel,
+  gate = null,
+  pendingActive = false,
   onGitInit,
   hasProject,
 }: Readonly<TaskComposerProps>): ReactElement {
@@ -183,14 +205,20 @@ export function TaskComposer({
     onTranscript: handleVoiceTranscript,
   })
 
-  const isRunning = selectedThread?.state === 'running'
-  const isStopping = selectedThread?.state === 'stopping'
-  // F21: thread pausada aguardando resposta do usuário também conta como ocupada — bloqueia
-  // follow-up/troca de provider, mas o cancelamento manual (AC F21) continua disponível abaixo.
-  const isWaitingUser = selectedThread?.state === 'waiting_user'
+  // Única derivação de estado do composer: Parar/Enviar, rótulo, placeholder e runtimeLocked
+  // saem daqui (e a rota é a mesma de `routeComposerSend`, sem segunda cópia do predicado).
+  const surface = deriveChatSurface({
+    threadState: selectedThread?.state ?? null,
+    gate,
+    hasActivePending: pendingActive,
+    queueLength: queue.length,
+    hasSelectedThread: selectedThread !== null,
+    hasSelectedProject: hasProject,
+    draftText: composer.text,
+  })
+  const runtimeLocked = surface.runtimeLocked
   const providerLocked = selectedThread !== null
   const executionLocked = selectedThread !== null
-  const runtimeLocked = isRunning || isStopping || isWaitingUser || queue.length > 0
 
   const providerHealth = configStatus?.providers[composer.provider]
   const providerUnavailable = providerHealth !== undefined && !providerHealth.available
@@ -201,13 +229,7 @@ export function TaskComposer({
 
   const multimodal = composerCatalog?.providers[composer.provider]?.multimodal ?? false
 
-  const placeholder = isStopping
-    ? COPY.placeholderStopping
-    : isRunning || isWaitingUser
-      ? COPY.placeholderRunning
-      : selectedThread
-        ? COPY.placeholderFollowUp
-        : COPY.placeholderNew
+  const placeholder = PLACEHOLDER[surface.placeholderKey]
 
   // Multiplex `/` × `@` (ui.md §A "comando vence"): só computa o gatilho de menção quando o
   // gatilho `/` (âncora de início) não está ativo.
@@ -355,6 +377,8 @@ export function TaskComposer({
   }
 
   const disabled = !hasProject || (providerUnavailable && !providerLocked) || gitGateActive || usageLimitBlocked
+  // Em running/decisão o Enviar só exige texto; o `disabled` global (projeto/git/limite) vale no idle.
+  const sendButtonDisabled = composer.text.trim() === '' || (surface.sendStartsTurn && disabled)
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -526,7 +550,7 @@ export function TaskComposer({
               value={composer.accessLevel}
               options={ACCESS_LEVELS}
               labels={ACCESS_LABEL}
-              disabled={disabled || isStopping}
+              disabled={disabled || surface.composerMode === 'stopping'}
               onChange={(v) => void onAccessLevelChange(v)}
             />
             {onApplyChatMode && onSaveChatMode && onDeleteChatMode ? (
@@ -630,37 +654,40 @@ export function TaskComposer({
             />
           </div>
 
-          {isRunning || isStopping || isWaitingUser ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label={COPY.sendStop}
-              title={COPY.sendStop}
-              className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-fg"
-            >
-              <span className="block h-[10px] w-[10px] rounded-[2px] bg-bg" aria-hidden="true" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={disabled || composer.text.trim() === ''}
-              aria-label={COPY.send}
-              title={COPY.send}
-              className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-50"
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 16 16"
-                className="h-[14px] w-[14px]"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+          <span className="relative z-[60] flex shrink-0 items-center gap-xs">
+            {surface.showStop ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label={COPY.sendStop}
+                title={COPY.sendStop}
+                className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-fg"
               >
-                <path d="M8 12V4M4.5 7.5L8 4l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
+                <span className="block h-[10px] w-[10px] rounded-[2px] bg-bg" aria-hidden="true" />
+              </button>
+            ) : null}
+            {surface.showSend ? (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sendButtonDisabled}
+                aria-label={surface.sendLabel}
+                title={surface.sendLabel}
+                className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-50"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  className="h-[14px] w-[14px]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M8 12V4M4.5 7.5L8 4l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            ) : null}
+          </span>
         </div>
       </div>
     </div>

@@ -11,7 +11,12 @@ import {
   type ThreadProvider,
   type ThreadState,
 } from '../db/repositories/threads.js'
-import { appendMessage, createToolCall, updateToolCall } from '../db/repositories/messages.js'
+import {
+  appendMessage,
+  cancelRunningToolCallsForThread,
+  createToolCall,
+  updateToolCall,
+} from '../db/repositories/messages.js'
 import { createDiff } from '../db/repositories/diffs.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 import { createUsageEvent } from '../db/repositories/usage-events.js'
@@ -21,13 +26,19 @@ import { createWorktree, WorktreeError } from '../git/worktree.js'
 import { resolveThreadCwd } from './thread-cwd.js'
 import { acquireLease, getLease, releaseLease } from './project-execution.js'
 import { emit, subscriberCount } from './ws-hub.js'
+import { truncateToolResultPayload } from './buffer-cap.js'
+import { recordToolResultTruncation } from '../runtime-metrics.js'
 import {
-  consumeThreadCancelled,
-  getActiveController,
-  markThreadCancelled,
-  registerActiveController,
-  unregisterActiveController,
-} from './turn-control.js'
+  addTurnCloser,
+  clearStoppingDeadline,
+  closeTurnServers,
+  endTurnSession,
+  getCancellableTurnSession,
+  markTurnSettled,
+  scheduleStoppingDeadline,
+  startTurnSession,
+  type TurnSession,
+} from './turn-session.js'
 import { parseSlashCommand } from './slash-commands.js'
 import { deriveThreadTitle } from './thread-title.js'
 import { runPipelineCommand } from './pipeline-runner.js'
@@ -46,11 +57,27 @@ import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-regi
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
 import {
   createAskUserQuestionServer,
-  rejectAskUserQuestion,
   ASK_USER_QUESTION_TOOL_NAME,
   type AskUserQuestionServerHandle,
 } from './ask-user-question.js'
-import { createPermissionServer, denyPendingPermissionsForThread, type PermissionServerHandle } from './permission-broker.js'
+import {
+  clearBrokerOutcomesForThread,
+  createPermissionServer,
+  brokerOutcomeForTool,
+  hadOversizedPermissionRequest,
+  type PermissionServerHandle,
+} from './permission-broker.js'
+import { nativeDenialDiagnosis } from './providers/permission-contract.js'
+import { announceClaudeCliVersionOnce } from './claude-version-notice.js'
+import {
+  expireOpenPermissionGates,
+  expireOpenQuestionGates,
+  GATE_REASON_THREAD_CANCELLED,
+  markThreadWaitingUser,
+  restoreRunningIfNoOpenGates,
+} from './gate.js'
+import { permissionBrokerApplies } from './permission-policy.js'
+import { applyTransition, INITIAL_TURN_STATE } from './turn-state.js'
 import { buildEngrenaCodeMcpDef, SUBAGENT_MCP_NAME } from './subagent-mcp-server.js'
 import { McpRegistry } from './mcp-registry.js'
 import { MCP_UNSUPPORTED_PROVIDERS, mcpOmissionMessage, prepareMcpsForDispatch } from './mcp-secrets.js'
@@ -100,6 +127,11 @@ export interface DispatchNewThreadInput {
   contextAttachments?: ContextAttachmentInput[]
   /** Nome do modo de chat (F28 §3.4) — fica na thread e reentra no system prompt a cada turno. */
   chatMode?: string | null
+  /**
+   * Id da bolha otimista gerado no renderer. Viaja até `messages.client_id` para o chat casar a
+   * bolha com a mensagem persistida mesmo quando o prompt gravado difere do digitado.
+   */
+  clientMessageId?: string | null
 }
 
 export interface DispatchFollowUpInput {
@@ -111,6 +143,7 @@ export interface DispatchFollowUpInput {
   images?: ComposerImageInput[]
   contextAttachments?: ContextAttachmentInput[]
   chatMode?: string | null
+  clientMessageId?: string | null
 }
 
 /** Injetável para testes — produção usa `runCliTurn` (spawn real do binário do provider). */
@@ -126,23 +159,78 @@ export function resetRunCliTurnForTesting(): void {
 }
 
 /** Estados de onde um cancelamento manual ainda faz sentido; o resto já assentou. */
-const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>(['running', 'stopping', 'waiting_user'])
+const CANCELLABLE_STATES: ReadonlySet<ThreadState> = new Set<ThreadState>([
+  'running',
+  'stopping',
+  'waiting_user',
+  'waiting_permission',
+])
+
+/** Se o processo não assentar após abort, força `cancelled` (evita UI presa em stopping). */
+const STOPPING_DEADLINE_MS = 8_000
 
 /**
- * Cancelamento manual. Com execução ativa: `stopping` imediato + aborta o processo do provider (o
- * turno assenta em `cancelled` no cleanup). Sem execução ativa: a thread ficou órfã porque o turno
- * morreu sem passar pelo cleanup (ex.: pergunta pendente de F21 cujo processo caiu com o app de pé),
- * então o cancelamento assenta o estado aqui mesmo — antes disso a thread ficava presa
- * indefinidamente, com o endpoint devolvendo `{cancelled:false}` e a UI oferecendo um "Parar
- * execução" que não fazia nada. Retorna false só quando não há nada a cancelar.
+ * Timer vive na `TurnSession` (morre junto com ela). Ao disparar, assenta o turno e marca a sessão
+ * como `settled`: novo Stop cai no caminho de thread órfã em vez de abortar de novo. A lease
+ * continua com o turno até o `finally` — o processo pode não ter assentado, e soltá-la aqui
+ * deixaria outro turno entrar por cima dele.
+ */
+function armStoppingDeadline(threadId: string): void {
+  scheduleStoppingDeadline(threadId, STOPPING_DEADLINE_MS, () => {
+    const thread = getThread(threadId)
+    if (thread?.state !== 'stopping') return
+    closeTurnServers(threadId)
+    interruptRunningToolCalls(threadId)
+    applyTransition(threadId, 'cancel_settled')
+    markTurnSettled(threadId)
+  })
+}
+
+/** Marca tool calls `running` e notifica o WS (Work log deixa de ficar "trabalhando"). */
+function interruptRunningToolCalls(
+  threadId: string,
+  status: 'cancelled' | 'interrupted' = 'cancelled'
+): void {
+  const updated = cancelRunningToolCallsForThread(threadId, status)
+  for (const tc of updated) {
+    emit(threadId, {
+      type: 'tool_call.result',
+      threadId,
+      id: tc.id,
+      status: tc.status,
+      result: tc.result,
+    })
+    createLogEntry({
+      threadId,
+      kind: 'tool',
+      event: `${tc.name} (${tc.status})`,
+    })
+  }
+}
+
+/**
+ * Cancelamento manual. Com execução ativa: nega permissões/perguntas e fecha servers do turno
+ * *antes* do abort (senão o hook PreToolUse / MCP fica preso e o processo vira órfão), mata a
+ * árvore via AbortSignal → `killProcessTree`, assenta `stopping` e espera o cleanup em
+ * `cancelled` (com deadline). Sem execução ativa: assenta órfã aqui. Retorna false só quando
+ * não há nada a cancelar.
  */
 export function cancelThread(threadId: string): boolean {
-  const controller = getActiveController(threadId)
-  if (controller) {
-    markThreadCancelled(threadId)
-    updateThread(threadId, { state: 'stopping' })
-    emit(threadId, { type: 'state.change', threadId, state: 'stopping' })
-    controller.abort()
+  const session = getCancellableTurnSession(threadId)
+  if (session) {
+    // Marca do cancelamento vive na sessão: some com o turno, mesmo quando ele termina sem lançar.
+    session.cancelRequested = true
+    // 1) Deny pending FIRST — libera hooks/MCP antes de matar o processo.
+    expireOpenPermissionGates(threadId, GATE_REASON_THREAD_CANCELLED)
+    expireOpenQuestionGates(threadId, GATE_REASON_THREAD_CANCELLED, 'thread cancelada pelo usuário')
+    // 2) Fecha servers do turno (permission / ask / delegation / memory).
+    closeTurnServers(threadId)
+    // 3) Tool calls in-flight deixam de aparecer como "running" no histórico/export.
+    interruptRunningToolCalls(threadId)
+    // 4) Abort → cli-driver killProcessTree; estado stopping até o finally.
+    applyTransition(threadId, 'cancel_requested')
+    session.controller.abort()
+    armStoppingDeadline(threadId)
     return true
   }
 
@@ -152,8 +240,10 @@ export function cancelThread(threadId: string): boolean {
   // A pergunta pendente (se houver) precisa ser rejeitada antes do estado assentar, senão o
   // `POST /ask` do MCP fica preso mesmo sem thread para respondê-lo (path normal F21 e checkpoint
   // órfão de pipeline F22, que reusa o mesmo mecanismo).
-  rejectAskUserQuestion(threadId, 'thread cancelada pelo usuário')
-  denyPendingPermissionsForThread(threadId)
+  expireOpenQuestionGates(threadId, GATE_REASON_THREAD_CANCELLED, 'thread cancelada pelo usuário')
+  expireOpenPermissionGates(threadId, GATE_REASON_THREAD_CANCELLED)
+  closeTurnServers(threadId)
+  interruptRunningToolCalls(threadId)
 
   // Pipeline órfão (processo caiu sem passar pelo finally de pipeline-runner) — assenta aqui, já
   // que ninguém mais vai fechar aquele registro.
@@ -163,8 +253,8 @@ export function cancelThread(threadId: string): boolean {
   // Lease é por projeto: só libera se for esta thread que a detém, nunca a de outra execução.
   if (getLease(thread.projectId)?.ownerThreadId === threadId) releaseLease(thread.projectId)
 
-  updateThread(threadId, { state: 'cancelled' })
-  emit(threadId, { type: 'state.change', threadId, state: 'cancelled' })
+  clearStoppingDeadline(threadId)
+  applyTransition(threadId, 'cancel_settled')
   return true
 }
 
@@ -278,7 +368,7 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       reasoningLevel: input.reasoningLevel ?? null,
       accessLevel: input.accessLevel,
       executionMode: input.executionMode,
-      state: 'running',
+      state: INITIAL_TURN_STATE,
       title: deriveThreadTitle(input.prompt),
       chatMode: input.chatMode ?? null,
     })
@@ -295,16 +385,23 @@ export async function dispatchNewThread(input: DispatchNewThreadInput): Promise<
       thread = updateThread(thread.id, { worktreePath }) as Thread
     } catch (err) {
       releaseLease(project.id)
-      updateThread(thread.id, { state: 'error' })
+      applyTransition(thread.id, 'turn_failed')
       if (err instanceof WorktreeError) throw new DispatchValidationError(err.code, err.message)
       throw err
     }
   }
 
   if (slash.kind === 'command') {
-    void runPipelineCommand({ project, thread, command: slash.command, prompt: input.prompt, argsText: slash.args })
+    void runPipelineCommand({
+      project,
+      thread,
+      command: slash.command,
+      prompt: input.prompt,
+      argsText: slash.args,
+      clientMessageId: input.clientMessageId ?? null,
+    })
   } else {
-    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments)
+    void runTurn(project, thread, input.prompt, input.images, input.contextAttachments, input.clientMessageId ?? null)
   }
 
   return thread
@@ -329,27 +426,45 @@ export function dispatchFollowUp(input: DispatchFollowUpInput): Thread {
     model?: string | null
     reasoningLevel?: string | null
     chatMode?: string | null
-    state: 'running'
-  } = { state: 'running' }
+  } = {}
   if (input.accessLevel) patch.accessLevel = input.accessLevel
   if (input.model !== undefined) patch.model = input.model
   if (input.reasoningLevel !== undefined) patch.reasoningLevel = input.reasoningLevel
   // Trocar de modo no meio da thread vale para os turnos seguintes, como trocar de modelo.
   if (input.chatMode !== undefined) patch.chatMode = input.chatMode
 
-  let updated: Thread
+  // Estado e patch no mesmo UPDATE: sem janela com `running` e modelo velho. Transição ilegal
+  // aqui significa turno ainda vivo nesta thread (a lease do projeto normalmente barra antes) —
+  // rejeita o dispatch em vez de rodar um turno por cima de outro.
+  let transition: ReturnType<typeof applyTransition>
   try {
-    updated = updateThread(thread.id, patch) as Thread
+    transition = applyTransition(thread.id, 'follow_up', { patch })
   } catch (err) {
     releaseLease(project.id)
     throw err
   }
-
-  emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
+  if (!transition.ok) {
+    releaseLease(project.id)
+    if (transition.code === 'thread_not_found') {
+      throw new DispatchValidationError('thread_not_found', 'Thread não encontrada.')
+    }
+    throw new DispatchValidationError(
+      'thread_busy',
+      'Esta thread ainda tem um turno em andamento; aguarde ou pare o turno atual.'
+    )
+  }
+  const updated: Thread = transition.thread
   if (slash.kind === 'command') {
-    void runPipelineCommand({ project, thread: updated, command: slash.command, prompt: input.prompt, argsText: slash.args })
+    void runPipelineCommand({
+      project,
+      thread: updated,
+      command: slash.command,
+      prompt: input.prompt,
+      argsText: slash.args,
+      clientMessageId: input.clientMessageId ?? null,
+    })
   } else {
-    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments)
+    void runTurn(project, updated, input.prompt, input.images, input.contextAttachments, input.clientMessageId ?? null)
   }
 
   return updated
@@ -387,7 +502,8 @@ async function runTurn(
   thread: Thread,
   prompt: string,
   images?: ComposerImageInput[],
-  contextAttachments?: ContextAttachmentInput[]
+  contextAttachments?: ContextAttachmentInput[],
+  clientMessageId?: string | null
 ): Promise<void> {
   let mcpsCleanup: () => void = () => {}
   let delegationServer: DelegationServerHandle | null = null
@@ -395,6 +511,13 @@ async function runTurn(
   let memoryWriteServer: MemoryWriteServerHandle | null = null
   let permissionServer: PermissionServerHandle | null = null
   const turnId = randomUUID()
+  // Sessão nasce antes do setup assíncrono (worktree, MCPs, servers): Stop nesse intervalo já tinha
+  // o que abortar, e a lease que o dispatch pegou passa a ter um dono único de liberação.
+  const session: TurnSession = startTurnSession({
+    threadId: thread.id,
+    projectId: project.id,
+    releaseLease: () => releaseLease(project.id),
+  })
   try {
     const imageBlocks =
       images && images.length > 0
@@ -419,7 +542,13 @@ async function runTurn(
       imageBlocks || contextBlocks ? [...(imageBlocks ?? []), ...(contextBlocks ?? [])] : null
     // O usuário vê no histórico o que digitou (+ chips); o conteúdo dos anexos só vai no prompt
     // do provider, lido do disco agora — nunca uma cópia velha guardada no banco.
-    appendMessage({ threadId: thread.id, role: 'user', content: prompt, blocks })
+    appendMessage({
+      threadId: thread.id,
+      role: 'user',
+      content: prompt,
+      blocks,
+      clientId: clientMessageId ?? null,
+    })
     const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
     const skillSnapshot = createSkillSnapshot(project.id)
@@ -513,17 +642,34 @@ async function runTurn(
 
     let assistantText = ''
     const toolCallIdByProviderId = new Map<string, string>()
-    const controller = new AbortController()
-    registerActiveController(thread.id, controller)
 
-    // PermissionBroker (spec supervised) — só Claude: `--permission-mode default` sozinho exige
-    // stdin interativo, inexistente no spawn headless. O hook `PreToolUse` (cli-driver.ts) segura
-    // cada tool call aqui até a UI responder via `POST /api/threads/:id/permission`.
-    if (thread.provider === 'claude' && thread.accessLevel === 'supervised') {
-      permissionServer = await createPermissionServer(thread.id, ({ requestId, toolName, params }) => {
-        emit(thread.id, { type: 'permission.request', threadId: thread.id, requestId, toolName, params })
-      })
+    // PermissionBroker — só Claude: aprovação interativa via stdin não existe no spawn headless.
+    // O hook `PreToolUse` (providers/claude/permission-hook.ts) segura cada tool call aqui até a UI responder via
+    // `POST /api/threads/:id/permission`. Vale também em `auto-accept-edits`: lá o CLI negava
+    // Bash/MCP sozinho, sem modal nem caminho por texto (`permission-policy.ts`).
+    // `waiting_permission`, `gate.opened` e o `permission.request` legado saem de dentro do gate
+    // (`gate.ts`), dono único do fato — o broker aqui é só o transporte do hook.
+    // Zera as decisões **antes** do `if`, não só dentro de `createPermissionServer`: turno em
+    // full-access (ou de provider não-Claude) não monta broker nenhum, e sem esta linha herdaria
+    // o mapa do turno anterior — uma negação nativa aqui diria "o EngrenaCode concedeu" (ou "você
+    // negou") apoiada numa decisão que não é deste turno, o mesmo tipo de afirmação falsa do R08.
+    clearBrokerOutcomesForThread(thread.id)
+    if (thread.provider === 'claude' && permissionBrokerApplies(thread.accessLevel)) {
+      permissionServer = await createPermissionServer(thread.id)
     }
+
+    // Versão do CLI fora da faixa validada vira aviso na faixa âmbar, nunca bloqueio. Sem `await`
+    // de propósito e sem promessa devolvida: a leitura roda uma vez por processo e o turno segue
+    // mesmo que ela ainda não tenha terminado quando o spawn começar.
+    announceClaudeCliVersionOnce(thread.id, thread.provider)
+
+    // Cancel fecha estes servers *antes* do abort — senão hook/MCP fica preso e o kill demora.
+    addTurnCloser(thread.id, () => {
+      permissionServer?.close()
+      askUserQuestionServer?.close()
+      delegationServer?.close()
+      memoryWriteServer?.close()
+    })
 
     const turnInput: ProviderTurnInput = {
       provider: thread.provider,
@@ -544,7 +690,7 @@ async function runTurn(
       permissionToken: permissionServer?.token,
       resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,
       images,
-      signal: controller.signal,
+      signal: session.controller.signal,
       onEvent: (event) => {
         if (event.type === 'text-delta') {
           assistantText += event.text
@@ -572,20 +718,21 @@ async function runTurn(
             params: event.params,
           })
           // Pausa o turno (F21 §3.2) — não conta como `running` para lease/thread_busy; a UI
-          // resolve via POST /answer, que libera o `POST /ask` preso em ask-user-question.ts.
-          if (event.name === ASK_USER_QUESTION_TOOL_NAME) {
-            updateThread(thread.id, { state: 'waiting_user' })
-            emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'waiting_user' })
-          }
+          // resolve via POST /answer, que consome o gate de pergunta e libera o `POST /ask` preso.
+          // Pré-arme: o gate em si nasce no `POST /ask` do MCP, que chega logo depois deste evento;
+          // o estado é escrito pelo gate (idempotente), nunca aqui.
+          if (event.name === ASK_USER_QUESTION_TOOL_NAME) markThreadWaitingUser(thread.id)
           return
         }
 
         if (event.type === 'tool-result') {
           const rowId = toolCallIdByProviderId.get(event.id)
           if (rowId) {
+            const cappedResult = truncateToolResultPayload(event.result)
+            if (cappedResult !== event.result) recordToolResultTruncation()
             const updated = updateToolCall(rowId, {
               status: event.status,
-              result: event.result,
+              result: cappedResult,
               ended: true,
             })
             emit(thread.id, {
@@ -593,7 +740,7 @@ async function runTurn(
               threadId: thread.id,
               id: rowId,
               status: event.status,
-              result: event.result,
+              result: cappedResult,
             })
             if (updated) {
               createLogEntry({
@@ -601,14 +748,67 @@ async function runTurn(
                 kind: 'tool',
                 event: `${updated.name} (${updated.status})`,
               })
-              // Resposta do usuário chegou (resolveAskUserQuestion liberou o /ask preso) — retoma
-              // o turno sem reabrir a thread (F21 §3.2).
-              if (updated.name === ASK_USER_QUESTION_TOOL_NAME) {
-                updateThread(thread.id, { state: 'running' })
-                emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'running' })
-              }
+              // Resposta do usuário chegou (o gate de pergunta liberou o /ask preso) — retoma o
+              // turno sem reabrir a thread (F21 §3.2). Só volta a `running` se nenhum outro gate
+              // seguir aberto e a thread ainda estiver esperando: em cancel o estado já é
+              // `stopping`, e a versão antiga (write incondicional) o sobrescrevia.
+              if (updated.name === ASK_USER_QUESTION_TOOL_NAME) restoreRunningIfNoOpenGates(thread.id)
             }
           }
+          return
+        }
+
+        // Sprint 1: negação nativa do CLI vira log + WS observável — sem tool_input/command.
+        // O diagnóstico nasce aqui, e não no parser, porque só este ponto sabe o que o broker fez
+        // com a tool neste turno: sem esse fato a frase afirmava sempre que nenhum card apareceu,
+        // inclusive quando o card apareceu e outro hook negou depois (R08) ou quando foi o próprio
+        // usuário quem negou no card (R09).
+        if (event.type === 'permission-native-denial') {
+          // `event.toolUseId` identifica a chamada exata; sem ele a consulta cai na chave por nome.
+          const brokerOutcome = brokerOutcomeForTool(thread.id, event.toolName, event.toolUseId)
+          const message = nativeDenialDiagnosis({
+            toolName: event.toolName,
+            decisionReasonType: event.decisionReasonType,
+            decisionReason: event.decisionReason,
+            brokerOutcome,
+            oversizedRequestInTurn: hadOversizedPermissionRequest(thread.id),
+          })
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: message,
+          })
+          emit(thread.id, {
+            type: 'permission.native_denial',
+            threadId: thread.id,
+            toolName: event.toolName,
+            code: 'permission_native_denial',
+            message,
+            brokerOutcome,
+            oversizedRequestInTurn: hadOversizedPermissionRequest(thread.id),
+            toolUseId: event.toolUseId,
+            decisionReasonType: event.decisionReasonType,
+            decisionReason: event.decisionReason,
+          })
+          return
+        }
+
+        if (event.type === 'hook-started') {
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: `hook started: ${event.hookName} (${event.hookEvent})`,
+          })
+          return
+        }
+
+        if (event.type === 'hook-response') {
+          createLogEntry({
+            threadId: thread.id,
+            kind: 'tool',
+            event: `hook response: ${event.hookName} (${event.outcome})`,
+          })
+          return
         }
       },
     }
@@ -668,15 +868,14 @@ async function runTurn(
       emit(thread.id, { type: 'diff.ready', threadId: thread.id, diffId: row.id, file: row.file })
     }
 
-    updateThread(thread.id, { state: 'idle' })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state: 'idle' })
+    // `turn_finished` durante `stopping` (cancel pedido enquanto o turno terminava) assenta em
+    // `cancelled`, não `idle` — quem decide é o reducer.
+    applyTransition(thread.id, 'turn_finished')
   } catch (err) {
-    const wasCancelled = consumeThreadCancelled(thread.id)
+    const wasCancelled = session.cancelRequested
     // Cancelado pelo usuário assenta em `cancelled`, não `idle`: o mesmo destino do cancelamento de
     // uma thread órfã, e um sinal de auditoria que `idle` (indistinguível de turno concluído) apagava.
-    const state: ThreadState = wasCancelled ? 'cancelled' : 'error'
-    updateThread(thread.id, { state })
-    emit(thread.id, { type: 'state.change', threadId: thread.id, state })
+    applyTransition(thread.id, wasCancelled ? 'cancel_settled' : 'turn_failed')
 
     if (!wasCancelled) {
       // Turno falhou mas o provider já reportou usage/custo (spec F11 §3.2) — captura mesmo no erro.
@@ -687,20 +886,24 @@ async function runTurn(
       const message = err instanceof Error ? err.message : 'Erro desconhecido no turno.'
       const code = err instanceof ProviderError ? err.code : 'turn_failed'
       emit(thread.id, { type: 'error', threadId: thread.id, code, message })
+      // Crash mid-tool: não deixar Work log em "running" para sempre.
+      interruptRunningToolCalls(thread.id, 'interrupted')
     }
   } finally {
     mcpsCleanup()
-    delegationServer?.close()
+    // Idempotente com cancelThread: deny/reject/close já podem ter rodado.
+    closeTurnServers(thread.id)
     // Libera um `POST /ask` ainda preso (turno cancelado/erro antes da resposta chegar) antes de
     // fechar o servidor — sem isso o `tools/call` do MCP filho ficaria pendurado (F21 §3.2).
-    rejectAskUserQuestion(thread.id, 'Turno encerrado antes da resposta do usuário.')
+    expireOpenQuestionGates(thread.id, 'turn_ended', 'Turno encerrado antes da resposta do usuário.')
     askUserQuestionServer?.close()
     memoryWriteServer?.close()
-    // Mesmo cuidado do `POST /ask`: nega permissão pendente antes de fechar o server, senão o
+    delegationServer?.close()
+    // Mesmo cuidado do `POST /ask`: expira (nega) gate aberto antes de fechar o server, senão o
     // hook `PreToolUse` do CLI filho fica preso mesmo sem thread pra respondê-lo.
-    denyPendingPermissionsForThread(thread.id)
+    expireOpenPermissionGates(thread.id, 'turn_ended')
     permissionServer?.close()
-    unregisterActiveController(thread.id)
-    releaseLease(project.id)
+    // Ponto único de limpeza: closers, deadline de stopping, lease e o registro da sessão.
+    endTurnSession(thread.id)
   }
 }

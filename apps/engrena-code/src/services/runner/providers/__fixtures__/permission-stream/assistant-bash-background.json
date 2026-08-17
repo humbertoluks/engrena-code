@@ -1,0 +1,22 @@
+{
+  "type": "assistant",
+  "message": {
+    "id": "msg_fixture_bg_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_bg_bash_001",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 30",
+          "description": "idle sleep fixture",
+          "run_in_background": true
+        }
+      }
+    ]
+  },
+  "session_id": "sess_fixture_perm_bg_001"
+}

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import rehypeSanitize from 'rehype-sanitize'
 import { shikiThemeFromResolved, useTheme } from '@engrena/ui'
-import { parseMarkdownCodeLanguage } from './chatMarkdown.logic'
+import { parseMarkdownCodeLanguage, selectMarkdownRenderPath } from './chatMarkdown.logic'
 
 function CodeBlock({ code, language }: Readonly<{ code: string; language: string }>): ReactElement {
   const { resolvedTheme } = useTheme()
@@ -102,11 +102,27 @@ const markdownComponents: Components = {
 export interface ChatMarkdownProps {
   content: string
   className?: string
+  /**
+   * While streaming deltas, skip remark/rehype/Shiki (reparse-per-token cost).
+   * Settled assistant bubbles omit this (full path).
+   */
+  streaming?: boolean
 }
 
 /** GFM markdown for assistant chat replies (theme-aware fenced code via Shiki). */
-export function ChatMarkdown({ content, className }: Readonly<ChatMarkdownProps>): ReactElement {
+export function ChatMarkdown({ content, className, streaming = false }: Readonly<ChatMarkdownProps>): ReactElement {
   const wrapperClass = ['chat-markdown text-sm leading-relaxed text-fg', className].filter(Boolean).join(' ')
+  const path = selectMarkdownRenderPath(streaming)
+
+  if (path === 'light') {
+    return (
+      <div className={wrapperClass}>
+        <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-fg">
+          {content}
+        </pre>
+      </div>
+    )
+  }
 
   return (
     <div className={wrapperClass}>

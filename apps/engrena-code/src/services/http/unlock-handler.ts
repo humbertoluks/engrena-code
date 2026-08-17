@@ -25,6 +25,7 @@ import { handlePromptLibraryRequest } from './prompt-library-handler.js'
 import { handleMemoryRequest } from './memory-handler.js'
 import { handleWorkspaceUpgrade } from './ws-upgrade.js'
 import { recoverRunningThreads } from '../db/repositories/threads.js'
+import { expireOrphanGates } from '../runner/gate.js'
 import { createLogEntry } from '../db/repositories/log-entries.js'
 import { applySeedCatalog } from '../seeds/apply-catalog.js'
 import { SESSION_HEADER } from './_transport.js'
@@ -32,9 +33,18 @@ import { SESSION_HEADER } from './_transport.js'
 export { isAllowedLoopbackOrigin }
 
 const BOOT_RESTART_REASON = 'Aplicação reiniciada durante a execução.'
+const BOOT_GATE_REASON = 'Pedido de permissão expirado: a aplicação reiniciou antes da sua resposta.'
 
-/** Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` viram `error` + log_entries kind='task'. */
+/**
+ * Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` viram `error` +
+ * log_entries kind='task'. Antes disso, gate órfão (linha `open` sem continuação neste processo —
+ * o socket do hook morreu com o processo anterior) é expirado com motivo legível, senão o
+ * reconnect remontaria um card que ninguém consegue mais responder.
+ */
 function recoverInterruptedThreads(): void {
+  for (const gate of expireOrphanGates()) {
+    createLogEntry({ threadId: gate.threadId, kind: 'task', event: BOOT_GATE_REASON })
+  }
   const recovered = recoverRunningThreads()
   for (const thread of recovered) {
     createLogEntry({ threadId: thread.id, kind: 'task', event: BOOT_RESTART_REASON })

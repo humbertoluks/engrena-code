@@ -6,6 +6,7 @@ import {
   extractSessionTokenFromSubprotocol,
 } from '@engrena/http-core'
 import { vaultService } from '../vault/vault-service.js'
+import { listOpenPermissionGates } from '../runner/gate.js'
 import { subscribe, unsubscribe } from '../runner/ws-hub.js'
 
 /** Code session subprotocol prefix (package default; Plan can override). */
@@ -36,6 +37,28 @@ export function handleWorkspaceUpgrade(req: IncomingMessage, socket: Duplex, hea
 
   wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
     subscribe(threadId, ws)
+
+    const replayPending = (): void => {
+      // Replay do legado `permission.request` — o renderer só migra para `gate.opened` na Fase C.
+      for (const pending of listOpenPermissionGates(threadId)) {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'permission.request',
+              threadId: pending.threadId,
+              requestId: pending.requestId,
+              toolName: pending.toolName,
+              params: pending.params,
+            })
+          )
+        }
+      }
+    }
+
+    // Após handleUpgrade o socket costuma já estar OPEN; se ainda CONNECTING, espera o open.
+    if (ws.readyState === ws.OPEN) replayPending()
+    else ws.once('open', replayPending)
+
     ws.on('close', () => unsubscribe(threadId, ws))
     ws.on('error', () => unsubscribe(threadId, ws))
   })

@@ -12,9 +12,9 @@ import { ChatHistory } from '../components/workspace/ChatHistory'
 import { DiffViewer } from '../components/workspace/DiffViewer'
 import { WorkspaceSidebar, WorkspaceSidebarCollapsedRail } from '../components/workspace/WorkspaceSidebar'
 import { TerminalDock } from '../components/workspace/TerminalDock'
-import { PermissionPrompt } from '../components/workspace/PermissionPrompt'
 import { SubagentRunAuditModal } from '../components/subagents/SubagentRunAuditModal'
 import { GRAPH_COPY } from '../components/workspace/graph/graphCopy'
+import { isPendingActive } from '../components/workspace/pendingMessages.logic'
 
 const ExecutionGraphPanel = lazy(() => import('../components/workspace/graph/ExecutionGraphPanel'))
 
@@ -38,16 +38,19 @@ export function PrincipalScreen(): ReactElement {
   // CTA em vez de salto (ver useChatScroll).
   const lastAssistant = [...ws.messages].reverse().find((m) => m.role === 'assistant') ?? null
   const chatScroll = useChatScroll<HTMLDivElement>({
-    signal: `${ws.selectedThreadId ?? ''}|${ws.messages.length}|${ws.toolCalls.length}|${ws.streamingText.length}|${ws.chatPendingMessages.length}`,
+    // O gate entra no sinal porque o pedido chega antes do tool_call existir: sem ele o card
+    // inline nasceria fora de vista e o turno pareceria travado sem nada para responder.
+    signal: `${ws.selectedThreadId ?? ''}|${ws.messages.length}|${ws.toolCalls.length}|${ws.streamingText.length}|${ws.chatPendingMessages.length}|${ws.gate?.gateId ?? ''}`,
     enabled: ws.activeTab === 'history' && !terminalMaximized,
-    active: ws.selectedThread?.state === 'running',
+    active:
+      ws.selectedThread?.state === 'running' ||
+      ws.selectedThread?.state === 'waiting_permission',
     latestKey: `${lastAssistant?.id ?? ''}|${lastAssistant?.content?.length ?? 0}`,
     resetKey: ws.selectedThreadId ?? '',
   })
   const showJump = chatScroll.showJump && ws.activeTab === 'history' && !terminalMaximized
 
   const pendingDiffCount = ws.diffs.filter((d) => d.status === 'pending').length
-  const currentPermission = ws.permissionQueue[0] ?? null
 
   // Deep-link do Dashboard (F04): "#principal?project=<id>&thread=<id>&tab=diff|history".
   const deepLinkAppliedRef = useRef(false)
@@ -93,6 +96,9 @@ export function PrincipalScreen(): ReactElement {
       onSearchThreads={(projectId, query) => void ws.searchThreads(projectId, query)}
       onRenameThread={(threadId, title) => void ws.renameThread(threadId, title)}
       onExportThread={(threadId, format) => void ws.exportThread(threadId, format)}
+      exporting={ws.exporting}
+      exportError={ws.exportError}
+      onDismissExportError={ws.clearExportError}
     />
   )
 
@@ -109,8 +115,8 @@ export function PrincipalScreen(): ReactElement {
       onOpenSubagentRun={ws.openSubagentRun}
       pipeline={ws.pipeline}
       onAnswerPipelineCheckpoint={(input) => void ws.answerQuestion(input)}
-      pipelineAnswerBusy={ws.answerBusy}
-      pipelineAnswerError={ws.answerError}
+      pipelineAnswerBusy={ws.gateBusy}
+      pipelineAnswerError={ws.gateError}
       onCancelPipeline={() => void ws.cancel()}
       onNewThread={ws.newThread}
       onCommit={ws.gitCommit}
@@ -188,7 +194,9 @@ export function PrincipalScreen(): ReactElement {
               }
             >
               {ws.mcpNotices.map((notice, i) => (
-                <p key={`${notice.mcpName}-${i}`} className="text-[12.5px] text-amber">{notice.message}</p>
+                <p key={`${notice.kind}-${i}`} className="text-[12.5px] text-amber">
+                  {notice.message}
+                </p>
               ))}
               <button
                 type="button"
@@ -242,16 +250,18 @@ export function PrincipalScreen(): ReactElement {
                     streamingText={ws.streamingText}
                     hasThread={ws.selectedThreadId !== null}
                     threadState={ws.selectedThread?.state ?? null}
-                    pendingQuestion={ws.pendingQuestion}
-                    onAnswerQuestion={ws.answerQuestion}
-                    answerBusy={ws.answerBusy}
-                    answerError={ws.answerError}
+                    gate={ws.gate}
+                    gateQueuedCount={ws.gateQueuedCount}
+                    onPermissionDecide={ws.sendDecision}
+                    onPickAskOption={(text) => ws.updateComposer({ text })}
+                    gateBusy={ws.gateBusy}
+                    gateError={ws.gateError}
                     feedback={ws.feedback}
                     onVote={(messageId, vote) => void ws.voteMessage(messageId, vote)}
                     followups={ws.followups}
                     followupsMessageId={ws.followupsMessageId}
                     followupsPending={ws.followupsPending}
-                    onDecide={(text) => void ws.sendDecision(text)}
+                    onDecide={(text) => ws.updateComposer({ text })}
                     onPickFollowup={(text) => ws.updateComposer({ text })}
                   />
                 ) : (
@@ -317,6 +327,8 @@ export function PrincipalScreen(): ReactElement {
               usageLimitStatus={ws.usageLimitStatus}
               onSend={() => void ws.send()}
               onCancel={() => void ws.cancel()}
+              gate={ws.gate}
+              pendingActive={ws.chatPendingMessages.some((p) => isPendingActive(p.status))}
               onGitInit={() => (ws.selectedProjectId ? ws.gitInitProject(ws.selectedProjectId) : Promise.resolve())}
               hasProject={ws.selectedProjectId !== null}
             />
@@ -367,17 +379,6 @@ export function PrincipalScreen(): ReactElement {
         <SubagentRunAuditModal run={ws.activeSubagentRun} onClose={ws.closeSubagentRun} />
       ) : null}
 
-      {currentPermission ? (
-        <PermissionPrompt
-          toolName={currentPermission.toolName}
-          params={currentPermission.params}
-          queuedCount={ws.permissionQueue.length - 1}
-          onAllow={() => void ws.resolvePermission(currentPermission.requestId, true)}
-          onAllowAll={() => void ws.resolvePermission(currentPermission.requestId, true, true)}
-          onAllowProject={() => void ws.resolvePermission(currentPermission.requestId, true, true, 'project')}
-          onDeny={() => void ws.resolvePermission(currentPermission.requestId, false)}
-        />
-      ) : null}
     </div>
   )
 }

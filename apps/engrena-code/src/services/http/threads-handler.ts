@@ -28,12 +28,28 @@ import {
 import { applyDiffAction, ApplyDiffValidationError, type AcceptDiffInput } from '../runner/apply-diff.js'
 import { validateContextAttachments, type ContextAttachmentInput } from '../runner/providers/context-attachments.js'
 import { isValidPromptName } from '../prompts/prompt-spec.js'
-import { exportFileName, exportThreadAsJson, exportThreadAsMarkdown } from '../threads/thread-export.js'
+import {
+  buildExportSnapshot,
+  exportFileName,
+  exportThreadAsJson,
+  exportThreadAsMarkdown,
+} from '../threads/thread-export.js'
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
+import { clearFollowups } from '../threads/followups-cache.js'
 import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from '../db/repositories/message-feedback.js'
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
-import { ASK_USER_QUESTION_TOOL_NAME, resolveAskUserQuestion } from '../runner/ask-user-question.js'
-import { resolvePermissionRequest, allowPendingPermissionsForThread, clearAllowedToolsForThread } from '../runner/permission-broker.js'
+import {
+  clearAllowedToolsForThread,
+  clearBrokerOutcomesForThread,
+  grantAlwaysAllowedTool,
+} from '../runner/permission-broker.js'
+import {
+  allowOpenPermissionGates,
+  listOpenGates,
+  resolvePermissionGate,
+  resolveQuestionGate,
+  type GateAnswer,
+} from '../runner/gate.js'
 import { acquireLease, LeaseBusyError, releaseLease } from '../runner/project-execution.js'
 import { removeWorktreeIfSafe } from '../git/worktree.js'
 import { emit } from '../runner/ws-hub.js'
@@ -102,6 +118,21 @@ function streamPathFor(threadId: string): { ws: string } {
   return { ws: `/?threadId=${threadId}` }
 }
 
+const MAX_CLIENT_MESSAGE_ID = 128
+
+/**
+ * `clientMessageId` (identidade da bolha otimista do chat) é opcional — cliente que não manda
+ * segue exatamente como antes, com `null` em `messages.client_id`. Quando vem, tem que ser texto
+ * curto: é só uma chave de reconciliação, nunca conteúdo.
+ */
+function narrowClientMessageId(value: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (value === undefined || value === null) return { ok: true, value: null }
+  if (typeof value !== 'string') return { ok: false }
+  const trimmed = value.trim()
+  if (trimmed === '' || trimmed.length > MAX_CLIENT_MESSAGE_ID) return { ok: false }
+  return { ok: true, value: trimmed }
+}
+
 // ── Dispatch handlers ────────────────────────────────────────────────────────
 
 interface CreateThreadBody {
@@ -114,6 +145,7 @@ interface CreateThreadBody {
   images?: unknown[]
   contextAttachments?: unknown
   chatMode?: string | null
+  clientMessageId?: unknown
 }
 
 async function handleCreateThread(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -167,10 +199,16 @@ async function handleCreateThread(req: IncomingMessage, res: ServerResponse, pro
     return sendError(res, 400, 'validation_error', 'chatMode inválido.')
   }
 
+  const clientMessageId = narrowClientMessageId(data.clientMessageId)
+  if (!clientMessageId.ok) {
+    return sendError(res, 400, 'validation_error', 'clientMessageId deve ser texto curto não vazio.')
+  }
+
   try {
     const thread = await dispatchNewThread({
       projectId,
       prompt: data.prompt,
+      clientMessageId: clientMessageId.value,
       provider,
       model: data.model ?? null,
       reasoningLevel: data.reasoningLevel ?? null,
@@ -196,6 +234,7 @@ interface FollowUpBody {
   images?: unknown[]
   contextAttachments?: unknown
   chatMode?: string | null
+  clientMessageId?: unknown
 }
 
 async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
@@ -253,7 +292,16 @@ async function handleFollowUp(req: IncomingMessage, res: ServerResponse, threadI
     return sendError(res, 400, 'validation_error', 'chatMode inválido.')
   }
 
-  const input: DispatchFollowUpInput = { threadId, prompt: data.prompt }
+  const clientMessageId = narrowClientMessageId(data.clientMessageId)
+  if (!clientMessageId.ok) {
+    return sendError(res, 400, 'validation_error', 'clientMessageId deve ser texto curto não vazio.')
+  }
+
+  const input: DispatchFollowUpInput = {
+    threadId,
+    prompt: data.prompt,
+    clientMessageId: clientMessageId.value,
+  }
   if (data.chatMode !== undefined) input.chatMode = data.chatMode
   if (data.contextAttachments !== undefined) {
     input.contextAttachments = data.contextAttachments as ContextAttachmentInput[]
@@ -308,7 +356,11 @@ async function handleRenameThread(req: IncomingMessage, res: ServerResponse, thr
   sendJson(res, 200, { thread: updated })
 }
 
-/** Exporta a conversa em markdown (leitura) ou json (histórico cru). */
+/**
+ * Exporta a conversa em markdown (leitura) ou json (histórico cru).
+ * Permitido em qualquer estado (running / waiting_permission / cancelled / idle / …):
+ * o snapshot usa o histórico persistido; buildExportSnapshot assenta tools órfãs em cancelled.
+ */
 function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
@@ -318,11 +370,11 @@ function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId:
     return sendError(res, 400, 'validation_error', 'format deve ser md ou json.')
   }
 
-  const input = {
+  const input = buildExportSnapshot({
     thread,
     messages: listMessagesForThread(threadId),
     toolCalls: listToolCallsForThread(threadId),
-  }
+  })
   sendJson(res, 200, {
     fileName: exportFileName(thread, format),
     format,
@@ -339,7 +391,12 @@ function handleExportThread(req: IncomingMessage, res: ServerResponse, threadId:
 async function handleFollowups(_req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
-  if (thread.state === 'running' || thread.state === 'stopping' || thread.state === 'waiting_user') {
+  if (
+    thread.state === 'running' ||
+    thread.state === 'stopping' ||
+    thread.state === 'waiting_user' ||
+    thread.state === 'waiting_permission'
+  ) {
     return sendJson(res, 200, { followups: [], messageId: null })
   }
 
@@ -441,42 +498,102 @@ function handleCancel(_req: IncomingMessage, res: ServerResponse, threadId: stri
   sendJson(res, 200, { cancelled })
 }
 
-interface PermissionBody {
-  scope?: unknown
-  requestId?: string
-  allow?: boolean
-  /** Claude Code "don't ask again" — não perguntar de novo por esta ferramenta nesta thread. */
-  always?: boolean
+/**
+ * GET /api/threads/:id/gate — snapshot unificado dos gates abertos (permissão **e** pergunta), na
+ * ordem em que foram abertos. É a fonte do card na abertura da thread e depois de um reconnect, e
+ * o que permite remontar mais de um card de uma vez.
+ */
+function handleListGates(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+  sendJson(res, 200, { gates: listOpenGates(threadId) })
 }
 
-async function handlePermission(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
+interface ResolveGateBody {
+  kind?: unknown
+  /** kind='permission' */
+  allow?: unknown
+  always?: unknown
+  scope?: unknown
+  /** kind='question' */
+  selectedOptions?: unknown
+  freeText?: unknown
+}
+
+/**
+ * POST /api/threads/:id/gate/:gateId/resolve — resolve **um** gate identificado, com corpo
+ * discriminado por `kind`. Única rota de resolução: é o `gateId` do card em tela que chega aqui,
+ * então nunca há heurística de "o pedido mais recente da thread".
+ *
+ * O vínculo thread × gate é validado dentro do gate (`thread_mismatch` → o gate continua pendente
+ * para a thread dona), nunca aqui.
+ */
+async function handleResolveGate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  threadId: string,
+  gateId: string
+): Promise<void> {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
 
-  const data = parseBody<PermissionBody>(await readBody(req))
-  if (data === null || typeof data.requestId !== 'string' || typeof data.allow !== 'boolean') {
-    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
-  }
-  if (data.always !== undefined && typeof data.always !== 'boolean') {
-    return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
-  }
-  if (data.always === true && data.allow !== true) {
-    return sendError(res, 400, 'validation_error', 'always exige allow=true.')
+  const data = parseBody<ResolveGateBody>(await readBody(req))
+  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
+  if (data.kind !== 'permission' && data.kind !== 'question') {
+    return sendError(res, 400, 'validation_error', 'kind deve ser "permission" ou "question".')
   }
 
-  const scope = data.scope === 'project' ? 'project' : 'thread'
-  const resolved = resolvePermissionRequest(data.requestId, data.allow, data.always === true, scope)
-  if (!resolved.ok) {
-    return sendError(res, 409, 'no_pending_permission', 'Nenhuma permissão pendente em memória para este requestId.')
+  if (data.kind === 'permission') {
+    if (typeof data.allow !== 'boolean') {
+      return sendError(res, 400, 'validation_error', 'allow deve ser booleano.')
+    }
+    if (data.always !== undefined && typeof data.always !== 'boolean') {
+      return sendError(res, 400, 'validation_error', 'always deve ser booleano.')
+    }
+    if (data.always === true && data.allow !== true) {
+      return sendError(res, 400, 'validation_error', 'always exige allow=true.')
+    }
+
+    const allow = data.allow
+    const scope = data.scope === 'project' ? 'project' : 'thread'
+    const resolved = resolvePermissionGate(threadId, gateId, allow, {
+      onGranted:
+        data.always === true ? ({ toolName }) => grantAlwaysAllowedTool(threadId, toolName, scope) : undefined,
+    })
+    if (!resolved.ok) return sendGateResolveError(res, resolved.code)
+    return sendJson(res, 200, { resolved: true, kind: 'permission', always: data.always === true, toolName: resolved.toolName })
   }
 
-  emit(threadId, {
-    type: 'permission.resolved',
-    threadId,
-    requestId: data.requestId,
-    allow: data.allow,
-  })
-  sendJson(res, 200, { resolved: true, always: data.always === true, toolName: resolved.toolName })
+  const selectedOptions = Array.isArray(data.selectedOptions)
+    ? data.selectedOptions.filter((o): o is string => typeof o === 'string')
+    : []
+  const freeText = typeof data.freeText === 'string' ? data.freeText.trim() : ''
+  if (selectedOptions.length === 0 && freeText === '') {
+    return sendError(res, 400, 'validation_error', 'Envie ao menos uma opção marcada ou um texto livre.')
+  }
+
+  // Defesa em profundidade (spec F21 §3.3), contra o payload do próprio gate — a pergunta que o
+  // MCP registrou, não o que o cliente diz que perguntou. Gate sem `options` (checkpoint de
+  // pipeline) não restringe nada.
+  const target = listOpenGates(threadId).find((g) => g.gateId === gateId)
+  const allowedOptions = (target?.payload as { options?: unknown } | null | undefined)?.options
+  if (Array.isArray(allowedOptions) && allowedOptions.length > 0) {
+    if (selectedOptions.some((o) => !allowedOptions.includes(o))) {
+      return sendError(res, 400, 'validation_error', 'selectedOptions fora das opções da pergunta pendente.')
+    }
+  }
+
+  const answer: GateAnswer = { selectedOptions, freeText: freeText || null }
+  const resolved = resolveQuestionGate(threadId, gateId, answer)
+  if (!resolved.ok) return sendGateResolveError(res, resolved.code)
+  sendJson(res, 200, { resolved: true, kind: 'question' })
+}
+
+function sendGateResolveError(res: ServerResponse, code: 'not_found' | 'thread_mismatch'): void {
+  if (code === 'thread_mismatch') {
+    return sendError(res, 409, 'gate_thread_mismatch', 'Este gate pertence a outra thread e continua pendente lá.')
+  }
+  sendError(res, 409, 'gate_not_found', 'Nenhum gate aberto com este id para esta thread.')
 }
 
 interface PatchThreadBody {
@@ -504,58 +621,12 @@ async function handlePatchThread(req: IncomingMessage, res: ServerResponse, thre
   const updated = updateThread(threadId, { accessLevel: nextAccess })
   if (updated === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
 
-  if (previousAccess === 'supervised' && nextAccess !== 'supervised') {
-    const allowedIds = allowPendingPermissionsForThread(threadId)
-    for (const requestId of allowedIds) {
-      emit(threadId, { type: 'permission.resolved', threadId, requestId, allow: true })
-    }
-  }
+  // Trocar o nível mid-turn libera o que o novo nível auto-aprova (edição em auto-accept-edits,
+  // tudo em full-access); o resto continua no card em vez de passar em silêncio.
+  // `gate.resolved` de cada gate liberado sai de dentro de `allowOpenPermissionGates`.
+  if (nextAccess !== previousAccess) allowOpenPermissionGates(threadId, nextAccess)
 
   sendJson(res, 200, { thread: updated })
-}
-
-interface AnswerQuestionBody {
-  selectedOptions?: string[]
-  freeText?: string | null
-}
-
-/** POST /api/threads/:id/answer (F21 §5.2): resolve o `POST /ask` preso em `ask-user-question.ts`. */
-async function handleAnswerQuestion(req: IncomingMessage, res: ServerResponse, threadId: string): Promise<void> {
-  const thread = getThread(threadId)
-  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
-
-  if (thread.state !== 'waiting_user') {
-    return sendError(res, 409, 'thread_not_waiting', 'Não há pergunta pendente para esta thread.')
-  }
-
-  const data = parseBody<AnswerQuestionBody>(await readBody(req))
-  if (data === null) return sendError(res, 400, 'invalid_request', 'Corpo inválido.')
-
-  const selectedOptions = Array.isArray(data.selectedOptions)
-    ? data.selectedOptions.filter((o): o is string => typeof o === 'string')
-    : []
-  const freeText = typeof data.freeText === 'string' ? data.freeText.trim() : ''
-
-  if (selectedOptions.length === 0 && freeText === '') {
-    return sendError(res, 400, 'validation_error', 'Envie ao menos uma opção marcada ou um texto livre.')
-  }
-
-  // Defesa em profundidade (spec F21 §3.3) — a pergunta pendente carrega as opções válidas no
-  // params_json do tool_call em aberto (`status === 'running'`), mesmo caminho genérico de F03.
-  const pendingCall = listToolCallsForThread(threadId)
-    .filter((t) => t.name === ASK_USER_QUESTION_TOOL_NAME && t.status === 'running')
-    .pop()
-  const allowedOptions = (pendingCall?.params as { options?: string[] } | null | undefined)?.options ?? []
-  if (allowedOptions.length > 0 && selectedOptions.some((o) => !allowedOptions.includes(o))) {
-    return sendError(res, 400, 'validation_error', 'selectedOptions fora das opções da pergunta pendente.')
-  }
-
-  const resolved = resolveAskUserQuestion(threadId, { selectedOptions, freeText: freeText || null })
-  if (!resolved) {
-    return sendError(res, 409, 'no_pending_question', 'Nenhuma pergunta pendente em memória para esta thread.')
-  }
-
-  sendJson(res, 200, { answered: true })
 }
 
 interface AcceptBody {
@@ -668,6 +739,10 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
     const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
     deleteDiffsForThread(thread.id)
     clearAllowedToolsForThread(thread.id)
+    clearBrokerOutcomesForThread(thread.id)
+    // Cache de sugestões é por thread e vive no processo: sem isto, apagar a thread deixava as
+    // entradas (e a promessa em voo) presas até o app fechar.
+    clearFollowups(thread.id)
     deleteThread(thread.id)
     sendJson(res, 200, {
       deleted: true,
@@ -687,9 +762,9 @@ const MESSAGES_RE = /^\/api\/threads\/([^/]+)\/messages$/
 const HISTORY_RE = /^\/api\/threads\/([^/]+)\/history$/
 const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
-const PERMISSION_RE = /^\/api\/threads\/([^/]+)\/permission$/
+const GATES_LIST_RE = /^\/api\/threads\/([^/]+)\/gate$/
+const GATE_RESOLVE_RE = /^\/api\/threads\/([^/]+)\/gate\/([^/]+)\/resolve$/
 const ACCEPT_RE = /^\/api\/threads\/([^/]+)\/accept$/
-const ANSWER_RE = /^\/api\/threads\/([^/]+)\/answer$/
 const RESOLVE_CONFLICT_RE = /^\/api\/threads\/([^/]+)\/diffs\/([^/]+)\/resolve-conflict$/
 const COMPOSER_CATALOG_RE = /^\/api\/composer\/catalog$/
 const RENAME_RE = /^\/api\/threads\/([^/]+)\/title$/
@@ -708,9 +783,11 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     HISTORY_RE.test(url) ||
     DIFFS_RE.test(url) ||
     CANCEL_RE.test(url) ||
-    PERMISSION_RE.test(url) ||
+    // Rota nova entra nas DUAS listas (esta e o dispatch abaixo): sem o prefixo aqui o guarda
+    // devolve false antes do dispatch e o request fica pendurado sem resposta nenhuma.
+    GATES_LIST_RE.test(url) ||
+    GATE_RESOLVE_RE.test(url) ||
     ACCEPT_RE.test(url) ||
-    ANSWER_RE.test(url) ||
     RESOLVE_CONFLICT_RE.test(url) ||
     RENAME_RE.test(url) ||
     EXPORT_RE.test(url) ||
@@ -796,21 +873,21 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
       return true
     }
 
-    const permissionMatch = PERMISSION_RE.exec(url)
-    if (permissionMatch && method === 'POST') {
-      await handlePermission(req, res, permissionMatch[1])
+    const gatesListMatch = GATES_LIST_RE.exec(url)
+    if (gatesListMatch && method === 'GET') {
+      handleListGates(req, res, gatesListMatch[1])
+      return true
+    }
+
+    const gateResolveMatch = GATE_RESOLVE_RE.exec(url)
+    if (gateResolveMatch && method === 'POST') {
+      await handleResolveGate(req, res, gateResolveMatch[1], gateResolveMatch[2])
       return true
     }
 
     const acceptMatch = ACCEPT_RE.exec(url)
     if (acceptMatch && method === 'POST') {
       await handleAccept(req, res, acceptMatch[1])
-      return true
-    }
-
-    const answerMatch = ANSWER_RE.exec(url)
-    if (answerMatch && method === 'POST') {
-      await handleAnswerQuestion(req, res, answerMatch[1])
       return true
     }
 

@@ -3,8 +3,9 @@ import {
   ANSWER_ERROR_COPY,
   ASK_USER_QUESTION_TOOL_NAME,
   answerErrorMessage,
+  composerAnswerForQuestion,
   findPendingAskUserQuestion,
-  submitsOnOptionClick,
+  fillsComposerOnOptionClick,
   validateAnswer,
 } from './askUserQuestion.logic'
 import type { ToolCall } from '../../services/threads-service'
@@ -79,9 +80,6 @@ describe('findPendingAskUserQuestion', () => {
 })
 
 describe('answerErrorMessage', () => {
-  // Smoke real (2026-08-08) devolveu `no_pending_question`, não `thread_not_waiting`: a thread
-  // seguia em `waiting_user` mas o turno que segurava a pergunta tinha morrido. Cair no genérico
-  // "Tente novamente" mandava repetir algo impossível.
   it('treats no_pending_question as a stale question, not a retryable failure', () => {
     expect(answerErrorMessage('no_pending_question')).toBe(ANSWER_ERROR_COPY.notWaiting)
   })
@@ -96,17 +94,34 @@ describe('answerErrorMessage', () => {
   })
 })
 
-describe('submitsOnOptionClick', () => {
-  it('escolha única sem texto livre resolve em um clique', () => {
-    expect(submitsOnOptionClick(false, '')).toBe(true)
-    expect(submitsOnOptionClick(false, '   ')).toBe(true)
+describe('fillsComposerOnOptionClick', () => {
+  it('sempre preenche o composer — o card não tem mais Enviar próprio', () => {
+    expect(fillsComposerOnOptionClick(false)).toBe(true)
+    expect(fillsComposerOnOptionClick(true)).toBe(true)
+  })
+})
+
+describe('composerAnswerForQuestion', () => {
+  it('casa opção exata como selectedOptions', () => {
+    expect(composerAnswerForQuestion('Big bang', ['Big bang', 'Incremental'])).toEqual({
+      selectedOptions: ['Big bang'],
+      freeText: null,
+    })
   })
 
-  it('múltipla escolha continua exigindo o botão', () => {
-    expect(submitsOnOptionClick(true, '')).toBe(false)
+  it('texto livre vira freeText quando não casa opção', () => {
+    expect(composerAnswerForQuestion('outra via', ['Big bang', 'Incremental'])).toEqual({
+      selectedOptions: [],
+      freeText: 'outra via',
+    })
   })
 
-  it('texto livre em andamento continua exigindo o botão (senão o texto se perde)', () => {
-    expect(submitsOnOptionClick(false, 'quero outra coisa')).toBe(false)
+  it('multi: lista separada por vírgula casa cada opção', () => {
+    expect(
+      composerAnswerForQuestion('Big bang, Incremental', ['Big bang', 'Incremental'], true)
+    ).toEqual({
+      selectedOptions: ['Big bang', 'Incremental'],
+      freeText: null,
+    })
   })
 })

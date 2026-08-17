@@ -9,6 +9,11 @@ export interface Message {
   role: MessageRole
   content: string | null
   blocks: unknown[] | null
+  /**
+   * Id gerado pelo cliente no envio (bolha otimista do chat). `null` em tudo que nasce no
+   * servidor (resposta do agente, mensagens anteriores à migração 019).
+   */
+  clientId: string | null
   seq: number
   createdAt: number
 }
@@ -34,6 +39,7 @@ interface MessageRow {
   role: string
   content: string | null
   blocks_json: string | null
+  client_id: string | null
   seq: number
   created_at: number
 }
@@ -58,6 +64,7 @@ function toMessage(row: MessageRow): Message {
     role: row.role as MessageRole,
     content: row.content,
     blocks: row.blocks_json ? (JSON.parse(row.blocks_json) as unknown[]) : null,
+    clientId: row.client_id,
     seq: row.seq,
     createdAt: row.created_at,
   }
@@ -94,6 +101,8 @@ export interface AppendMessageInput {
   role: MessageRole
   content?: string | null
   blocks?: unknown[] | null
+  /** Id da bolha otimista do renderer; só o caminho de mensagem do usuário preenche. */
+  clientId?: string | null
 }
 
 export function appendMessage(input: AppendMessageInput): Message {
@@ -103,7 +112,7 @@ export function appendMessage(input: AppendMessageInput): Message {
 
   getDb()
     .prepare(
-      `INSERT INTO messages (id, thread_id, role, content, blocks_json, seq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO messages (id, thread_id, role, content, blocks_json, client_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -111,6 +120,7 @@ export function appendMessage(input: AppendMessageInput): Message {
       input.role,
       input.content ?? null,
       input.blocks ? JSON.stringify(input.blocks) : null,
+      input.clientId ?? null,
       seq,
       now
     )
@@ -190,4 +200,21 @@ export function listToolCallsForThread(threadId: string): ToolCall[] {
     .prepare('SELECT * FROM tool_calls WHERE thread_id = ? ORDER BY seq ASC')
     .all(threadId) as unknown as ToolCallRow[]
   return rows.map(toToolCall)
+}
+
+/**
+ * Assenta tool calls ainda `running` (cancel/interrupt do turno).
+ * Retorna as linhas atualizadas para o caller emitir WS/`tool_call.result`.
+ */
+export function cancelRunningToolCallsForThread(
+  threadId: string,
+  status: 'cancelled' | 'interrupted' = 'cancelled'
+): ToolCall[] {
+  const running = listToolCallsForThread(threadId).filter((tc) => tc.status === 'running')
+  const updated: ToolCall[] = []
+  for (const tc of running) {
+    const row = updateToolCall(tc.id, { status, ended: true })
+    if (row) updated.push(row)
+  }
+  return updated
 }

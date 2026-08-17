@@ -1,18 +1,26 @@
-import { randomBytes, randomUUID } from 'crypto'
+import { randomBytes } from 'crypto'
 import http from 'http'
 import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
+import { PERMISSION_BODY_MAX_BYTES } from './buffer-cap.js'
+import {
+  GATE_REASON_THREAD_CANCELLED,
+  GATE_REASON_USER_DECISION,
+  openPermissionGate,
+  PERMISSION_TIMEOUT_MS,
+  type PermissionGateDecision,
+  type PermissionRequestInfo,
+} from './gate.js'
+import { permissionPolicyDecision } from './permission-policy.js'
+import type { BrokerPermissionOutcome } from './providers/permission-contract.js'
 
-interface PendingPermission {
-  threadId: string
-  toolName: string
-  resolve: (allow: boolean) => void
-}
-
-/** Mesmo padrão de `ask-user-question.ts`: mapa em nível de módulo porque o `POST /permission` do
- * hook (dentro do turno) e o `POST /api/threads/:id/permission` (fora, disparado pela UI) só
- * compartilham o `requestId`. */
-const pending = new Map<string, PendingPermission>()
+/**
+ * Transporte do gate de permissão, nada mais: servidor HTTP loopback efêmero por turno + política
+ * de auto-allow + allowlist da thread. O estado "há um gate aberto" (fila, timeout, resolução,
+ * `threads.state`) é do `gate.ts`, dono único desse fato.
+ */
+export { PERMISSION_TIMEOUT_MS }
+export type { PermissionRequestInfo }
 
 /**
  * Allowlist por thread + toolName — equivalente Claude Code "Yes, don't ask again" para aquela
@@ -21,11 +29,144 @@ const pending = new Map<string, PendingPermission>()
  */
 const allowedToolsByThread = new Map<string, Set<string>>()
 
-export interface PermissionRequestInfo {
-  requestId: string
-  threadId: string
-  toolName: string
-  params: unknown
+/** Tudo menos `never-requested`, que é ausência de registro e por isso nunca é gravado. */
+type RecordedBrokerOutcome = Exclude<BrokerPermissionOutcome, 'never-requested'>
+
+/**
+ * O que **este** broker respondeu ao hook, por tool, no turno corrente. É o único lugar do processo
+ * que sabe o fato, e sem ele o diagnóstico da negação nativa mente:
+ *
+ * - `granted` — os três caminhos de `allow` do servidor: política do nível, allowlist ("Permitir
+ *   todos") e decisão do usuário no card. O card apareceu (ou nem precisou), e quem negou depois
+ *   foi outro hook da cadeia `PreToolUse`, sobre o qual o nível de acesso não tem efeito nenhum;
+ * - `denied` — o usuário negou no card;
+ * - `expired` — o gate fechou sem resposta do usuário (timeout fail-closed) e a tool foi negada
+ *   por omissão;
+ * - `cancelled` — o gate fechou porque o turno foi cancelado com o card ainda aberto;
+ * - `unavailable` — o EngrenaCode nem conseguiu abrir o pedido (`gate_not_persisted`) e negou por
+ *   falha interna, sem chegar a perguntar;
+ * - `ambiguous` — a mesma tool recebeu decisões de sentidos opostos neste turno (ver
+ *   `mergeBrokerOutcome`);
+ * - sem entrada: o CLI negou sem nunca consultar o broker e nenhum card apareceu.
+ *
+ * Distinguir `denied` de "sem entrada" é o defeito R09: as duas superfícies acusavam o CLI de ter
+ * negado por conta própria uma tool que o próprio usuário tinha acabado de recusar no card.
+ *
+ * Escopo de turno: `createPermissionServer` roda uma vez por turno e zera o mapa, porque decisão de
+ * turno anterior não explica a negação do turno atual.
+ *
+ * Duas chaves por decisão, e a razão de existirem as duas:
+ *
+ * - **`tool_use_id`** — a chave exata. O CLI manda `tool_use_id` no payload do `PreToolUse` (junto
+ *   de `tool_name`/`tool_input`) e manda o mesmo id na negação que chega pelo stream. Com ele, a
+ *   decisão é atribuída à chamada certa, mesmo que a tool apareça várias vezes no turno;
+ * - **`toolName`** — a chave agregada, que continua existindo porque nem toda negação traz id
+ *   (payload de host antigo, evento sem o campo). É o fallback, e quando duas chamadas do mesmo
+ *   nome discordam entre si, `mergeBrokerOutcome` marca `ambiguous` em vez de deixar a última
+ *   vencer em silêncio — mentir com a decisão da chamada errada seria pior que admitir a dúvida.
+ */
+const brokerOutcomesByThread = new Map<string, Map<string, RecordedBrokerOutcome>>()
+
+/** `granted` é o único sentido positivo; todo o resto negou, por um motivo ou outro. */
+function isPositiveOutcome(outcome: RecordedBrokerOutcome): boolean {
+  return outcome === 'granted'
+}
+
+/**
+ * Última decisão vence, **exceto** quando ela contradiz a anterior: aí a entrada vira `ambiguous`.
+ *
+ * A chave é o `toolName`, não a chamada, porque é só isso que o hook manda. Sobrescrever em
+ * silêncio faria a negação nativa afirmar a decisão da chamada errada — trocar uma mentira por
+ * outra. `ambiguous` é o único valor honesto quando a mesma tool foi liberada numa chamada e
+ * negada em outra dentro do mesmo turno.
+ */
+function mergeBrokerOutcome(
+  previous: RecordedBrokerOutcome | undefined,
+  next: RecordedBrokerOutcome
+): RecordedBrokerOutcome {
+  if (previous === undefined || previous === next) return next
+  if (previous === 'ambiguous') return 'ambiguous'
+  return isPositiveOutcome(previous) === isPositiveOutcome(next) ? next : 'ambiguous'
+}
+
+/** Prefixo da chave exata: o id vem do CLI e não pode colidir com um `toolName`. */
+function toolUseKey(toolUseId: string): string {
+  return `id:${toolUseId}`
+}
+
+/**
+ * Grava a decisão nas duas chaves. A exata (`tool_use_id`) é sobrescrita direto — cada id é uma
+ * chamada só, então não há conflito a resolver; a agregada (`toolName`) passa pelo merge, que é
+ * onde a ambiguidade entre chamadas homônimas aparece.
+ */
+function recordBrokerOutcome(
+  threadId: string,
+  toolName: string,
+  outcome: RecordedBrokerOutcome,
+  toolUseId?: string
+): void {
+  let byKey = brokerOutcomesByThread.get(threadId)
+  if (!byKey) {
+    byKey = new Map()
+    brokerOutcomesByThread.set(threadId, byKey)
+  }
+  if (toolUseId !== undefined) byKey.set(toolUseKey(toolUseId), outcome)
+  byKey.set(toolName, mergeBrokerOutcome(byKey.get(toolName), outcome))
+}
+
+/**
+ * Só `user_decision` é resposta do usuário. O resto fecha o gate sem ele e nega por omissão, mas
+ * `thread_cancelled` merece caso próprio: mandar "responda ao card enquanto ele está na tela"
+ * para quem acabou de apertar Parar é conselho para o problema errado.
+ */
+function outcomeForGateDecision(decision: PermissionGateDecision): RecordedBrokerOutcome {
+  if (decision.allow) return 'granted'
+  if (decision.reason === GATE_REASON_USER_DECISION) return 'denied'
+  return decision.reason === GATE_REASON_THREAD_CANCELLED ? 'cancelled' : 'expired'
+}
+
+/**
+ * Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`.
+ *
+ * O `toolUseId` da negação manda quando existe dos dois lados: é a decisão daquela chamada, não a
+ * agregada do nome. Só cai para o nome quando o id falta (ou quando o pedido chegou sem ele).
+ */
+export function brokerOutcomeForTool(
+  threadId: string,
+  toolName: string,
+  toolUseId?: string
+): BrokerPermissionOutcome {
+  const byKey = brokerOutcomesByThread.get(threadId)
+  if (byKey === undefined) return 'never-requested'
+  if (toolUseId !== undefined) {
+    const exact = byKey.get(toolUseKey(toolUseId))
+    if (exact !== undefined) return exact
+  }
+  return byKey.get(toolName) ?? 'never-requested'
+}
+
+/**
+ * Turnos em que algum `POST /permission` estourou `PERMISSION_BODY_MAX_BYTES`.
+ *
+ * Esse caminho responde 413 no `data`, antes de existir corpo parseado — não há `toolName` a que
+ * associar a rejeição, então a tool fica `never-requested`, indistinguível de "o CLI nunca
+ * consultou o broker". Guardar o fato por thread não resolve a atribuição, mas deixa o diagnóstico
+ * admitir a dúvida em vez de afirmar com certeza a versão errada.
+ */
+const oversizedRequestsByThread = new Set<string>()
+
+function recordOversizedPermissionRequest(threadId: string): void {
+  oversizedRequestsByThread.add(threadId)
+}
+
+/** Consumido por `dispatch.ts` para ressalvar o diagnóstico de negação nativa. */
+export function hadOversizedPermissionRequest(threadId: string): boolean {
+  return oversizedRequestsByThread.has(threadId)
+}
+
+export function clearBrokerOutcomesForThread(threadId: string): void {
+  brokerOutcomesByThread.delete(threadId)
+  oversizedRequestsByThread.delete(threadId)
 }
 
 export interface PermissionServerHandle {
@@ -34,10 +175,9 @@ export interface PermissionServerHandle {
   close: () => void
 }
 
-function waitForDecision(requestId: string, threadId: string, toolName: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    pending.set(requestId, { threadId, toolName, resolve })
-  })
+export interface PermissionServerOptions {
+  /** Override do fail-closed (testes usam ms curtos). Default: `PERMISSION_TIMEOUT_MS`. */
+  timeoutMs?: number
 }
 
 export function isToolAllowedForThread(threadId: string, toolName: string): boolean {
@@ -63,18 +203,29 @@ export function clearAllowedToolsForThread(threadId: string): void {
 
 /**
  * Servidor HTTP loopback efêmero por turno — recebe o `POST /permission` do hook `PreToolUse`
- * (spawnado pelo CLI via `--settings`, ver `cli-driver.ts`), segura a resposta até
- * `resolvePermissionRequest` ser chamado por um request externo (`threads-handler.ts`), e devolve
- * `{allow}` pro hook decidir `permissionDecision: allow|deny`.
+ * (spawnado pelo CLI via `--settings`, ver `providers/claude/permission-settings.ts`), abre um gate em `gate.ts` e segura a
+ * resposta até o gate ser resolvido/expirado, devolvendo `{allow}` pro hook decidir
+ * `permissionDecision: allow|deny`.
  *
- * Auto-allow quando: (1) accessLevel ≠ supervised, ou (2) tool já está na allowlist da thread
- * ("Permitir todos" / don't ask again).
+ * Auto-allow sem gate quando: (1) `permission-policy.ts` já decide `allow` para (nível, tool) —
+ * full-access inteiro, leitura/edição em auto-accept-edits — ou (2) tool já está na allowlist da
+ * thread ("Permitir todos" / don't ask again).
+ *
+ * Fail-closed em todo caminho de erro: body acima do cap, gate que não persiste (thread apagada
+ * mid-turn) e timeout respondem `allow:false`.
+ *
+ * `onRequest` é só notificação para o chamador; `waiting_permission`, `gate.opened` e
+ * `permission.request` já saem de dentro de `openPermissionGate`.
  */
 export function createPermissionServer(
   threadId: string,
-  onRequest: (info: PermissionRequestInfo) => void
+  onRequest?: (info: PermissionRequestInfo) => void,
+  options?: PermissionServerOptions
 ): Promise<PermissionServerHandle> {
   const token = randomBytes(24).toString('hex')
+  const timeoutMs = options?.timeoutMs ?? PERMISSION_TIMEOUT_MS
+  // Um servidor por turno: zerar aqui é o que dá escopo de turno às decisões.
+  clearBrokerOutcomesForThread(threadId)
 
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/permission') {
@@ -89,11 +240,31 @@ export function createPermissionServer(
     }
 
     let body = ''
+    let bodyBytes = 0
+    let overCap = false
+    // Derrubar a conexão emite 'error' (ECONNRESET) no request; sem listener o stream lançaria.
+    req.on('error', () => {
+      /* corpo abortado pelo cap ou conexão morta — nada pendente a resolver */
+    })
     req.on('data', (chunk: Buffer) => {
+      if (overCap) return
+      bodyBytes += chunk.length
+      if (bodyBytes > PERMISSION_BODY_MAX_BYTES) {
+        overCap = true
+        // Fail-closed: seguir com body parcial daria JSON inválido → toolName 'unknown' no modal.
+        // Sem `toolName` não dá para registrar a decisão por tool; o que sobra é marcar o turno.
+        recordOversizedPermissionRequest(threadId)
+        res.writeHead(413, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ allow: false, error: 'payload_too_large' }), () => {
+          req.destroy()
+        })
+        return
+      }
       body += chunk.toString()
     })
     req.on('end', () => {
-      let parsed: { toolName?: unknown; toolInput?: unknown } = {}
+      if (overCap) return
+      let parsed: { toolName?: unknown; toolInput?: unknown; toolUseId?: unknown } = {}
       try {
         parsed = JSON.parse(body || '{}')
       } catch {
@@ -101,25 +272,41 @@ export function createPermissionServer(
       }
 
       const toolName = typeof parsed.toolName === 'string' ? parsed.toolName : 'unknown'
+      const toolUseId =
+        typeof parsed.toolUseId === 'string' && parsed.toolUseId !== '' ? parsed.toolUseId : undefined
 
       const current = getThread(threadId)
-      if (current !== null && current.accessLevel !== 'supervised') {
+      // Sem thread (apagada mid-turn) cai no mais restrito — nunca libera por omissão.
+      const accessLevel = current?.accessLevel ?? 'supervised'
+      if (permissionPolicyDecision(accessLevel, toolName) === 'allow') {
+        recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
       }
 
       if (isToolAllowedForThread(threadId, toolName)) {
+        recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
       }
 
-      const requestId = randomUUID()
-      onRequest({ requestId, threadId, toolName, params: parsed.toolInput })
-      waitForDecision(requestId, threadId, toolName).then((allow) => {
+      const opened = openPermissionGate({ threadId, toolName, params: parsed.toolInput, timeoutMs })
+      if (!opened.ok) {
+        // Negado sem nunca chegar ao usuário: registrar como `unavailable` é o que impede o
+        // diagnóstico de culpar o CLI (ou o usuário) por uma falha nossa.
+        recordBrokerOutcome(threadId, toolName, 'unavailable', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ allow }))
+        res.end(JSON.stringify({ allow: false }))
+        return
+      }
+
+      onRequest?.(opened.gate)
+      opened.decision.then((decision) => {
+        recordBrokerOutcome(threadId, toolName, outcomeForGateDecision(decision), toolUseId)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ allow: decision.allow }))
       })
     })
   })
@@ -139,61 +326,17 @@ export function createPermissionServer(
   })
 }
 
-/**
- * Resolve um pedido pendente. Com `always=true` e allow, grava a ferramenta na allowlist da thread
- * (Claude Code "Yes, don't ask again").
- * Retorna false se o requestId não existe; `{ toolName }` quando resolveu.
- */
+/** `thread` grava só na sessão da thread; `project` também persiste em `tool_allowlist`. */
 export type PermissionScope = 'thread' | 'project'
 
-export function resolvePermissionRequest(
-  requestId: string,
-  allow: boolean,
-  always = false,
-  scope: PermissionScope = 'thread'
-): { ok: true; toolName: string } | { ok: false } {
-  const entry = pending.get(requestId)
-  if (!entry) return { ok: false }
-  pending.delete(requestId)
-  if (allow && always) {
-    rememberAllowedTool(entry.threadId, entry.toolName)
-    if (scope === 'project') {
-      const thread = getThread(entry.threadId)
-      if (thread !== null) allowToolForProject(thread.projectId, entry.toolName)
-    }
-  }
-  entry.resolve(allow)
-  return { ok: true, toolName: entry.toolName }
-}
-
-/** Nega toda permissão pendente de uma thread (cancel/erro/fim de turno) — mesmo contrato do
- * legado: "permission pendente no cancel → deny" (`_reversa_sdd/runner/requirements.md`). */
-export function denyPendingPermissionsForThread(threadId: string): void {
-  for (const [requestId, entry] of pending) {
-    if (entry.threadId !== threadId) continue
-    pending.delete(requestId)
-    entry.resolve(false)
-  }
-}
-
 /**
- * Libera permissões pendentes com allow (upgrade Supervised → Auto-accept/Full mid-turn).
- * Retorna os `requestId` resolvidos para o handler emitir `permission.resolved`.
+ * "Permitir todos" — efeito do `always=true` no `POST /permission`. Fica aqui, e não no `gate.ts`,
+ * porque allowlist é assunto do broker; o gate só chama isto pelo hook `onGranted` (o que também
+ * evita ciclo de import entre os dois módulos).
  */
-export function allowPendingPermissionsForThread(threadId: string): string[] {
-  const resolvedIds: string[] = []
-  for (const [requestId, entry] of pending) {
-    if (entry.threadId !== threadId) continue
-    pending.delete(requestId)
-    entry.resolve(true)
-    resolvedIds.push(requestId)
-  }
-  return resolvedIds
-}
-
-export function hasPendingPermission(threadId: string): boolean {
-  for (const entry of pending.values()) {
-    if (entry.threadId === threadId) return true
-  }
-  return false
+export function grantAlwaysAllowedTool(threadId: string, toolName: string, scope: PermissionScope): void {
+  rememberAllowedTool(threadId, toolName)
+  if (scope !== 'project') return
+  const thread = getThread(threadId)
+  if (thread !== null) allowToolForProject(thread.projectId, toolName)
 }

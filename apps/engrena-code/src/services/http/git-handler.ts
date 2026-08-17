@@ -26,7 +26,12 @@ function threadBusyDetails(err: LeaseBusyError): object {
 
 /** Bloqueio explícito por estado da thread (spec F14 §3.2) — além da lease de projeto, cobre o caso de UI mostrando ação disponível fora de sync. */
 function checkThreadBusy(res: ServerResponse, thread: Thread): boolean {
-  if (thread.state === 'running' || thread.state === 'stopping' || thread.state === 'waiting_user') {
+  if (
+    thread.state === 'running' ||
+    thread.state === 'stopping' ||
+    thread.state === 'waiting_user' ||
+    thread.state === 'waiting_permission'
+  ) {
     sendError(res, 409, 'thread_busy', 'Ação de git em andamento ou thread em execução.')
     return true
   }

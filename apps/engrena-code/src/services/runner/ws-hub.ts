@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws'
+import type { BrokerPermissionOutcome } from './providers/permission-contract.js'
 
 export type StreamEvent =
   | { type: 'message.delta'; threadId: string; text: string }
@@ -7,8 +8,56 @@ export type StreamEvent =
   | { type: 'diff.ready'; threadId: string; diffId: string; file: string }
   | { type: 'state.change'; threadId: string; state: string }
   | { type: 'error'; threadId: string; code: string; message: string }
-  | { type: 'permission.request'; threadId: string; requestId: string; toolName: string; params: unknown }
-  | { type: 'permission.resolved'; threadId: string; requestId: string; allow: boolean }
+  /**
+   * `gate.*` é o contrato do ThreadGate (`runner/gate.ts`) — dono único de "algo espera decisão
+   * humana", nos dois kinds. O par legado `permission.request`/`permission.resolved` saiu quando o
+   * renderer passou a consumir só isto (`renderer/hooks/useThreadGate.ts`).
+   */
+  | {
+      type: 'gate.opened'
+      threadId: string
+      gateId: string
+      kind: 'permission' | 'question'
+      toolName: string | null
+      payload: unknown
+      createdAt: number
+      expiresAt: number | null
+    }
+  | {
+      type: 'gate.resolved'
+      threadId: string
+      gateId: string
+      kind: 'permission' | 'question'
+      state: 'resolved' | 'expired'
+      allow: boolean
+      reason: string
+    }
+  /**
+   * Negação da aprovação nativa do Claude CLI — metadata only, sem tool_input.
+   *
+   * `brokerOutcome` é o que separa os casos e existe porque a UI não consegue derivá-lo: o que o
+   * broker do EngrenaCode fez com aquela tool neste turno (concedeu, o usuário negou, expirou sem
+   * resposta, o turno foi cancelado, falhou ao abrir o pedido, houve decisões opostas, ou nunca
+   * foi consultado). Era um booleano `brokerGranted` até o R09, e por isso a faixa acusava o CLI
+   * de negar sozinho uma tool que o usuário recusou.
+   */
+  | {
+      type: 'permission.native_denial'
+      threadId: string
+      toolName: string
+      code: 'permission_native_denial'
+      message: string
+      brokerOutcome: BrokerPermissionOutcome
+      /**
+       * Houve rejeição por tamanho de corpo neste turno. Só qualifica o caso "nunca consultado",
+       * que é o único em que a rejeição sem `toolName` pode estar escondida.
+       */
+      oversizedRequestInTurn?: boolean
+      toolUseId?: string
+      decisionReasonType?: string | null
+      /** `decision_reason` do CLI: a frase de quem negou, quando o payload traz. */
+      decisionReason?: string | null
+    }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }
   | { type: 'memory.entry'; threadId: string; projectId: string }
@@ -39,6 +88,25 @@ export type StreamEvent =
       mcpName: string
       reason: string
       message: string
+    }
+  /**
+   * Versão do `claude` instalada fora da faixa em que o contrato de permissão foi validado.
+   *
+   * Aviso, nunca bloqueio: chega no máximo uma vez por processo e só quando há divergência
+   * (`in-range` não vai ao wire, por isso o `status` aqui é o subconjunto de alerta). Não carrega
+   * `message` de propósito, diferente de `mcp.notice`: a copy da faixa âmbar é composta no
+   * renderer (`streamNotices.logic.ts`) a partir destes campos, e o log do turno usa uma frase
+   * própria, mais curta. Uma frase só serviria mal aos dois.
+   */
+  | {
+      type: 'cli.version_notice'
+      threadId: string
+      code: 'claude_cli_version_out_of_range'
+      status: 'below-min' | 'above-max' | 'unparseable'
+      /** Versão lida, ou a saída crua aparada quando ela não pôde ser interpretada. */
+      observedVersion: string
+      minValidated: string
+      maxValidated: string
     }
 
 const subscribers = new Map<string, Set<WebSocket>>()

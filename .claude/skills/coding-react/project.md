@@ -48,7 +48,9 @@ Fonte de verdade de achados: [`apps/engrena-code/docs/AUDIT-CODE-REVIEW.md`](../
 
 ## Achados abertos
 
-Nenhum (passagem 2026-08-10 remediada — C48/C49).
+Lote F03 Permission Recovery — contagem, data e evidência só em `AUDIT-CODE-REVIEW.md`:
+
+- `A05` (parcial) — `historyMerge.logic.ts`: getter `hasInflight` ainda sem consumidor de produção. **Deferido de propósito** — ver a nota em "Já corrigidos". A parte `stableJson` já fechou
 
 ## Já corrigidos — não regrida
 
@@ -57,3 +59,13 @@ Nenhum (passagem 2026-08-10 remediada — C48/C49).
 - `RC-no-silent-catch` / `RC-silent-catch-regression` — não reintroduza `.catch(() => {})` mudo (harness/catálogo/OAuth poll — C48).
 - `RC-shared-api-request` — services usam `api-client.ts`; não duplique `fetch` com headers próprios.
 - `RC-harness-count-stale-after-modal-close` — `refreshHarnessCounts` no `onClose` dos modais de vínculo do Repo Harness.
+- `RC-business-rule-in-tsx` (F03) — `workspace/chatSurface.logic.ts` é a fonte de busy/followups/Parar/Enviar/labels do workspace; `TaskComposer.tsx` e `ChatHistory.tsx` não derivam regra do estado cru da thread. `deriveChatSurface` **chama** `routeComposerSend` internamente: nunca reimplemente a decisão de rota dentro do surface, senão as duas divergem em silêncio (C60).
+- `RC-native-denial-ui-gap` — `hooks/streamNotices.logic.ts`: avisos do workspace são a união discriminada `WorkspaceNotice` (`kind: 'mcp' | 'native_denial'`), `permission.native_denial` vira aviso PT-BR nomeando a tool, e a lista tem teto `MAX_WORKSPACE_NOTICES`. Não volte a só tipar o evento no WS sem renderizar, nem a acumular avisos sem limite (C65).
+- `RC-export-should-be-local` — `stableJson` é local em `historyMerge.logic.ts` (C69).
+- `RC-non-null-assertion-mask` — nada de `pendingPermission!` em `usePrincipalWorkspace`; `resolve_permission` sem permissão faz early-return com erro visível, nunca cai nos branches de baixo e vira turno novo (C66, Stack `TypeScript` no AUDIT).
+
+### Deferimento ativo (não trate como código morto)
+
+- `hasInflight` em `historyMerge.logic.ts` continua exportado de propósito: ganha consumidor de produção na fase que introduz reconnect de WebSocket com resync serializado. Uma varredura de export órfão vai apontá-lo; deixe como está.
+
+- `R08` — `streamNotices.logic.ts`: copy da negação nativa afirma que nenhum card apareceu e manda revisar accessLevel; falso quando o broker concedeu e outro hook `PreToolUse` negou depois. Propagar o `systemMessage` do hook, que é a informação útil (achado do smoke ao vivo 2026-08-13)

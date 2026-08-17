@@ -5,11 +5,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | Campo | Valor |
 |-------|--------|
-| **Passagem atual** | 2026-08-10 (remediação working tree — abertos zerados) |
-| **Escopo** | `src/` (base completa) |
-| **Método** | Skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura); remediação em sessão separada |
-| **Correção de código nesta passagem** | Remediação dos 8 🔴 + 14 🟡: narrowing PUT link; sanitize/`cleanupPermissionSettings` no spawn; catch visível harness/catálogo/OAuth; extract Codegraph/Login logic; dead exports DB/MCP; testes skills/rules + timeout delegate; unlock `readBody`; CLI env allowlist; locale Subagente |
-| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — remediação C18–C30; 2026-08-09 — C31–C45 (base zerada); 2026-08-10 — reauditoria full-base + remediação C46–C57 (este documento) |
+| **Passagem atual** | 2026-08-12 (auditoria) + **2026-08-13 (remediação)** — branch `fix/f03-audit-close` |
+| **Escopo** | working tree não commitado sob `apps/engrena-code/src/` (+ docs F03/PROGRESS tocados); **não** full-base `src/` |
+| **Método** | Auditoria: skill `.claude/skills/audit-full-base` + 3 subagentes sequenciais (leitura). Remediação 2026-08-13: 3 agentes de fix sobre o mesmo lote |
+| **Correção de código nesta passagem** | 2026-08-12: nenhuma. 2026-08-13: **17 achados fechados** em `src/` (R01–R06, A01, A03, A04, A05 parcial, D01–D07) — ver C58–C69 |
+| **Gates 2026-08-13** | `pnpm --filter engrena-code exec tsc -b` exit 0; `pnpm --filter engrena-code test` **1500 testes / 151 arquivos** verdes (baseline antes das correções: 1443 / 148) |
+| **Histórico** | 2026-08-07 — Lotes 1–2; 2026-08-08 — C18–C30; 2026-08-09 — C31–C45; 2026-08-10 — C46–C57 (base zerada); 2026-08-12 — reauditoria **uncommitted**; 2026-08-13 — remediação C58–C69 (este documento) |
 
 
 ### Taxonomia de Stack (esta passagem)
@@ -23,12 +24,24 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 | `TypeScript` | tipagem pura (raro; prefira Stack do arquivo) |
 | `Vitest` | testes, smoke, gates de entrega |
 
-### Contagem (passagem 2026-08-10 + remediação)
+### Contagem (após remediação 2026-08-13)
 
-| | 🔴 | 🟡 | Tipos de regra |
+| | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
 | Achados abertos | 0 | 0 | 0 |
-| Problemas corrigidos (tipos / linhas C) | — | — | 45 → 57 |
+| Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
+
+Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
+
+**Atualização de 2026-08-17.** O **R09 fechou** e com ele a passagem inteira: **zero achados abertos**. A correção trocou o booleano do broker por uma decisão nomeada e fez log e faixa âmbar lerem a mesma partição de casos, que é o que o R08 já tinha ensinado a não duplicar. Gates: `tsc -b` exit 0, **1855/1855** testes em 161 arquivos (verde em duas rodadas), `vite build` ok.
+
+**Atualização de 2026-08-16.** O smoke ao vivo previsto rodou e **fechou A09 e D08 de uma vez**: as quatro formas de Bash passaram pelo `PreToolUse` contra `claude` 2.1.233, e o Parar em turno bloqueado por servidor em foreground cancelou a tool, matou o processo e assentou a thread. Resta **um** 🟡 aberto, **novo, achado nesse mesmo smoke**: **R09** — negar pelo card faz o log e a faixa âmbar dizerem que o CLI negou "sem consultar o broker".
+
+Fecharam neste dia: **A05** (`5f6b1c7`, o `resyncThread` consome `hasInflight` via `shouldRefetchHistoryOnResync`), **R08** (`da022fa`, com validação ao vivo), **A02 na parte dos validadores** (`2a6d112`, o gate antes do spawn) e **R07**, que na verdade já estava morto desde `ed17966` e só não tinha sido registrado — `turnProcessCount` foi substituído pelo par `recordProviderProcessSpawned`/`recordProviderProcessExited`.
+
+A fatia **D3** entrou no mesmo dia e **não fecha achado**: dá visibilidade à faixa de versão do Claude CLI em que o contrato de permissão foi conferido (2.1.226 a 2.1.231, com evidência por versão em `PERMISSION_CONTRACT_VALIDATED_VERSIONS`). Versão fora da faixa, ou `--version` ilegível, vira aviso na faixa âmbar e uma linha de log, no máximo uma vez por processo — nunca bloqueio. O gate fail-closed continua sendo só o `assertPermissionContract` do D1: bloquear o turno por versão nova custaria mais que avisar, já que o contrato provavelmente segue valendo. Um teste de coerência impede a lista de versões e os limites `MIN`/`MAX` de se desencontrarem.
+
+O smoke da Fase C rendeu um achado 🔴 novo, também já fechado (`63a60ea`): thread presa em "Agente trabalhando" quando o `state.change` de assentamento se perdia numa queda de socket. Rendeu ainda dois 🟡 fechados no mesmo dia (a copy da negação nativa e o erro de decisão em dobro, `628442d`) e uma suspeita **retificada**: os "dois WebSockets por thread" não existem, eram artefato da instrumentação do próprio smoke (`8eb9b51`). Detalhes em `docs/F03-workspace/smoke-results.md`.
 
 ---
 
@@ -77,44 +90,130 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 ## 1. Resumo executivo
 
-**Veredito:** base **liberada** — 🔴0 / 🟡0 após remediação working tree (C46–C57). Fronteiras Electron/HTTP permanecem íntegras; C01–C45 **permanecem válidos**. Fechados nesta remediação: narrowing PUT link (R01/R02/R08/R09); sanitize + cleanup de spawn (R03/R11); catch visível (R04/R05/R10); extract logic Codegraph/Login (D01/D02); dead exports DB/MCP (A01–A06/A02/A03); regressões de teste (D03/D04); unlock body + CLI env allowlist + locale Subagente (R06/R07/R12).
+**Veredito:** o lote **deixou de estar bloqueado por 🔴**, mas **não está liberado**. Todos os 7 🔴 e 10 dos 12 🟡 de 2026-08-12 foram fechados no código desta branch (C58–C69), com `tsc -b` exit 0 e suíte completa verde. Restam 5 🟡 abertos: dois **deferidos de propósito** (A02, `hasInflight` do A05), dois achados **novos** (R07 na remediação, R08 encontrado no smoke ao vivo) e **D08**, agora estreitado. O smoke Electron real rodou em 2026-08-13 contra `claude` 2.1.231 e passou em permissão inline, allowlist, resume, export e Bash background sem órfão; falta apenas o Cancel explícito em turno foreground. O critério de UI de F03 deixou de estar sem evidência. C01–C57 permanecem válidos.
 
-**Confirmado nesta remediação**
+**Atualização do veredito (2026-08-17):** com o R09 fechado, não resta achado aberto desta passagem. O que segurava o "liberado" era a falta de evidência ao vivo (D08/A09) e a copy que mentia sobre quem negou (R08/R09); os dois grupos fecharam com smoke real e com a partição de casos única.
 
-- PUT link subagents/mcps/skills/rules rejeitam `enabled`/`sortOrder` com tipo inválido (400).
-- `provider_spawn_failed` passa por `sanitizeProcessError`; catch síncrono limpa permission settings; CLI spawn usa `buildPtyEnv`.
-- Harness/catálogo/OAuth poll: erro visível + `console.error` (AbortError silencioso).
-- `badgeLabel`/`badgeTitle` e unlock classify em `*.logic.ts` com testes irmãos.
-- `pnpm test` **2×** — **1066/1066** verde. Gates `tsc`/`vite`/`biome`/`electron-builder` não reexecutados.
+**Corrigido nesta passagem (2026-08-13)**
+
+- **Segurança de parse:** R01 + D05 — `stream-json-parse.ts` itera com `isRecord` por elemento (cast `as ContentBlock[]` e a interface órfã sumiram); o loop de parse/dispatch em `cli-driver.ts` ganhou `try/catch` próprio que **não** loga a linha crua (podia ecoar `tool_input`) e passa o erro por `sanitizeProcessError`.
+- **Binding de permissão:** R02 — `resolvePermissionRequest` recebe `threadId` e valida `entry.threadId` **antes** de consumir a entrada; `threads-handler` mapeia `thread_mismatch` → 409 `permission_thread_mismatch`.
+- **Superfície do broker:** R04 (teto de 1 MiB fail-closed, 413 + `destroy`) e R06 (`res.ok` antes do `res.json()` no hook).
+- **UX testável:** D01 + D02 — `chatSurface.logic.ts` novo, com `deriveChatSurface` chamando `routeComposerSend` internamente (a regra de roteamento nunca é reimplementada). Corrigiu de quebra uma divergência real: `waiting_user` sem pergunta pendente rotulava "Enviar resposta" enquanto o envio enfileirava.
+- **Negação nativa visível:** R03 — `streamNotices.logic.ts` novo; `permission.native_denial` vira aviso PT-BR nomeando a tool, com teto `MAX_WORKSPACE_NOTICES = 20` (antes a lista crescia sem limite).
+- **Hygiene:** A01, A03, A04, A05 (parcial), R05 e os gaps de teste D03/D04/D06/D07.
+
+**Ainda aberto (por que o veredito não é "liberado")**
+
+Nenhum. Todos os achados desta passagem estão fechados: D08, R07, A02/A05 e A09 até 2026-08-16, e o R09 em 2026-08-17. A linha de cada um em §2 diz onde e com que evidência.
 
 ### Por Stack (abertos)
 
 | Stack | 🔴 | 🟡 |
 |-------|----|----|
-| `Node.js` | 0 | 0 |
-| `React` | 0 | 0 |
-| `SQLite` | 0 | 0 |
-| `Vitest` | 0 | 0 |
-| `Electron` | 0 | 0 |
+| `Node.js` | 0 | 2 |
+| `React` | 0 | 1 |
+| `Vitest` | 0 | 1 |
 | `TypeScript` | 0 | 0 |
+| `SQLite` | 0 | 0 |
+| `Electron` | 0 | 0 |
 
 ---
 
 ## 2. Achados abertos
 
-Nenhum. Todos os IDs da passagem 2026-08-10 foram movidos para §4 (C46–C57).
+| ID | Stack | Sev | Frente | Local | Problema | Regra |
+|----|--------|-----|--------|-------|----------|-------|
+| A02 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` | **FECHADO PARCIALMENTE em 2026-08-16** (`2a6d112`, fatia D1). `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` ganharam consumidor de produção: `assertPermissionContract` roda antes do spawn e aborta o turno com erro visível. Fica aberto só o pedaço da matriz, agora rastreado como A09 | [R-export-should-be-local](#r-export-should-be-local) |
+| A09 | `Node.js` | 🟡 | arch | `providers/permission-contract.ts` (`BASH_PERMISSION_MATRIX`) | **FECHADO em 2026-08-16** pelo smoke ao vivo das quatro formas de Bash contra `claude` 2.1.233. `expectsPreToolUseGate` valeu nas quatro (`ls`, `pwd && ls -1`, `python -m http.server 8931` em foreground, `sleep 20 && echo caso4-ok` com `run_in_background: true`) e nenhuma exigiu `requiresNativeDenialEventIfUngated`, porque nenhuma ficou sem gate. A nota pessimista da linha `run-in-background` **não se materializa** nesta versão: o card aparece igual às outras três. Evidência em `docs/F03-workspace/smoke-results.md` | [R-export-should-be-local](#r-export-should-be-local) |
+| A05 | `React` | 🟡 | arch | `historyMerge.logic.ts:263` | **FECHADO em `5f6b1c7`**: o `hasInflight` ganhou consumidor de produção quando o resync do socket passou a serializar o refetch (`shouldRefetchHistoryOnResync`). A parte `stableJson` já tinha fechado em C69 | [R-export-should-be-local](#r-export-should-be-local) |
+| R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts` | **FECHADO em `ed17966`** (fatia B2), e o registro só não tinha sido atualizado. `turnProcessCount` não existe mais: a métrica virou o par honesto `recordProviderProcessSpawned` / `recordProviderProcessExited`, junto com a `TurnSession` única | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
+| D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **FECHADO em 2026-08-16**. O que faltava era o Cancel explícito em turno longo **em foreground**, e o palco veio do caso `foreground-server` do A09: com `python -m http.server 8931` bloqueando a tool, o Parar produziu `Bash (cancelled)` no mesmo segundo, matou o processo e liberou a porta em menos de 2 s, assentou a thread em `cancelled` e não deixou gate aberto | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
+| R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | **FECHADO em 2026-08-16** (`da022fa`). O broker registra o que concedeu no turno e o evento `permission.native_denial` carrega `brokerGranted`, que separa "o CLI negou sem consultar o broker" de "o broker concedeu e outro hook `PreToolUse` negou depois" — no segundo caso a copy deixou de mandar revisar o accessLevel, que não manda em hook de terceiro. O diagnóstico saiu do parser para o `dispatch`, único ponto com as duas metades. Sobre o `systemMessage` citado no achado: **esse campo não existe** no payload; o equivalente com evidência in-repo é `decision_reason`, agora propagado. Validado ao vivo (negação de `git log` por hook global do usuário) | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
+| R09 | `Node.js` | 🟡 | rob | `providers/permission-contract.ts` + `permission-broker.ts` + `gate.ts` | **FECHADO em 2026-08-17.** O booleano `brokerGranted` virou `BrokerPermissionOutcome` (`granted`/`denied`/`expired`/`unavailable`/`never-requested`), produzido pelo broker e propagado até as duas copies por uma partição única (`nativeDenialCase`), importada pelo renderer em vez de reescrita. Para distinguir "o usuário negou" de "ninguém respondeu", a continuação do gate passou a entregar `{allow, reason}` — o motivo vem do próprio `closeGate`, não de uma releitura da linha depois do fato. Nada mudou de política: a resposta ao hook continua sendo o mesmo `allow`. As três limitações que a correção deixou foram tratadas em seguida, no mesmo dia: `cancelled` virou caso próprio (Parar com card aberto não é mais lido como "ninguém respondeu"); decisões opostas para a mesma tool no turno viram `ambiguous`, que admite não saber a qual chamada a negação pertence em vez de afirmar a errada; e a rejeição por tamanho (413), que responde antes de existir `toolName`, passa a marcar o turno e a ressalvar a frase de "nunca consultou o broker". A afirmação de que a atribuição seria irredutível **estava errada, e foi corrigida no mesmo dia**: o CLI manda `tool_use_id` tanto no payload do `PreToolUse` quanto na negação que chega pelo stream — quem descartava a chave era o nosso hook, que repassava ao broker só `{toolName, toolInput}`. O hook passou a repassar o id, o broker registra a decisão nas duas chaves (a exata e a agregada por nome) e o diagnóstico consulta pela exata. `ambiguous` continua existindo como fallback honesto para quando o id falta de algum dos lados | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
+
+### Notas de deferimento (resolvidas em 2026-08-16)
+
+Os dois itens abaixo foram mantidos abertos por decisão deliberada em 2026-08-13, com consumidor de produção previsto numa fase seguinte deste mesmo trabalho. **Ambos chegaram lá**, e ficam registrados aqui porque a decisão de esperar foi correta: torná-los locais e reabrir depois teria sido trabalho jogado fora.
+
+- **A02 — `providers/permission-contract.ts`.** Cumprido na fatia D1 (`2a6d112`): `checkSupervisedPermissionArgs` e `validatePermissionSettingsShape` rodam **antes do spawn do CLI**, dentro de `assertPermissionContract`, e uma regressão de contrato (grupo `PermissionRequest` faltando no `--settings`, comando do hook errado para a plataforma, `--permission-mode` divergente, `ELECTRON_RUN_AS_NODE` ausente) vira erro visível antes do turno começar. O sintoma que isso atacava era o agente pedir aprovação em prosa referindo um botão que nunca apareceu na tela. Sobrou só a matriz de Bash, que virou **A09** por não ter consumidor honesto do mesmo tipo.
+- **A05 (parcial) — `hasInflight`.** Cumprido em `5f6b1c7`: o resync do socket serializa o refetch de histórico por ele.
 
 ---
 
 ## 3. Regras — achados abertos (1× por tipo × Stack)
 
-Nenhuma. Tipos da passagem 2026-08-10 foram fechados; contratos estão em §4 como RC-* (novos: spawn-failed-unsanitized, silent-catch-regression, unlock-body-unbounded, cli-env-inheritance, spawn-cleanup-gap, missing-link-body-regression, flaky-process-timeout; reuso: dead-export, http-body-narrowing-gap, business-rule-in-tsx, error-message-locale-residual, no-silent-catch).
+<a id="r-export-should-be-local"></a>
+
+### Export que deveria ser local
+Esforço: baixo  
+Classificação: Baixo  
+Stack: `Node.js` / `React`  
+Tipo: `export-should-be-local`  
+Reabre contrato de [RC-export-should-be-local](#rc-export-should-be-local).
+
+#### Por que isso é um problema?
+Helper só de teste ou só interno exportado amplia API sem necessidade e atrasa refactors.
+
+Correção: `export` só se houver consumidor de produção; senão local ou mover para o `*.test.ts` / fixture.
+
+#### Exceções
+Símbolo usado por mais de um arquivo de produção. Símbolo com consumidor de produção **planejado e nomeado** numa fase seguinte do mesmo trabalho pode ficar aberto com nota de deferimento (A02, `hasInflight`), em vez de virar local e ser reaberto depois.
+
+---
+
+<a id="r-metric-setter-semantic-drift"></a>
+
+### Contador cujo setter sobrescreve não é contagem
+Esforço: baixo (mas exige call site + setter no mesmo commit)  
+Classificação: Médio  
+Stack: `Node.js`  
+Tipo: `metric-setter-semantic-drift`
+
+#### Por que isso é um problema?
+`recordTurnProcessCount` faz `counters.turnProcessCount = count` (sobrescreve, não soma) e o único call site passa `typeof child.pid === 'number' ? 1 : 0`. O campo chamado `turnProcessCount` é, na prática, um booleano "o último turno tinha PID", nunca uma contagem de processos do turno. Quem ler o snapshot para diagnosticar vazamento de processo vai concluir o oposto do que o dado significa.
+
+Não conforme:
+
+```ts
+// runtime-metrics.ts
+export function recordTurnProcessCount(count: number): void {
+  counters.turnProcessCount = count   // sobrescreve
+}
+
+// providers/cli-driver.ts
+recordTurnProcessCount(typeof child.pid === 'number' ? 1 : 0)   // sempre 0 ou 1
+```
+
+Correção: decidir a semântica e mudar **os dois lados juntos**. Ou o setter acumula (`+= count`) e o call site reporta processos reais do turno (incluindo a árvore de filhos), ou o campo é renomeado para o que ele de fato mede (ex.: `turnHadProcess`, booleano). O teste atual em `runtime-metrics.test.ts` trava o comportamento vigente **de propósito**, então ele muda no mesmo commit.
+
+#### Exceções
+Nenhuma. Se a decisão for manter o booleano, o rename é obrigatório: um nome `*Count` que não conta é o bug.
+
+---
+
+<a id="r-missing-smoke-evidence"></a>
+
+### Smoke E2E incompleto no critério UI
+Esforço: médio  
+Classificação: Médio  
+Stack: `Vitest`  
+Tipo: `missing-smoke-evidence`  
+Reabre contrato de [RC-missing-smoke-evidence](#rc-missing-smoke-evidence) para lacuna residual F03.
+
+#### Por que isso é um problema?
+Permission Recovery depende de DOM (Cancel + export + Bash background). Unitário dos sprints não fecha o AC visual.
+
+Correção: uma passagem Electron + playwright-cli; registrar em `docs/F03-workspace/smoke-results.md` (não só “recomendado”).
+
+#### Exceções
+AC estritamente API/crypto sem superfície UI.
 
 ---
 
 ## 4. Problemas corrigidos
 
-Fonte: auditoria 2026-08-07 (Lotes 1–2) + follow-ups + remediação 2026-08-08 (C18–C30) + fechamento 2026-08-09 (C31–C32).  
+Fonte: auditoria 2026-08-07 (Lotes 1–2) + follow-ups + remediação 2026-08-08 (C18–C30) + fechamento 2026-08-09 (C31–C32) + remediação 2026-08-13 (C58–C69).  
 Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto não entram aqui.  
 **Nota:** C14 (`sanitize-stderr`) cobre a base `x-access-token`/`sk-*`; C31 estende para os schemes F24 e os prefixos `xai-`/`gsk_`. Os dois permanecem válidos e não voltam para abertos.
 
@@ -177,6 +276,18 @@ Cada tipo aparece **uma vez** com evidência. Itens da matriz §9 de produto nã
 | C55 | `Node.js` | `spawn-cleanup-gap` | working tree 2026-08-10; catch síncrono chama `cleanupPermissionSettings` (fecha R11) | [RC-spawn-cleanup-gap](#rc-spawn-cleanup-gap) |
 | C56 | `Node.js` | `error-message-locale-residual` | working tree 2026-08-10; `repositories/subagents.ts` `Subagente …` (fecha R12) | [RC-error-message-locale-residual](#rc-error-message-locale-residual) |
 | C57 | `Node.js` | `dead-export` | working tree 2026-08-10; `getTokens` local; `parseOauthMetadata` em `oauth-metadata.ts` com consumidor (fecha A02/A03) | [RC-dead-export](#rc-dead-export) |
+| C58 | `Node.js` | `stream-json-content-narrow` | working tree 2026-08-13 (branch `fix/f03-audit-close`); `providers/stream-json-parse.ts` sem cast `as ContentBlock[]` nos branches `assistant`/`user` (iteração filtra por `isRecord`, interface `ContentBlock` removida por ficar órfã) + `providers/cli-driver.ts` com `try/catch` próprio no loop de parse/dispatch, sem logar a linha crua, erro por `sanitizeProcessError` (fecha R01) | [RC-stream-json-content-narrow](#rc-stream-json-content-narrow) |
+| C59 | `Vitest` | `missing-sibling-coverage` | working tree 2026-08-13; `stream-json-parse.test.ts` (+4 `it`: `content: [null, 1, "x"]` em `assistant` e `user`, mais dois mistos provando que item inválido não aborta o loop), `runtime-metrics.test.ts` novo (9 `it`), `git-handler.test.ts` (+2 `it`: `waiting_permission` e `stopping` → 409 `thread_busy`), `executionGraph.logic.test.ts` (+2 `it` nos **dois** chamadores de `mapThreadState`), `threads-handler.test.ts` (+2 `it` em `GET …/permissions`: 401 com assert de que o handler reivindica a rota, e 423 provando a ordem) — fecha D03/D04/D05/D06/D07 | [RC-missing-sibling-coverage](#rc-missing-sibling-coverage) |
+| C60 | `React` | `business-rule-in-tsx` | working tree 2026-08-13; `workspace/chatSurface.logic.ts` + teste (26 `it`) — `deriveChatSurface` chama `routeComposerSend` internamente (`route` nunca reimplementado) e um `it` percorre 9 estados × 4 booleanos × 7 textos comparando contra a chamada direta; `TaskComposer.tsx` e `ChatHistory.tsx` não derivam mais regra do estado cru da thread. Corrigiu de quebra uma divergência real de rótulo (`waiting_user` sem pergunta pendente rotulava "Enviar resposta" enquanto o envio enfileirava) — fecha D01/D02 | [RC-business-rule-in-tsx](#rc-business-rule-in-tsx) |
+| C61 | `Node.js` | `dead-export` | working tree 2026-08-13; `runtime-metrics.ts` com `isRuntimeMetricsEnabled` **removido por inteiro** (wrapper de uma linha sobre o `enabled()` interno, zero consumidores); `getRuntimeMetricsSnapshot` e `resetRuntimeMetricsForTesting` ganharam consumidor no teste novo (fecha A01) | [RC-dead-export](#rc-dead-export) |
+| C62 | `Node.js` | `permission-thread-binding` | working tree 2026-08-13; `permission-broker.ts` com `resolvePermissionRequest(threadId, requestId, allow, always?, scope?)` validando `entry.threadId === threadId` **antes** de consumir a entrada, retorno `{ok:true;toolName}` \| `{ok:false;code:'not_found'\|'thread_mismatch'}`; `threads-handler.ts` passa o threadId do path e mapeia `thread_mismatch` → 409 `permission_thread_mismatch`; testes em `permission-broker.test.ts` e `threads-handler.test.ts` (fecha R02) | [RC-permission-thread-binding](#rc-permission-thread-binding) |
+| C63 | `Node.js` | `broker-body-unbounded` | working tree 2026-08-13; `buffer-cap.ts` `PERMISSION_BODY_MAX_BYTES` (1 MiB) + `permission-broker.ts` com contador por chunk, 413 e `req.destroy()` no estouro, `overCap` cortando o `on('end')` e nenhum pending criado (fail-closed); teste com `testTimeout` explícito (fecha R04) | [RC-broker-body-unbounded](#rc-broker-body-unbounded) |
+| C64 | `Node.js` | `hook-http-status-check` | working tree 2026-08-13; `permission-hook.ts` (dentro de `SCRIPT_SOURCE`) checa `if (!res.ok)` antes do `res.json()` e nega com o status na mensagem; teste com servidor fake devolvendo 403 (fecha R06) | [RC-hook-http-status-check](#rc-hook-http-status-check) |
+| C65 | `React` | `native-denial-ui-gap` | working tree 2026-08-13; `hooks/streamNotices.logic.ts` + teste (9 `it`) — `mcpNotices` virou união discriminada `WorkspaceNotice` (`kind: 'mcp' \| 'native_denial'`), branch novo em `handleStreamEvent` traduz `permission.native_denial` em aviso PT-BR nomeando a tool, e o teto `MAX_WORKSPACE_NOTICES = 20` passou a ser aplicado (antes a lista crescia sem limite) (fecha R03) | [RC-native-denial-ui-gap](#rc-native-denial-ui-gap) |
+| C66 | `TypeScript` | `non-null-assertion-mask` | working tree 2026-08-13; `usePrincipalWorkspace.ts` sem `pendingPermission!` (via `const recovered` local) e com o branch seguinte endurecido: `resolve_permission` sem permissão faz early-return com erro visível em vez de cair em silêncio nos branches de baixo e virar turno novo (fecha R05) | [RC-non-null-assertion-mask](#rc-non-null-assertion-mask) |
+| C67 | `Node.js` | `permission-mode-constant-drift` | working tree 2026-08-13; `providers/cli-driver.ts` `permissionModeFlag` retorna `SUPERVISED_PERMISSION_MODE` em vez do literal `'auto'` (fecha A03) | [RC-permission-mode-constant-drift](#rc-permission-mode-constant-drift) |
+| C68 | `Node.js` | `export-should-be-local` | working tree 2026-08-13; `buffer-cap.ts` `truncateStringWithMarker` virou local e o teste passou a exercitá-la via `truncateToolResultPayload` (fecha A04) | [RC-export-should-be-local](#rc-export-should-be-local) |
+| C69 | `React` | `export-should-be-local` | working tree 2026-08-13; `historyMerge.logic.ts:15` `stableJson` perdeu o `export` (zero consumidor fora do módulo); fecha **só a parte `stableJson`** do A05; `hasInflight` segue aberto com nota de deferimento em §2 | [RC-export-should-be-local](#rc-export-should-be-local) |
 
 ### Regras — problemas corrigidos
 
@@ -1575,23 +1686,222 @@ Falha determinística nas duas execuções = bug de produto.
 
 ---
 
+<a id="rc-stream-json-content-narrow"></a>
+
+### Narrow seguro do `content` no stream-json
+Esforço: baixo  
+Classificação: fechado — era Crítico  
+Stack: `Node.js` · Tipo: `stream-json-content-narrow`
+
+#### Por que isso é um problema?
+Payload do CLI é não confiável. Cast `as ContentBlock[]` + leitura de `block.type` num elemento `null`/primitivo lança, e o parse rodava fora do `try/catch` da linha em `cli-driver` — um item lixo no `content` derrubava o turno inteiro.
+
+```ts
+// Não conforme
+const content = (Array.isArray(message?.content) ? message.content : []) as ContentBlock[]
+for (const block of content) {
+  if (block.type === 'tool_use' && …) { … }
+}
+```
+
+```ts
+// Conforme
+const raw = Array.isArray(message?.content) ? message.content : []
+for (const block of raw) {
+  if (!isRecord(block)) continue
+  if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') { … }
+}
+```
+
+Duas coisas que **não** podem ser desfeitas junto com isso: o loop de parse/dispatch em `rl.on('line')` tem `try/catch` **próprio**, separado do `try` de baixo (lá `catch` significa "linha não é JSON de nível superior"; fundir perde o sinal de falha real), e esse catch **nunca loga a linha crua**, porque ela pode carregar `tool_input` com command/segredo. O erro sai por `sanitizeProcessError`.
+
+#### Exceções
+Nenhuma no caminho do `rl.on('line')`. Bloco novo no `content` entra com narrow por campo, não com cast.
+
+---
+
+<a id="rc-permission-thread-binding"></a>
+
+### Binding `requestId` ↔ `threadId` na resolução de permissão
+Esforço: baixo  
+Classificação: fechado — era Alto  
+Stack: `Node.js` · Tipo: `permission-thread-binding`
+
+#### Por que isso é um problema?
+`POST /api/threads/:threadId/permission` resolvia só por `requestId` global. Um request de outra thread com o path errado liberava a tool e emitia `permission.resolved` na thread da URL.
+
+```ts
+// Não conforme
+const resolved = resolvePermissionRequest(data.requestId, data.allow, …)
+emit(threadId, { type: 'permission.resolved', … })
+```
+
+```ts
+// Conforme
+const resolved = resolvePermissionRequest(threadId, data.requestId, data.allow, …)
+// { ok: false, code: 'thread_mismatch' } → 409 permission_thread_mismatch
+```
+
+A validação de `entry.threadId` roda **antes** de consumir a entrada pendente; checar depois já teria destruído o pedido da thread legítima.
+
+#### Exceções
+Nenhuma em multi-thread.
+
+---
+
+<a id="rc-broker-body-unbounded"></a>
+
+### Body do broker de permissão com teto fail-closed
+Esforço: baixo  
+Classificação: fechado — era Médio  
+Stack: `Node.js` · Tipo: `broker-body-unbounded`  
+Afim de [RC-http-body-size-unbounded](#rc-http-body-size-unbounded) (superfície efêmera do hook, não `_transport`).
+
+#### Por que isso é um problema?
+`POST /permission` do broker fazia `body += chunk` sem cap; `toolInput` grande, somado a replay WS e `GET …/permissions`, pressiona a memória do processo main.
+
+```ts
+// Conforme
+if (bodyBytes > PERMISSION_BODY_MAX_BYTES) {   // 1 MiB, em buffer-cap.ts
+  overCap = true
+  /* 413 + req.destroy() */
+}
+// on('end') retorna cedo se overCap — nenhum pending é criado
+```
+
+Fail-closed é a parte que importa: no estouro **não** nasce entrada pendente. Um pending criado a partir de body truncado viraria um pedido de permissão sem params confiáveis na tela.
+
+#### Exceções
+Nenhuma com params persistidos na fila.
+
+---
+
+<a id="rc-hook-http-status-check"></a>
+
+### Hook de permissão checa status HTTP antes de parsear
+Esforço: baixo  
+Classificação: fechado — era Baixo  
+Stack: `Node.js` · Tipo: `hook-http-status-check`
+
+#### Por que isso é um problema?
+`await res.json()` sem `res.ok` transforma 403/404/413 (ou HTML) em erro de parse opaco. O fail-closed existia via `allow !== true`, mas a reason que chegava ao modelo era inútil para diagnóstico.
+
+```js
+// Conforme — dentro de SCRIPT_SOURCE
+if (!res.ok) {
+  return decide(false, 'broker respondeu ' + res.status)
+}
+```
+
+#### Exceções
+Nenhuma no `SCRIPT_SOURCE` do hook (vale para os dois grupos, `PreToolUse` e `PermissionRequest`).
+
+---
+
+<a id="rc-native-denial-ui-gap"></a>
+
+### Negação nativa do CLI precisa de superfície na UI
+Esforço: baixo  
+Classificação: fechado — era Médio  
+Stack: `React` · Tipo: `native-denial-ui-gap`
+
+#### Por que isso é um problema?
+O runner emitia `permission.native_denial` no wire e o hook do workspace tipava o evento sem renderizar nada. A tool morria sem modal e sem aviso: da tela, parecia que o agente simplesmente parou.
+
+```ts
+// Conforme — streamNotices.logic.ts
+export type WorkspaceNotice =
+  | { kind: 'mcp'; … }
+  | { kind: 'native_denial'; toolName: string; code: string; message: string }
+export const MAX_WORKSPACE_NOTICES = 20
+```
+
+O teto veio junto de propósito: a lista de avisos crescia sem limite numa thread longa.
+
+#### Exceções
+Nenhuma enquanto o evento continuar no wire. Evento novo de negação entra com aviso PT-BR nomeando a tool, não com o `code` cru.
+
+---
+
+<a id="rc-non-null-assertion-mask"></a>
+
+### Non-null assertion mascara ausência em wiring de gate
+Esforço: baixo  
+Classificação: fechado — era Médio  
+Stack: `TypeScript` · Tipo: `non-null-assertion-mask`
+
+#### Por que isso é um problema?
+`pendingPermission!` escondia a race em que o snapshot já sumiu; virava runtime error opaco em vez de early-return. Pior: sem a permissão, o fluxo caía nos branches de baixo em silêncio e o texto do usuário virava turno novo, e o agente então repetia o pedido em prosa.
+
+```ts
+// Conforme
+const recovered = /* … */
+if (!recovered) {
+  /* early-return com erro visível na UI, nunca cair para enqueue/send */
+}
+```
+
+#### Exceções
+Nenhuma em wiring de grant de permissão.
+
+---
+
+<a id="rc-permission-mode-constant-drift"></a>
+
+### Modo supervisionado vem da constante, não do literal
+Esforço: baixo  
+Classificação: fechado — era Médio  
+Stack: `Node.js` · Tipo: `permission-mode-constant-drift`
+
+#### Por que isso é um problema?
+Contrato e spawn divergiam: `permission-contract.ts` checava `SUPERVISED_PERMISSION_MODE` enquanto `permissionModeFlag` devolvia `'auto'` hardcoded. Um rename futuro quebraria só um lado, e o lado quebrado é o que decide se o hook tem autoridade real de allow/deny.
+
+```ts
+// Não conforme
+function permissionModeFlag(): string { return 'auto' }
+```
+
+```ts
+// Conforme
+if (hasPermissionHook) return SUPERVISED_PERMISSION_MODE
+```
+
+#### Exceções
+Nenhuma no caminho supervised. Os outros retornos (`bypassPermissions`, `acceptEdits`, `manual`) são modos distintos do CLI, não sinônimos dessa constante.
+
+---
+
 ## 5. Fora de escopo / dívida consciente
 
-| Item | Estado 2026-08-10 |
+| Item | Estado 2026-08-13 |
 |------|-------------------|
-| Remediação C01–C57 | **Confirmada** no código para C46–C57 (working tree); C01–C45 permanecem válidos |
-| F19 smoke “opcional” | Mantido: ACs tool-only + PROGRESS declara smoke live opcional; há UI (`CodegraphSection`) mas sem `smoke-results.md` — só reabrir se produto exigir DOM fechado |
-| PRD cross-feature F18 `[ ]` | Docs de produto; F18 Feito com smoke real — marcar `[x]` só se o usuário pedir sync PRD |
-| Polling Dashboard / OAuth pending vs hub WS | Justificado — não flag de arquitetura |
-| PTY via IPC nomeado (F26) | Capacidade nativa aceita |
-| Servidores `listen(0)` por turno | Por design |
-| `AUDIT-PRD-S9-MIGRATION.md` | Encerrada; não reabrir como matriz de código |
-| Gates `tsc`/`vite`/`biome`/`electron-builder` | Não reexecutados nesta passagem (só `pnpm test` 2× — 1066/1066) |
-| Suíte flaky sob carga | D04 mitigado com `testTimeout` no parallel batch; ainda rode duas vezes antes de chamar regressão |
+| C01–C57 | Permanecem válidos; esta passagem **não** revalidou full-base `src/` — só o lote uncommitted |
+| `copy.md` F03 ainda fala “modal” | **Resolvido em 2026-08-13** — `copy.md` alinhado ao `ui.md` (card inline, clique preenche composer, Enviar concede) |
+| Lote uncommitted ~50 arquivos / 5 sprints + correções C58–C69 | Dívida de fatiamento Conventional Commits (abaixo); não bloqueia por si só |
+| F19 smoke “opcional” | Mantido (igual 2026-08-10) |
+| PRD cross-feature F18 `[ ]` | Docs de produto — só sync se o usuário pedir |
+| Polling Dashboard / OAuth pending vs hub WS | Justificado |
+| PTY via IPC nomeado (F26) / `listen(0)` por turno | Por design |
+| Gates `tsc -b` + suíte Vitest | **Executados em 2026-08-13**: `tsc -b` exit 0; `pnpm test` 1500/151 verdes. `biome` / `vite` / `electron-builder` seguem não executados |
+| Smoke Electron ao vivo de F03 | **Executado em 2026-08-13** contra `claude` 2.1.231 — primeira validação nessa versão (contrato estava registrado contra 2.1.226/2.1.228). Resta o Cancel foreground |
+| Suíte flaky sob carga | Ainda rode `pnpm test` duas vezes antes de chamar regressão |
+| `.claude/agents/sprint-*` untracked | Fora do escopo `src/` desta auditoria |
 
-### Fatiamento sugerido
+### Fatiamento sugerido (remediação do uncommitted)
 
-Remediação 2026-08-10 **concluída** (lotes 1–9). Sem abertos restantes nesta passagem.
+Ordem: 🔴 segurança/parse → 🔴 UX testável → 🔴 testes irmãos → 🟡 binding/broker → 🟡 hygiene/exports → docs/smoke. As correções de 2026-08-13 estão na branch `fix/f03-audit-close` **sem commit**; o fatiamento abaixo continua sendo a divisão sugerida na hora de commitar.
+
+1. `fix(F03): narrow stream-json content blocks` — R01 + D05 (C58 + C59) ✅ código pronto
+2. `fix(F03): extract composer/followups logic` — D01 + D02 (C60) ✅ código pronto
+3. `test(F03): waiting_permission busy + runtime-metrics` — D03 + D04 + A01 (C59 + C61) ✅ código pronto
+4. `fix(F03): bind permission resolve to threadId` — R02 (C62) ✅ código pronto
+5. `fix(F03): broker body cap + hook status` — R04 + R06 (C63 + C64) ✅ código pronto
+6. `fix(F03): native denial UI + drop non-null` — R03 + R05 (C65 + C66) ✅ código pronto
+7. `refactor(F03): shared SUPERVISED_PERMISSION_MODE + local exports` — A03 + A04 + `stableJson` do A05 (C67–C69) ✅ código pronto. **A02 e `hasInflight` ficam de fora deste commit** — deferidos (§2)
+8. `test(F03): permissions 401/423 + graph waiting_permission` — D06 + D07 (C59) ✅ código pronto
+9. `docs(F03): smoke Cancel/export + copy inline` — `copy.md` sincronizado ✅; smoke ao vivo executado ✅; **resta Cancel foreground**
+11. `fix(F03): copy da negacao nativa` — R08, achado novo do smoke. A copy precisa separar "CLI negou sem consultar o broker" de "broker concedeu e outro hook negou", e propagar o `systemMessage` do hook
+10. `fix(F03): turnProcessCount semantics` — R07, achado novo. Commit próprio, porque exige mudar call site, setter e o teste que trava o comportamento atual de uma vez
 
 ---
 

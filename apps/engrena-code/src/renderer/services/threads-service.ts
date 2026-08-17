@@ -1,6 +1,7 @@
 import { apiRequest, type ApiErrorBody } from './api-client'
 import type { ContextAttachmentInput } from '../../services/runner/providers/context-attachments.js'
 import type { SubagentRun } from './subagents-service'
+import type { GateResolveBody, ThreadGate } from '../hooks/threadGate.logic'
 
 export type { ApiErrorBody, ContextAttachmentInput }
 
@@ -9,7 +10,15 @@ export type { ApiErrorBody, ContextAttachmentInput }
 export type ThreadProvider = 'claude' | 'codex' | 'kimi' | 'minimax' | 'glm' | 'grok'
 export type ThreadAccessLevel = 'supervised' | 'auto-accept-edits' | 'full-access'
 export type ThreadExecutionMode = 'main' | 'worktree'
-export type ThreadState = 'running' | 'idle' | 'committed' | 'error' | 'stopping' | 'waiting_user' | 'cancelled'
+export type ThreadState =
+  | 'running'
+  | 'idle'
+  | 'committed'
+  | 'error'
+  | 'stopping'
+  | 'waiting_user'
+  | 'waiting_permission'
+  | 'cancelled'
 
 export interface Thread {
   id: string
@@ -64,6 +73,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string | null
   blocks: unknown[] | null
+  /** Id da bolha otimista que originou a mensagem; `null` no que nasce no servidor. */
+  clientId: string | null
   seq: number
   createdAt: number
 }
@@ -171,6 +182,8 @@ export const threadsService = {
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
       chatMode?: string | null
+      /** Identidade da bolha otimista — volta em `Message.clientId` para o chat reconciliar. */
+      clientMessageId?: string
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/projects/${projectId}/threads`, input),
 
@@ -184,6 +197,7 @@ export const threadsService = {
       images?: ComposerImagePayload[]
       contextAttachments?: ContextAttachmentInput[]
       chatMode?: string | null
+      clientMessageId?: string
     }
   ): Promise<DispatchResponse & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/messages`, input),
 
@@ -196,7 +210,8 @@ export const threadsService = {
   composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => apiRequest('GET', '/api/composer/catalog'),
 
   history: (
-    threadId: string
+    threadId: string,
+    options?: { signal?: AbortSignal }
   ): Promise<
     {
       messages: Message[]
@@ -205,7 +220,7 @@ export const threadsService = {
       subagentRuns: SubagentRun[]
       pipeline: PipelineHistory | null
     } & ApiErrorBody
-  > => apiRequest('GET', `/api/threads/${threadId}/history`),
+  > => apiRequest('GET', `/api/threads/${threadId}/history`, undefined, options),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),
@@ -237,16 +252,20 @@ export const threadsService = {
   cancel: (threadId: string): Promise<{ cancelled: boolean } & ApiErrorBody> =>
     apiRequest('POST', `/api/threads/${threadId}/cancel`),
 
-  permission: (
-    threadId: string,
-    input: { requestId: string; allow: boolean; always?: boolean; scope?: 'thread' | 'project' }
-  ): Promise<{ resolved: boolean; always?: boolean; toolName?: string } & ApiErrorBody> =>
-    apiRequest('POST', `/api/threads/${threadId}/permission`, input),
+  /**
+   * Snapshot dos gates abertos (permissão **e** pergunta), na ordem em que foram abertos. É a fonte
+   * do card na abertura da thread e no reconnect — o ao vivo vem de `gate.opened`/`gate.resolved`.
+   */
+  openGates: (threadId: string): Promise<{ gates: ThreadGate[] } & ApiErrorBody> =>
+    apiRequest('GET', `/api/threads/${threadId}/gate`),
 
-  answerQuestion: (
+  /** Resolve **o** gate que o card mostra, por `gateId` — nunca "o mais recente da thread". */
+  resolveGate: (
     threadId: string,
-    input: { selectedOptions?: string[]; freeText?: string | null }
-  ): Promise<{ answered: boolean } & ApiErrorBody> => apiRequest('POST', `/api/threads/${threadId}/answer`, input),
+    gateId: string,
+    input: GateResolveBody
+  ): Promise<{ resolved: boolean; kind?: string; always?: boolean; toolName?: string } & ApiErrorBody> =>
+    apiRequest('POST', `/api/threads/${threadId}/gate/${gateId}/resolve`, input),
 
   accept: (
     threadId: string,

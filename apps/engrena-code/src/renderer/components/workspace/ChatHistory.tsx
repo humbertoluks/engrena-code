@@ -15,9 +15,11 @@ import {
   turnDurationForAssistant,
 } from './chatHistory.logic'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
-import type { PendingAskUserQuestion } from './askUserQuestion.logic'
+import type { ThreadGate } from '../../hooks/threadGate.logic'
+import { PermissionPrompt } from './PermissionPrompt'
 import { ChatMarkdown } from './ChatMarkdown'
 import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
+import { deriveChatSurface } from './chatSurface.logic'
 import { EmptyChatIcon } from './sidebarIcons'
 
 const COPY = {
@@ -446,10 +448,19 @@ export interface ChatHistoryProps {
   streamingText: string
   hasThread: boolean
   threadState?: ThreadState | null
-  pendingQuestion?: PendingAskUserQuestion | null
-  onAnswerQuestion?: (input: { selectedOptions: string[]; freeText: string | null }) => void
-  answerBusy?: boolean
-  answerError?: string | null
+  /**
+   * Gate aberto da thread (`useThreadGate`) — permissão **ou** pergunta, card inline na timeline.
+   * Fonte única: nada aqui é inferido de `toolCalls`, que chega por refetch abortável.
+   */
+  gate?: ThreadGate | null
+  /** Gates além do exibido — vira "+N na fila" no card de permissão. */
+  gateQueuedCount?: number
+  /** Clique numa decisão de permissão: preenche o composer (envio via Enviar). */
+  onPermissionDecide?: (text: string) => void
+  /** Clique numa opção do ask_user_question: preenche o composer (envio via Enviar). */
+  onPickAskOption?: (option: string) => void
+  gateBusy?: boolean
+  gateError?: string | null
   /** Voto por id de mensagem (👍/👎), vindo do histórico persistido. */
   feedback?: Record<string, FeedbackVote>
   onVote?: (messageId: string, vote: FeedbackVote) => void
@@ -459,7 +470,7 @@ export interface ChatHistoryProps {
   followupsMessageId?: string | null
   followupsPending?: boolean
   onPickFollowup?: (text: string) => void
-  /** Clique numa resposta da pergunta do agente: envia na hora (decisão, não rascunho). */
+  /** Clique numa opção de decisão: preenche o composer (envio via Enviar). */
   onDecide?: (text: string) => void
 }
 
@@ -475,10 +486,12 @@ export function ChatHistory({
   streamingText,
   hasThread,
   threadState = null,
-  pendingQuestion = null,
-  onAnswerQuestion,
-  answerBusy = false,
-  answerError = null,
+  gate = null,
+  gateQueuedCount = 0,
+  onPermissionDecide,
+  onPickAskOption,
+  gateBusy = false,
+  gateError = null,
   feedback = {},
   onVote,
   followups = [],
@@ -505,7 +518,11 @@ export function ChatHistory({
   }
 
   const hasContent =
-    messages.length > 0 || streamingText !== '' || toolCalls.length > 0 || pendingMessages.length > 0
+    messages.length > 0 ||
+    streamingText !== '' ||
+    toolCalls.length > 0 ||
+    pendingMessages.length > 0 ||
+    gate !== null
 
   // Loading/erro só tomam a tela quando não há nada para preservar. Com conversa em tela o
   // refetch é silencioso — trocar a árvore por "Carregando…" jogaria o scroll para o topo.
@@ -536,12 +553,28 @@ export function ChatHistory({
   const runByToolCallId = correlateSubagentRuns(toolCalls, subagentRuns)
   const groups = groupTimelineItems(messages, toolCalls, runByToolCallId)
 
-  // Enquanto o turno roda o indicador fica sempre visível (mesmo com texto já em tela): sumir
-  // depois da primeira frase do agente fazia o chat parecer travado no meio do trabalho.
-  const showActivity = threadState === 'running' && !pendingQuestion
+  // Mesma derivação do composer (`deriveChatSurface`), não uma segunda cópia do predicado:
+  // indicador de atividade visível o turno inteiro, e nada de chips com a thread ocupada ou
+  // com resposta em voo — o usuário via "próximo passo" em cima de "Executando…" e clicava
+  // achando que era a permissão. `queueLength`/`draftText` não afetam nada aqui (a fila e o
+  // rascunho são do composer).
+  const surface = deriveChatSurface({
+    threadState,
+    gate,
+    hasActivePending: pendingMessages.some((p) => isPendingActive(p.status)),
+    queueLength: 0,
+    hasSelectedThread: hasThread,
+    hasSelectedProject: true,
+    draftText: '',
+  })
+  const showActivity = surface.showActivity
+  const suggestionsAllowed = surface.showFollowups
   // Sugestão nasce de uma resposta específica: se outra chegou no meio, a lista velha não vale.
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? null
   const followupsAnchored = followupsMessageId !== null && followupsMessageId === lastAssistantId
+  // Restam só condições de disponibilidade de dado — não de estado da thread.
+  const showFollowups =
+    suggestionsAllowed && followups.length > 0 && onPickFollowup !== undefined && followupsAnchored
   const activity = currentActivity(messages, toolCalls, Date.now(), pendingMessages)
 
   return (
@@ -559,7 +592,7 @@ export function ChatHistory({
                 turnDurationMs={turnDurationForAssistant(messages, group.message)}
                 vote={feedback[group.message.id]}
                 onVote={onVote}
-                decisionEnabled={group.message.id === lastAssistantId && threadState !== 'running' && !pendingQuestion}
+                decisionEnabled={group.message.id === lastAssistantId && suggestionsAllowed}
                 onDecide={onDecide}
               />
             )
@@ -595,45 +628,53 @@ export function ChatHistory({
         <PendingUserMessage key={pending.id} pending={pending} />
       ))}
 
-      {pendingQuestion && onAnswerQuestion ? (
+      {gate !== null && gate.kind === 'question' && onPickAskOption ? (
         <AskUserQuestionCard
-          key={pendingQuestion.toolCallId}
-          prompt={pendingQuestion.prompt}
-          options={pendingQuestion.options}
-          multiSelect={pendingQuestion.multiSelect}
-          busy={answerBusy}
-          error={answerError}
-          onAnswer={onAnswerQuestion}
+          key={gate.gateId}
+          gate={gate}
+          busy={gateBusy}
+          error={gateError}
+          onPickOption={onPickAskOption}
         />
       ) : null}
 
       {streamingText !== '' ? (
         <div className="mb-md pr-[48px]">
-          <ChatMarkdown content={streamingText} />
+          <ChatMarkdown content={streamingText} streaming />
         </div>
       ) : null}
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
+      {gate !== null && gate.kind === 'permission' && onPermissionDecide ? (
+        <PermissionPrompt
+          key={gate.gateId}
+          gate={gate}
+          queuedCount={gateQueuedCount}
+          error={gateError}
+          onDecide={onPermissionDecide}
+        />
+      ) : null}
+
       {/* Texto, não pílulas vazias: o esqueleto anterior tinha a forma dos chips e era lido como
           botão quebrado — o usuário via três retângulos sem rótulo e achava que era defeito. */}
-      {followupsPending && followups.length === 0 && queued.length === 0 ? (
+      {followupsPending && !showFollowups && suggestionsAllowed ? (
         <p role="status" className="mb-md text-[11.5px] text-muted">
           <span className="animate-pulse">{COPY.followupsLoading}</span>
         </p>
       ) : null}
 
-      {followups.length > 0 && onPickFollowup && queued.length === 0 && followupsAnchored ? (
+      {showFollowups ? (
         <ul aria-label={COPY.followupsLabel} className="mb-md flex list-none flex-wrap gap-xs p-0">
           {followups.map((text) => (
             <li key={text}>
-            <button
-              type="button"
-              onClick={() => onPickFollowup(text)}
-              className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[12px] text-muted transition-colors hover:border-accent hover:text-fg"
-            >
-              {text}
-            </button>
+              <button
+                type="button"
+                onClick={() => onPickFollowup?.(text)}
+                className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[12px] text-muted transition-colors hover:border-accent hover:text-fg"
+              >
+                {text}
+              </button>
             </li>
           ))}
         </ul>

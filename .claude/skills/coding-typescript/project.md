@@ -27,4 +27,9 @@ Use esta skill como reforço, não como categoria concorrente.
 
 ## Achados abertos
 
-Nenhum nesta Stack (tipagem reportada na Stack do arquivo).
+Passagem 2026-08-12 (uncommitted) — ver `AUDIT-CODE-REVIEW.md`: nenhum aberto nesta Stack.
+
+## Já corrigidos — não regrida
+
+- `RC-non-null-assertion-mask` — R05 fechado na remediação de 2026-08-13: `usePrincipalWorkspace.ts` materializa o snapshot do broker numa variável já estreitada em vez de `pendingPermission!`. O `!` mascarava ausência **e** o branch seguinte deixava o texto cair em silêncio nos branches de baixo, virando turno novo; agora é early-return com erro visível de permissão pendente
+- `RC-unchecked-array-cast` — R01 fechado no mesmo lote: `stream-json-parse.ts` filtra elemento a elemento com `isRecord` em vez de `as ContentBlock[]`. Cast de array vindo de I/O não estreita os itens

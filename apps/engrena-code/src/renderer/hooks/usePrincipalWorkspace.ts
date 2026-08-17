@@ -2,136 +2,80 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectsService, type Project, type VcsStatus } from '../services/projects-service'
 import {
   threadsService,
-  type ComposerCatalog,
   type ComposerImagePayload,
   type Diff,
-  type Message,
-  type PipelineHistory,
   type ThreadAccessLevel,
-  type ThreadExecutionMode,
-  type ThreadProvider,
   type Thread,
-  type ToolCall,
   type FeedbackVote,
-  type MessageFeedback,
 } from '../services/threads-service'
-import { connectThreadStream, type StreamEvent } from '../services/ws-client'
+import type { StreamEvent } from '../services/ws-client'
 import { configuracaoService, isConfigStatus, type ConfigStatus } from '../services/configuracao-service'
-import {
-  promptLibraryService,
-  type ChatModeItem,
-  type SavedPromptItem,
-} from '../services/prompt-library-service'
 import { memoryService, type MemoryStatus } from '../services/memory-service'
 import { consumoService, type UsageLimitStatusResponse } from '../services/consumo-service'
-import type { SubagentRun } from '../services/subagents-service'
-import { findPendingAskUserQuestion, answerErrorMessage } from '../components/workspace/askUserQuestion.logic'
-import { interpretPermissionChatReply } from '../components/workspace/permissionComposer.logic'
+import { composerAnswerForQuestion } from '../components/workspace/askUserQuestion.logic'
+import { routeComposerSend } from '../components/workspace/composerRoute.logic'
+import { useThreadGate } from './useThreadGate'
+import { questionFromGate, type ThreadGate } from './threadGate.logic'
 import {
-  addAttachment,
-  makeSelectionAttachment,
-  removeAttachment as removeAttachmentFromList,
+  appendWorkspaceNotice,
+  cliVersionNotice,
+  mcpNotice,
+  nativeDenialNotice,
+  type WorkspaceNotice,
+} from './streamNotices.logic'
+import {
   toWirePayload,
-  withImplicitContext,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
-import { slugifyPromptName } from '../../services/prompts/prompt-spec.js'
+import type { PendingMessage } from '../components/workspace/pendingMessages.logic'
+import { PERMISSION_PENDING_HINT } from '../components/workspace/permissionComposer.logic'
 import {
-  reconcilePendingMessages,
-  type PendingMessage,
-  type PendingMessageStatus,
-} from '../components/workspace/pendingMessages.logic'
+  EXPORT_COPY,
+  exportFetchErrorMessage,
+  mimeTypeForExportFormat,
+  triggerBrowserDownload,
+} from '../components/workspace/threadExportDownload.logic'
+import { HistoryRefetchGate, isAbortError } from '../components/workspace/historyMerge.logic'
 import {
-  applyLiveEvent,
-  emptyLiveOverlay,
-  type LiveGraphOverlay,
-} from '../components/workspace/graph/executionGraph.logic'
+  recordHistoryRefetchAborted,
+  recordHistoryRefetchCoalesced,
+  recordHistoryRefetchCompleted,
+  recordHistoryRefetchStarted,
+} from '../../services/runtime-metrics'
+import { useChatTimeline } from './useChatTimeline'
+import { useThreadStream } from './useThreadStream'
+import {
+  decideThreadStateResync,
+  isSettledThreadState,
+  reconcilesTurnEnd,
+  shouldRefetchHistoryOnResync,
+} from './threadStream.logic'
+import { useComposerDraft } from './useComposerDraft'
+import { useMessageQueue } from './useMessageQueue'
+import { usePromptLibrary } from './usePromptLibrary'
+import type { ComposerImage, QueueItem } from './messageQueue.logic'
 
+// A fila de mensagens (estado, persistência e despacho) mora em `useMessageQueue`; o rascunho do
+// composer e seus anexos moram em `useComposerDraft`. Os tipos seguem exportados daqui porque é
+// por este módulo que os componentes do workspace os importam.
+export type { ComposerImage, QueueItem }
+export type { ComposerDraft } from './composerDraft.logic'
 
-const QUEUE_STORAGE_PREFIX = 'engrenacode.message-queue.v1.'
-
-const PROVIDERS: readonly ThreadProvider[] = ['claude', 'codex', 'kimi', 'minimax', 'glm', 'grok']
-const ACCESS_LEVELS: readonly ThreadAccessLevel[] = ['supervised', 'auto-accept-edits', 'full-access']
-const EXECUTION_MODES: readonly ThreadExecutionMode[] = ['main', 'worktree']
-
-function asProvider(value: string | null): ThreadProvider | null {
-  return value !== null && (PROVIDERS as readonly string[]).includes(value) ? (value as ThreadProvider) : null
-}
-
-function asAccessLevel(value: string | null): ThreadAccessLevel | null {
-  return value !== null && (ACCESS_LEVELS as readonly string[]).includes(value)
-    ? (value as ThreadAccessLevel)
-    : null
-}
-
-function asExecutionMode(value: string | null): ThreadExecutionMode | null {
-  return value !== null && (EXECUTION_MODES as readonly string[]).includes(value)
-    ? (value as ThreadExecutionMode)
-    : null
-}
 
 export type ThreadTab = 'history' | 'diff' | 'graph'
-
-export interface ComposerImage {
-  id: string
-  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
-  name: string
-  dataBase64: string
-  byteLength: number
-}
-
-export interface QueueItem {
-  id: string
-  text: string
-  images: ComposerImage[]
-  /** Contexto anexado quando a mensagem entrou na fila — sem isto o turno enfileirado perde os chips. */
-  attachments?: ComposerAttachment[]
-  model: string | null
-  reasoningLevel: string | null
-}
-
-export interface ComposerDraft {
-  provider: ThreadProvider
-  model: string | null
-  reasoningLevel: string | null
-  accessLevel: ThreadAccessLevel
-  executionMode: ThreadExecutionMode
-  text: string
-  images: ComposerImage[]
-  attachments: ComposerAttachment[]
-  /** Nome do modo de chat aplicado (F28 §3.4); null = sem modo. */
-  chatMode: string | null
-}
 
 function toImagePayloads(images: ComposerImage[]): ComposerImagePayload[] {
   return images.map((img) => ({ mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 }))
 }
 
-function loadQueue(threadKey: string): QueueItem[] {
-  try {
-    const raw = localStorage.getItem(QUEUE_STORAGE_PREFIX + threadKey)
-    if (!raw) return []
-    return JSON.parse(raw) as QueueItem[]
-  } catch {
-    return []
-  }
-}
-
-function saveQueue(threadKey: string, queue: QueueItem[]): void {
-  try {
-    if (queue.length === 0) localStorage.removeItem(QUEUE_STORAGE_PREFIX + threadKey)
-    else localStorage.setItem(QUEUE_STORAGE_PREFIX + threadKey, JSON.stringify(queue))
-  } catch {
-    // localStorage indisponível — fila só em memória nesta sessão
-  }
-}
-
 export function usePrincipalWorkspace() {
   const mountedRef = useRef(true)
+  const historyGateRef = useRef(new HistoryRefetchGate())
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      historyGateRef.current.cancel()
     }
   }, [])
 
@@ -150,56 +94,69 @@ export function usePrincipalWorkspace() {
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
   const [usageLimitStatus, setUsageLimitStatus] = useState<UsageLimitStatusResponse | null>(null)
 
-  const [messages, setMessages] = useState<Message[]>([])
-  const [feedback, setFeedback] = useState<Record<string, FeedbackVote>>({})
+  /**
+   * Timeline do chat: mensagens, tool calls, subagentes, pipeline, overlay otimista do grafo
+   * (F29), bolhas otimistas do usuário (a mensagem aparece no envio, não só quando o próximo
+   * `GET /history` chega) e o par carregando/erro do histórico.
+   *
+   * Estado único num reducer puro (`chatTimeline.logic.ts`) porque repor a timeline com o
+   * histórico canónico é uma transição **atômica** — espalhada em setters soltos ela pinta
+   * frames incoerentes (overlay otimista sobre linhas já persistidas, pipeline novo com
+   * mensagens velhas). Este hook só orquestra rede: quem decide o estado é o reducer.
+   */
+  const {
+    messages,
+    feedback,
+    pendingMessages,
+    toolCalls,
+    subagentRuns,
+    pipeline,
+    activeSubagentRun,
+    liveGraphOverlay,
+    historyLoading,
+    historyError,
+    streamingText,
+    historyLoadStarted,
+    historyLoadFailed,
+    historyLoaded,
+    historyLoadSettled,
+    threadOpened,
+    threadCleared,
+    threadSelected,
+    projectSwitched,
+    newThreadStarted,
+    appendDelta,
+    turnSettled,
+    turnCancelled,
+    applyLiveStreamEvent,
+    permissionGateOpened,
+    addPending,
+    setPendingStatus,
+    removePending,
+    setFeedbackVote,
+    openSubagentRun,
+    closeSubagentRun,
+  } = useChatTimeline()
+
   const [followups, setFollowups] = useState<string[]>([])
   // Âncora + estado de espera: o turno adianta a geração no servidor, mas quando ela demora a UI
   // precisa dizer "vem sugestão aí" em vez de deixar o espaço vazio até depois da resposta.
   const [followupsMessageId, setFollowupsMessageId] = useState<string | null>(null)
   const [followupsPending, setFollowupsPending] = useState(false)
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
-  const [subagentRuns, setSubagentRuns] = useState<SubagentRun[]>([])
-  const [pipeline, setPipeline] = useState<PipelineHistory | null>(null)
-  const [activeSubagentRun, setActiveSubagentRun] = useState<SubagentRun | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState<string | null>(null)
-  const [streamingText, setStreamingText] = useState('')
 
   const [diffs, setDiffs] = useState<Diff[]>([])
   const [activeTab, setActiveTab] = useState<ThreadTab>('history')
-  /** Overlay otimista do grafo (F29) — nós aparecem em subagent.start antes do refetch. */
-  const [liveGraphOverlay, setLiveGraphOverlay] = useState<LiveGraphOverlay>(() => emptyLiveOverlay())
 
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
-  const [composerCatalog, setComposerCatalog] = useState<ComposerCatalog | null>(null)
 
-  const [composer, setComposer] = useState<ComposerDraft>({
-    provider: 'claude',
-    model: null,
-    reasoningLevel: null,
-    // 'supervised' manda --permission-mode default pro CLI, que exige aprovação interativa via
-    // stdin — inexistente no spawn headless (-p). Toda tool falha em loop até o PermissionBroker
-    // real ser construído (ver docs/AUDIT-CODE-REVIEW.md). 'auto-accept-edits' é o único nível
-    // funcional por default hoje.
-    accessLevel: 'auto-accept-edits',
-    executionMode: 'main',
-    text: '',
-    images: [],
-    attachments: [],
-    chatMode: null,
-  })
-  const [queue, setQueue] = useState<QueueItem[]>([])
-  // Bolhas otimistas: a mensagem do usuário aparece no envio, não só quando o próximo
-  // `GET /history` chega (ver pendingMessages.logic.ts).
-  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
   const [sendError, setSendError] = useState<string | null>(null)
+  /** Erro/progresso de export ficam fora do composer, ao lado da ação que os dispara. */
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
 
-  const [permissionQueue, setPermissionQueue] = useState<
-    Array<{ requestId: string; threadId: string; toolName: string; params: unknown }>
-  >([])
-
-  const [mcpNotices, setMcpNotices] = useState<Array<{ mcpName: string; reason: string; message: string }>>([])
+  // Faixa âmbar do workspace: MCP degradado + negação nativa do CLI (ver streamNotices.logic).
+  const [mcpNotices, setMcpNotices] = useState<WorkspaceNotice[]>([])
 
   const selectedProject = useMemo(
     () => projects?.find((p) => p.id === selectedProjectId) ?? null,
@@ -210,51 +167,56 @@ export function usePrincipalWorkspace() {
     return (threadsByProject[selectedProjectId] ?? []).find((t) => t.id === selectedThreadId) ?? null
   }, [threadsByProject, selectedProjectId, selectedThreadId])
 
-  // F21: pergunta pendente do turno atual — só relevante com a thread pausada em waiting_user;
-  // deriva do tool_call ask_user_question mais recente ainda `running` (mesmo padrão de
-  // correlateSubagentRuns em chatHistory.logic.ts, sem estado próprio).
-  const [answerBusy, setAnswerBusy] = useState(false)
-  const [answerError, setAnswerError] = useState<string | null>(null)
+  // Rascunho do composer: draft + catálogo + anexos de contexto (explícitos e implícito) e as
+  // ações que os mexem. O hook não envia nada — quem despacha o rascunho é o `send` daqui, que
+  // chama a limpeza certa (`clearTextAndImages` mantém os chips; `clearDraftAfterSend` não).
+  const {
+    composerCatalog,
+    composer,
+    updateComposer,
+    updateDraft,
+    clearTextAndImages,
+    clearDraftAfterSend,
+    composerAttachments,
+    attach,
+    detach,
+    attachCodebase,
+    codebaseBusy,
+    attachError,
+    clearAttachError,
+    activeFile,
+    setActiveFile,
+    implicitContextEnabled,
+    setImplicitContextEnabled,
+  } = useComposerDraft({
+    projectId: selectedProjectId,
+    selectedThread,
+    mountedRef,
+  })
 
-  const pendingQuestion = useMemo(() => {
-    if (selectedThread?.state !== 'waiting_user') return null
-    return findPendingAskUserQuestion(toolCalls)
-  }, [selectedThread, toolCalls])
+  /**
+   * Fonte única de "algo espera decisão humana" (permissão **e** pergunta), vinda do dono do fato
+   * (`services/runner/gate.ts`) por snapshot `GET /gate` + `gate.opened`/`gate.resolved`.
+   * Substituiu `permissionQueue` (fila local alimentada por `permission.request`) e
+   * `pendingQuestion` (inferido de `toolCalls`, ou seja, de um refetch abortável).
+   */
+  const gateApi = useThreadGate(selectedThreadId)
+  const { gate } = gateApi
 
-  // Envio da resposta precisa de estado próprio: sem `answerBusy` o duplo clique manda
-  // duas respostas, e sem `answerError` a falha do POST (ex.: 409 `thread_not_waiting`
-  // quando o turno já foi cancelado) ficava invisível para o usuário (F21 ui.md §Estados).
+  /**
+   * Resposta a um gate de pergunta pelo caminho que não passa pelo composer: o checkpoint do
+   * pipeline (F22), cujo CTA fica no `PipelinePanel`. Vai por `gateId` do gate em tela — a mesma
+   * regra do card, sem heurística de "pergunta mais recente".
+   */
   const answerQuestion = useCallback(
     async (input: { selectedOptions: string[]; freeText: string | null }) => {
-      if (!selectedThreadId || answerBusy) return
-      setAnswerBusy(true)
-      setAnswerError(null)
-      try {
-        const res = await threadsService.answerQuestion(selectedThreadId, input)
-        if (res.error) setAnswerError(answerErrorMessage(res.error.code))
-      } catch {
-        setAnswerError(answerErrorMessage(undefined))
-      } finally {
-        if (mountedRef.current) setAnswerBusy(false)
-      }
+      if (gate === null || gate.kind !== 'question') return
+      await gateApi.resolve(gate, { kind: 'question', ...input })
     },
-    [selectedThreadId, answerBusy]
+    [gate, gateApi]
   )
 
   const queueKey = selectedThreadId ?? `project:${selectedProjectId ?? 'none'}`
-
-  // A fila é lida pelo handler de WS, que roda com o closure do render em que a conexão subiu —
-  // o ref mantém o valor corrente sem reconectar o stream a cada mudança de fila.
-  const queueRef = useRef<QueueItem[]>([])
-  useEffect(() => {
-    queueRef.current = queue
-  }, [queue])
-
-  useEffect(() => {
-    const restored = loadQueue(queueKey)
-    queueRef.current = restored
-    setQueue(restored)
-  }, [queueKey])
 
   const upsertThreadLocal = useCallback((projectId: string, thread: Thread) => {
     setThreadsByProject((prev) => {
@@ -340,37 +302,51 @@ export function usePrincipalWorkspace() {
    * grava `historyError`: trocar a árvore do chat por "Carregando…"/erro desmonta a conversa,
    * o container volta ao topo e todo `<details>` de Work log fecha no meio da leitura. Só a
    * abertura da thread — quando não há nada em tela — mostra estado de carregamento.
+   *
+   * Single-flight + coalesce por gate: tool_call.start/result em rajada não abre N GETs;
+   * um follow-up único roda depois do fetch ativo. AbortController cancela stale (troca de
+   * thread / foreground). Merge incremental por id preserva referências de bolhas estáveis.
    */
   const loadHistory = useCallback(async (threadId: string, options?: { background?: boolean }) => {
     const background = options?.background === true
-    if (!background) {
-      setHistoryLoading(true)
-      setHistoryError(null)
+    const decision = historyGateRef.current.begin({ background })
+    if (decision.kind === 'coalesced') {
+      recordHistoryRefetchCoalesced()
+      return
     }
+    const { signal } = decision
+    recordHistoryRefetchStarted()
+    if (!background) historyLoadStarted()
     try {
-      const res = await threadsService.history(threadId)
-      if (!mountedRef.current) return
-      if (res.error) {
-        if (background) console.error('[workspace] history refetch:', res.error.message)
-        else setHistoryError(res.error.message)
+      const res = await threadsService.history(threadId, { signal })
+      if (signal.aborted || !mountedRef.current) {
+        recordHistoryRefetchAborted()
         return
       }
-      setMessages(res.messages)
-      setFeedback(Object.fromEntries((res.feedback ?? []).map((f: MessageFeedback) => [f.messageId, f.vote])))
-      setPendingMessages((prev) => reconcilePendingMessages(prev, res.messages))
-      setToolCalls(res.toolCalls)
-      setSubagentRuns(res.subagentRuns)
-      setPipeline(res.pipeline)
-      // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
-      setLiveGraphOverlay(emptyLiveOverlay())
+      if (res.error) {
+        if (background) console.error('[workspace] history refetch:', res.error.message)
+        else historyLoadFailed(res.error.message)
+        return
+      }
+      // Uma transição só: merge por id das listas, reconcile das bolhas e overlay zerado.
+      historyLoaded(res)
+      recordHistoryRefetchCompleted()
     } catch (err: unknown) {
+      if (isAbortError(err) || signal.aborted) {
+        recordHistoryRefetchAborted()
+        return
+      }
       if (!mountedRef.current) return
       if (background) console.error('[workspace] history refetch:', err)
-      else setHistoryError('Falha ao carregar o histórico da thread.')
+      else historyLoadFailed('Falha ao carregar o histórico da thread.')
     } finally {
-      if (mountedRef.current && !background) setHistoryLoading(false)
+      if (mountedRef.current && !background) historyLoadSettled()
+      const { coalesced } = historyGateRef.current.finish(signal)
+      if (coalesced && mountedRef.current) {
+        void loadHistory(threadId, { background: true })
+      }
     }
-  }, [])
+  }, [historyLoadStarted, historyLoadFailed, historyLoaded, historyLoadSettled])
 
   /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
   const loadFollowups = useCallback(async (threadId: string) => {
@@ -412,19 +388,6 @@ export function usePrincipalWorkspace() {
       .catch((err: unknown) => {
         console.error('[workspace] config status:', err)
       })
-    threadsService
-      .composerCatalog()
-      .then((res) => {
-        if (!mountedRef.current) return
-        if (res.error) {
-          console.error('[workspace] composer catalog:', res.error.message)
-          return
-        }
-        setComposerCatalog(res)
-      })
-      .catch((err: unknown) => {
-        console.error('[workspace] composer catalog:', err)
-      })
   }, [loadProjects])
 
   useEffect(() => {
@@ -442,68 +405,131 @@ export function usePrincipalWorkspace() {
     }
   }, [selectedProjectId, threadsByProject, threadsLoading, loadThreads, loadVcsStatus, loadMemoryStatus, loadUsageLimitStatus])
 
-  // Rehidrata model/reasoning/access da thread selecionada nos controles do composer (spec F16 + Access mid-thread).
   useEffect(() => {
-    if (!selectedThread) return
-    setComposer((prev) => ({
-      ...prev,
-      provider: selectedThread.provider,
-      model: selectedThread.model,
-      reasoningLevel: selectedThread.reasoningLevel,
-      accessLevel: selectedThread.accessLevel,
-      executionMode: selectedThread.executionMode,
-      chatMode: selectedThread.chatMode ?? null,
-    }))
-  }, [
-    selectedThread?.id,
-    selectedThread?.model,
-    selectedThread?.reasoningLevel,
-    selectedThread?.provider,
-    selectedThread?.accessLevel,
-    selectedThread?.executionMode,
-    selectedThread?.chatMode,
-  ])
-
-  useEffect(() => {
-    setStreamingText('')
     setFollowups([])
     setFollowupsMessageId(null)
     setFollowupsPending(false)
     setMcpNotices([])
+    historyGateRef.current.cancel()
     if (selectedThreadId) {
+      // Só o streaming do turno anterior sai de cena; as listas ficam até o histórico chegar.
+      threadOpened()
       void loadHistory(selectedThreadId)
       void loadDiffs(selectedThreadId)
     } else {
-      setMessages([])
-      setToolCalls([])
-      setSubagentRuns([])
-      setPipeline(null)
+      threadCleared()
       setDiffs([])
     }
-  }, [selectedThreadId, loadHistory, loadDiffs])
+  }, [selectedThreadId, loadHistory, loadDiffs, threadOpened, threadCleared])
 
   // ── WS stream ────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!selectedThreadId) return
-    const threadId = selectedThreadId
+  useThreadStream({
+    threadId: selectedThreadId,
+    onEvent: handleStreamEvent,
+    onResync: resyncThread,
+  })
 
-    const disconnect = connectThreadStream(threadId, (event: StreamEvent) => {
-      if (!mountedRef.current || event.threadId !== threadId) return
-      handleStreamEvent(event)
-    })
+  /**
+   * Resync a cada open do socket (o primeiro inclusive).
+   *
+   * O hub não bufferiza — `emit` é no-op quando ninguém está inscrito —, então o que passou
+   * durante uma queda **está perdido**, não atrasado. Reconectar não pode replicar eventos: a
+   * única recuperação correta é reler estado. Os três caminhos são idempotentes: o histórico
+   * entra por `history_loaded` (merge por id, nunca append), o gate é snapshot por `gateId` e o
+   * estado da thread é comparação contra a fonte de verdade.
+   *
+   * Declaração de função, não `useCallback`, pelo mesmo motivo de `handleStreamEvent`:
+   * `useThreadStream` guarda o handler num ref a cada render e só o chama no open, então o
+   * closure é sempre o do render corrente — e sem lista de deps não há como reler
+   * `selectedProjectId` velho nem esquecer `reconcileSettledTurn` (recriada a cada render).
+   */
+  function resyncThread(threadId: string, info: { reconnect: boolean }): void {
+    // `streamingText` é efêmero e a resposta final já está persistida (o `dispatch.ts` grava
+    // antes de assentar o turno). Sem zerar, o parcial da queda ficaria duplicado na frente do
+    // texto que volta do histórico. `thread_opened` é exatamente essa transição — só o
+    // streaming do turno anterior sai de cena, as listas ficam.
+    threadOpened()
+    if (
+      shouldRefetchHistoryOnResync({
+        reconnect: info.reconnect,
+        historyFetchInflight: historyGateRef.current.hasInflight,
+      })
+    ) {
+      // `background: true`: refetch disparado por stream nunca liga `historyLoading` nem pinta
+      // erro — trocar a árvore por "Carregando…" joga o scroll ao topo. O `HistoryRefetchGate`
+      // dentro de `loadHistory` serializa (single-flight + coalesce).
+      void loadHistory(threadId, { background: true })
+    }
+    // Gate perdido na queda: sem o snapshot o card de permissão/pergunta some da tela enquanto
+    // o broker segue preso do outro lado.
+    void gateApi.refresh(threadId)
+    // Estado perdido na queda: sem isto o composer fica em modo ocupado para sempre.
+    if (selectedProjectId) void resyncThreadState(threadId, selectedProjectId)
+  }
 
-    return () => disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId])
+  /**
+   * Relê o estado da thread e aplica a decisão de `decideThreadStateResync`.
+   *
+   * Roda em **todo** open, não só no reconnect: reabrir a thread pela sidebar caía no mesmo
+   * buraco, porque a reabertura só dispara `GET /history`, `GET /diffs` e `GET /gate`, e o
+   * usuário ficava sem saída além do F5.
+   *
+   * A leitura vai pela lista do projeto (`GET /api/projects/:id/threads`), a mesma de
+   * `loadThreads`: não existe `GET /api/threads/:id`. Best-effort como os outros loaders da
+   * sidebar — falha aqui só significa que o próximo evento resolve.
+   */
+  async function resyncThreadState(threadId: string, projectId: string): Promise<void> {
+    const findLocal = (): Thread | undefined =>
+      (threadsByProjectRef.current[projectId] ?? []).find((t) => t.id === threadId)
+    const stateAtRequest = findLocal()?.state
+    try {
+      const res = await threadsService.listForProject(projectId)
+      if (!mountedRef.current || res.error) return
+      const server = res.threads.find((t) => t.id === threadId)
+      // Local lido **depois** do GET: o `state.change` (ou a resposta do POST de envio) pode ter
+      // chegado com a listagem em voo. Nesse caso a fonte fresca ganha e a listagem é passado —
+      // sem esta trava, um turno recém-despachado seria "assentado" por um snapshot pré-envio.
+      const local = findLocal()
+      if (local?.state !== stateAtRequest) return
+      const decision = decideThreadStateResync({
+        localState: local?.state,
+        serverState: server?.state,
+      })
+      if (decision.adoptState === null || local === undefined) return
+      // Só o `state` entra: a linha local pode carregar edição otimista (accessLevel, título em
+      // rename) que a lista do servidor ainda não conhece.
+      upsertThreadLocal(projectId, { ...local, state: decision.adoptState })
+      if (decision.reconcileSettled) reconcileSettledTurn(threadId)
+    } catch {
+      // Sem rede o resync é no-op; o reconnect seguinte tenta de novo.
+    }
+  }
+
+  /**
+   * Reconciliação de fim de turno: histórico, diffs, sugestões, fila e teto de consumo.
+   *
+   * Uma função só porque dois caminhos precisam dela — o `state.change` ao vivo e o resync, que
+   * descobre o assentamento relendo o estado quando o evento se perdeu. Duplicar o bloco era
+   * garantir que só um dos dois receberia a próxima correção.
+   */
+  function reconcileSettledTurn(threadId: string): void {
+    turnSettled()
+    void loadHistory(threadId, { background: true })
+    void loadDiffs(threadId)
+    void loadFollowups(threadId)
+    processQueueIfIdle()
+    // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
+    if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
+  }
 
   function handleStreamEvent(event: StreamEvent): void {
     if (event.type === 'message.delta') {
-      setStreamingText((prev) => prev + event.text)
+      appendDelta(event.text)
       return
     }
     if (event.type === 'state.change') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       if (event.state === 'running') {
         setFollowups([])
         setFollowupsMessageId(null)
@@ -522,17 +548,12 @@ export function usePrincipalWorkspace() {
       // Turno assentou (idle/committed/error/cancelled) — o backend já negou qualquer permissão
       // pendente no `finally` do dispatch; limpa o banner de Allow/Deny órfão que sobraria se o
       // usuário cancelou o turno em vez de responder.
-      if (event.state === 'idle' || event.state === 'committed' || event.state === 'error' || event.state === 'cancelled') {
-        setPermissionQueue((prev) => prev.filter((p) => p.threadId !== event.threadId))
+      if (isSettledThreadState(event.state)) {
+        gateApi.clear()
       }
-      if (event.state === 'idle' || event.state === 'committed' || event.state === 'error') {
-        setStreamingText('')
-        void loadHistory(event.threadId, { background: true })
-        void loadDiffs(event.threadId)
-        void loadFollowups(event.threadId)
-        processQueueIfIdle()
-        // Turno concluído grava usage_events novos — reavalia o teto para o banner do composer (spec F25 §3.2).
-        if (selectedProjectId) void loadUsageLimitStatus(selectedProjectId)
+      // Mesmo bloco que o resync roda quando o `state.change` se perde numa queda de socket.
+      if (reconcilesTurnEnd(event.state)) {
+        reconcileSettledTurn(event.threadId)
       }
       return
     }
@@ -545,27 +566,33 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'tool_call.start' || event.type === 'tool_call.result') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'subagent.start' || event.type === 'subagent.result') {
       // Overlay imediato (F29) + refetch F15 que traz subagentRuns canónicos.
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
     if (event.type === 'pipeline.state' || event.type === 'pipeline.stage') {
-      setLiveGraphOverlay((prev) => applyLiveEvent(prev, event))
+      applyLiveStreamEvent(event)
       void loadHistory(event.threadId, { background: true })
       return
     }
-    if (event.type === 'permission.request') {
-      setPermissionQueue((prev) => [...prev, { requestId: event.requestId, threadId: event.threadId, toolName: event.toolName, params: event.params }])
+    if (event.type === 'gate.opened') {
+      gateApi.applyStreamEvent(event)
+      // O gate virou card na timeline: fora da aba Histórico ele não seria visto. Como o overlay
+      // antigo flutuava sobre qualquer aba, trazer o usuário de volta ao chat preserva a garantia
+      // de que a decisão pendente é sempre alcançável.
+      setActiveTab('history')
+      // Grant anterior não pode ficar como "Permitir / Executando…" sob o card novo.
+      if (event.kind === 'permission') permissionGateOpened()
       return
     }
-    if (event.type === 'permission.resolved') {
-      setPermissionQueue((prev) => prev.filter((p) => p.requestId !== event.requestId))
+    if (event.type === 'gate.resolved') {
+      gateApi.applyStreamEvent(event)
       return
     }
     if (event.type === 'error') {
@@ -573,130 +600,54 @@ export function usePrincipalWorkspace() {
       return
     }
     if (event.type === 'mcp.notice') {
-      setMcpNotices((prev) => [...prev, { mcpName: event.mcpName, reason: event.reason, message: event.message }])
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, mcpNotice(event)))
+      return
+    }
+    // Tool negada pela aprovação nativa do CLI. As causas são diferentes (o broker nunca foi
+    // consultado, o broker concedeu e outro hook negou depois, o usuário negou no card, o pedido
+    // expirou, ou o EngrenaCode falhou ao abri-lo) e `brokerOutcome` no evento é quem as separa na
+    // copy. Vai para a mesma faixa do mcp.notice.
+    if (event.type === 'permission.native_denial') {
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
+      return
+    }
+    // Versão do Claude CLI fora da faixa em que o contrato de permissão foi validado. Chega no
+    // máximo uma vez por processo e é só aviso: o turno correu normalmente.
+    if (event.type === 'cli.version_notice') {
+      setMcpNotices((prev) => appendWorkspaceNotice(prev, cliVersionNotice(event)))
     }
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
   // Bolha otimista pertence à thread onde foi digitada — trocar de thread/projeto descarta as
-  // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha).
-  const addPending = useCallback((text: string, images: ComposerImage[], status: PendingMessageStatus): string => {
-    const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    setPendingMessages((prev) => [
-      ...prev,
-      {
-        id,
-        text,
-        images: images.map((img) => ({ id: img.id, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 })),
-        status,
-        createdAt: Date.now(),
-      },
-    ])
-    return id
-  }, [])
-
-  const setPendingStatus = useCallback((id: string, status: PendingMessageStatus) => {
-    setPendingMessages((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
-  }, [])
-
-  const removePending = useCallback((id: string) => {
-    setPendingMessages((prev) => prev.filter((p) => p.id !== id))
-  }, [])
-
-  // Contexto implícito: arquivo aberto no viewer (+ seleção), espelhando `chatImplicitContext.ts`
-  // do VS Code. Vira chip removível e pode ser desligado — nunca entra escondido no turno.
-  const [activeFile, setActiveFile] = useState<{ path: string; selection?: { text: string; startLine?: number; endLine?: number } } | null>(null)
-  const [implicitContextEnabled, setImplicitContextEnabled] = useState(true)
-  const [attachError, setAttachError] = useState<string | null>(null)
-
-  const composerAttachments = useMemo(
-    () => withImplicitContext(composer.attachments, activeFile, implicitContextEnabled),
-    [composer.attachments, activeFile, implicitContextEnabled]
-  )
-
-  const [codebaseBusy, setCodebaseBusy] = useState(false)
-
-  const attach = useCallback((attachment: ComposerAttachment) => {
-    setComposer((prev) => {
-      const result = addAttachment(prev.attachments, attachment)
-      if (!result.ok) {
-        setAttachError(result.message)
-        return prev
-      }
-      setAttachError(null)
-      return { ...prev, attachments: result.attachments }
-    })
-  }, [])
-
-  /** Chip implícito não sai da lista explícita — remover significa desligar o implícito. */
-  const detach = useCallback((id: string) => {
-    setAttachError(null)
-    setComposer((prev) => {
-      const next = removeAttachmentFromList(prev.attachments, id)
-      if (next.length !== prev.attachments.length) return { ...prev, attachments: next }
-      setImplicitContextEnabled(false)
-      return prev
-    })
-  }, [])
-
-  /**
-   * `#codebase`: busca trechos pelo texto que já está no composer e anexa os melhores como chips
-   * de seleção — o usuário vê exatamente o que vai junto e pode remover.
-   */
-  const attachCodebase = useCallback(async () => {
-    if (!selectedProjectId || codebaseBusy) return
-    const query = composer.text.trim()
-    if (query === '') {
-      setAttachError('Escreva o pedido antes de buscar no codebase.')
-      return
-    }
-    setCodebaseBusy(true)
-    setAttachError(null)
-    try {
-      const res = await projectsService.codesearch(selectedProjectId, query, 3)
-      if (res.error) {
-        setAttachError(res.error.message)
-        return
-      }
-      if (res.hits.length === 0) {
-        setAttachError('Nenhum trecho do projeto casou com esse pedido.')
-        return
-      }
-      for (const hit of res.hits) {
-        attach(
-          makeSelectionAttachment(hit.path, hit.snippet, { startLine: hit.startLine, endLine: hit.endLine })
-        )
-      }
-    } catch {
-      setAttachError('Não foi possível buscar no codebase.')
-    } finally {
-      if (mountedRef.current) setCodebaseBusy(false)
-    }
-  }, [selectedProjectId, composer.text, codebaseBusy, attach])
-
+  // pendentes (a fila persiste em localStorage por thread e se rehidrata sozinha). O id da bolha
+  // (`addPending`, em `useChatTimeline`) é o `clientMessageId` que viaja no POST e volta em
+  // `Message.clientId`: é por ele que a reconciliação casa, e não pelo texto (o servidor reescreve
+  // o prompt antes de persistir).
   const selectProject = useCallback((projectId: string | null) => {
     setSelectedProjectId(projectId)
     setSelectedThreadId(null)
-    setPendingMessages([])
+    projectSwitched()
     setSendError(null)
-  }, [])
+  }, [projectSwitched])
 
   const selectThread = useCallback((threadId: string | null) => {
     setSelectedThreadId(threadId)
-    setPendingMessages([])
-    setAttachError(null)
+    threadSelected()
+    clearAttachError()
     setSendError(null)
     setActiveTab('history')
-    setLiveGraphOverlay(emptyLiveOverlay())
-  }, [])
+  }, [clearAttachError, threadSelected])
 
+  // Nada foi enviado: os chips de contexto ficam (só texto e imagens saem). `newThread`, ao
+  // contrário de `selectThread`, também não zera `attachError` — a assimetria é intencional.
   const newThread = useCallback(() => {
     setSelectedThreadId(null)
-    setPendingMessages([])
+    newThreadStarted()
     setSendError(null)
-    setComposer((prev) => ({ ...prev, text: '', images: [] }))
-  }, [])
+    clearTextAndImages()
+  }, [clearTextAndImages, newThreadStarted])
 
   const addProject = useCallback(
     async (path: string, name: string | undefined) => {
@@ -724,144 +675,22 @@ export function usePrincipalWorkspace() {
 
   // ── Prompts salvos e modos de chat (F28 §3.4) ────────────────────────────
 
-  const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>([])
-  const [chatModes, setChatModes] = useState<ChatModeItem[]>([])
-  const [libraryError, setLibraryError] = useState<string | null>(null)
-
-  const loadPromptLibrary = useCallback(async (projectId: string) => {
-    const [prompts, modes] = await Promise.all([
-      promptLibraryService.listPrompts(projectId),
-      promptLibraryService.listModes(projectId),
-    ])
-    if (!mountedRef.current) return
-    if (!prompts.error) setSavedPrompts(prompts.prompts)
-    if (!modes.error) setChatModes(modes.modes)
-  }, [])
-
-  useEffect(() => {
-    if (!selectedProjectId) {
-      setSavedPrompts([])
-      setChatModes([])
-      return
-    }
-    void loadPromptLibrary(selectedProjectId)
-  }, [selectedProjectId, loadPromptLibrary])
-
-  /**
-   * Aplica o preset do modo no rascunho. Provider e execution só mudam em thread nova: na thread
-   * existente os dois são imutáveis (mesma regra das pills do composer).
-   */
-  const applyChatMode = useCallback(
-    (name: string | null) => {
-      setLibraryError(null)
-      if (name === null) {
-        setComposer((prev) => ({ ...prev, chatMode: null }))
-        return
-      }
-      const mode = chatModes.find((m) => m.name === name)
-      if (mode === undefined) return
-      const provider = asProvider(mode.provider)
-      const accessLevel = asAccessLevel(mode.accessLevel)
-      const executionMode = asExecutionMode(mode.executionMode)
-      const isNewThread = selectedThreadId === null
-      setComposer((prev) => ({
-        ...prev,
-        chatMode: mode.name,
-        provider: isNewThread && provider !== null ? provider : prev.provider,
-        model: mode.model ?? prev.model,
-        reasoningLevel: mode.reasoningLevel ?? prev.reasoningLevel,
-        accessLevel: accessLevel ?? prev.accessLevel,
-        executionMode: isNewThread && executionMode !== null ? executionMode : prev.executionMode,
-      }))
-    },
-    [chatModes, selectedThreadId]
-  )
-
-  const savePromptFromComposer = useCallback(
-    async (rawName: string): Promise<boolean> => {
-      if (!selectedProjectId) return false
-      const name = slugifyPromptName(rawName)
-      const body = composer.text.trim()
-      if (name === '' || body === '') {
-        setLibraryError('Dê um nome ao prompt e escreva o texto antes de salvar.')
-        return false
-      }
-      const res = await promptLibraryService.createPrompt(selectedProjectId, { name, body })
-      if (res.error) {
-        setLibraryError(res.error.message)
-        return false
-      }
-      setLibraryError(null)
-      await loadPromptLibrary(selectedProjectId)
-      return true
-    },
-    [selectedProjectId, composer.text, loadPromptLibrary]
-  )
-
-  /** O modo nasce do que já está no composer — é o preset que o usuário acabou de montar na mão. */
-  const saveChatModeFromComposer = useCallback(
-    async (rawName: string, instructions = ''): Promise<boolean> => {
-      if (!selectedProjectId) return false
-      const name = slugifyPromptName(rawName)
-      if (name === '') {
-        setLibraryError('Dê um nome ao modo antes de salvar.')
-        return false
-      }
-      const res = await promptLibraryService.createMode(selectedProjectId, {
-        name,
-        provider: composer.provider,
-        model: composer.model,
-        reasoningLevel: composer.reasoningLevel,
-        accessLevel: composer.accessLevel,
-        executionMode: composer.executionMode,
-        instructions,
-      })
-      if (res.error) {
-        setLibraryError(res.error.message)
-        return false
-      }
-      setLibraryError(null)
-      // Marca o modo direto: `applyChatMode` leria a lista do render anterior, ainda sem o modo
-      // recém-criado, e a pill ficaria no modo antigo. O preset já é o estado atual do composer.
-      setComposer((prev) => ({ ...prev, chatMode: name }))
-      await loadPromptLibrary(selectedProjectId)
-      return true
-    },
-    [
-      selectedProjectId,
-      composer.provider,
-      composer.model,
-      composer.reasoningLevel,
-      composer.accessLevel,
-      composer.executionMode,
-      loadPromptLibrary,
-    ]
-  )
-
-  const deleteSavedPrompt = useCallback(
-    async (id: string) => {
-      const res = await promptLibraryService.deletePrompt(id)
-      if (res.error) {
-        setLibraryError(res.error.message)
-        return
-      }
-      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
-    },
-    [selectedProjectId, loadPromptLibrary]
-  )
-
-  const deleteChatMode = useCallback(
-    async (id: string, name: string) => {
-      const res = await promptLibraryService.deleteMode(id)
-      if (res.error) {
-        setLibraryError(res.error.message)
-        return
-      }
-      setComposer((prev) => (prev.chatMode === name ? { ...prev, chatMode: null } : prev))
-      if (selectedProjectId) await loadPromptLibrary(selectedProjectId)
-    },
-    [selectedProjectId, loadPromptLibrary]
-  )
+  const {
+    savedPrompts,
+    chatModes,
+    libraryError,
+    applyChatMode,
+    savePromptFromComposer,
+    saveChatModeFromComposer,
+    deleteSavedPrompt,
+    deleteChatMode,
+  } = usePromptLibrary({
+    projectId: selectedProjectId,
+    isNewThread: selectedThreadId === null,
+    draft: composer,
+    updateDraft,
+    mountedRef,
+  })
 
   const gitInitProject = useCallback(async (projectId: string) => {
     const res = await projectsService.gitInit(projectId)
@@ -869,14 +698,10 @@ export function usePrincipalWorkspace() {
     return res
   }, [loadVcsStatus])
 
-  const updateComposer = useCallback((patch: Partial<ComposerDraft>) => {
-    setComposer((prev) => ({ ...prev, ...patch }))
-  }, [])
-
   /** Persiste Access na thread imediatamente (não espera o próximo follow-up). */
   const setAccessLevel = useCallback(
     async (accessLevel: ThreadAccessLevel) => {
-      setComposer((prev) => ({ ...prev, accessLevel }))
+      updateComposer({ accessLevel })
       if (!selectedThreadId) return
       const res = await threadsService.patchAccess(selectedThreadId, accessLevel)
       if (res.error) {
@@ -885,96 +710,8 @@ export function usePrincipalWorkspace() {
       }
       if (selectedProjectId && res.thread) upsertThreadLocal(selectedProjectId, res.thread)
     },
-    [selectedThreadId, selectedProjectId, upsertThreadLocal]
+    [selectedThreadId, selectedProjectId, upsertThreadLocal, updateComposer]
   )
-
-  const enqueue = useCallback(
-    (
-      text: string,
-      images: ComposerImage[],
-      model: string | null,
-      reasoningLevel: string | null,
-      attachments: ComposerAttachment[] = []
-    ) => {
-      setQueue((prev) => {
-        const next = [
-          ...prev,
-          {
-            id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            text,
-            images,
-            attachments,
-            model,
-            reasoningLevel,
-          },
-        ]
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  const dequeue = useCallback(
-    (id: string) => {
-      setQueue((prev) => {
-        const next = prev.filter((q) => q.id !== id)
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  const updateQueueItem = useCallback(
-    (id: string, text: string) => {
-      const trimmed = text.trim()
-      if (trimmed === '') return
-      setQueue((prev) => {
-        const next = prev.map((q) => (q.id === id ? { ...q, text: trimmed } : q))
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  /** Move item to the front so it runs next when the turn ends. */
-  const promoteQueueItem = useCallback(
-    (id: string) => {
-      setQueue((prev) => {
-        const idx = prev.findIndex((q) => q.id === id)
-        if (idx <= 0) return prev
-        const item = prev[idx]
-        if (!item) return prev
-        const next = [item, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
-        saveQueue(queueKey, next)
-        return next
-      })
-    },
-    [queueKey]
-  )
-
-  // O despacho da fila roda fora do updater do `setQueue`: updater com efeito colateral é
-  // chamado duas vezes sob StrictMode e mandava o mesmo follow-up em dobro.
-  function processQueueIfIdle(): void {
-    const current = queueRef.current
-    const [head, ...rest] = current
-    if (!head || !selectedThreadId) return
-    queueRef.current = rest
-    setQueue(rest)
-    saveQueue(queueKey, rest)
-    void sendFollowUpRef.current(head.text, head.images, head.model, head.reasoningLevel, head.attachments ?? []).then((ok) => {
-      // O item sai da fila antes do POST (evita despacho duplo se outro `state.change` chegar
-      // no meio). Falhou — ex.: outra thread do projeto pegou a lease primeiro —, volta para a
-      // frente da fila; sem isso a mensagem enfileirada some sem nunca ter rodado.
-      if (ok) return
-      const restored = [head, ...queueRef.current]
-      queueRef.current = restored
-      setQueue(restored)
-      saveQueue(queueKey, restored)
-    })
-  }
 
   const sendFollowUp = useCallback(
     async (
@@ -985,10 +722,14 @@ export function usePrincipalWorkspace() {
       attachments: ComposerAttachment[] = []
     ): Promise<boolean> => {
       if (!selectedThreadId) return false
+      setFollowups([])
+      setFollowupsMessageId(null)
+      setFollowupsPending(false)
       const pendingId = addPending(text, images, 'sending')
       try {
         const res = await threadsService.followUp(selectedThreadId, {
           prompt: text,
+          clientMessageId: pendingId,
           model,
           reasoningLevel,
           accessLevel: composer.accessLevel,
@@ -1022,44 +763,54 @@ export function usePrincipalWorkspace() {
     ]
   )
 
-  // Mesma razão do `queueRef`: o handler de WS chamaria uma versão antiga de `sendFollowUp`
-  // (com `composer.accessLevel` congelado no render da conexão).
-  const sendFollowUpRef = useRef(sendFollowUp)
-  useEffect(() => {
-    sendFollowUpRef.current = sendFollowUp
-  }, [sendFollowUp])
-
-  const resolvePermission = useCallback(
-    async (requestId: string, allow: boolean, always = false, scope: 'thread' | 'project' = 'thread') => {
-    const entry = permissionQueue.find((p) => p.requestId === requestId)
-    if (!entry) return
-    await threadsService.permission(entry.threadId, {
-      requestId,
-      allow,
-      always: always || undefined,
-      scope: scope === 'project' ? 'project' : undefined,
+  // Fila de mensagens do composer (estado + persistência por `queueKey` + despacho no fim do
+  // turno). O hook guarda internamente os refs de fila e de envio — o handler de WS roda com o
+  // closure do render em que a conexão subiu e leria valores velhos sem eles.
+  const { queue, enqueue, dequeue, updateQueueItem, promoteQueueItem, processQueueIfIdle } =
+    useMessageQueue({
+      queueKey,
+      canDispatch: selectedThreadId !== null,
+      followUp: sendFollowUp,
     })
-    setPermissionQueue((prev) => prev.filter((p) => p.requestId !== requestId))
+
+  /**
+   * Resolve o gate de permissão **em tela**, por `gateId`. Falhou (`res.error` ou throw): o card
+   * fica — o broker continua esperando do outro lado, e sumir com o pedido aqui era o sintoma
+   * "clique aceito mas permissão não concedida".
+   *
+   * A falha é do card, e só dele: `gateApi.error` já a mostra no `role="alert"` do
+   * `PermissionPrompt`, que é onde a decisão vive e onde o usuário tenta de novo. Copiar a mesma
+   * frase para `sendError` pintava dois alertas idênticos na tela, um no card e outro no composer.
+   */
+  const resolvePermission = useCallback(
+    async (
+      target: ThreadGate,
+      allow: boolean,
+      always = false,
+      scope: 'thread' | 'project' = 'thread'
+    ): Promise<boolean> => {
+      const res = await gateApi.resolve(target, {
+        kind: 'permission',
+        allow,
+        always: always || undefined,
+        scope: scope === 'project' ? 'project' : undefined,
+      })
+      return res.ok
     },
-    [permissionQueue]
+    [gateApi]
   )
 
   /**
-   * Clique numa resposta da pergunta do agente: envia direto, sem passar pelo composer — é uma
-   * decisão, não um rascunho. Com o turno ocupado vai para a fila, como qualquer follow-up.
+   * Clique numa resposta da pergunta do agente: preenche o composer — o envio é o Enviar
+   * (resolve permissão / ask_user_question / follow-up conforme o estado).
    */
   const sendDecision = useCallback(
-    async (text: string) => {
+    (text: string) => {
       const value = text.trim()
-      if (value === '' || !selectedThreadId) return
-      setSendError(null)
-      if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
-        enqueue(value, [], composer.model, composer.reasoningLevel, [])
-        return
-      }
-      await sendFollowUp(value, [], composer.model, composer.reasoningLevel, [])
+      if (value === '') return
+      updateComposer({ text: value })
     },
-    [selectedThreadId, selectedThread, composer.model, composer.reasoningLevel, enqueue, sendFollowUp]
+    [updateComposer]
   )
 
   const send = useCallback(async () => {
@@ -1067,48 +818,94 @@ export function usePrincipalWorkspace() {
     if (text === '') return
     setSendError(null)
 
-    // PermissionPrompt aberto: chat "sim"/"não"/"permitir todos" resolve o PreToolUse;
-    // qualquer outro texto NÃO entra na fila (senão vira follow-up `-p "Sim"` sem contexto).
-    const pendingPermission =
-      selectedThreadId !== null
-        ? permissionQueue.find((p) => p.threadId === selectedThreadId)
-        : undefined
-    if (pendingPermission) {
-      const reply = interpretPermissionChatReply(text)
-      if (reply.kind === 'blocked') {
-        setSendError(reply.message)
-        return
-      }
-      // Eco local: a resposta resolve o PreToolUse e nunca vira mensagem no banco — sem a bolha
-      // o usuário não vê que o "sim" foi registrado e responde de novo.
-      addPending(text, [], 'permission')
-      setComposer((prev) => ({ ...prev, text: '', images: [] }))
-      await resolvePermission(
-        pendingPermission.requestId,
-        reply.kind === 'allow' || reply.kind === 'allow_always',
-        reply.kind === 'allow_always'
-      )
+    let currentGate = gate
+
+    // waiting_permission sem gate conhecido localmente (WS perdido): snapshot antes de decidir.
+    if (selectedThreadId && currentGate === null && selectedThread?.state === 'waiting_permission') {
+      const recovered = await gateApi.refresh(selectedThreadId)
+      // Snapshot vazio não vira `!`: sem gate a rota abaixo é que decide (permission_blocked).
+      currentGate = recovered?.[0] ?? null
+    }
+
+    const route = routeComposerSend({
+      text,
+      threadState: selectedThread?.state,
+      gate: currentGate,
+      hasSelectedThread: selectedThreadId !== null,
+      hasSelectedProject: selectedProjectId !== null,
+    })
+
+    if (route.action === 'noop') return
+
+    if (route.action === 'permission_blocked') {
+      setSendError(route.message)
       return
     }
 
-    // F21: thread pausada em waiting_user segura a mesma lease de projeto de uma thread
-    // running — um follow-up imediato bateria em LeaseBusyError; enfileira como em running.
-    if (selectedThread && (selectedThread.state === 'running' || selectedThread.state === 'waiting_user')) {
+    if (route.action === 'resolve_permission') {
+      // Sem o gate em mãos o `if` antigo caía nos branches de baixo e o texto virava turno novo
+      // em silêncio. Ausência aqui é o mesmo caso do snapshot vazio: erro visível.
+      if (currentGate === null || currentGate.kind !== 'permission') {
+        setSendError(PERMISSION_PENDING_HINT)
+        return
+      }
+      // Eco local só enquanto o POST voa: a decisão não vira mensagem no banco. Depois do
+      // grant a bolha some — promover para `sent` deixava "Executando…" fantasma e o próximo
+      // pedido de permissão parecia sobrepor trabalho ainda em curso.
+      const pendingId = addPending(text, [], 'permission')
+      // Decisão de permissão não é turno: os anexos ficam para a mensagem que vem depois.
+      clearTextAndImages()
+      const allow =
+        route.decision.kind === 'allow' ||
+        route.decision.kind === 'allow_always' ||
+        route.decision.kind === 'allow_project'
+      const always =
+        route.decision.kind === 'allow_always' || route.decision.kind === 'allow_project'
+      const scope = route.decision.kind === 'allow_project' ? 'project' : 'thread'
+      const ok = await resolvePermission(currentGate, allow, always, scope)
+      removePending(pendingId)
+      if (!ok) return
+      return
+    }
+
+    // F21: texto no composer (digitado ou opção clicada) responde a ask_user_question —
+    // antes caía na fila de follow-up e a pergunta ficava presa.
+    if (route.action === 'answer_question') {
+      // A rota só existe com gate de pergunta aberto — o `kind` reconfirma para estreitar o tipo.
+      if (currentGate === null || currentGate.kind !== 'question') return
+      const question = questionFromGate(currentGate)
+      const answer = composerAnswerForQuestion(text, question?.options ?? [], question?.multiSelect ?? false)
+      const pendingId = addPending(text, [], 'permission')
+      clearDraftAfterSend()
+      await gateApi.resolve(currentGate, { kind: 'question', ...answer })
+      removePending(pendingId)
+      // Mesma regra da permissão: a falha aparece no `AskUserQuestionCard` (`gateApi.error`), que
+      // continua em tela, e não é repetida no composer.
+      return
+    }
+
+    // running / waiting_user / waiting_permission (sem gate resolvível) — enfileira.
+    if (route.action === 'enqueue') {
+      // Sugestões do turno anterior somem na hora: senão ficam sobre "Na fila…" / "Executando…".
+      setFollowups([])
+      setFollowupsMessageId(null)
+      setFollowupsPending(false)
       enqueue(text, composer.images, composer.model, composer.reasoningLevel, composerAttachments)
-      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      clearDraftAfterSend()
       return
     }
 
     if (!selectedProjectId) return
 
-    if (!selectedThreadId) {
+    if (route.action === 'send_new') {
       const images = composer.images
       const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
-      setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+      clearDraftAfterSend()
       try {
         const res = await threadsService.create(selectedProjectId, {
           prompt: text,
+          clientMessageId: pendingId,
           provider: composer.provider,
           model: composer.model,
           reasoningLevel: composer.reasoningLevel,
@@ -1135,14 +932,15 @@ export function usePrincipalWorkspace() {
 
     const images = composer.images
     const attachments = composerAttachments
-    setComposer((prev) => ({ ...prev, text: '', images: [], attachments: [] }))
+    clearDraftAfterSend()
     await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
   }, [
     composer,
     selectedThread,
     selectedThreadId,
     selectedProjectId,
-    permissionQueue,
+    gate,
+    gateApi,
     enqueue,
     sendFollowUp,
     resolvePermission,
@@ -1151,12 +949,22 @@ export function usePrincipalWorkspace() {
     setPendingStatus,
     removePending,
     composerAttachments,
+    clearTextAndImages,
+    clearDraftAfterSend,
   ])
 
   const cancel = useCallback(async () => {
     if (!selectedThreadId) return
-    await threadsService.cancel(selectedThreadId)
-  }, [selectedThreadId])
+    turnCancelled()
+    setSendError(null)
+    const res = await threadsService.cancel(selectedThreadId)
+    if (res.error) {
+      setSendError(res.error.message)
+    } else if (res.cancelled === false) {
+      setSendError('Não foi possível cancelar a execução.')
+    }
+    void loadHistory(selectedThreadId, { background: true })
+  }, [selectedThreadId, loadHistory, turnCancelled])
 
   const dismissMcpNotices = useCallback(() => {
     setMcpNotices([])
@@ -1248,23 +1056,11 @@ export function usePrincipalWorkspace() {
       if (!selectedThreadId) return
       const current = feedback[messageId]
       const next = current === vote ? null : vote
-      setFeedback((prev) => {
-        const copy = { ...prev }
-        if (next === null) delete copy[messageId]
-        else copy[messageId] = next
-        return copy
-      })
+      setFeedbackVote(messageId, next)
       const res = await threadsService.feedback(selectedThreadId, messageId, next)
-      if (res.error) {
-        setFeedback((prev) => {
-          const copy = { ...prev }
-          if (current === undefined) delete copy[messageId]
-          else copy[messageId] = current
-          return copy
-        })
-      }
+      if (res.error) setFeedbackVote(messageId, current ?? null)
     },
-    [selectedThreadId, feedback]
+    [selectedThreadId, feedback, setFeedbackVote]
   )
 
   const renameThread = useCallback(
@@ -1281,19 +1077,29 @@ export function usePrincipalWorkspace() {
 
   /** Exporta baixando pelo próprio renderer — sem IPC novo nem diálogo nativo. */
   const exportThread = useCallback(async (threadId: string, format: 'md' | 'json') => {
-    const res = await threadsService.exportThread(threadId, format)
-    if (res.error) {
-      setSendError(res.error.message)
-      return
+    setExportError(null)
+    setExporting(true)
+    try {
+      const res = await threadsService.exportThread(threadId, format)
+      if (res.error) {
+        setExportError(exportFetchErrorMessage(res.error.message))
+        return
+      }
+      try {
+        triggerBrowserDownload(res.content, res.fileName, mimeTypeForExportFormat(format))
+      } catch (err) {
+        console.error('[export]', err)
+        setExportError(EXPORT_COPY.downloadFailed)
+      }
+    } catch (err) {
+      console.error('[export]', err)
+      setExportError(EXPORT_COPY.fetchFailed)
+    } finally {
+      setExporting(false)
     }
-    const blob = new Blob([res.content], { type: format === 'md' ? 'text/markdown' : 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const anchorEl = document.createElement('a')
-    anchorEl.href = url
-    anchorEl.download = res.fileName
-    anchorEl.click()
-    URL.revokeObjectURL(url)
   }, [])
+
+  const clearExportError = useCallback(() => setExportError(null), [])
 
   /** Busca de conversas (título + conteúdo). Termo vazio recarrega a lista completa. */
   const searchThreads = useCallback(
@@ -1308,9 +1114,6 @@ export function usePrincipalWorkspace() {
     },
     [loadThreads]
   )
-
-  const openSubagentRun = useCallback((run: SubagentRun) => setActiveSubagentRun(run), [])
-  const closeSubagentRun = useCallback(() => setActiveSubagentRun(null), [])
 
   // Refetch manual do status de memória — o painel de Memória (F20) alterna o toggle
   // por fora do fluxo de turno, então o evento `memory.entry` não cobre esse caso.
@@ -1344,6 +1147,9 @@ export function usePrincipalWorkspace() {
     voteMessage,
     renameThread,
     exportThread,
+    exporting,
+    exportError,
+    clearExportError,
     searchThreads,
     chatPendingMessages,
     toolCalls,
@@ -1389,17 +1195,16 @@ export function usePrincipalWorkspace() {
     sendError,
     send,
     cancel,
-    pendingQuestion,
     answerQuestion,
-    answerBusy,
-    answerError,
     addProjectModalOpen,
     setAddProjectModalOpen,
     addProject,
     removeProject,
     gitInitProject,
-    permissionQueue,
-    resolvePermission,
+    gate,
+    gateQueuedCount: gateApi.queuedCount,
+    gateBusy: gateApi.busy,
+    gateError: gateApi.error,
     mcpNotices,
     dismissMcpNotices,
     acceptDiffs,

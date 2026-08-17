@@ -86,7 +86,7 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
   })
 
   it('forwards tool_name/tool_input from stdin as toolName/toolInput, with the token header', async () => {
-    let captured: { toolName?: string; toolInput?: unknown } | undefined
+    let captured: { toolName?: string; toolInput?: unknown; toolUseId?: string } | undefined
     const server = await startFakePermissionServer((body) => {
       captured = body
       return { allow: true }
@@ -99,6 +99,73 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
     expect(captured?.toolInput).toEqual({ file_path: 'a.ts', old_string: '1', new_string: '2' })
     server.close()
   })
+
+  // O CLI manda tool_use_id no payload do PreToolUse e o mesmo id na negação que chega pelo
+  // stream: é a única chave que liga a decisão à chamada exata. Descartá-la aqui fazia duas
+  // chamadas da mesma tool virarem uma entrada só no broker.
+  it('forwards tool_use_id when the CLI sends it', async () => {
+    let captured: { toolName?: string; toolUseId?: string } | undefined
+    const server = await startFakePermissionServer((body) => {
+      captured = body
+      return { allow: true }
+    })
+    await runHook(server.port, server.token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_use_id: 'toolu_01ABC123',
+    })
+    expect(captured?.toolUseId).toBe('toolu_01ABC123')
+    server.close()
+  })
+
+  it('still works when the payload has no tool_use_id (older CLI host)', async () => {
+    let captured: { toolName?: string; toolUseId?: string } | undefined
+    const server = await startFakePermissionServer((body) => {
+      captured = body
+      return { allow: true }
+    })
+    const result = await runHook(server.port, server.token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    })
+    expect(captured?.toolName).toBe('Bash')
+    expect(captured?.toolUseId).toBeUndefined()
+    // Sem id o hook não muda de comportamento: a decisão do broker continua valendo.
+    expect(JSON.stringify(result)).toContain('allow')
+    server.close()
+  })
+
+  it(
+    'fails closed (deny) with the status in the reason when the broker answers non-2xx',
+    async () => {
+      // 403 (token errado) / 404 / 413 devolvem corpo vazio: sem checar res.ok o res.json() lança
+      // e o motivo do deny some no catch genérico.
+      const server = await new Promise<{ port: number; close: () => void }>((resolve) => {
+        const s = createServer((_req, res) => {
+          res.writeHead(403)
+          res.end()
+        })
+        s.listen(0, '127.0.0.1', () => {
+          const address = s.address()
+          const port = typeof address === 'object' && address ? address.port : 0
+          resolve({ port, close: () => s.close() })
+        })
+      })
+
+      const { code, stdout } = await runHook(server.port, 'token-errado', {
+        tool_name: 'Write',
+        tool_input: { file_path: 'x.txt' },
+      })
+      expect(code).toBe(0)
+      const parsed = JSON.parse(stdout) as {
+        hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string }
+      }
+      expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('403')
+      server.close()
+    },
+    15_000
+  )
 
   it('fails closed (deny) when the broker is unreachable', async () => {
     const { code, stdout } = await runHook(1, 'wrong-token', { tool_name: 'Write', tool_input: {} })
@@ -124,6 +191,40 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
         .permissionDecision
     ).toBe('deny')
   })
+
+  it('PermissionRequest: responde com decision.behavior (não permissionDecision)', async () => {
+    const server = await startFakePermissionServer(() => ({ allow: true }))
+    const { code, stdout } = await runHook(server.port, server.token, {
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Write',
+      tool_input: { file_path: 'x.txt', content: 'hi' },
+    })
+    expect(code).toBe(0)
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput: {
+        hookEventName: string
+        decision?: { behavior: string }
+        permissionDecision?: string
+      }
+    }
+    expect(parsed.hookSpecificOutput.hookEventName).toBe('PermissionRequest')
+    expect(parsed.hookSpecificOutput.decision?.behavior).toBe('allow')
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined()
+    server.close()
+  })
+
+  it('infere Write a partir de tool_input.file_path quando tool_name falta', async () => {
+    let captured: { toolName?: string } | undefined
+    const server = await startFakePermissionServer((body) => {
+      captured = body
+      return { allow: true }
+    })
+    await runHook(server.port, server.token, {
+      tool_input: { file_path: 'D:\\\\temp\\\\TodoV1\\\\package.json', content: '{}' },
+    })
+    expect(captured?.toolName).toBe('Write')
+    server.close()
+  })
 })
 
 describe('ensurePermissionHookScript', () => {
@@ -133,5 +234,20 @@ describe('ensurePermissionHookScript', () => {
     const second = ensurePermissionHookScript()
     expect(second).toBe(first)
     expect(readFileSync(second, 'utf-8')).toBe(firstContent)
+  })
+})
+
+describe('ensurePermissionHookLauncher', () => {
+  it('no Windows devolve .cmd que aponta para o .mjs; no Unix devolve o .mjs', async () => {
+    const { ensurePermissionHookLauncher, ensurePermissionHookScript } = await import('./permission-hook.js')
+    const launcher = ensurePermissionHookLauncher()
+    const script = ensurePermissionHookScript()
+    if (process.platform === 'win32') {
+      expect(launcher.endsWith('permission-hook.cmd')).toBe(true)
+      expect(readFileSync(launcher, 'utf-8')).toContain('ELECTRON_RUN_AS_NODE=1')
+      expect(readFileSync(launcher, 'utf-8')).toContain('permission-hook.mjs')
+    } else {
+      expect(launcher).toBe(script)
+    }
   })
 })

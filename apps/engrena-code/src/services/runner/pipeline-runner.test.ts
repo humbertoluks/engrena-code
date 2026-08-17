@@ -15,7 +15,7 @@ const { listDiffsForThread } = await import('../db/repositories/diffs.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { clearAllSubscriptions } = await import('./ws-hub.js')
 const { setRunCliTurnForTesting, resetRunCliTurnForTesting } = await import('./delegate.js')
-const { resolveAskUserQuestion } = await import('./ask-user-question.js')
+const { listOpenQuestionGates, resolveQuestionGate } = await import('./gate.js')
 const { cancelThread } = await import('./dispatch.js')
 const {
   runPipelineCommand,
@@ -144,8 +144,9 @@ describe('runPipelineCommand — /featdevelop', () => {
     expect(getThread(thread.id)?.state).toBe('waiting_user')
     expect(listDiffsForThread(thread.id).map((d) => d.file)).toEqual(['novo-arquivo.txt'])
 
-    const resolved = resolveAskUserQuestion(thread.id, { selectedOptions: ['continuar'] })
-    expect(resolved).toBe(true)
+    const [checkpointGate] = listOpenQuestionGates(thread.id)
+    const resolved = resolveQuestionGate(thread.id, checkpointGate.gateId, { selectedOptions: ['continuar'] })
+    expect(resolved).toEqual({ ok: true })
     await runPromise
 
     expect(calledStages).toEqual(['planner', 'implementer', 'reviewer', 'tester'])

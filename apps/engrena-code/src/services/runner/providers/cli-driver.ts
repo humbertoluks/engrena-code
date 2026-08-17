@@ -1,11 +1,10 @@
 import { spawn } from 'child_process'
 import { createInterface } from 'readline'
-import { mkdirSync, writeFileSync, unlinkSync } from 'fs'
+import { writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { app } from 'electron'
-import type { ThreadAccessLevel, ThreadProvider } from '../../db/repositories/threads.js'
-import type { ProviderStreamEvent, ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
+import type { ThreadProvider } from '../../db/repositories/threads.js'
+import type { ProviderTurnInput, ProviderTurnResult, ProviderUsage, ResolvedMcpDef } from './provider-types.js'
 import { ProviderError } from './provider-types.js'
 import { runHttpTurn as runMinimaxHttpTurn } from './minimax-driver.js'
 import { runHttpTurn as runGlmHttpTurn } from './glm-driver.js'
@@ -13,24 +12,22 @@ import { runHttpTurn as runGrokHttpTurn } from './grok-driver.js'
 import type { ComposerImageInput } from './composer-images.js'
 import { sanitizeProcessError } from '../../process-error.js'
 import { buildPtyEnv } from '../../terminal/pty-env.js'
-import { ensurePermissionHookScript } from '../permission-hook.js'
-
-/** Mesmo contrato de vault/worktrees/db: override de teste, senão Electron userData. */
-function resolveUserData(): string {
-  const override = process.env.ENGRENACODE_USER_DATA
-  if (override) {
-    mkdirSync(override, { recursive: true })
-    return override
-  }
-  return app.getPath('userData')
-}
-
-/** Artefatos efêmeros do turno (mcp-config, imagens) — fora de os.tmpdir(). */
-function resolveTurnArtifactsDir(): string {
-  const dir = join(resolveUserData(), 'tmp')
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
+import { resolveTurnArtifactsDir } from './turn-artifacts.js'
+import {
+  claudeResumeArgs,
+  permissionModeFlag,
+  permissionSettingsArgs,
+  setupPermissionBroker,
+} from './claude/adapter.js'
+import { assertPermissionContract } from './permission-contract.js'
+import { parseStreamJsonLine } from './stream-json-parse.js'
+import { killProcessTree } from '../process-kill.js'
+import { appendStderrCapped } from '../buffer-cap.js'
+import {
+  recordProviderProcessExited,
+  recordProviderProcessSpawned,
+  recordStderrBufBytes,
+} from '../../runtime-metrics.js'
 
 export type {
   ProviderStreamEvent,
@@ -40,6 +37,16 @@ export type {
   ProviderUsage,
 } from './provider-types.js'
 export { ProviderError } from './provider-types.js'
+
+/**
+ * Reexports do adaptador do Claude: `buildPermissionHookCommand` e a injeção do builder de
+ * settings nasceram aqui e continuam sendo importados deste módulo por testes e call sites.
+ */
+export {
+  buildPermissionHookCommand,
+  resetPermissionSettingsBuilderForTesting,
+  setPermissionSettingsBuilderForTesting,
+} from './claude/adapter.js'
 
 type ProviderKind = 'cli' | 'http'
 
@@ -131,22 +138,6 @@ function appendImageReferences(prompt: string, paths: string[]): string {
   return `${prompt}\n\nImagens anexadas (leia os arquivos abaixo):\n${lines}`
 }
 
-/**
- * `supervised` sem hook confirmado ao vivo (claude-code 2.1.226): `'manual'`/`'dontAsk'` negam
- * toda tool com `decision_reason_type: "mode"` **antes** de qualquer `PreToolUse` hook rodar — o
- * hook chega a disparar, mas o veredito de modo já decidiu, `permissionDecision: "allow"` do hook
- * é ignorado. `'auto'` é a única combinação onde o hook (`--settings`, ver
- * `buildPermissionSettingsFile`) tem autoridade real de allow/deny — sem `'auto'`, o hook vira
- * decoração. `'default'` (valor antigo) nem é choice válido nesta versão do CLI.
- */
-function permissionModeFlag(accessLevel: ThreadAccessLevel, hasPermissionHook: boolean): string {
-  if (accessLevel === 'full-access') return 'bypassPermissions'
-  if (accessLevel === 'auto-accept-edits') return 'acceptEdits'
-  // supervised sem hook disponível (provider sem suporte, broker não montado): sem gate real
-  // possível, mas falha fechado — nunca vira 'auto' (permissivo) por omissão.
-  return hasPermissionHook ? 'auto' : 'manual'
-}
-
 /** JSON `mcpServers` (spec §5.6) — schema oficial da Claude Code CLI (`--mcp-config`), assumido também para Codex/Kimi. */
 function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
   if (mcpServers.length === 0) return undefined
@@ -166,32 +157,10 @@ function buildMcpConfigFile(mcpServers: ResolvedMcpDef[]): string | undefined {
 }
 
 /**
- * `--settings` com hook `PreToolUse` (spec `PermissionBroker`) — só pra Claude em modo
- * `supervised`: `--permission-mode default` sozinho exige aprovação interativa via stdin, que
- * não existe no spawn headless (`-p`). O hook (`permission-hook.ts`) segura cada tool call até a
- * UI decidir, via `POST /permission` no `permission-broker.ts` do dispatch.
+ * Núcleo comum dos três binários CLI (claude/codex/kimi): o shape de argumentos é o mesmo, e o
+ * que só o Claude entende vem de `claude/adapter.ts` — nunca de um `if (provider === 'claude')`
+ * espalhado aqui.
  */
-function buildPermissionSettingsFile(port: number, token: string): string {
-  const hookScriptPath = ensurePermissionHookScript()
-  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScriptPath)} --port ${port} --token ${token}`
-  // `--settings` (formato de settings.json) exige o hooks aninhado sob "hooks" — confirmado ao
-  // vivo contra claude-code 2.1.226; sem esse wrapper o PreToolUse nunca dispara (a doc pública
-  // mostra a forma "direta" sem wrapper, mas essa versão instalada não aceita).
-  const settings = {
-    hooks: {
-      PreToolUse: [
-        {
-          matcher: '*',
-          hooks: [{ type: 'command', command, timeout: 600 }],
-        },
-      ],
-    },
-  }
-  const path = join(resolveTurnArtifactsDir(), `engrenacode-permission-settings-${randomUUID()}.json`)
-  writeFileSync(path, JSON.stringify(settings), { mode: 0o600 })
-  return path
-}
-
 function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, permissionSettingsPath: string | undefined): string[] {
   const args = ['-p', input.prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose']
   if (input.model) args.push('--model', input.model)
@@ -200,11 +169,7 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
     args.push('--effort', effort)
   }
   if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
-  // Claude headless: `--resume <session_id>` continua a conversa no disco (~/.claude/projects/…).
-  // Codex/Kimi não usam este flag neste driver — só Claude reporta `session_id` no stream-json.
-  if (input.provider === 'claude' && input.resumeSessionId) {
-    args.push('--resume', input.resumeSessionId)
-  }
+  args.push(...claudeResumeArgs(input))
   args.push('--permission-mode', permissionModeFlag(input.accessLevel, permissionSettingsPath !== undefined))
   if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath)
   // Sem isto, `acceptEdits` (auto-accept-edits) libera edição de arquivo mas nega tool MCP: o agente
@@ -212,79 +177,8 @@ function buildArgs(input: ProviderTurnInput, mcpConfigPath: string | undefined, 
   if (input.alwaysAllowedTools && input.alwaysAllowedTools.length > 0) {
     args.push('--allowedTools', ...input.alwaysAllowedTools)
   }
-  if (permissionSettingsPath) args.push('--settings', permissionSettingsPath)
+  args.push(...permissionSettingsArgs(permissionSettingsPath))
   return args
-}
-
-interface ContentBlock {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: unknown
-  tool_use_id?: string
-  content?: unknown
-  is_error?: boolean
-}
-
-function isErrorBlock(block: ContentBlock): boolean {
-  return block.is_error === true
-}
-
-/** Parseia uma linha stream-json (Claude Code CLI / SDK) e traduz para ProviderStreamEvent[]. */
-function parseLine(line: string): ProviderStreamEvent[] {
-  const trimmed = line.trim()
-  if (trimmed === '') return []
-
-  let payload: Record<string, unknown>
-  try {
-    payload = JSON.parse(trimmed) as Record<string, unknown>
-  } catch {
-    return []
-  }
-
-  const events: ProviderStreamEvent[] = []
-  const type = payload.type
-
-  if (type === 'stream_event') {
-    const event = payload.event as Record<string, unknown> | undefined
-    if (event?.type === 'content_block_delta') {
-      const delta = event.delta as Record<string, unknown> | undefined
-      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
-        events.push({ type: 'text-delta', text: delta.text })
-      }
-    }
-    return events
-  }
-
-  if (type === 'assistant') {
-    const message = payload.message as Record<string, unknown> | undefined
-    const content = (message?.content as ContentBlock[] | undefined) ?? []
-    for (const block of content) {
-      if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
-        events.push({ type: 'tool-start', id: block.id, name: block.name, params: block.input ?? null })
-      }
-    }
-    return events
-  }
-
-  if (type === 'user') {
-    const message = payload.message as Record<string, unknown> | undefined
-    const content = (message?.content as ContentBlock[] | undefined) ?? []
-    for (const block of content) {
-      if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-        events.push({
-          type: 'tool-result',
-          id: block.tool_use_id,
-          status: isErrorBlock(block) ? 'error' : 'completed',
-          result: block.content ?? null,
-        })
-      }
-    }
-    return events
-  }
-
-  return events
 }
 
 function extractFinalText(payload: Record<string, unknown>): string | null {
@@ -337,10 +231,11 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     throw new ProviderError('provider_not_supported', `Provider "${input.provider}" não tem um binário CLI configurado.`)
   }
   const mcpConfigPath = buildMcpConfigFile(input.mcpServers ?? [])
-  const permissionSettingsPath =
-    input.provider === 'claude' && input.accessLevel === 'supervised' && input.permissionPort !== undefined && input.permissionToken
-      ? buildPermissionSettingsFile(input.permissionPort, input.permissionToken)
-      : undefined
+  // Único ponto do driver que toca o broker: quem sabe se este turno merece `--settings` é o
+  // adaptador do Claude.
+  const permissionBroker = setupPermissionBroker(input)
+  const permissionSettings = permissionBroker?.settings
+  const permissionSettingsPath = permissionBroker?.path
   const tempImages = input.images && input.images.length > 0 ? writeTempImages(input.images) : null
   const effectiveInput: ProviderTurnInput = tempImages
     ? { ...input, prompt: appendImageReferences(input.prompt, tempImages.paths) }
@@ -366,6 +261,29 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
     try { unlinkSync(permissionSettingsPath) } catch { /* já removido ou nunca criado */ }
   }
   const cleanupTempImages = (): void => tempImages?.cleanup()
+  // Ponto único de limpeza: o gate de contrato aborta antes do `new Promise`, e sem isto os três
+  // temporários (settings, mcp-config, imagens) vazariam por ficarem presos ao ciclo do spawn.
+  const cleanupTurnArtifacts = (): void => {
+    cleanupMcpConfig()
+    cleanupPermissionSettings()
+    cleanupTempImages()
+  }
+
+  // Gate A02: regressão de contrato vira erro visível antes do turno, em vez do agente pedindo
+  // aprovação em prosa sobre um botão que nunca apareceu na tela.
+  const contract = assertPermissionContract({
+    provider: input.provider,
+    accessLevel: input.accessLevel,
+    permissionSettingsPath,
+    permissionSettings,
+    args,
+    env,
+    platform: process.platform,
+  })
+  if (!contract.ok) {
+    cleanupTurnArtifacts()
+    throw new ProviderError('permission_contract_violation', contract.message)
+  }
 
   return new Promise((resolve, reject) => {
     try {
@@ -377,13 +295,44 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       let resultUsage: ProviderUsage | undefined
       let resultCostUsd: number | null | undefined
       let resultSessionId: string | null = null
+      // Só conta quem realmente virou processo no SO; spawn falho não tem PID nem árvore a matar.
+      const hasPid = typeof child.pid === 'number'
+      let countedExit = false
+      if (hasPid) recordProviderProcessSpawned()
+      const noteExit = (): void => {
+        if (!hasPid || countedExit) return
+        countedExit = true
+        recordProviderProcessExited()
+      }
 
-      input.signal?.addEventListener('abort', () => {
+      const abortTree = (): void => {
+        const pid = child.pid
+        if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) {
+          // Windows: taskkill /T; POSIX: group or walk children — never kill by process name.
+          killProcessTree({ pid })
+          return
+        }
         child.kill()
-      })
+      }
+      if (input.signal?.aborted) {
+        abortTree()
+      } else {
+        input.signal?.addEventListener('abort', abortTree, { once: true })
+      }
 
       rl.on('line', (line) => {
-        for (const event of parseLine(line)) input.onEvent(event)
+        // try/catch próprio: um throw aqui subiria pelo handler do readline e derrubaria o turno.
+        // Separado do try abaixo de propósito — lá o catch significa "linha não é JSON de nível
+        // superior"; fundir os dois perderia o sinal de falha real de parse/dispatch.
+        try {
+          for (const event of parseStreamJsonLine(line)) input.onEvent(event)
+        } catch (err) {
+          // Nunca logar a linha crua (pode conter command/secrets do tool_input).
+          console.error(
+            '[cli-driver] Falha ao parsear/despachar linha stream-json:',
+            sanitizeProcessError(err instanceof Error ? err.message : String(err))
+          )
+        }
 
         try {
           const payload = JSON.parse(line.trim()) as Record<string, unknown>
@@ -410,13 +359,13 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
 
       child.stderr.on('data', (chunk) => {
-        stderrBuf += chunk.toString()
+        stderrBuf = appendStderrCapped(stderrBuf, chunk.toString())
+        recordStderrBufBytes(Buffer.byteLength(stderrBuf, 'utf8'))
       })
 
       child.on('error', (err) => {
-        cleanupMcpConfig()
-        cleanupPermissionSettings()
-        cleanupTempImages()
+        noteExit()
+        cleanupTurnArtifacts()
         reject(
           new ProviderError(
             'provider_spawn_failed',
@@ -426,9 +375,8 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
       })
 
       child.on('close', (code) => {
-        cleanupMcpConfig()
-        cleanupPermissionSettings()
-        cleanupTempImages()
+        noteExit()
+        cleanupTurnArtifacts()
         if (sawResult) {
           resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
           return
@@ -445,9 +393,7 @@ export async function runCliTurn(input: ProviderTurnInput): Promise<ProviderTurn
         resolve({ text: finalText, usage: resultUsage, costUsd: resultCostUsd, sessionId: resultSessionId })
       })
     } catch (err) {
-      cleanupMcpConfig()
-      cleanupPermissionSettings()
-      cleanupTempImages()
+      cleanupTurnArtifacts()
       const message = err instanceof Error ? err.message : String(err)
       reject(
         new ProviderError(

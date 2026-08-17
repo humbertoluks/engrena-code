@@ -36,39 +36,36 @@ export interface PendingMessage {
 interface ServerMessageLike {
   role: 'user' | 'assistant' | 'system'
   content: string | null
+  /** `messages.client_id` — o id desta bolha, gerado no envio. `null` no que nasce no servidor. */
+  clientId?: string | null
 }
 
 /**
- * Remove as bolhas otimistas já materializadas pelo servidor, casando por conteúdo com
- * contagem (o mesmo texto enviado duas vezes só descarta duas bolhas). `queued` e
- * `permission` nunca casam: a primeira ainda não foi despachada e a segunda não é mensagem.
+ * Remove as bolhas otimistas já materializadas pelo servidor, casando pelo id que o envio
+ * carregou (`PendingMessage.id` → `clientMessageId` → `Message.clientId`).
+ *
+ * Nunca por conteúdo: o servidor reescreve o prompt antes de persistir (prefixo de modo de chat,
+ * blocos de anexo, expansão de slash), então o texto gravado costuma diferir do digitado e a bolha
+ * ficava para sempre — mensagem duplicada na tela. No inverso, duas mensagens iguais com só uma
+ * persistida limpavam a bolha errada.
+ *
+ * `queued` e `permission` nunca casam: a primeira ainda não foi despachada e a segunda não é
+ * mensagem (resposta a card de permissão não entra no histórico).
  */
 export function reconcilePendingMessages(
   pending: readonly PendingMessage[],
   serverMessages: readonly ServerMessageLike[]
 ): PendingMessage[] {
-  const available = new Map<string, number>()
+  const persisted = new Set<string>()
   for (const message of serverMessages) {
     if (message.role !== 'user') continue
-    const text = (message.content ?? '').trim()
-    available.set(text, (available.get(text) ?? 0) + 1)
+    if (typeof message.clientId === 'string' && message.clientId !== '') persisted.add(message.clientId)
   }
 
-  const kept: PendingMessage[] = []
-  for (const item of pending) {
-    if (item.status !== 'sending' && item.status !== 'sent') {
-      kept.push(item)
-      continue
-    }
-    const text = item.text.trim()
-    const remaining = available.get(text) ?? 0
-    if (remaining > 0) {
-      available.set(text, remaining - 1)
-      continue
-    }
-    kept.push(item)
-  }
-  return kept
+  return pending.filter((item) => {
+    if (item.status !== 'sending' && item.status !== 'sent') return true
+    return !persisted.has(item.id)
+  })
 }
 
 const STATUS_LABEL: Record<PendingMessageStatus, string> = {
@@ -85,4 +82,32 @@ export function pendingStatusLabel(status: PendingMessageStatus): string {
 /** `sending`/`queued` seguem em movimento — a UI anima o indicador só nesses casos. */
 export function isPendingActive(status: PendingMessageStatus): boolean {
   return status !== 'permission'
+}
+
+/**
+ * Resposta a PermissionPrompt / ask_user_question não entra no histórico do servidor.
+ * Nunca promover essas bolhas para `sent`: o rótulo vira "Executando…" e o reconcile
+ * nunca as remove — o próximo card de permissão nascia sob um "Permitir / Executando…"
+ * fantasma (como se o trabalho anterior ainda rodasse).
+ */
+export function dropPermissionDecisionPendings(
+  pending: readonly PendingMessage[]
+): PendingMessage[] {
+  return pending.filter((p) => p.status !== 'permission')
+}
+
+/**
+ * Limpa decisões de permissão (status `permission`) e resíduos já promovidos a `sent`
+ * cujo texto ainda é uma decisão (Permitir/Negar/…). Usado ao chegar um novo
+ * `permission.request` para a timeline não misturar grant antigo com pedido novo.
+ */
+export function dropStalePermissionDecisionPendings(
+  pending: readonly PendingMessage[],
+  isPermissionDecisionText: (text: string) => boolean
+): PendingMessage[] {
+  return pending.filter((p) => {
+    if (p.status === 'permission') return false
+    if (p.status === 'sent' && isPermissionDecisionText(p.text)) return false
+    return true
+  })
 }
