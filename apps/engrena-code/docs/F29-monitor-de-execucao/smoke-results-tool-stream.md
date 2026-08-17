@@ -28,9 +28,30 @@ subagent.result            childThreadId=cccb2409…  status=completed
 6. **UI — bloco de subagente na timeline:** `explorer · inherit · 2 ações · concluído` (`smoke/f29_subagent_block_actions.png`).
 7. **UI — grafo:** `claude / ocioso / 2 tools` → aresta `arquivo packag…` → `explorer / concluído / 2 ações / 19s` (`smoke/f29_graph_child_actions.png`).
 
+## Rodada 2 (2026-08-17) — atividade **durante** o run
+
+A primeira rodada só viu o estado assentado. Esta repetiu o exercício com um filho de vida longa: seis comandos `sleep 10 && ls -a`, um por vez, pedidos ao `explorer` (95 s de run). O turno foi disparado pelo composer da própria UI, com a aba Grafo aberta antes do envio.
+
+O contraste que fecha o caso — **UI e banco discordando de propósito**, porque `action_count` só é gravado no fechamento:
+
+| Momento | Nó do grafo | Bloco na timeline | `subagent_runs.action_count` |
+|---|---|---|---|
+| durante | `Executando… 1 ação` | — | **0** |
+| durante | `Executando… 2 ações` | — | **0** |
+| durante | — | `explorer · 3 ações · Executando…` | **0** |
+| durante | `Executando… 5 ações` | — | **0** |
+| assentado | `concluído · 6 ações · 1m 35s` | — | **6** |
+
+O contador subiu ao vivo com o banco parado em zero, e o rótulo mostrou `Executando…` — derivado de `Bash` por `activityLabelForTool`, nunca o nome cru. Ao fechar, o banco assumiu com 6.
+
+Screenshots: `smoke/f29_graph_child_live.png` (5 ações em execução), `smoke/f29_subagent_block_live.png` (3 ações), `smoke/f29_graph_child_settled.png` (assentado).
+
+**Defeito de copy achado e corrigido aqui:** o nó escrevia `1 tools` / `1 ações` no primeiro evento do turno. `GRAPH_COPY.metaTools/metaActions` e a chave do bloco passaram a ter singular.
+
+**Falso alarme registrado para não se repetir:** depois do turno assentar, o canvas ficou visualmente vazio com os nós presentes no DOM e `visibility: hidden`. Não é defeito do produto — foi o HMR do Vite recarregando `graphCopy.ts`, que eu editei no meio do run: o React Flow remonta os nós e eles ficam ocultos até uma nova medição. Recarga limpa da página devolveu `visibility: visible` com os dois nós corretos. Editar módulo do renderer durante um smoke invalida a própria observação.
+
 ## Não exercitado
 
-- **Atividade durante o run.** O filho durou 19 s e a verificação da UI foi feita depois do fim; o que se vê nos screenshots é o estado assentado (contagem vinda do banco). O rótulo da ferramenta corrente e a contagem ao vivo — o caminho `childTools` do overlay — estão cobertos por unitário em `executionGraph.logic.test.ts`, não por captura ao vivo. Precisaria de um filho longo e de captura sincronizada no meio do run.
 - **Batch paralelo (F18) ao vivo.** Coberto por unitário (`delegate.test.ts`: dois filhos, mesmo `id` de tool, `childThreadId` distintos).
 
 ## Observação fora do escopo desta fatia

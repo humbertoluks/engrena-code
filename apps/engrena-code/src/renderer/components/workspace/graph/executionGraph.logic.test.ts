@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CALL_SUBAGENT_TOOL_NAME } from '../chatHistory.logic'
+import { GRAPH_COPY } from './graphCopy'
 import {
   applyLiveEvent,
   batchNodeId,
@@ -402,5 +403,15 @@ describe('layoutExecutionGraph', () => {
     const child = laid.nodes.find((n) => n.kind === 'subagent')!
     expect(root.position.x).toBeLessThan(child.position.x)
     expect(child.position.y).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('GRAPH_COPY — contadores no singular', () => {
+  it('não escreve "1 tools" nem "1 ações" no nó', () => {
+    expect(GRAPH_COPY.metaTools(1)).toBe('1 tool')
+    expect(GRAPH_COPY.metaActions(1)).toBe('1 ação')
+    expect(GRAPH_COPY.metaTools(0)).toBe('0 tools')
+    expect(GRAPH_COPY.metaTools(2)).toBe('2 tools')
+    expect(GRAPH_COPY.metaActions(6)).toBe('6 ações')
   })
 })
