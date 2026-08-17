@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_claude_gate_'))
 
-const { closeDb } = await import('../db/client.js')
+const { closeDb, getDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread, updateThread } = await import('../db/repositories/threads.js')
 const { createThreadGate, getThreadGate, listOpenThreadGates } = await import(
@@ -542,5 +542,41 @@ describe('listOpenGates', () => {
     expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
     await expect(permission.decision).resolves.toMatchObject({ allow: false })
     await expect(question.answer).rejects.toThrow('Turno encerrado.')
+  })
+
+  /**
+   * O snapshot é lido na abertura da thread e depois de reconnect. O `setTimeout` que expira o
+   * gate vive na memória deste processo e não cobre máquina que dormiu nem processo suspenso: a
+   * linha fica vencida e `open`, e sem esta varredura o card morto voltava à tela com o backend
+   * já sem nada pendente — o buraco da janela de backoff longo, que nunca aparece sozinho porque
+   * o reconnect real leva menos de 8 s e o gate só vence aos 120 s.
+   */
+  it('não ressuscita gate vencido que ficou aberto (timer não rodou)', async () => {
+    const threadId = seedThread()
+    const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+    if (!permission.ok) throw new Error('gate não abriu')
+    expect(listOpenGates(threadId)).toHaveLength(1)
+
+    // Vence a linha por baixo, sem deixar o timer rodar: é o estado que o processo suspenso deixa.
+    getDb()
+      .prepare('UPDATE thread_gates SET expires_at = ? WHERE id = ?')
+      .run(Date.now() - 1000, permission.gate.requestId)
+
+    expect(listOpenGates(threadId)).toEqual([])
+    expect(listOpenThreadGates(threadId)).toEqual([])
+    expect(getThreadGate(permission.gate.requestId)?.state).toBe('expired')
+    // Fail-closed: a continuação presa do outro lado é liberada negando.
+    await expect(permission.decision).resolves.toMatchObject({ allow: false })
+  })
+
+  it('preserva gate ainda no prazo', () => {
+    const threadId = seedThread()
+    const permission = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'ls' } })
+    if (!permission.ok) throw new Error('gate não abriu')
+
+    expect(listOpenGates(threadId)).toHaveLength(1)
+    expect(listOpenGates(threadId)).toHaveLength(1)
+
+    expireOpenPermissionGates(threadId, 'turn_ended')
   })
 })
