@@ -104,11 +104,16 @@ async function main() {
       pickString(input.tool_name, input.toolName, input.tool, input.name) ||
       inferToolName(toolInput) ||
       'unknown'
+    // A negação nativa chega no stream com tool_use_id; o pedido chega aqui com o mesmo id. É a
+    // única chave que liga uma decisão à chamada exata — sem ela, duas chamadas da mesma tool no
+    // turno viram uma entrada só e o diagnóstico atribui a decisão da chamada errada.
+    // Undefined quando o CLI não manda: o broker cai na chave por nome e nada quebra.
+    const toolUseId = pickString(input.tool_use_id, input.toolUseId)
 
     const res = await fetch('http://127.0.0.1:' + port + '/permission', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-permission-token': token },
-      body: JSON.stringify({ toolName, toolInput }),
+      body: JSON.stringify({ toolName, toolInput, toolUseId }),
     })
     // Sem checar res.ok, um 403 (token errado) / 404 / 413 devolve corpo vazio, res.json() lança e
     // o deny sai com diagnóstico genérico de rede. Fail-closed com o status na mensagem.

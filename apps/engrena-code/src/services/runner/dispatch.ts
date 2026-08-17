@@ -764,7 +764,8 @@ async function runTurn(
         // inclusive quando o card apareceu e outro hook negou depois (R08) ou quando foi o próprio
         // usuário quem negou no card (R09).
         if (event.type === 'permission-native-denial') {
-          const brokerOutcome = brokerOutcomeForTool(thread.id, event.toolName)
+          // `event.toolUseId` identifica a chamada exata; sem ele a consulta cai na chave por nome.
+          const brokerOutcome = brokerOutcomeForTool(thread.id, event.toolName, event.toolUseId)
           const message = nativeDenialDiagnosis({
             toolName: event.toolName,
             decisionReasonType: event.decisionReasonType,

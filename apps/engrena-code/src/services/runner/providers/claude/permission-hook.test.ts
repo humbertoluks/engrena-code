@@ -86,7 +86,7 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
   })
 
   it('forwards tool_name/tool_input from stdin as toolName/toolInput, with the token header', async () => {
-    let captured: { toolName?: string; toolInput?: unknown } | undefined
+    let captured: { toolName?: string; toolInput?: unknown; toolUseId?: string } | undefined
     const server = await startFakePermissionServer((body) => {
       captured = body
       return { allow: true }
@@ -97,6 +97,41 @@ describe('permission-hook (PreToolUse, spawnado via --settings)', () => {
     })
     expect(captured?.toolName).toBe('Edit')
     expect(captured?.toolInput).toEqual({ file_path: 'a.ts', old_string: '1', new_string: '2' })
+    server.close()
+  })
+
+  // O CLI manda tool_use_id no payload do PreToolUse e o mesmo id na negação que chega pelo
+  // stream: é a única chave que liga a decisão à chamada exata. Descartá-la aqui fazia duas
+  // chamadas da mesma tool virarem uma entrada só no broker.
+  it('forwards tool_use_id when the CLI sends it', async () => {
+    let captured: { toolName?: string; toolUseId?: string } | undefined
+    const server = await startFakePermissionServer((body) => {
+      captured = body
+      return { allow: true }
+    })
+    await runHook(server.port, server.token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_use_id: 'toolu_01ABC123',
+    })
+    expect(captured?.toolUseId).toBe('toolu_01ABC123')
+    server.close()
+  })
+
+  it('still works when the payload has no tool_use_id (older CLI host)', async () => {
+    let captured: { toolName?: string; toolUseId?: string } | undefined
+    const server = await startFakePermissionServer((body) => {
+      captured = body
+      return { allow: true }
+    })
+    const result = await runHook(server.port, server.token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    })
+    expect(captured?.toolName).toBe('Bash')
+    expect(captured?.toolUseId).toBeUndefined()
+    // Sem id o hook não muda de comportamento: a decisão do broker continua valendo.
+    expect(JSON.stringify(result)).toContain('allow')
     server.close()
   })
 

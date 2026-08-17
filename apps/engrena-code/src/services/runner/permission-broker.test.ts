@@ -49,12 +49,13 @@ function ask(
   server: { port: number; token: string },
   toolName: string,
   toolInput: unknown,
-  token?: string
+  token?: string,
+  toolUseId?: string
 ): Promise<Response> {
   return fetch(`http://127.0.0.1:${server.port}/permission`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-permission-token': token ?? server.token },
-    body: JSON.stringify({ toolName, toolInput }),
+    body: JSON.stringify({ toolName, toolInput, toolUseId }),
   })
 }
 
@@ -234,6 +235,49 @@ describe('decisões do broker (diagnóstico da negação nativa)', () => {
     // Sem ninguém responder nem cancelar: o fail-closed do gate fecha sozinho.
     await ask(server, 'Write', { file_path: 'a.txt' })
     expect(brokerOutcomeForTool(threadId, 'Write')).toBe('expired')
+
+    server.close()
+  }, 15000)
+
+  // O tool_use_id é a chave que o CLI manda no PreToolUse e repete na negação. Com ele, duas
+  // chamadas da mesma tool deixam de compartilhar a mesma entrada — o caso que produzia
+  // `ambiguous` passa a ter resposta exata para cada chamada.
+  it('atribui a decisão à chamada certa quando o tool_use_id vem nos dois lados', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const granted = ask(server, 'Bash', { command: 'ls' }, undefined, 'toolu_call_a')
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, true)
+    await granted
+
+    const denied = ask(server, 'Bash', { command: 'rm -rf /' }, undefined, 'toolu_call_b')
+    await waitFor(() => seen.length === 2)
+    resolvePermissionGate(threadId, seen[1].requestId, false)
+    await denied
+
+    expect(brokerOutcomeForTool(threadId, 'Bash', 'toolu_call_a')).toBe('granted')
+    expect(brokerOutcomeForTool(threadId, 'Bash', 'toolu_call_b')).toBe('denied')
+    // A chave agregada por nome continua ambígua, e é ela que responde sem id.
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('ambiguous')
+
+    server.close()
+  }, 15000)
+
+  it('cai para a chave por nome quando a negação chega com um id desconhecido', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const denied = ask(server, 'Read', { file_path: 'a.txt' }, undefined, 'toolu_known')
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
+    await denied
+
+    // Id que o broker nunca viu (evento de outra chamada, ou host que só manda id de um lado).
+    expect(brokerOutcomeForTool(threadId, 'Read', 'toolu_outro')).toBe('denied')
+    expect(brokerOutcomeForTool(threadId, 'Read')).toBe('denied')
 
     server.close()
   }, 15000)

@@ -288,11 +288,12 @@ export function assertPermissionContract(plan: PermissionContractSpawnPlan): Per
  * `never-requested` não é gravado por ninguém: é o que a consulta responde quando não há registro,
  * ou seja, o hook nunca perguntou por essa tool neste turno.
  *
- * `ambiguous` existe porque a chave aqui é o `toolName`, não a chamada: o hook manda `toolName` e
- * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Quando a mesma tool recebe
- * decisões de sentidos opostos no mesmo turno (concedida numa chamada, negada em outra), não há
- * como saber qual delas o CLI está reportando — e afirmar uma das duas seria voltar a mentir com
- * outra roupa. Registrar a ambiguidade é o mais honesto que este dado permite.
+ * `ambiguous` é o fallback para quando falta a chave exata. O caminho normal é o `tool_use_id`: o
+ * CLI o manda no payload do `PreToolUse` e manda o mesmo id na negação, então a decisão é atribuída
+ * à chamada certa mesmo com a tool aparecendo várias vezes no turno. Quando o id não vem de algum
+ * dos dois lados, sobra a chave por `toolName`; se duas chamadas homônimas discordarem entre si,
+ * não há como saber qual o CLI está reportando, e afirmar uma delas seria voltar a mentir com outra
+ * roupa. Registrar a ambiguidade é o mais honesto que sobra nesse caso.
  */
 export type BrokerPermissionOutcome =
   | 'granted'

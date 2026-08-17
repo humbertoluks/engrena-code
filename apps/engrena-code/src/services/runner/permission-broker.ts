@@ -55,10 +55,15 @@ type RecordedBrokerOutcome = Exclude<BrokerPermissionOutcome, 'never-requested'>
  * Escopo de turno: `createPermissionServer` roda uma vez por turno e zera o mapa, porque decisão de
  * turno anterior não explica a negação do turno atual.
  *
- * Granularidade é o `toolName`, não a chamada: o `POST /permission` do hook manda `toolName` e
- * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Duas chamadas da mesma
- * tool no mesmo turno ficam indistinguíveis aqui; quando elas discordam, `mergeBrokerOutcome`
- * marca `ambiguous` em vez de deixar a última vencer em silêncio.
+ * Duas chaves por decisão, e a razão de existirem as duas:
+ *
+ * - **`tool_use_id`** — a chave exata. O CLI manda `tool_use_id` no payload do `PreToolUse` (junto
+ *   de `tool_name`/`tool_input`) e manda o mesmo id na negação que chega pelo stream. Com ele, a
+ *   decisão é atribuída à chamada certa, mesmo que a tool apareça várias vezes no turno;
+ * - **`toolName`** — a chave agregada, que continua existindo porque nem toda negação traz id
+ *   (payload de host antigo, evento sem o campo). É o fallback, e quando duas chamadas do mesmo
+ *   nome discordam entre si, `mergeBrokerOutcome` marca `ambiguous` em vez de deixar a última
+ *   vencer em silêncio — mentir com a decisão da chamada errada seria pior que admitir a dúvida.
  */
 const brokerOutcomesByThread = new Map<string, Map<string, RecordedBrokerOutcome>>()
 
@@ -84,13 +89,29 @@ function mergeBrokerOutcome(
   return isPositiveOutcome(previous) === isPositiveOutcome(next) ? next : 'ambiguous'
 }
 
-function recordBrokerOutcome(threadId: string, toolName: string, outcome: RecordedBrokerOutcome): void {
-  let byTool = brokerOutcomesByThread.get(threadId)
-  if (!byTool) {
-    byTool = new Map()
-    brokerOutcomesByThread.set(threadId, byTool)
+/** Prefixo da chave exata: o id vem do CLI e não pode colidir com um `toolName`. */
+function toolUseKey(toolUseId: string): string {
+  return `id:${toolUseId}`
+}
+
+/**
+ * Grava a decisão nas duas chaves. A exata (`tool_use_id`) é sobrescrita direto — cada id é uma
+ * chamada só, então não há conflito a resolver; a agregada (`toolName`) passa pelo merge, que é
+ * onde a ambiguidade entre chamadas homônimas aparece.
+ */
+function recordBrokerOutcome(
+  threadId: string,
+  toolName: string,
+  outcome: RecordedBrokerOutcome,
+  toolUseId?: string
+): void {
+  let byKey = brokerOutcomesByThread.get(threadId)
+  if (!byKey) {
+    byKey = new Map()
+    brokerOutcomesByThread.set(threadId, byKey)
   }
-  byTool.set(toolName, mergeBrokerOutcome(byTool.get(toolName), outcome))
+  if (toolUseId !== undefined) byKey.set(toolUseKey(toolUseId), outcome)
+  byKey.set(toolName, mergeBrokerOutcome(byKey.get(toolName), outcome))
 }
 
 /**
@@ -104,9 +125,24 @@ function outcomeForGateDecision(decision: PermissionGateDecision): RecordedBroke
   return decision.reason === GATE_REASON_THREAD_CANCELLED ? 'cancelled' : 'expired'
 }
 
-/** Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`. */
-export function brokerOutcomeForTool(threadId: string, toolName: string): BrokerPermissionOutcome {
-  return brokerOutcomesByThread.get(threadId)?.get(toolName) ?? 'never-requested'
+/**
+ * Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`.
+ *
+ * O `toolUseId` da negação manda quando existe dos dois lados: é a decisão daquela chamada, não a
+ * agregada do nome. Só cai para o nome quando o id falta (ou quando o pedido chegou sem ele).
+ */
+export function brokerOutcomeForTool(
+  threadId: string,
+  toolName: string,
+  toolUseId?: string
+): BrokerPermissionOutcome {
+  const byKey = brokerOutcomesByThread.get(threadId)
+  if (byKey === undefined) return 'never-requested'
+  if (toolUseId !== undefined) {
+    const exact = byKey.get(toolUseKey(toolUseId))
+    if (exact !== undefined) return exact
+  }
+  return byKey.get(toolName) ?? 'never-requested'
 }
 
 /**
@@ -228,7 +264,7 @@ export function createPermissionServer(
     })
     req.on('end', () => {
       if (overCap) return
-      let parsed: { toolName?: unknown; toolInput?: unknown } = {}
+      let parsed: { toolName?: unknown; toolInput?: unknown; toolUseId?: unknown } = {}
       try {
         parsed = JSON.parse(body || '{}')
       } catch {
@@ -236,19 +272,21 @@ export function createPermissionServer(
       }
 
       const toolName = typeof parsed.toolName === 'string' ? parsed.toolName : 'unknown'
+      const toolUseId =
+        typeof parsed.toolUseId === 'string' && parsed.toolUseId !== '' ? parsed.toolUseId : undefined
 
       const current = getThread(threadId)
       // Sem thread (apagada mid-turn) cai no mais restrito — nunca libera por omissão.
       const accessLevel = current?.accessLevel ?? 'supervised'
       if (permissionPolicyDecision(accessLevel, toolName) === 'allow') {
-        recordBrokerOutcome(threadId, toolName, 'granted')
+        recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
       }
 
       if (isToolAllowedForThread(threadId, toolName)) {
-        recordBrokerOutcome(threadId, toolName, 'granted')
+        recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
@@ -258,7 +296,7 @@ export function createPermissionServer(
       if (!opened.ok) {
         // Negado sem nunca chegar ao usuário: registrar como `unavailable` é o que impede o
         // diagnóstico de culpar o CLI (ou o usuário) por uma falha nossa.
-        recordBrokerOutcome(threadId, toolName, 'unavailable')
+        recordBrokerOutcome(threadId, toolName, 'unavailable', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: false }))
         return
@@ -266,7 +304,7 @@ export function createPermissionServer(
 
       onRequest?.(opened.gate)
       opened.decision.then((decision) => {
-        recordBrokerOutcome(threadId, toolName, outcomeForGateDecision(decision))
+        recordBrokerOutcome(threadId, toolName, outcomeForGateDecision(decision), toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: decision.allow }))
       })

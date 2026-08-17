@@ -655,3 +655,17 @@ chamada específica. O CLI manda `tool_use_id` na negação e o hook manda `tool
 chave comum, o melhor honesto é admitir a ambiguidade — que é o que passa a acontecer.
 
 Gates: `tsc -b` exit 0, `pnpm test` **1866 testes / 161 arquivos** verde em duas rodadas, `vite build` ok.
+
+### Correção da limitação de granularidade (2026-08-17)
+
+O registro acima afirmava que atribuir a negação a uma chamada específica era impossível por falta
+de chave comum. **Estava errado.** A doc do Claude Code documenta `tool_use_id` no payload do
+`PreToolUse`, ao lado de `tool_name`/`tool_input`, e a negação nativa chega no stream com o mesmo
+id (a fixture `system-permission-denied.json` já o traz, e `stream-json-parse.ts` já o extrai).
+Quem perdia a chave era o nosso `permission-hook`, que lia o stdin inteiro e repassava ao broker
+apenas `{toolName, toolInput}`.
+
+O hook passou a repassar `toolUseId`; o broker grava cada decisão em duas chaves — a exata (`id:…`)
+e a agregada por nome — e `brokerOutcomeForTool` consulta a exata primeiro. Com o id nos dois
+lados, duas chamadas da mesma tool no mesmo turno recebem cada uma a sua decisão. `ambiguous` deixa
+de ser a resposta comum e vira fallback para quando o id falta de algum dos lados.
