@@ -5,6 +5,7 @@ import {
   validateMinimaxKeyLocal,
   validateGlmKeyLocal,
   validateGrokKeyLocal,
+  shouldOfferGithubTokenRemoval,
   validateGithubTokenLocal,
   validateOpenaiKeyLocal,
   validateGroqKeyLocal,
@@ -91,5 +92,20 @@ describe('validateGithubTokenLocal', () => {
     expect(validateGithubTokenLocal('ghp_ab cd')).toBe(SPACES_MSG)
     expect(validateGithubTokenLocal('ghp_ab')).toBe(SHORT_MSG)
     expect(validateGithubTokenLocal('token-abcdefgh')).toBe('Formato inválido. Esperado: ghp_… ou github_pat_…')
+  })
+})
+
+/**
+ * A remoção sempre existiu no backend (salvar vazio apaga o segredo), mas não havia como
+ * descobrir isso pela tela. Depende só do que está guardado: a versão que também escondia o botão
+ * com rascunho digitado sumia logo depois de salvar, porque o campo mantém o texto.
+ */
+describe('shouldOfferGithubTokenRemoval', () => {
+  it('oferece remover quando há token guardado', () => {
+    expect(shouldOfferGithubTokenRemoval(true)).toBe(true)
+  })
+
+  it('não oferece quando não há token guardado — não há o que remover', () => {
+    expect(shouldOfferGithubTokenRemoval(false)).toBe(false)
   })
 })

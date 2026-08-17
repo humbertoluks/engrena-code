@@ -28,6 +28,7 @@ import {
   validateMinimaxKeyLocal,
   validateGlmKeyLocal,
   validateGrokKeyLocal,
+  shouldOfferGithubTokenRemoval,
   validateGithubTokenLocal,
   validateOpenaiKeyLocal,
   validateGroqKeyLocal,
@@ -89,6 +90,11 @@ const COPY = {
   githubSaveCta: 'Salvar token',
   githubSaveLoading: 'Salvando...',
   githubSaveConfirm: 'Salvar este token do GitHub no cofre local?',
+  githubRemoveCta: 'Remover token',
+  githubRemoveLoading: 'Removendo...',
+  githubRemoveConfirm:
+    'Remover o token do GitHub do cofre local? Abrir PR pelo EngrenaCode deixa de funcionar até você salvar outro. Isto não revoga o token no GitHub.',
+  githubRemoveTitle: 'Apaga o token guardado no cofre local deste dispositivo',
   githubReveal: 'Revelar token',
   githubHide: 'Ocultar token',
   vcsGitlabTitle: 'GitLab',
@@ -677,6 +683,19 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
     void onSave(tokenDraft)
   }, [tokenDraft, onSave])
 
+  /**
+   * Remover é o mesmo `onSave('')` que o backend já tratava — o que faltava era a via ser visível.
+   * Confirma antes porque apaga credencial, e limpa o rascunho para o campo não ficar mostrando
+   * resíduo do que foi digitado antes de desistir.
+   */
+  const handleRemove = useCallback((): void => {
+    if (!window.confirm(COPY.githubRemoveConfirm)) return
+    setLocalError(null)
+    setTokenDraft('')
+    setRevealed(false)
+    void onSave('')
+  }, [onSave])
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
     setTokenDraft(e.target.value)
     if (localError !== null) setLocalError(null)
@@ -685,6 +704,8 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
   const effectiveFeedback: Feedback | null = localError !== null
     ? { variant: 'error', message: localError }
     : feedback
+
+  const offerRemoval = shouldOfferGithubTokenRemoval(tokenPresent)
 
   return (
     <Card>
@@ -738,6 +759,16 @@ function GithubCard({ tokenPresent, onSave, saveLoading, feedback }: Readonly<Gi
           <ButtonPrimary loading={saveLoading} loadingLabel={COPY.githubSaveLoading} onClick={handleSave}>
             {COPY.githubSaveCta}
           </ButtonPrimary>
+          {offerRemoval ? (
+            <ButtonSecondary
+              loading={saveLoading}
+              loadingLabel={COPY.githubRemoveLoading}
+              title={COPY.githubRemoveTitle}
+              onClick={handleRemove}
+            >
+              {COPY.githubRemoveCta}
+            </ButtonSecondary>
+          ) : null}
           {effectiveFeedback !== null ? (
             <InlineFeedback variant={effectiveFeedback.variant} message={effectiveFeedback.message} />
           ) : null}
