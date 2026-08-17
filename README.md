@@ -79,3 +79,4 @@ pnpm --filter engrena-plan dev
 Só **Engrena** / **EngrenaCode** / **EngrenaPlan**. Sem Lion* em UI, copy ou docs ativos.
 
 <!-- smoke F14: criacao real de PR pela UI do EngrenaCode, 2026-08-17 -->
+<!-- smoke F14: PR real pela UI -->
