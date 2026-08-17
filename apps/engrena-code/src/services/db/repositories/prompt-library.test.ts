@@ -112,4 +112,25 @@ describe('modos de chat', () => {
       PromptValidationError
     )
   })
+
+  it('guarda skills/rules do modo e distingue ausente de lista vazia', () => {
+    const filtrado = createChatMode({ projectId, name: 'filtrado', skills: ['a', 'b'], rules: [] })
+    expect(getChatModeByName(projectId, 'filtrado')?.skills).toEqual(['a', 'b'])
+    expect(getChatModeByName(projectId, 'filtrado')?.rules).toEqual([])
+
+    const solto = createChatMode({ projectId, name: 'solto' })
+    expect(solto.skills).toBeNull()
+    expect(solto.rules).toBeNull()
+
+    // Patch sem a chave preserva o que estava lá; com a chave, substitui.
+    expect(updateChatMode(filtrado.id, { instructions: 'oi' }).skills).toEqual(['a', 'b'])
+    expect(updateChatMode(filtrado.id, { skills: ['c'] }).skills).toEqual(['c'])
+    expect(updateChatMode(filtrado.id, { skills: null }).skills).toBeNull()
+  })
+
+  it('skills/rules com shape errado é rejeitado em vez de virar null em silêncio', () => {
+    expect(() => createChatMode({ projectId, name: 'torto', skills: 'a,b' as unknown as string[] })).toThrow(
+      PromptValidationError
+    )
+  })
 })

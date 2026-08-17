@@ -22,6 +22,9 @@ export interface ChatModeItem {
   accessLevel: string | null
   executionMode: string | null
   instructions: string
+  /** Skills/rules do projeto que o modo deixa ativas no turno; `null` = não filtra (F28 §3.4). */
+  skills: string[] | null
+  rules: string[] | null
   source: 'db' | 'file'
   file: string | null
 }
@@ -41,6 +44,8 @@ export interface ChatModeInput {
   accessLevel?: string | null
   executionMode?: string | null
   instructions?: string
+  skills?: string[] | null
+  rules?: string[] | null
 }
 
 export const promptLibraryService = {

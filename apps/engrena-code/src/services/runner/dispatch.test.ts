@@ -2398,4 +2398,115 @@ describe('modo de chat (F28 §3.4)', () => {
     expect(capturedSystemPrompt).not.toContain('## Modo de chat')
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('modo com skills/rules filtra o catálogo do projeto no turno', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    const skillDentro = createSkill({ name: 'skill-dentro', description: 'entra', content: '# dentro' })
+    const skillFora = createSkill({ name: 'skill-fora', description: 'nao entra', content: '# fora' })
+    linkSkill(project.id, skillDentro.id, { enabled: true })
+    linkSkill(project.id, skillFora.id, { enabled: true })
+
+    createRule({ name: 'rule-dentro', content: 'Conteudo da rule que entra.', isGlobal: true })
+    createRule({ name: 'rule-fora', content: 'Conteudo da rule que fica de fora.', isGlobal: true })
+
+    createChatMode({
+      projectId: project.id,
+      name: 'focado',
+      instructions: 'Use só o essencial.',
+      skills: ['skill-dentro'],
+      rules: ['rule-dentro'],
+    })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'focado',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('skill-dentro')
+    expect(capturedSystemPrompt).not.toContain('skill-fora')
+    expect(capturedSystemPrompt).toContain('Conteudo da rule que entra.')
+    expect(capturedSystemPrompt).not.toContain('Conteudo da rule que fica de fora.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('modo sem skills/rules deixa o catálogo inteiro do projeto passar', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+
+    const skill = createSkill({ name: 'skill-livre', description: 'passa', content: '# livre' })
+    linkSkill(project.id, skill.id, { enabled: true })
+    createRule({ name: 'rule-livre', content: 'Conteudo da rule livre.', isGlobal: true })
+
+    createChatMode({ projectId: project.id, name: 'solto', instructions: 'Sem filtro.' })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'solto',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('skill-livre')
+    expect(capturedSystemPrompt).toContain('Conteudo da rule livre.')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('modo versionado no repo filtra pelo frontmatter, e nome fora do projeto é ignorado', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    mkdirSync(join(dir, '.engrena', 'modes'), { recursive: true })
+    writeFileSync(
+      join(dir, '.engrena', 'modes', 'so-uma.chatmode.md'),
+      ['---', "skills: ['skill-a', 'skill-inexistente']", '---', 'Foque numa coisa só.'].join('\n')
+    )
+
+    const skillA = createSkill({ name: 'skill-a', description: 'entra', content: '# a' })
+    const skillB = createSkill({ name: 'skill-b', description: 'nao entra', content: '# b' })
+    linkSkill(project.id, skillA.id, { enabled: true })
+    linkSkill(project.id, skillB.id, { enabled: true })
+
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'oi',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      chatMode: 'so-uma',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    // `skill-inexistente` não está vinculada ao projeto: o modo filtra, nunca ativa.
+    expect(capturedSystemPrompt).toContain('skill-a')
+    expect(capturedSystemPrompt).not.toContain('skill-b')
+    expect(capturedSystemPrompt).not.toContain('skill-inexistente')
+    rmSync(dir, { recursive: true, force: true })
+  })
 })

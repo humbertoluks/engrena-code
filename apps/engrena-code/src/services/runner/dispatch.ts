@@ -103,7 +103,7 @@ import {
 import { resolveProjectFilePath } from '../project-files/path-guard.js'
 import { primeFollowupsForTurn } from '../threads/followups-runner.js'
 import { decisionBlock, detectDecisionQuestion } from '../threads/decision-question.js'
-import { resolveChatMode } from '../prompts/chat-mode-resolver.js'
+import { resolveChatMode, type ResolvedChatMode } from '../prompts/chat-mode-resolver.js'
 import { composeModeBlock } from '../prompts/prompt-spec.js'
 import { isPathIgnored } from '../ignore/ignore-service.js'
 
@@ -290,7 +290,7 @@ function buildSystemPrompt(
   project: Project,
   threadId: string,
   skillSnapshot: SkillSnapshot,
-  chatMode: string | null,
+  chatMode: ResolvedChatMode | null,
   provider: ThreadProvider
 ): string {
   const parts: string[] = []
@@ -301,14 +301,16 @@ function buildSystemPrompt(
 
   parts.push(RUNTIME_SAFETY_PROMPT)
 
-  const rulesBlock = RuleRegistry.composeBlockForTurn(project.id)
+  // O modo de chat filtra as rules do projeto (F28 §3.4); sem modo, ou com modo que não fala do
+  // assunto, entram todas as ativas — o comportamento de sempre.
+  const rulesBlock = RuleRegistry.composeBlockForTurn(project.id, chatMode?.rules ?? null)
   if (rulesBlock) parts.push(rulesBlock)
 
   const memoryBlock = MemoryRegistry.composeBlockForTurn(project.id, threadId)
   if (memoryBlock) parts.push(memoryBlock)
 
   // Modo de chat depois das rules: é escolha do turno, então fala por último entre as instruções.
-  const modeBlock = composeModeBlock(resolveChatMode(project, chatMode))
+  const modeBlock = composeModeBlock(chatMode)
   if (modeBlock) parts.push(modeBlock)
 
   if (skillSnapshot.catalog.length > 0) {
@@ -552,15 +554,16 @@ async function runTurn(
     })
     const withContext = composePromptWithContext(prompt, resolvedAttachments)
 
-    const skillSnapshot = createSkillSnapshot(project.id)
-    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, thread.chatMode, thread.provider)
+    // Resolvido uma vez e reusado: o modo governa o preset, o bloco de instrução e o filtro de
+    // skills/rules do turno.
+    const activeMode = resolveChatMode(project, thread.chatMode)
+    const skillSnapshot = createSkillSnapshot(project.id, activeMode?.skills ?? null)
+    const systemPrompt = buildSystemPrompt(project, thread.id, skillSnapshot, activeMode, thread.provider)
     // Turno retomado (`--resume`) reaproveita o system prompt gravado na sessão do CLI e ignora o
     // `--append-system-prompt` novo — sem isto, trocar de modo no meio da thread não valia nada.
     // Então o bloco do modo viaja no prompt do turno, como os anexos de contexto.
     const resumingClaude = thread.provider === 'claude' && thread.cliSessionId !== null
-    const modeBlockForTurn = resumingClaude
-      ? composeModeBlock(resolveChatMode(project, thread.chatMode))
-      : ''
+    const modeBlockForTurn = resumingClaude ? composeModeBlock(activeMode) : ''
     const providerPrompt =
       modeBlockForTurn === '' ? withContext : modeBlockForTurn + '\n\n' + withContext
     const cwd = resolveThreadCwd(thread, project)

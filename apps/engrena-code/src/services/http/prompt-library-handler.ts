@@ -50,6 +50,9 @@ export interface ChatModeListItem {
   accessLevel: string | null
   executionMode: string | null
   instructions: string
+  /** Skills/rules do projeto que o modo deixa ativas; `null` = não filtra (F28 §3.4). */
+  skills: string[] | null
+  rules: string[] | null
   source: 'db' | 'file'
   file: string | null
 }
@@ -81,6 +84,8 @@ export function listModesForProject(projectId: string, projectRoot: string): Cha
     accessLevel: m.accessLevel,
     executionMode: m.executionMode,
     instructions: m.instructions,
+    skills: m.skills,
+    rules: m.rules,
     source: 'db',
     file: null,
   }))
@@ -97,6 +102,8 @@ export function listModesForProject(projectId: string, projectRoot: string): Cha
       accessLevel: m.accessLevel,
       executionMode: m.executionMode,
       instructions: m.instructions,
+      skills: m.skills,
+      rules: m.rules,
       source: 'file',
       file: m.file,
     }))

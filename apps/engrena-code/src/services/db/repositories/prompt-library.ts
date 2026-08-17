@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../client.js'
-import { validateModeInstructions, validatePromptFields } from '../../prompts/prompt-spec.js'
+import {
+  normalizeNameList,
+  validateModeCatalog,
+  validateModeInstructions,
+  validatePromptFields,
+} from '../../prompts/prompt-spec.js'
 
 /**
  * Prompts salvos e modos de chat criados pela UI (F28 §3.4). Os que vivem em arquivo do repo
@@ -156,6 +161,10 @@ export interface ChatMode {
   accessLevel: string | null
   executionMode: string | null
   instructions: string
+  /** Skills do projeto que o modo deixa ativas; `null` = modo não filtra (ver migração 020). */
+  skills: string[] | null
+  /** Rules do projeto que o modo deixa ativas; `null` = modo não filtra. */
+  rules: string[] | null
   createdAt: number
   updatedAt: number
 }
@@ -170,6 +179,8 @@ export interface ChatModeInput {
   accessLevel?: string | null
   executionMode?: string | null
   instructions?: string
+  skills?: string[] | null
+  rules?: string[] | null
 }
 
 interface ChatModeRow {
@@ -183,8 +194,24 @@ interface ChatModeRow {
   access_level: string | null
   execution_mode: string | null
   instructions: string
+  skills_json: string | null
+  rules_json: string | null
   created_at: number
   updated_at: number
+}
+
+/** Coluna TEXT com JSON de array; qualquer coisa fora disso vira `null` (modo não filtra). */
+function readNameColumn(raw: string | null): string[] | null {
+  if (raw === null) return null
+  try {
+    return normalizeNameList(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function writeNameColumn(names: string[] | null): string | null {
+  return names === null ? null : JSON.stringify(names)
 }
 
 function toMode(row: ChatModeRow): ChatMode {
@@ -199,16 +226,27 @@ function toMode(row: ChatModeRow): ChatMode {
     accessLevel: row.access_level,
     executionMode: row.execution_mode,
     instructions: row.instructions,
+    skills: readNameColumn(row.skills_json),
+    rules: readNameColumn(row.rules_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
 }
 
-function assertModeFields(input: { name?: unknown; description?: unknown; instructions?: unknown }): void {
+function assertModeFields(input: {
+  name?: unknown
+  description?: unknown
+  instructions?: unknown
+  skills?: unknown
+  rules?: unknown
+}): void {
   const nameErr = validatePromptFields({ name: input.name, description: input.description })
   if (nameErr !== null) throw new PromptValidationError(nameErr.field, nameErr.message)
   const instrErr = validateModeInstructions(input.instructions)
   if (instrErr !== null) throw new PromptValidationError(instrErr.field, instrErr.message)
+  for (const err of [validateModeCatalog(input.skills, 'skills'), validateModeCatalog(input.rules, 'rules')]) {
+    if (err !== null) throw new PromptValidationError(err.field, err.message)
+  }
 }
 
 export function listChatModes(projectId: string): ChatMode[] {
@@ -244,6 +282,8 @@ export function createChatMode(input: ChatModeInput): ChatMode {
     accessLevel: input.accessLevel ?? null,
     executionMode: input.executionMode ?? null,
     instructions: input.instructions ?? '',
+    skills: normalizeNameList(input.skills),
+    rules: normalizeNameList(input.rules),
     createdAt: now,
     updatedAt: now,
   }
@@ -251,8 +291,8 @@ export function createChatMode(input: ChatModeInput): ChatMode {
     getDb()
       .prepare(
         `INSERT INTO chat_modes
-           (id, project_id, name, description, provider, model, reasoning_level, access_level, execution_mode, instructions, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, project_id, name, description, provider, model, reasoning_level, access_level, execution_mode, instructions, skills_json, rules_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         mode.id,
@@ -265,6 +305,8 @@ export function createChatMode(input: ChatModeInput): ChatMode {
         mode.accessLevel,
         mode.executionMode,
         mode.instructions,
+        writeNameColumn(mode.skills),
+        writeNameColumn(mode.rules),
         now,
         now
       )
@@ -292,13 +334,16 @@ export function updateChatMode(id: string, patch: ChatModePatch): ChatMode {
     accessLevel: patch.accessLevel !== undefined ? patch.accessLevel : existing.accessLevel,
     executionMode: patch.executionMode !== undefined ? patch.executionMode : existing.executionMode,
     instructions: patch.instructions ?? existing.instructions,
+    skills: patch.skills !== undefined ? normalizeNameList(patch.skills) : existing.skills,
+    rules: patch.rules !== undefined ? normalizeNameList(patch.rules) : existing.rules,
     updatedAt: Date.now(),
   }
   try {
     getDb()
       .prepare(
         `UPDATE chat_modes SET name = ?, description = ?, provider = ?, model = ?, reasoning_level = ?,
-           access_level = ?, execution_mode = ?, instructions = ?, updated_at = ? WHERE id = ?`
+           access_level = ?, execution_mode = ?, instructions = ?, skills_json = ?, rules_json = ?,
+           updated_at = ? WHERE id = ?`
       )
       .run(
         next.name,
@@ -309,6 +354,8 @@ export function updateChatMode(id: string, patch: ChatModePatch): ChatMode {
         next.accessLevel,
         next.executionMode,
         next.instructions,
+        writeNameColumn(next.skills),
+        writeNameColumn(next.rules),
         next.updatedAt,
         id
       )
