@@ -307,10 +307,13 @@ export function PrincipalScreen(): ReactElement {
               codebaseBusy={ws.codebaseBusy}
               savedPrompts={ws.savedPrompts}
               chatModes={ws.chatModes}
+              modeCatalog={ws.modeCatalog}
               libraryError={ws.libraryError}
               onApplyChatMode={ws.applyChatMode}
               onSavePrompt={ws.savePromptFromComposer}
+              onUpdateSavedPrompt={ws.updateSavedPromptFromComposer}
               onSaveChatMode={ws.saveChatModeFromComposer}
+              onUpdateChatMode={ws.updateChatModeFromComposer}
               onDeleteSavedPrompt={(id) => void ws.deleteSavedPrompt(id)}
               onDeleteChatMode={(id, name) => void ws.deleteChatMode(id, name)}
               updateComposer={ws.updateComposer}

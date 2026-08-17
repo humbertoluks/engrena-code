@@ -1,4 +1,6 @@
 import type { ChatModeItem } from '../services/prompt-library-service'
+import type { SkillLinkState } from '../services/skills-service'
+import type { RuleLinkState } from '../services/rules-service'
 import type { ThreadAccessLevel, ThreadExecutionMode, ThreadProvider } from '../services/threads-service'
 import { slugifyPromptName } from '../../services/prompts/prompt-spec.js'
 
@@ -121,4 +123,86 @@ export function validateChatModeName(rawName: string): PromptLibraryValidation<s
   const name = slugifyPromptName(rawName)
   if (name === '') return { ok: false, error: PROMPT_LIBRARY_COPY.modeNameRequired }
   return { ok: true, value: name }
+}
+
+// ── Catálogo do modo: skills/rules que ele deixa ativas (F28 §3.4) ───────────
+//
+// Semântica de filtro (decidida com o usuário): o modo restringe o que o projeto já vincula,
+// nunca liga o que o projeto não vinculou. Por isso o seletor só oferece o que o turno de fato
+// resolve — oferecer mais faria o modo parecer filtrar algo que nunca esteve no catálogo.
+
+export interface ModeCatalogOptions {
+  skills: string[]
+  rules: string[]
+}
+
+export const EMPTY_MODE_CATALOG: ModeCatalogOptions = { skills: [], rules: [] }
+
+/** Mesmo predicado de `resolveSkillsForProject` (`ps.enabled = 1 AND s.enabled = 1`). */
+export function selectableSkillNames(skills: readonly SkillLinkState[]): string[] {
+  return skills.filter((s) => s.linked && s.enabled && s.enabledInProject !== false).map((s) => s.name)
+}
+
+/** Mesmo predicado de `resolveForTurn` das rules (`enabled && activeInProject`). */
+export function selectableRuleNames(rules: readonly RuleLinkState[]): string[] {
+  return rules.filter((r) => r.enabled && r.activeInProject).map((r) => r.name)
+}
+
+/**
+ * `null` = o modo não fala do assunto e o catálogo inteiro do projeto vale; `[]` = nenhuma.
+ * Desmarcar um item a partir de `null` materializa a lista com todos menos ele — é a única forma
+ * de sair do "sem filtro" sem perder o resto. Remarcar tudo NÃO volta para `null`: lista explícita
+ * congela o catálogo de hoje, e quem quer acompanhar o projeto usa o botão "Todas".
+ */
+export function toggleModeCatalogName(
+  current: readonly string[] | null,
+  name: string,
+  all: readonly string[]
+): string[] | null {
+  if (current === null) return all.filter((item) => item !== name)
+  if (current.includes(name)) return current.filter((item) => item !== name)
+  return all.filter((item) => current.includes(item) || item === name)
+}
+
+/** Sem filtro, tudo aparece marcado — é o que o turno vai receber. */
+export function isModeCatalogChecked(current: readonly string[] | null, name: string): boolean {
+  return current === null || current.includes(name)
+}
+
+// ── Formulário de modo (criar e editar) ──────────────────────────────────────
+
+export interface ChatModeFormDraft {
+  name: string
+  instructions: string
+  skills: string[] | null
+  rules: string[] | null
+}
+
+export const EMPTY_CHAT_MODE_FORM: ChatModeFormDraft = {
+  name: '',
+  instructions: '',
+  skills: null,
+  rules: null,
+}
+
+/** Pré-preenche o formulário de edição a partir do modo salvo, sem alias das listas. */
+export function chatModeFormFrom(mode: ChatModeItem): ChatModeFormDraft {
+  return {
+    name: mode.name,
+    instructions: mode.instructions,
+    skills: mode.skills === null ? null : [...mode.skills],
+    rules: mode.rules === null ? null : [...mode.rules],
+  }
+}
+
+/**
+ * Modo renomeado: a pill segue o novo nome se era ele o selecionado — senão devolve a **mesma
+ * referência**, como `clearChatModeIfSelected`.
+ */
+export function renameChatModeIfSelected<TDraft extends PromptLibraryDraft>(
+  draft: TDraft,
+  previousName: string,
+  nextName: string
+): TDraft {
+  return draft.chatMode === previousName ? { ...draft, chatMode: nextName } : draft
 }
