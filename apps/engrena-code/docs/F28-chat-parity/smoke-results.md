@@ -257,11 +257,47 @@ projeto). UI dirigida por `playwright-cli` em `localhost:5173`; conferência por
 | 8 | modo vindo de `.engrena/modes/*.chatmode.md` | aparece com "(do repositório)" e **sem** ✎ e sem × — somente leitura | **pass** |
 | 9 | ✎ no prompt salvo do menu `/`, editar texto e nome, salvar | mesmo `id`, corpo e nome novos, sintaxe `${input:…}` preservada | **pass** |
 
-**Nota de leitura, não defeito:** a lista de modos/prompts só é recarregada na troca de projeto ou depois
-de uma mutação. Um `.chatmode.md` criado no repo com o projeto já selecionado aparece na API na hora, mas
-no picker só depois de trocar de projeto ou recarregar. É o comportamento que já existia antes desta
-fatia.
+**Achado desta rodada, fechado em seguida:** a lista de modos/prompts só era recarregada na troca de
+projeto ou depois de uma mutação nossa. Um `.chatmode.md` criado no repo com o projeto já selecionado
+aparecia na API na hora, mas no picker só depois de trocar de projeto. Comportamento anterior a esta
+fatia, tratado na seção abaixo.
 
 **Não exercitado:** turno pago com um modo editado pela UI. O caminho que o turno percorre é o mesmo já
 coberto na seção anterior (`createSkillSnapshot` + `composeBlockForTurn` a partir das colunas), e o que
 esta fatia acrescenta termina no PUT — provado acima por GET na API.
+
+
+---
+
+## Biblioteca acompanhando o repositório (2026-08-17)
+
+Fecha o achado da rodada anterior. Prompt e modo versionados no repo (`.engrena/prompts/*.prompt.md`,
+`.engrena/modes/*.chatmode.md`) são editados por fora da UI — por um `git pull`, por outro editor, pelo
+próprio agente. A biblioteca só recarregava na troca de projeto ou depois de uma mutação disparada por
+nós, então nada convidava a lista a se atualizar: o arquivo existia na API e não no picker.
+
+**Releitura no gesto, não watcher.** A lista só é olhada quando o usuário abre o menu `/` ou o picker de
+modo. Um GET local nesse instante entrega o mesmo resultado que um watcher entregaria, sem observar dois
+diretórios por projeto durante a sessão inteira nem carregar o ciclo de vida do watcher na troca de
+projeto. Se algum dia a lista precisar mudar **sem** o usuário abrir nada, aí o watcher se justifica.
+
+**Só na borda de abertura.** O gatilho `/` é recalculado a cada tecla enquanto o menu está aberto, e o
+picker também re-renderiza a cada clique. O disparo passa por `slashMenuJustOpened(anterior, atual)` e
+pelo `!open` do picker — sem isso, cada caractere digitado depois do `/` viraria um refetch.
+
+**Descarte por sequência.** `loadPromptLibrary` carimba a carga com um número crescente e ignora a
+resposta que não é a última pedida. Duas cargas podem estar em voo ao mesmo tempo (trocar de projeto e
+abrir o picker), e a antiga chegando depois sobrescreveria a lista com a do projeto anterior — corrida
+que já existia antes desta fatia, só que sem gesto que a tornasse fácil de provocar.
+
+### Verificação ao vivo
+
+Mesmo palco da seção anterior (app real, `userData` isolado, projeto `D:/temp/smokefx`), reproduzindo o
+achado antes de corrigir a leitura.
+
+| # | Gesto | Esperado | Resultado |
+|---|---|---|---|
+| 1 | abrir o picker com o projeto sem modos | "Nenhum modo salvo neste projeto." | **pass** |
+| 2 | criar `.engrena/modes/do-repo.chatmode.md` **com o projeto já aberto** e reabrir o picker, sem trocar de projeto | modo aparece como "do-repo (do repositório)" | **pass** |
+| 3 | criar `.engrena/prompts/do-repo.prompt.md` e abrir o menu `/` | prompt aparece com a descrição do frontmatter e o rótulo "(do repositório)" | **pass** |
+| 4 | digitar mais 5 caracteres com o menu `/` já aberto | contagem de GETs em `/api/projects/:id/prompts` **não muda** (4 antes, 4 depois) | **pass** |

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, matchSavedPromptNames, matchSlashCommands } from './commandTrigger.js'
+import {
+  extractSlashTrigger,
+  insertSavedPrompt,
+  insertSlashCommand,
+  matchSavedPromptNames,
+  matchSlashCommands,
+  slashMenuJustOpened,
+} from './commandTrigger.js'
 
 describe('extractSlashTrigger', () => {
   it('opens only when / anchors the very start of the text', () => {
@@ -75,5 +82,20 @@ describe('insertSavedPrompt', () => {
     const result = insertSavedPrompt('/rev', 'Revise ${input:arquivo:src/app.ts}', 4)
     expect(result.text).toBe('Revise src/app.ts')
     expect(result.selection).toEqual({ start: 7, end: 17 })
+  })
+})
+
+describe('slashMenuJustOpened', () => {
+  it('só a borda null → aberto conta', () => {
+    expect(slashMenuJustOpened(null, { query: '' })).toBe(true)
+  })
+
+  it('digitar com o menu já aberto não conta — senão cada tecla viraria um refetch', () => {
+    expect(slashMenuJustOpened({ query: 'ch' }, { query: 'che' })).toBe(false)
+  })
+
+  it('fechar não conta', () => {
+    expect(slashMenuJustOpened({ query: 'che' }, null)).toBe(false)
+    expect(slashMenuJustOpened(null, null)).toBe(false)
   })
 })
