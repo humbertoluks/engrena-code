@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   promptLibraryService,
   type ChatModeItem,
@@ -25,6 +25,11 @@ export interface PromptLibraryApi {
   chatModes: ChatModeItem[]
   /** Skills/rules que o projeto resolve hoje — é o que o seletor do modo pode oferecer. */
   modeCatalog: ModeCatalogOptions
+  /**
+   * Relê a biblioteca do projeto. O composer chama ao abrir o menu `/` e o picker de modo, porque
+   * `.prompt.md`/`.chatmode.md` do repositório e vínculos de skill/rule mudam por fora da UI.
+   */
+  reloadPromptLibrary: () => void
   libraryError: string | null
   applyChatMode: (name: string | null) => void
   savePromptFromComposer: (rawName: string) => Promise<boolean>
@@ -74,17 +79,23 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
   const [modeCatalog, setModeCatalog] = useState<ModeCatalogOptions>(EMPTY_MODE_CATALOG)
   const [libraryError, setLibraryError] = useState<string | null>(null)
 
+  // Sequência da última carga pedida. Duas cargas podem estar em voo ao mesmo tempo (trocar de
+  // projeto e abrir o picker, por exemplo) e a resposta antiga pode chegar depois da nova: sem o
+  // descarte por sequência, a lista de outro projeto sobrescreveria a atual.
+  const loadSeqRef = useRef(0)
+
   // As quatro chamadas saem juntas: o seletor de skills/rules do formulário de modo precisa do
   // catálogo no mesmo instante em que a lista de modos aparece, e encadear viraria waterfall.
   const loadPromptLibrary = useCallback(
     async (loadProjectId: string) => {
+      const seq = ++loadSeqRef.current
       const [prompts, modes, skills, rules] = await Promise.all([
         promptLibraryService.listPrompts(loadProjectId),
         promptLibraryService.listModes(loadProjectId),
         skillsService.listForProject(loadProjectId),
         rulesService.listForProject(loadProjectId),
       ])
-      if (!mountedRef.current) return
+      if (!mountedRef.current || seq !== loadSeqRef.current) return
       if (!prompts.error) setSavedPrompts(prompts.prompts)
       if (!modes.error) setChatModes(modes.modes)
       setModeCatalog({
@@ -94,6 +105,19 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
     },
     [mountedRef]
   )
+
+  /**
+   * Releitura sob demanda, disparada por gesto do usuário (abrir o menu `/` ou o picker de modo).
+   * É o que faz a biblioteca acompanhar o repositório: um `.chatmode.md` criado com o projeto já
+   * aberto não gera nenhuma mutação nossa, então nada convidava a lista a se atualizar.
+   * Deliberadamente **não** é um watcher de filesystem: a lista só é lida no instante em que o
+   * usuário abre a superfície, e um GET local nesse momento vale mais que observar dois diretórios
+   * por projeto durante a sessão inteira.
+   */
+  const reloadPromptLibrary = useCallback(() => {
+    if (!projectId) return
+    void loadPromptLibrary(projectId)
+  }, [projectId, loadPromptLibrary])
 
   useEffect(() => {
     if (!projectId) {
@@ -290,6 +314,7 @@ export function usePromptLibrary<TDraft extends PromptLibraryDraft>(input: {
     savedPrompts,
     chatModes,
     modeCatalog,
+    reloadPromptLibrary,
     libraryError,
     applyChatMode,
     savePromptFromComposer,

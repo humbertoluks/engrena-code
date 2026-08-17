@@ -314,6 +314,7 @@ export function PrincipalScreen(): ReactElement {
               onUpdateSavedPrompt={ws.updateSavedPromptFromComposer}
               onSaveChatMode={ws.saveChatModeFromComposer}
               onUpdateChatMode={ws.updateChatModeFromComposer}
+              onRefreshLibrary={ws.reloadPromptLibrary}
               onDeleteSavedPrompt={(id) => void ws.deleteSavedPrompt(id)}
               onDeleteChatMode={(id, name) => void ws.deleteChatMode(id, name)}
               updateComposer={ws.updateComposer}

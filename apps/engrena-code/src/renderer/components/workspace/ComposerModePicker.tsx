@@ -51,6 +51,8 @@ export interface ComposerModePickerProps {
   catalog: ModeCatalogOptions
   value: string | null
   disabled: boolean
+  /** Disparado ao abrir a lista — relê modos e catálogo, que mudam por fora da UI. */
+  onOpen?: () => void
   onApply: (name: string | null) => void
   onSave: (form: ChatModeFormDraft) => Promise<boolean>
   onUpdate: (
@@ -120,6 +122,7 @@ export function ComposerModePicker({
   catalog,
   value,
   disabled,
+  onOpen,
   onApply,
   onSave,
   onUpdate,
@@ -173,7 +176,12 @@ export function ComposerModePicker({
         type="button"
         disabled={disabled}
         aria-label={COPY.ariaOpen(current)}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // Só na abertura. Fora do updater do `setOpen` de propósito: updater tem de ser puro
+          // (o StrictMode chama duas vezes) e `open` do render corrente já é o valor certo aqui.
+          if (!open) onOpen?.()
+          setOpen((v) => !v)
+        }}
         className="flex items-center gap-[2px] rounded-md border border-border bg-surface px-xs py-[3px] text-[11px] disabled:opacity-50"
       >
         <span className="uppercase tracking-wide text-muted">{COPY.label}</span>

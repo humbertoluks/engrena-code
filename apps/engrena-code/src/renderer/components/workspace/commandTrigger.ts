@@ -21,6 +21,15 @@ export function extractSlashTrigger(text: string, cursor: number): SlashTrigger 
   return { query: afterSlash }
 }
 
+/**
+ * Transição "o menu `/` acabou de abrir" — o gatilho é recalculado a cada tecla enquanto o menu
+ * está aberto, então só a borda `null → aberto` serve para disparar efeito (recarregar a
+ * biblioteca do projeto). Sem isso, cada caractere digitado depois do `/` viraria um refetch.
+ */
+export function slashMenuJustOpened(previous: SlashTrigger | null, next: SlashTrigger | null): boolean {
+  return previous === null && next !== null
+}
+
 /** Filtra o catálogo estático pelo prefixo digitado (case-insensitive); ordem = catálogo (spec §5.1). */
 export function matchSlashCommands(query: string): SlashCommandName[] {
   const q = query.toLowerCase()

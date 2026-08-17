@@ -24,7 +24,13 @@ import {
   validateImageFile,
   type MentionQuery,
 } from './composer.logic'
-import { extractSlashTrigger, insertSavedPrompt, insertSlashCommand, type SlashTrigger } from './commandTrigger'
+import {
+  extractSlashTrigger,
+  insertSavedPrompt,
+  insertSlashCommand,
+  slashMenuJustOpened,
+  type SlashTrigger,
+} from './commandTrigger'
 import { deriveChatSurface, type ComposerPlaceholderKey } from './chatSurface.logic'
 import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { ComposerModePicker } from './ComposerModePicker'
@@ -131,6 +137,8 @@ export interface TaskComposerProps {
   ) => Promise<boolean>
   onDeleteSavedPrompt?: (id: string) => void
   onDeleteChatMode?: (id: string, name: string) => void
+  /** Relê prompts/modos/catálogo do projeto — chamado ao abrir o menu `/` e o picker de modo. */
+  onRefreshLibrary?: () => void
   updateComposer: (patch: Partial<ComposerDraft>) => void
   onAccessLevelChange: (accessLevel: ThreadAccessLevel) => void
   composerCatalog: ComposerCatalog | null
@@ -176,6 +184,7 @@ export function TaskComposer({
   onUpdateChatMode,
   onDeleteSavedPrompt,
   onDeleteChatMode,
+  onRefreshLibrary,
   updateComposer,
   onAccessLevelChange,
   composerCatalog,
@@ -252,6 +261,9 @@ export function TaskComposer({
   // gatilho `/` (âncora de início) não está ativo.
   function syncTriggers(text: string, cursor: number): void {
     const slash = extractSlashTrigger(text, cursor)
+    // Só na borda de abertura: o gatilho é recalculado a cada tecla enquanto o menu está aberto,
+    // e recarregar a cada caractere digitado depois do `/` seria uma rajada de GETs.
+    if (slashMenuJustOpened(slashTrigger, slash)) onRefreshLibrary?.()
     setSlashTrigger(slash)
     setMention(slash ? null : extractMentionQuery(text, cursor))
   }
@@ -602,6 +614,7 @@ export function TaskComposer({
                 catalog={modeCatalog}
                 value={composer.chatMode}
                 disabled={disabled}
+                onOpen={onRefreshLibrary}
                 onApply={onApplyChatMode}
                 onSave={onSaveChatMode}
                 onUpdate={onUpdateChatMode}
