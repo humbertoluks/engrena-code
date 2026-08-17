@@ -40,7 +40,7 @@ import { clearMessageFeedback, listFeedbackForThread, setMessageFeedback } from 
 import { UsageLimitExceededError } from '../runner/usage-limit-eval.js'
 import {
   clearAllowedToolsForThread,
-  clearBrokerGrantsForThread,
+  clearBrokerOutcomesForThread,
   grantAlwaysAllowedTool,
 } from '../runner/permission-broker.js'
 import {
@@ -739,7 +739,7 @@ async function handleDeleteThread(_req: IncomingMessage, res: ServerResponse, th
     const cleanup = await removeWorktreeIfSafe(project.path, thread.worktreePath, thread.id)
     deleteDiffsForThread(thread.id)
     clearAllowedToolsForThread(thread.id)
-    clearBrokerGrantsForThread(thread.id)
+    clearBrokerOutcomesForThread(thread.id)
     // Cache de sugestões é por thread e vive no processo: sem isto, apagar a thread deixava as
     // entradas (e a promessa em voo) presas até o app fechar.
     clearFollowups(thread.id)

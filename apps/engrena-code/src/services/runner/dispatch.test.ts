@@ -508,7 +508,7 @@ describe('dispatchNewThread', () => {
     const diagnosis = nativeDenialDiagnosis({
       toolName: 'Bash',
       decisionReasonType: 'mode',
-      brokerGranted: false,
+      brokerOutcome: 'never-requested',
     })
     const sensitiveCommand = 'sleep 30'
 
@@ -571,7 +571,7 @@ describe('dispatchNewThread', () => {
           toolName: string
           code: string
           message: string
-          brokerGranted?: boolean
+          brokerOutcome?: string
           toolUseId?: string
           decisionReasonType?: string | null
         }
@@ -582,8 +582,9 @@ describe('dispatchNewThread', () => {
     expect(denial?.message).toBe(diagnosis)
     expect(denial?.toolUseId).toBe('toolu_bg_bash_001')
     expect(denial?.decisionReasonType).toBe('mode')
-    // Nenhum gate concedido neste turno: o diagnóstico continua sendo o do caso "broker nunca viu".
-    expect(denial?.brokerGranted).toBe(false)
+    // Nenhuma consulta ao broker neste turno: o diagnóstico continua sendo o do caso "broker
+    // nunca viu a tool", agora nomeado em vez de derivado de um booleano (R09).
+    expect(denial?.brokerOutcome).toBe('never-requested')
 
     const toolLogs = listLogEntries({ kind: 'tool' })
     expect(toolLogs.some((e) => e.event === diagnosis)).toBe(true)

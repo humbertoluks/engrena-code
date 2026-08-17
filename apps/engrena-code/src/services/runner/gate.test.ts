@@ -125,12 +125,12 @@ describe('dois gates abertos na mesma thread', () => {
 
     // Resolver o primeiro não toca no segundo, e a thread continua em waiting_permission.
     expect(resolvePermissionGate(threadId, first.gate.requestId, true)).toEqual({ ok: true, toolName: 'Write' })
-    await expect(first.decision).resolves.toBe(true)
+    await expect(first.decision).resolves.toMatchObject({ allow: true })
     expect(hasOpenPermissionGate(threadId)).toBe(true)
     expect(getThread(threadId)?.state).toBe('waiting_permission')
 
     expect(resolvePermissionGate(threadId, second.gate.requestId, false)).toEqual({ ok: true, toolName: 'Bash' })
-    await expect(second.decision).resolves.toBe(false)
+    await expect(second.decision).resolves.toMatchObject({ allow: false })
     expect(hasOpenPermissionGate(threadId)).toBe(false)
     expect(getThread(threadId)?.state).toBe('running')
   })
@@ -154,7 +154,7 @@ describe('resolvePermissionGate', () => {
     expect(listOpenPermissionGates(owner)).toHaveLength(1)
 
     expect(resolvePermissionGate(owner, opened.gate.requestId, true)).toEqual({ ok: true, toolName: 'Write' })
-    await expect(opened.decision).resolves.toBe(true)
+    await expect(opened.decision).resolves.toMatchObject({ allow: true })
   })
 
   it('devolve not_found para gateId inexistente ou já consumido', () => {
@@ -197,7 +197,7 @@ describe('resolvePermissionGate', () => {
 
     const calls: Array<{ threadId: string; toolName: string }> = []
     resolvePermissionGate(threadId, denied.gate.requestId, false, { onGranted: (info) => calls.push(info) })
-    await expect(denied.decision).resolves.toBe(false)
+    await expect(denied.decision).resolves.toMatchObject({ allow: false })
     expect(calls).toEqual([])
 
     const allowed = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
@@ -223,8 +223,8 @@ describe('allowOpenPermissionGates (upgrade de nível mid-turn)', () => {
     if (!write.ok || !bash.ok) throw new Error('gate não abriu')
 
     expect(allowOpenPermissionGates(threadId)).toEqual([write.gate.requestId, bash.gate.requestId])
-    await expect(write.decision).resolves.toBe(true)
-    await expect(bash.decision).resolves.toBe(true)
+    await expect(write.decision).resolves.toMatchObject({ allow: true })
+    await expect(bash.decision).resolves.toMatchObject({ allow: true })
     expect(getThread(threadId)?.state).toBe('running')
   })
 
@@ -235,7 +235,7 @@ describe('allowOpenPermissionGates (upgrade de nível mid-turn)', () => {
     if (!write.ok || !bash.ok) throw new Error('gate não abriu')
 
     expect(allowOpenPermissionGates(threadId, 'auto-accept-edits')).toEqual([write.gate.requestId])
-    await expect(write.decision).resolves.toBe(true)
+    await expect(write.decision).resolves.toMatchObject({ allow: true })
     expect(listOpenPermissionGates(threadId).map((p) => p.toolName)).toEqual(['Bash'])
     // Ainda há gate aberto: a thread não pode voltar a running.
     expect(getThread(threadId)?.state).toBe('waiting_permission')
@@ -253,7 +253,7 @@ describe('expireOpenPermissionGates (cancel / fim de turno)', () => {
     const received = listen(threadId)
 
     expect(expireOpenPermissionGates(threadId, 'thread_cancelled')).toEqual([opened.gate.requestId])
-    await expect(opened.decision).resolves.toBe(false)
+    await expect(opened.decision).resolves.toMatchObject({ allow: false })
     expect(getThreadGate(opened.gate.requestId)).toMatchObject({
       state: 'expired',
       resolution: { allow: false, reason: 'thread_cancelled' },
@@ -277,11 +277,44 @@ describe('expireOpenPermissionGates (cancel / fim de turno)', () => {
     if (!gateA.ok || !gateB.ok) throw new Error('gate não abriu')
 
     expireOpenPermissionGates(a)
-    await expect(gateA.decision).resolves.toBe(false)
+    await expect(gateA.decision).resolves.toMatchObject({ allow: false })
     expect(hasOpenPermissionGate(b)).toBe(true)
 
     expireOpenPermissionGates(b)
     await gateB.decision
+  })
+})
+
+/**
+ * R09: com `decision` resolvendo só um booleano, "o usuário negou no card" e "ninguém respondeu"
+ * chegavam idênticos ao broker, e o diagnóstico da negação nativa acusava o CLI nos dois casos.
+ */
+describe('motivo do fechamento na continuação do hook', () => {
+  it('separa a negação do usuário do fail-closed por timeout', async () => {
+    const threadId = seedThread()
+
+    const denied = openPermissionGate({ threadId, toolName: 'Read', params: {} })
+    if (!denied.ok) throw new Error('gate não abriu')
+    resolvePermissionGate(threadId, denied.gate.requestId, false)
+    await expect(denied.decision).resolves.toEqual({ allow: false, reason: 'user_decision' })
+
+    const timedOut = openPermissionGate({ threadId, toolName: 'Read', params: {}, timeoutMs: 40 })
+    if (!timedOut.ok) throw new Error('gate não abriu')
+    await expect(timedOut.decision).resolves.toEqual({ allow: false, reason: 'permission_timeout' })
+  })
+
+  it('carrega o motivo também no allow e no cancel do turno', async () => {
+    const threadId = seedThread()
+
+    const allowed = openPermissionGate({ threadId, toolName: 'Write', params: {} })
+    if (!allowed.ok) throw new Error('gate não abriu')
+    resolvePermissionGate(threadId, allowed.gate.requestId, true)
+    await expect(allowed.decision).resolves.toEqual({ allow: true, reason: 'user_decision' })
+
+    const cancelled = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
+    if (!cancelled.ok) throw new Error('gate não abriu')
+    expireOpenPermissionGates(threadId, 'thread_cancelled')
+    await expect(cancelled.decision).resolves.toEqual({ allow: false, reason: 'thread_cancelled' })
   })
 })
 
@@ -293,7 +326,7 @@ describe('timeout fail-closed', () => {
     if (!opened.ok) throw new Error('gate não abriu')
     expect(hasOpenPermissionGate(threadId)).toBe(true)
 
-    await expect(opened.decision).resolves.toBe(false)
+    await expect(opened.decision).resolves.toMatchObject({ allow: false })
 
     expect(hasOpenPermissionGate(threadId)).toBe(false)
     expect(listOpenPermissionGates(threadId)).toEqual([])
@@ -313,7 +346,7 @@ describe('timeout fail-closed', () => {
     if (!opened.ok) throw new Error('gate não abriu')
 
     expect(resolvePermissionGate(threadId, opened.gate.requestId, true).ok).toBe(true)
-    await expect(opened.decision).resolves.toBe(true)
+    await expect(opened.decision).resolves.toMatchObject({ allow: true })
 
     await new Promise((r) => setTimeout(r, 90))
     // O timer não pode ter reaberto/reescrito a linha já resolvida.
@@ -454,7 +487,7 @@ describe('resolveQuestionGate', () => {
     expect(hasOpenPermissionGate(threadId)).toBe(true)
 
     expireOpenPermissionGates(threadId, 'turn_ended')
-    await expect(permission.decision).resolves.toBe(false)
+    await expect(permission.decision).resolves.toMatchObject({ allow: false })
   })
 })
 
@@ -507,7 +540,7 @@ describe('listOpenGates', () => {
 
     expireOpenPermissionGates(threadId, 'turn_ended')
     expireOpenQuestionGates(threadId, 'turn_ended', 'Turno encerrado.')
-    await expect(permission.decision).resolves.toBe(false)
+    await expect(permission.decision).resolves.toMatchObject({ allow: false })
     await expect(question.answer).rejects.toThrow('Turno encerrado.')
   })
 })

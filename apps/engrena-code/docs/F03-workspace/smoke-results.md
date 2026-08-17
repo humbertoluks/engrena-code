@@ -615,3 +615,24 @@ Nota sobre a fala do agente: depois do cancel ele escreveu que "caso 3 não rodo
 subiu". É falso — o servidor subiu e foi observado escutando na 8931. O cancel apenas o deixou sem o
 resultado da tool. Não é defeito do EngrenaCode, mas explica por que o transcript daquela thread
 parece contradizer esta evidência.
+
+### Correção do R09, fechada em 2026-08-17
+
+O achado saiu deste smoke e foi corrigido no mesmo lote. `brokerGranted` (booleano) deu lugar a
+`BrokerPermissionOutcome`, com cinco valores honestos: `granted`, `denied`, `expired`,
+`unavailable` e `never-requested`. O broker passou a registrar o que **respondeu** ao hook, não só
+o que concedeu, e a continuação do gate passou a entregar `{allow, reason}` — sem o motivo, negar
+no card e ninguém responder eram o mesmo `false`.
+
+A frase que motivou o achado (*"negou … sem consultar o broker do EngrenaCode"*) agora só aparece
+quando o hook de fato nunca perguntou. Negação do usuário virou *"Você negou a ferramenta X no card
+de permissão"*, com o conselho certo: pedir de novo e conceder, ou responder "Permitir todos" /
+"Sempre neste projeto" — nada de mandar revisar o nível de acesso por uma decisão que foi dele.
+
+O texto do R08 ficou intacto, com teste cobrando isso: é a mesma copy que já tinha sido paga uma vez.
+
+Limitações registradas de propósito: um body acima do cap (413) nega antes de existir `toolName` e
+cai em `never-brokered`; a granularidade continua por tool, com a última decisão vencendo; e
+`expired` cobre também o cancel de turno com card aberto.
+
+Gates: `tsc -b` exit 0, `pnpm test` **1855 testes / 161 arquivos** verde em duas rodadas, `vite build` ok.

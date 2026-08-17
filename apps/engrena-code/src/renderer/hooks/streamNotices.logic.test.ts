@@ -8,6 +8,7 @@ import {
   nativeDenialMessage,
   nativeDenialNotice,
   type CliVersionNoticeEvent,
+  type NativeDenialEvent,
   type WorkspaceNotice,
 } from './streamNotices.logic'
 
@@ -15,9 +16,9 @@ describe('nativeDenialMessage', () => {
   const ungated = {
     toolName: 'Bash',
     code: 'permission_native_denial',
-    brokerGranted: false,
+    brokerOutcome: 'never-requested',
     decisionReasonType: 'mode',
-  }
+  } satisfies NativeDenialEvent & { code: string }
 
   it('nomeia a tool e explica a ausência do card quando o broker nunca viu a tool', () => {
     const text = nativeDenialMessage(ungated)
@@ -51,10 +52,10 @@ describe('nativeDenialMessage', () => {
     const afterGrant = {
       toolName: 'Bash',
       code: 'permission_native_denial',
-      brokerGranted: true,
+      brokerOutcome: 'granted',
       decisionReasonType: 'hook',
       decisionReason: 'validate-git-log-limit.ps1 exige -n em git log',
-    }
+    } satisfies NativeDenialEvent & { code: string }
 
     it('diz que o EngrenaCode concedeu e que outro hook negou depois', () => {
       const text = nativeDenialMessage(afterGrant)
@@ -77,6 +78,79 @@ describe('nativeDenialMessage', () => {
     })
   })
 
+  // R09 (smoke de 2026-08-16): o usuário negou `Read` no card e a faixa dizia que o CLI tinha
+  // negado por conta própria, que nenhum card apareceu, e mandava revisar o nível de acesso.
+  describe('negação do próprio usuário no card', () => {
+    const denied = {
+      toolName: 'Read',
+      code: 'permission_native_denial',
+      brokerOutcome: 'denied',
+      decisionReasonType: 'hook',
+    } satisfies NativeDenialEvent & { code: string }
+
+    it('atribui a negação ao usuário, não ao CLI', () => {
+      const text = nativeDenialMessage(denied)
+      expect(text).toContain('Você negou a ferramenta Read')
+      expect(text).not.toContain('por conta própria')
+      expect(text).not.toContain('nenhum card apareceu')
+    })
+
+    it('ensina a liberar sem mandar mexer no nível de acesso', () => {
+      const text = nativeDenialMessage(denied)
+      expect(text).toContain('peça a ação de novo ao agente e conceda no card')
+      expect(text).toContain('Permitir todos')
+      expect(text).toContain('Sempre neste projeto')
+      expect(text).not.toContain('revise o nível de acesso')
+    })
+  })
+
+  describe('pedido expirado sem resposta', () => {
+    const expired = {
+      toolName: 'Bash',
+      code: 'permission_native_denial',
+      brokerOutcome: 'expired',
+    } satisfies NativeDenialEvent & { code: string }
+
+    it('diz que o card expirou e que o EngrenaCode negou por segurança', () => {
+      const text = nativeDenialMessage(expired)
+      expect(text).toContain('ficou sem resposta e expirou')
+      expect(text).toContain('negou por segurança')
+      expect(text).not.toContain('Você negou')
+      expect(text).not.toContain('por conta própria')
+    })
+
+    it('pede a ação de novo sem culpar o nível de acesso', () => {
+      const text = nativeDenialMessage(expired)
+      expect(text).toContain('responda ao card enquanto ele estiver na tela')
+      expect(text).not.toContain('revise o nível de acesso')
+    })
+  })
+
+  describe('pedido que o EngrenaCode não conseguiu abrir', () => {
+    const unavailable = {
+      toolName: 'Write',
+      code: 'permission_native_denial',
+      brokerOutcome: 'unavailable',
+    } satisfies NativeDenialEvent & { code: string }
+
+    it('assume a falha interna em vez de atribuí-la ao usuário ou ao CLI', () => {
+      const text = nativeDenialMessage(unavailable)
+      expect(text).toContain('não conseguiu abrir o pedido de permissão')
+      expect(text).toContain('falha interna do EngrenaCode')
+      expect(text).not.toContain('Você negou')
+      expect(text).not.toContain('por conta própria')
+      expect(text).not.toContain('revise o nível de acesso')
+    })
+  })
+
+  // Evento sem o campo (wire antigo, socket de outra versão) não pode virar acusação: cai no caso
+  // conservador, o mesmo de "o broker nunca foi consultado".
+  it('trata brokerOutcome ausente como "nunca consultado"', () => {
+    expect(nativeDenialMessage({ toolName: 'Bash' })).toBe(
+      nativeDenialMessage({ toolName: 'Bash', brokerOutcome: 'never-requested' })
+    )
+  })
+
   // O `message` do wire é o mesmo diagnóstico composto no runner a partir destes campos: repeti-lo
   // na faixa era a frase inteira duas vezes.
   it('ignora o message do wire em vez de concatenar o diagnóstico do runner', () => {
@@ -93,7 +167,7 @@ describe('nativeDenialNotice', () => {
     const notice = nativeDenialNotice({
       toolName: 'Bash',
       code: 'permission_native_denial',
-      brokerGranted: false,
+      brokerOutcome: 'never-requested',
     })
     expect(notice.kind).toBe('native_denial')
     expect(notice).toMatchObject({ toolName: 'Bash', code: 'permission_native_denial' })
@@ -104,7 +178,7 @@ describe('nativeDenialNotice', () => {
     const notice = nativeDenialNotice({
       toolName: 'Bash',
       code: 'permission_native_denial',
-      brokerGranted: true,
+      brokerOutcome: 'granted',
     })
     expect(notice.message).toContain('O EngrenaCode concedeu a ferramenta Bash')
   })

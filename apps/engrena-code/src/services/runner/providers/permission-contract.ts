@@ -278,9 +278,27 @@ export function assertPermissionContract(plan: PermissionContractSpawnPlan): Per
 }
 
 /**
- * Contexto de uma negação nativa. O parser do stream não consegue preencher `brokerGranted`
+ * O que o broker do EngrenaCode fez com uma tool **neste turno**.
+ *
+ * Mora neste módulo, e não em `permission-broker.ts` que o produz, pelo mesmo motivo dos nomes do
+ * hook logo acima: aqui é puro (não importa `http`, SQLite nem `electron`) e é o único ponto que
+ * as três superfícies conseguem compartilhar — o log do runner, o wire e a copy da faixa âmbar
+ * precisam da mesma partição de casos, e re-declará-la em cada uma foi como o R08 nasceu.
+ *
+ * `never-requested` não é gravado por ninguém: é o que a consulta responde quando não há registro,
+ * ou seja, o hook nunca perguntou por essa tool neste turno.
+ */
+export type BrokerPermissionOutcome =
+  | 'granted'
+  | 'denied'
+  | 'expired'
+  | 'unavailable'
+  | 'never-requested'
+
+/**
+ * Contexto de uma negação nativa. O parser do stream não consegue preencher `brokerOutcome`
  * (não conhece a thread), então quem diagnostica é `dispatch.ts`, único ponto que tem as duas
- * metades: o metadado do CLI e o fato de o broker ter concedido aquela tool no turno.
+ * metades: o metadado do CLI e o que o broker fez com aquela tool no turno.
  */
 export interface NativeDenialContext {
   toolName: string
@@ -288,32 +306,58 @@ export interface NativeDenialContext {
   decisionReasonType?: string | null
   /** Frase do CLI/hook que explica a negação (`decision_reason`), quando vem. */
   decisionReason?: string | null
-  /** `true` quando o broker do EngrenaCode já havia concedido esta tool neste turno. */
-  brokerGranted: boolean
+  /** O que o broker do EngrenaCode fez com esta tool neste turno. */
+  brokerOutcome: BrokerPermissionOutcome
 }
 
 /**
- * Os dois casos que a negação nativa cobre. Tratá-los como um só era o defeito R08: a copy
- * afirmava sempre `never-brokered` e mandava revisar o nível de acesso, mesmo quando o card
- * apareceu, o usuário concedeu e outro hook `PreToolUse` negou depois.
+ * Os casos que a negação nativa cobre. Tratá-los como um só era o defeito R08 (a copy afirmava
+ * sempre `never-brokered` mesmo quando o card apareceu e o usuário concedeu); tratá-los como dois,
+ * derivados de um booleano, era o R09 — a negação **do usuário** no card era indistinguível de
+ * "o broker nunca viu a tool", e a frase mandava revisar o nível de acesso por uma decisão dele.
  */
-export type NativeDenialCase = 'never-brokered' | 'after-broker-grant'
+export type NativeDenialCase =
+  | 'never-brokered'
+  | 'after-broker-grant'
+  | 'after-user-denial'
+  | 'after-gate-expiry'
+  | 'broker-unavailable'
 
-export function nativeDenialCase(brokerGranted: boolean): NativeDenialCase {
-  return brokerGranted ? 'after-broker-grant' : 'never-brokered'
+const NATIVE_DENIAL_CASE_BY_OUTCOME: Record<BrokerPermissionOutcome, NativeDenialCase> = {
+  granted: 'after-broker-grant',
+  denied: 'after-user-denial',
+  expired: 'after-gate-expiry',
+  unavailable: 'broker-unavailable',
+  'never-requested': 'never-brokered',
+}
+
+export function nativeDenialCase(outcome: BrokerPermissionOutcome): NativeDenialCase {
+  return NATIVE_DENIAL_CASE_BY_OUTCOME[outcome]
 }
 
 /** Teto do texto vindo do CLI: é frase de hook de terceiro, não pode virar parede de log. */
 export const NATIVE_DENIAL_REASON_MAX_CHARS = 300
 
+/** Primeira frase do log, por caso. Nunca embute command/tool_input. */
+function nativeDenialLead(denialCase: NativeDenialCase, tool: string): string {
+  switch (denialCase) {
+    case 'after-broker-grant':
+      return `O broker do EngrenaCode concedeu a ferramenta ${tool} e outro hook PreToolUse do Claude CLI negou em seguida.`
+    case 'after-user-denial':
+      return `O usuário negou a ferramenta ${tool} no card de permissão do EngrenaCode, e o Claude CLI registrou a negação.`
+    case 'after-gate-expiry':
+      return `O pedido de permissão da ferramenta ${tool} ficou sem resposta no card do EngrenaCode e o fail-closed negou.`
+    case 'broker-unavailable':
+      return `O EngrenaCode não conseguiu abrir o pedido de permissão da ferramenta ${tool} e negou por falha interna, sem decisão do usuário nem do Claude CLI.`
+    case 'never-brokered':
+      return `Aprovação nativa do Claude CLI negou a ferramenta ${tool} sem consultar o broker do EngrenaCode.`
+  }
+}
+
 /** Diagnóstico PT-BR persistido em log e emitido no WS. Nunca embute command/tool_input. */
 export function nativeDenialDiagnosis(context: NativeDenialContext): string {
   const tool = context.toolName.trim() === '' ? 'desconhecida' : context.toolName.trim()
-  const parts = [
-    nativeDenialCase(context.brokerGranted) === 'after-broker-grant'
-      ? `O broker do EngrenaCode concedeu a ferramenta ${tool} e outro hook PreToolUse do Claude CLI negou em seguida.`
-      : `Aprovação nativa do Claude CLI negou a ferramenta ${tool} sem consultar o broker do EngrenaCode.`,
-  ]
+  const parts = [nativeDenialLead(nativeDenialCase(context.brokerOutcome), tool)]
   const reasonType = (context.decisionReasonType ?? '').trim()
   if (reasonType !== '') parts.push(`Motivo: ${reasonType}.`)
   const reason = (context.decisionReason ?? '').trim()

@@ -18,13 +18,13 @@ const {
   resolvePermissionGate,
 } = await import('./gate.js')
 const {
+  brokerOutcomeForTool,
   clearAllowedToolsForThread,
-  clearBrokerGrantsForThread,
+  clearBrokerOutcomesForThread,
   createPermissionServer,
   grantAlwaysAllowedTool,
   isToolAllowedForThread,
   rememberAllowedTool,
-  wasToolGrantedByBroker,
 } = await import('./permission-broker.js')
 
 const fixtures: string[] = []
@@ -159,20 +159,21 @@ describe('createPermissionServer', () => {
 /**
  * R08: sem este registro, a negação nativa não distingue "o CLI negou sem consultar o broker" de
  * "o broker concedeu e outro hook `PreToolUse` negou depois", e a faixa afirmava sempre a primeira.
+ * R09: com um booleano, "o usuário negou no card" também caía em "o broker nunca viu a tool".
  */
-describe('grants do broker (diagnóstico da negação nativa)', () => {
+describe('decisões do broker (diagnóstico da negação nativa)', () => {
   it('registra o allow da política do nível', async () => {
     const threadId = seedThread('auto-accept-edits')
     const server = await createPermissionServer(threadId)
 
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('never-requested')
     await ask(server, 'Write', { file_path: 'a.txt' })
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(true)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('granted')
 
     server.close()
   }, 10000)
 
-  it('registra a decisão do usuário no card e ignora a negação', async () => {
+  it('registra a decisão do usuário no card, allow e deny', async () => {
     const threadId = seedThread()
     const seen: PermissionRequestInfo[] = []
     const server = await createPermissionServer(threadId, (info) => seen.push(info))
@@ -181,36 +182,71 @@ describe('grants do broker (diagnóstico da negação nativa)', () => {
     await waitFor(() => seen.length === 1)
     resolvePermissionGate(threadId, seen[0].requestId, true)
     await allowed
-    expect(wasToolGrantedByBroker(threadId, 'Bash')).toBe(true)
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('granted')
 
     const denied = ask(server, 'Write', { file_path: 'a.txt' })
     await waitFor(() => seen.length === 2)
     resolvePermissionGate(threadId, seen[1].requestId, false)
     await denied
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('denied')
 
     server.close()
   }, 10000)
 
-  it('zera no turno seguinte: grant velho não explica negação nova', async () => {
+  // O defeito R09 em uma linha: negar no card, não responder e nunca ser perguntado precisam ser
+  // três fatos distintos aqui, senão as duas superfícies acusam o CLI de ter negado sozinho.
+  it('não colapsa a negação do usuário com o timeout nem com a tool que nunca passou pelo hook', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info), { timeoutMs: 60 })
+
+    const denied = ask(server, 'Read', { file_path: 'a.txt' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
+    await denied
+
+    // Sem resposta nenhuma: o fail-closed do gate fecha este sozinho.
+    await ask(server, 'Bash', { command: 'ls' })
+
+    expect(brokerOutcomeForTool(threadId, 'Read')).toBe('denied')
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('expired')
+    expect(brokerOutcomeForTool(threadId, 'WebFetch')).toBe('never-requested')
+
+    server.close()
+  }, 10000)
+
+  it('registra unavailable quando o gate não persiste (thread apagada mid-turn)', async () => {
+    // Thread que não existe no SQLite: createThreadGate viola a FK, o gate nunca abre e o broker
+    // nega sem chegar ao usuário. Nem decisão dele, nem do CLI.
+    const threadId = 'thr_apagada_mid_turn'
+    const server = await createPermissionServer(threadId)
+
+    const res = await ask(server, 'Write', { file_path: 'a.txt' })
+    expect(((await res.json()) as { allow: boolean }).allow).toBe(false)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('unavailable')
+
+    server.close()
+  }, 10000)
+
+  it('zera no turno seguinte: decisão velha não explica negação nova', async () => {
     const threadId = seedThread('auto-accept-edits')
     const first = await createPermissionServer(threadId)
     await ask(first, 'Write', { file_path: 'a.txt' })
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(true)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('granted')
     first.close()
 
     const second = await createPermissionServer(threadId)
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('never-requested')
     second.close()
   }, 10000)
 
-  it('clearBrokerGrantsForThread esquece a thread (DELETE)', async () => {
+  it('clearBrokerOutcomesForThread esquece a thread (DELETE)', async () => {
     const threadId = seedThread('auto-accept-edits')
     const server = await createPermissionServer(threadId)
     await ask(server, 'Write', { file_path: 'a.txt' })
 
-    clearBrokerGrantsForThread(threadId)
-    expect(wasToolGrantedByBroker(threadId, 'Write')).toBe(false)
+    clearBrokerOutcomesForThread(threadId)
+    expect(brokerOutcomeForTool(threadId, 'Write')).toBe('never-requested')
 
     server.close()
   }, 10000)

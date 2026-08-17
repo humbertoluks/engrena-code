@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws'
+import type { BrokerPermissionOutcome } from './providers/permission-contract.js'
 
 export type StreamEvent =
   | { type: 'message.delta'; threadId: string; text: string }
@@ -34,10 +35,10 @@ export type StreamEvent =
   /**
    * Negação da aprovação nativa do Claude CLI — metadata only, sem tool_input.
    *
-   * `brokerGranted` é o que separa os dois casos e existe porque a UI não consegue derivá-lo:
-   * `false` = o CLI negou sem passar pelo broker e nenhum card apareceu; `true` = o broker
-   * concedeu e outro hook `PreToolUse` negou depois (o card apareceu e o nível de acesso da
-   * thread é irrelevante para a causa).
+   * `brokerOutcome` é o que separa os casos e existe porque a UI não consegue derivá-lo: o que o
+   * broker do EngrenaCode fez com aquela tool neste turno (concedeu, o usuário negou, expirou sem
+   * resposta, falhou ao abrir o pedido, ou nunca foi consultado). Era um booleano `brokerGranted`
+   * até o R09, e por isso a faixa acusava o CLI de negar sozinho uma tool que o usuário recusou.
    */
   | {
       type: 'permission.native_denial'
@@ -45,7 +46,7 @@ export type StreamEvent =
       toolName: string
       code: 'permission_native_denial'
       message: string
-      brokerGranted: boolean
+      brokerOutcome: BrokerPermissionOutcome
       toolUseId?: string
       decisionReasonType?: string | null
       /** `decision_reason` do CLI: a frase de quem negou, quando o payload traz. */

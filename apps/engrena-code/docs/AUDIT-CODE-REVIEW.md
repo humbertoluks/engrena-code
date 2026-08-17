@@ -28,10 +28,12 @@ Artefato vivo das revisões full-base (`audit-full-base` → `review-architectur
 
 | | 🔴 | 🟡 | Tipos de regra (abertos) |
 |--|----|----|-----------------|
-| Achados abertos | 0 | 1 | 1 |
+| Achados abertos | 0 | 0 | 0 |
 | Problemas corrigidos (tipos / linhas C) | — | — | 69 (C01–C57 intactos + C58–C69 novos) |
 
 Abertura da contagem de 2026-08-12 (7 🔴 / 12 🟡) para hoje: 17 fechados (C58–C69), 2 **deferidos por decisão** (A02 e a parte `hasInflight` do A05), 1 continua aberto e foi estreitado pelo smoke ao vivo de 2026-08-13 (D08) e 2 achados **novos** registrados (R07 na remediação, R08 no smoke).
+
+**Atualização de 2026-08-17.** O **R09 fechou** e com ele a passagem inteira: **zero achados abertos**. A correção trocou o booleano do broker por uma decisão nomeada e fez log e faixa âmbar lerem a mesma partição de casos, que é o que o R08 já tinha ensinado a não duplicar. Gates: `tsc -b` exit 0, **1855/1855** testes em 161 arquivos (verde em duas rodadas), `vite build` ok.
 
 **Atualização de 2026-08-16.** O smoke ao vivo previsto rodou e **fechou A09 e D08 de uma vez**: as quatro formas de Bash passaram pelo `PreToolUse` contra `claude` 2.1.233, e o Parar em turno bloqueado por servidor em foreground cancelou a tool, matou o processo e assentou a thread. Resta **um** 🟡 aberto, **novo, achado nesse mesmo smoke**: **R09** — negar pelo card faz o log e a faixa âmbar dizerem que o CLI negou "sem consultar o broker".
 
@@ -90,6 +92,8 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 **Veredito:** o lote **deixou de estar bloqueado por 🔴**, mas **não está liberado**. Todos os 7 🔴 e 10 dos 12 🟡 de 2026-08-12 foram fechados no código desta branch (C58–C69), com `tsc -b` exit 0 e suíte completa verde. Restam 5 🟡 abertos: dois **deferidos de propósito** (A02, `hasInflight` do A05), dois achados **novos** (R07 na remediação, R08 encontrado no smoke ao vivo) e **D08**, agora estreitado. O smoke Electron real rodou em 2026-08-13 contra `claude` 2.1.231 e passou em permissão inline, allowlist, resume, export e Bash background sem órfão; falta apenas o Cancel explícito em turno foreground. O critério de UI de F03 deixou de estar sem evidência. C01–C57 permanecem válidos.
 
+**Atualização do veredito (2026-08-17):** com o R09 fechado, não resta achado aberto desta passagem. O que segurava o "liberado" era a falta de evidência ao vivo (D08/A09) e a copy que mentia sobre quem negou (R08/R09); os dois grupos fecharam com smoke real e com a partição de casos única.
+
 **Corrigido nesta passagem (2026-08-13)**
 
 - **Segurança de parse:** R01 + D05 — `stream-json-parse.ts` itera com `isRecord` por elemento (cast `as ContentBlock[]` e a interface órfã sumiram); o loop de parse/dispatch em `cli-driver.ts` ganhou `try/catch` próprio que **não** loga a linha crua (podia ecoar `tool_input`) e passa o erro por `sanitizeProcessError`.
@@ -101,8 +105,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 
 **Ainda aberto (por que o veredito não é "liberado")**
 
-1. ~~**D08**~~, ~~**R07**~~, ~~**A02**/**A05**~~, ~~**A09**~~ — todos fechados até 2026-08-16; a linha de cada um em §2 diz onde e com que evidência.
-2. **R09** — único aberto: negar pelo card é relatado como negação nativa "sem consultar o broker" (achado novo do smoke de 2026-08-16, ver §2).
+Nenhum. Todos os achados desta passagem estão fechados: D08, R07, A02/A05 e A09 até 2026-08-16, e o R09 em 2026-08-17. A linha de cada um em §2 diz onde e com que evidência.
 
 ### Por Stack (abertos)
 
@@ -127,7 +130,7 @@ Só mova o item de **Abertos → Corrigidos** quando **tudo** abaixo for verdade
 | R07 | `Node.js` | 🟡 | rob | `runtime-metrics.ts` | **FECHADO em `ed17966`** (fatia B2), e o registro só não tinha sido atualizado. `turnProcessCount` não existe mais: a métrica virou o par honesto `recordProviderProcessSpawned` / `recordProviderProcessExited`, junto com a `TurnSession` única | [R-metric-setter-semantic-drift](#r-metric-setter-semantic-drift) |
 | D08 | `Vitest` | 🟡 | del | `docs/F03-workspace/smoke-results.md` | **FECHADO em 2026-08-16**. O que faltava era o Cancel explícito em turno longo **em foreground**, e o palco veio do caso `foreground-server` do A09: com `python -m http.server 8931` bloqueando a tool, o Parar produziu `Bash (cancelled)` no mesmo segundo, matou o processo e liberou a porta em menos de 2 s, assentou a thread em `cancelled` e não deixou gate aberto | [R-missing-smoke-evidence](#r-missing-smoke-evidence) |
 | R08 | `React` | 🟡 | rob | `renderer/hooks/streamNotices.logic.ts` | **FECHADO em 2026-08-16** (`da022fa`). O broker registra o que concedeu no turno e o evento `permission.native_denial` carrega `brokerGranted`, que separa "o CLI negou sem consultar o broker" de "o broker concedeu e outro hook `PreToolUse` negou depois" — no segundo caso a copy deixou de mandar revisar o accessLevel, que não manda em hook de terceiro. O diagnóstico saiu do parser para o `dispatch`, único ponto com as duas metades. Sobre o `systemMessage` citado no achado: **esse campo não existe** no payload; o equivalente com evidência in-repo é `decision_reason`, agora propagado. Validado ao vivo (negação de `git log` por hook global do usuário) | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
-| R09 | `Node.js` | 🟡 | rob | `providers/permission-contract.ts` (`nativeDenialCase`) + `permission-broker.ts` | **NOVO em 2026-08-16**, achado no smoke do A09. Negar uma tool **pelo card do EngrenaCode** produz `permission_denied` no stream, e as duas superfícies afirmam o contrário do que houve: o log diz "negou … sem consultar o broker do EngrenaCode" e a faixa âmbar diz "sem pedir permissão ao EngrenaCode, por isso nenhum card apareceu no chat", mandando revisar o nível de acesso. O card apareceu e quem negou foi o usuário. Causa: `NativeDenialCase` tem só dois valores derivados de `brokerGranted`, e o broker registra apenas concessões (`recordBrokerGrant`) — "negado por mim" é indistinguível de "nunca visto". Mesma classe do R08, que fechou só o outro caso | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
+| R09 | `Node.js` | 🟡 | rob | `providers/permission-contract.ts` + `permission-broker.ts` + `gate.ts` | **FECHADO em 2026-08-17.** O booleano `brokerGranted` virou `BrokerPermissionOutcome` (`granted`/`denied`/`expired`/`unavailable`/`never-requested`), produzido pelo broker e propagado até as duas copies por uma partição única (`nativeDenialCase`), importada pelo renderer em vez de reescrita. Para distinguir "o usuário negou" de "ninguém respondeu", a continuação do gate passou a entregar `{allow, reason}` — o motivo vem do próprio `closeGate`, não de uma releitura da linha depois do fato. Nada mudou de política: a resposta ao hook continua sendo o mesmo `allow`. Limitações conhecidas e aceitas: body acima do cap (413) nega antes de existir `toolName`, então cai em `never-brokered`; a granularidade segue por tool, com a última decisão vencendo; e `expired` cobre também o cancel de turno | [R-native-denial-copy-overreach](#r-native-denial-copy-overreach) |
 
 ### Notas de deferimento (resolvidas em 2026-08-16)
 

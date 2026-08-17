@@ -138,7 +138,11 @@ describe('permission-contract — supervised CLI compliance', () => {
   })
 
   it('builds Portuguese diagnosis without embedding command bodies', () => {
-    const msg = nativeDenialDiagnosis({ toolName: 'Bash', decisionReasonType: 'mode', brokerGranted: false })
+    const msg = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'mode',
+      brokerOutcome: 'never-requested',
+    })
     expect(msg).toContain('Bash')
     expect(msg).toContain('mode')
     expect(msg).toContain('EngrenaCode')
@@ -147,22 +151,66 @@ describe('permission-contract — supervised CLI compliance', () => {
   })
 
   // R08: a mesma frase para os dois casos afirmava que nenhum card apareceu inclusive quando o
-  // usuário tinha acabado de conceder no card.
-  it('separates "broker never saw the tool" from "denied after the broker granted"', () => {
-    expect(nativeDenialCase(false)).toBe('never-brokered')
-    expect(nativeDenialCase(true)).toBe('after-broker-grant')
+  // usuário tinha acabado de conceder no card. R09: e também quando ele tinha acabado de negar.
+  it('maps every broker outcome to its own denial case', () => {
+    expect(nativeDenialCase('never-requested')).toBe('never-brokered')
+    expect(nativeDenialCase('granted')).toBe('after-broker-grant')
+    expect(nativeDenialCase('denied')).toBe('after-user-denial')
+    expect(nativeDenialCase('expired')).toBe('after-gate-expiry')
+    expect(nativeDenialCase('unavailable')).toBe('broker-unavailable')
 
-    const ungated = nativeDenialDiagnosis({ toolName: 'Bash', decisionReasonType: 'mode', brokerGranted: false })
+    const cases = (['never-requested', 'granted', 'denied', 'expired', 'unavailable'] as const).map(
+      nativeDenialCase
+    )
+    expect(new Set(cases).size).toBe(cases.length)
+  })
+
+  it('separates "broker never saw the tool" from "denied after the broker granted"', () => {
+    const ungated = nativeDenialDiagnosis({
+      toolName: 'Bash',
+      decisionReasonType: 'mode',
+      brokerOutcome: 'never-requested',
+    })
     expect(ungated).toContain('sem consultar o broker do EngrenaCode')
 
     const afterGrant = nativeDenialDiagnosis({
       toolName: 'Bash',
       decisionReasonType: 'hook',
-      brokerGranted: true,
+      brokerOutcome: 'granted',
     })
     expect(afterGrant).toContain('concedeu a ferramenta Bash')
     expect(afterGrant).toContain('outro hook PreToolUse')
     expect(afterGrant).not.toContain('sem consultar')
+  })
+
+  // R09 (smoke ao vivo de 2026-08-16): o usuário negou `Read` no card e o log dizia que o CLI
+  // tinha negado sozinho, sem consultar o broker.
+  it('names the user as the author of the denial instead of the CLI', () => {
+    const denied = nativeDenialDiagnosis({
+      toolName: 'Read',
+      decisionReasonType: 'hook',
+      brokerOutcome: 'denied',
+    })
+    expect(denied).toContain('usuário negou a ferramenta Read')
+    expect(denied).toContain('card de permissão do EngrenaCode')
+    expect(denied).not.toContain('sem consultar o broker')
+    expect(denied).not.toContain('por conta própria')
+  })
+
+  it('tells a timed-out request apart from a user denial', () => {
+    const expired = nativeDenialDiagnosis({ toolName: 'Bash', brokerOutcome: 'expired' })
+    expect(expired).toContain('ficou sem resposta')
+    expect(expired).toContain('fail-closed')
+    expect(expired).not.toContain('usuário negou')
+    expect(expired).not.toContain('sem consultar o broker')
+  })
+
+  it('blames the EngrenaCode itself when the request could not even be opened', () => {
+    const unavailable = nativeDenialDiagnosis({ toolName: 'Write', brokerOutcome: 'unavailable' })
+    expect(unavailable).toContain('não conseguiu abrir o pedido de permissão')
+    expect(unavailable).toContain('falha interna')
+    expect(unavailable).not.toContain('usuário negou')
+    expect(unavailable).not.toContain('sem consultar o broker')
   })
 
   it('carries the CLI explanation when it comes, and stays quiet when it does not', () => {
@@ -170,18 +218,18 @@ describe('permission-contract — supervised CLI compliance', () => {
       toolName: 'Bash',
       decisionReasonType: 'hook',
       decisionReason: 'git log precisa de -n',
-      brokerGranted: true,
+      brokerOutcome: 'granted',
     })
     expect(withReason).toContain('Detalhe do CLI: git log precisa de -n')
 
-    const bare = nativeDenialDiagnosis({ toolName: 'Write', brokerGranted: false })
+    const bare = nativeDenialDiagnosis({ toolName: 'Write', brokerOutcome: 'never-requested' })
     expect(bare).not.toContain('Motivo:')
     expect(bare).not.toContain('Detalhe do CLI')
     expect(bare).not.toContain('  ')
   })
 
   it('does not leave the sentence without a subject when the tool name is blank', () => {
-    expect(nativeDenialDiagnosis({ toolName: '   ', brokerGranted: false })).toContain(
+    expect(nativeDenialDiagnosis({ toolName: '   ', brokerOutcome: 'never-requested' })).toContain(
       'ferramenta desconhecida'
     )
   })

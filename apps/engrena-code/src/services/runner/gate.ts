@@ -25,13 +25,23 @@ export interface GateAnswer {
 /** Fallback quando a continuação é abandonada sem motivo próprio (linha já fechada por outro caminho). */
 const GATE_ABANDONED_MESSAGE = 'Gate encerrado sem resposta do usuário.'
 
+/** Motivo com que a continuação é destravada quando não houve fechamento com motivo próprio. */
+const GATE_ABANDONED_REASON = 'gate_abandoned'
+
+/**
+ * O único motivo de fechamento que significa "o usuário respondeu ao card". Constante porque o
+ * broker decide por ele se a negação foi do usuário (`denied`) ou do fail-closed (`expired`), e um
+ * literal duplicado dos dois lados voltaria a colapsar os dois casos em silêncio.
+ */
+export const GATE_REASON_USER_DECISION = 'user_decision'
+
 /**
  * Dono único do fato "há um gate aberto nesta thread".
  *
  * O split que este módulo existe para manter:
  * - **SQLite** (`thread_gates`) guarda o fato declarativo — existe gate, de que tipo, com que
  *   payload, desde quando. Sobrevive a crash/restart.
- * - **Memória** guarda só o que não dá para persistir: a continuação `resolve(allow)` que destrava
+ * - **Memória** guarda só o que não dá para persistir: a continuação que destrava
  *   o socket HTTP do hook `PreToolUse`, ainda aberto do outro lado. Keyed por `gateId`.
  *
  * `threads.state = 'waiting_permission'` é escrito **só** por `openPermissionGate` e abandonado
@@ -42,7 +52,8 @@ const GATE_ABANDONED_MESSAGE = 'Gate encerrado sem resposta do usuário.'
 /**
  * O que a continuação entrega a quem está preso do outro lado — **discriminado por `kind`** porque
  * os dois lados esperam coisas diferentes e nenhum aceita o valor do outro:
- * - `permission` devolve um booleano ao hook `PreToolUse`, que só sabe allow/deny;
+ * - `permission` devolve allow/deny ao hook `PreToolUse` (mais o motivo do fechamento, que o
+ *   broker lê para saber quem negou);
  * - `question` devolve a **resposta** do usuário ao `tools/call` do MCP, ou `null` + `message` para
  *   rejeitar (o MCP responde `isError: true` com esse texto, contrato legado de `ask_user_question`).
  *
@@ -58,10 +69,22 @@ type GateOutcome =
 /** Outcome usado quando não há decisão real a entregar: nega a permissão, rejeita a pergunta. */
 const ABANDONED_OUTCOME: GateOutcome = { kind: 'permission', allow: false }
 
+/**
+ * O que o hook `PreToolUse` recebe de volta. `allow` é tudo de que ele precisa; `reason` existe
+ * para o broker, que precisa distinguir "o usuário negou no card" de "ninguém respondeu e o
+ * fail-closed negou" — dois fatos que um booleano colapsa, e cuja confusão era o defeito R09.
+ * O motivo vem do próprio `closeGate`, não de uma releitura da linha no SQLite depois do fato.
+ */
+export interface PermissionGateDecision {
+  allow: boolean
+  /** `user_decision`, `permission_timeout`, `access_level_upgrade`, `thread_cancelled`, … */
+  reason: string
+}
+
 interface PermissionContinuation {
   kind: 'permission'
   threadId: string
-  release: (outcome: Extract<GateOutcome, { kind: 'permission' }>) => void
+  release: (decision: PermissionGateDecision) => void
   timeoutId: ReturnType<typeof setTimeout> | null
 }
 
@@ -115,12 +138,15 @@ function detachContinuation(gateId: string): GateContinuation | undefined {
 /**
  * Único ponto onde o `kind` do outcome encontra o `kind` da continuação. Divergência (só possível
  * no caminho de abandono) erra fechado: nega a permissão, rejeita a pergunta.
+ *
+ * `reason` é o motivo do fechamento e viaja junto porque só a permissão o consome; a pergunta já
+ * carrega a própria explicação dentro do outcome.
  */
-function releaseContinuation(gateId: string, outcome: GateOutcome): void {
+function releaseContinuation(gateId: string, outcome: GateOutcome, reason: string): void {
   const entry = detachContinuation(gateId)
   if (entry === undefined) return
   if (entry.kind === 'permission') {
-    entry.release(outcome.kind === 'permission' ? outcome : { kind: 'permission', allow: false })
+    entry.release({ allow: outcome.kind === 'permission' ? outcome.allow : false, reason })
     return
   }
   entry.release(
@@ -178,12 +204,12 @@ function closeGate(
   const gate = closeThreadGate(gateId, state, { allow, reason })
   if (gate === null) {
     // Linha já fechada; se por algum motivo sobrou continuação (processo anterior), fail-closed.
-    releaseContinuation(gateId, ABANDONED_OUTCOME)
+    releaseContinuation(gateId, ABANDONED_OUTCOME, reason)
     return null
   }
 
   options.beforeRelease?.(gate)
-  releaseContinuation(gateId, outcome)
+  releaseContinuation(gateId, outcome, reason)
 
   emit(gate.threadId, {
     type: 'gate.resolved',
@@ -207,7 +233,7 @@ export interface OpenPermissionGateInput {
 }
 
 export type OpenPermissionGateResult =
-  | { ok: true; gate: PermissionRequestInfo; decision: Promise<boolean> }
+  | { ok: true; gate: PermissionRequestInfo; decision: Promise<PermissionGateDecision> }
   | { ok: false; code: 'gate_not_persisted' }
 
 /**
@@ -237,14 +263,14 @@ export function openPermissionGate(input: OpenPermissionGateInput): OpenPermissi
     return { ok: false, code: 'gate_not_persisted' }
   }
 
-  const decision = new Promise<boolean>((resolve) => {
+  const decision = new Promise<PermissionGateDecision>((resolve) => {
     const timeoutId = setTimeout(() => {
       closeGate(gate.id, 'expired', { kind: 'permission', allow: false }, 'permission_timeout')
     }, timeoutMs)
     continuations.set(gate.id, {
       kind: 'permission',
       threadId: gate.threadId,
-      release: (outcome) => resolve(outcome.allow),
+      release: resolve,
       timeoutId,
     })
   })
@@ -302,7 +328,7 @@ export function resolvePermissionGate(
   if (candidate.threadId !== threadId) return { ok: false, code: 'thread_mismatch' }
 
   const toolName = candidate.toolName ?? 'unknown'
-  const closed = closeGate(gateId, 'resolved', { kind: 'permission', allow }, 'user_decision', {
+  const closed = closeGate(gateId, 'resolved', { kind: 'permission', allow }, GATE_REASON_USER_DECISION, {
     beforeRelease: (gate) => {
       if (allow) options.onGranted?.({ threadId: gate.threadId, toolName })
     },
@@ -587,7 +613,7 @@ export function expireOrphanGates(): ThreadGate[] {
 /** Apenas para testes: nega continuações vivas, limpa timers e zera a tabela. */
 export function clearAllGatesForTesting(): void {
   for (const gateId of [...continuations.keys()]) {
-    releaseContinuation(gateId, ABANDONED_OUTCOME)
+    releaseContinuation(gateId, ABANDONED_OUTCOME, GATE_ABANDONED_REASON)
   }
   deleteAllThreadGatesForTesting()
 }

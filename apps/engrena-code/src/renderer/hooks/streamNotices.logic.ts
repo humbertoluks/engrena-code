@@ -7,9 +7,18 @@
  * agente dizendo que precisava de aprovação sem card nenhum na tela, porque o CLI negou a tool
  * nativamente, sem consultar o broker do EngrenaCode. É contrato quebrado, precisa ser visível.
  *
- * A negação nativa tem duas causas diferentes e só o runner sabe qual foi (`brokerGranted`); a
- * decisão de copy fica em `nativeDenialMessage`, que é puro e coberto por teste nos dois casos.
+ * A negação nativa tem causas diferentes e só o runner sabe qual foi (`brokerOutcome`); a decisão
+ * de copy fica em `nativeDenialMessage`, que é puro e coberto por teste em cada caso.
  */
+import {
+  PERMISSION_COMPOSER_ALLOW_ALL,
+  PERMISSION_COMPOSER_ALLOW_PROJECT,
+} from '../components/workspace/permissionComposer.logic'
+import {
+  nativeDenialCase,
+  type BrokerPermissionOutcome,
+  type NativeDenialCase,
+} from '../../services/runner/providers/permission-contract.js'
 
 /** Faixa cresce só até aqui; avisos antigos saem pela frente (a tarja não é histórico). */
 export const MAX_WORKSPACE_NOTICES = 20
@@ -41,8 +50,12 @@ export function mcpNotice(event: {
 
 export interface NativeDenialEvent {
   toolName: string
-  /** Vem do runner (`permission.native_denial`); `false` legado é o caso "broker nunca viu". */
-  brokerGranted?: boolean
+  /**
+   * Vem do runner (`permission.native_denial`): o que o broker do EngrenaCode fez com esta tool no
+   * turno. Opcional porque o evento chega do socket como JSON, e ausência cai em `never-requested`
+   * — o caso mais conservador, que não atribui a negação a ninguém do lado de cá.
+   */
+  brokerOutcome?: BrokerPermissionOutcome
   /** Código do CLI (`mode`, `hook`, …). */
   decisionReasonType?: string | null
   /** Frase de quem negou, quando o CLI manda (`decision_reason`). */
@@ -59,33 +72,63 @@ export function nativeDenialNotice(event: NativeDenialEvent & { code: string }):
   }
 }
 
+/** Abertura da faixa: quem negou, e se houve card na tela. */
+function denialLead(denialCase: NativeDenialCase, tool: string): string {
+  switch (denialCase) {
+    case 'after-broker-grant':
+      return `O EngrenaCode concedeu a ferramenta ${tool}, mas outro hook PreToolUse do Claude CLI negou em seguida.`
+    case 'after-user-denial':
+      return `Você negou a ferramenta ${tool} no card de permissão, e o Claude CLI encerrou a chamada.`
+    case 'after-gate-expiry':
+      return `O card de permissão da ferramenta ${tool} ficou sem resposta e expirou, então o EngrenaCode negou por segurança.`
+    case 'broker-unavailable':
+      return `O EngrenaCode não conseguiu abrir o pedido de permissão da ferramenta ${tool} e negou por segurança, sem chegar a te perguntar.`
+    case 'never-brokered':
+      return `O CLI negou a ferramenta ${tool} por conta própria, sem pedir permissão ao EngrenaCode, por isso nenhum card apareceu no chat.`
+  }
+}
+
+/** Fecho da faixa: o que fazer a seguir, sem mandar caçar problema no lugar errado. */
+function denialAdvice(denialCase: NativeDenialCase): string {
+  switch (denialCase) {
+    case 'after-broker-grant':
+      return 'O nível de acesso da thread não muda isso: quem negou foi um hook do próprio Claude CLI, configurado fora do EngrenaCode (nos settings do usuário ou do projeto). Ajuste esse hook ou peça ao agente um caminho que ele aceite.'
+    case 'after-user-denial':
+      return (
+        'Nada quebrou: foi a sua decisão. Para liberar, peça a ação de novo ao agente e conceda no card; ' +
+        `se não quiser ser perguntado outra vez por essa ferramenta, responda "${PERMISSION_COMPOSER_ALLOW_ALL}" ou "${PERMISSION_COMPOSER_ALLOW_PROJECT}".`
+      )
+    case 'after-gate-expiry':
+      return 'Peça a ação de novo ao agente e responda ao card enquanto ele estiver na tela.'
+    case 'broker-unavailable':
+      return 'Não foi decisão sua nem do Claude CLI: foi uma falha interna do EngrenaCode ao registrar o pedido. Peça a ação de novo ao agente.'
+    case 'never-brokered':
+      return 'Peça de novo ao agente; se repetir, revise o nível de acesso da thread.'
+  }
+}
+
 /**
- * Duas causas, duas mensagens. A versão anterior tinha uma só e afirmava, sempre, que o CLI negou
- * sem consultar o EngrenaCode e que nenhum card apareceu. No smoke ao vivo de 2026-08-16 os dois
- * fatos eram falsos: o card apareceu, o usuário concedeu, o broker liberou e um hook `PreToolUse`
- * global do usuário negou depois. A conclusão da frase antiga ("revise o nível de acesso") também
- * não ajudava, porque nível nenhum manda no hook de outra pessoa.
+ * Uma copy por causa. A versão original tinha uma só e afirmava, sempre, que o CLI negou sem
+ * consultar o EngrenaCode e que nenhum card apareceu. Dois smokes ao vivo de 2026-08-16 mostraram
+ * a frase mentindo: no R08 o card apareceu, o usuário concedeu, o broker liberou e um hook
+ * `PreToolUse` global negou depois; no R09 quem negou no card foi o próprio usuário. Nos dois a
+ * conclusão ("revise o nível de acesso") mandava mexer onde não havia problema.
+ *
+ * A partição de casos é importada de `permission-contract` em vez de reescrita aqui: o log do
+ * runner e esta faixa precisam falar da mesma causa, e duas cópias da regra foi como o R08 nasceu.
  *
  * O `message` que vem no wire não entra aqui de propósito: é o mesmo diagnóstico composto no
  * runner a partir destes campos, e concatená-lo repetia a frase inteira dentro da própria faixa.
  */
 export function nativeDenialMessage(event: NativeDenialEvent): string {
   const tool = event.toolName.trim() === '' ? 'desconhecida' : event.toolName.trim()
-  const afterGrant = event.brokerGranted === true
-  const parts = [
-    afterGrant
-      ? `O EngrenaCode concedeu a ferramenta ${tool}, mas outro hook PreToolUse do Claude CLI negou em seguida.`
-      : `O CLI negou a ferramenta ${tool} por conta própria, sem pedir permissão ao EngrenaCode, por isso nenhum card apareceu no chat.`,
-  ]
+  const denialCase = nativeDenialCase(event.brokerOutcome ?? 'never-requested')
+  const parts = [denialLead(denialCase, tool)]
   const reasonType = (event.decisionReasonType ?? '').trim()
   if (reasonType !== '') parts.push(`Motivo do CLI: ${reasonType}.`)
   const reason = (event.decisionReason ?? '').trim()
   if (reason !== '') parts.push(`O CLI explicou: ${reason}`)
-  parts.push(
-    afterGrant
-      ? 'O nível de acesso da thread não muda isso: quem negou foi um hook do próprio Claude CLI, configurado fora do EngrenaCode (nos settings do usuário ou do projeto). Ajuste esse hook ou peça ao agente um caminho que ele aceite.'
-      : 'Peça de novo ao agente; se repetir, revise o nível de acesso da thread.'
-  )
+  parts.push(denialAdvice(denialCase))
   return parts.join(' ')
 }
 

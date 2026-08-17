@@ -1241,7 +1241,7 @@ describe('handleThreadsRequest', () => {
       const { status, body } = await res.result()
       expect(status).toBe(200)
       expect(body).toMatchObject({ resolved: true, kind: 'permission', toolName: 'Bash' })
-      await expect(opened.decision).resolves.toBe(true)
+      await expect(opened.decision).resolves.toMatchObject({ allow: true })
       expect(hasPendingPermission(threadId)).toBe(false)
 
       rmSync(dir, { recursive: true, force: true })

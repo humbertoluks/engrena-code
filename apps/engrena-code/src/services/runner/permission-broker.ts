@@ -3,8 +3,15 @@ import http from 'http'
 import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
 import { PERMISSION_BODY_MAX_BYTES } from './buffer-cap.js'
-import { openPermissionGate, PERMISSION_TIMEOUT_MS, type PermissionRequestInfo } from './gate.js'
+import {
+  GATE_REASON_USER_DECISION,
+  openPermissionGate,
+  PERMISSION_TIMEOUT_MS,
+  type PermissionGateDecision,
+  type PermissionRequestInfo,
+} from './gate.js'
 import { permissionPolicyDecision } from './permission-policy.js'
+import type { BrokerPermissionOutcome } from './providers/permission-contract.js'
 
 /**
  * Transporte do gate de permissão, nada mais: servidor HTTP loopback efêmero por turno + política
@@ -21,43 +28,61 @@ export type { PermissionRequestInfo }
  */
 const allowedToolsByThread = new Map<string, Set<string>>()
 
+/** Tudo menos `never-requested`, que é ausência de registro e por isso nunca é gravado. */
+type RecordedBrokerOutcome = Exclude<BrokerPermissionOutcome, 'never-requested'>
+
 /**
- * Tools que **este** broker liberou no turno corrente, por qualquer um dos três caminhos de
- * `allow` do servidor: política do nível, allowlist ("Permitir todos") e decisão do usuário no
- * card. É o único lugar do processo que sabe o fato, e sem ele o diagnóstico da negação nativa
- * não distingue os dois casos que ela cobre:
+ * O que **este** broker respondeu ao hook, por tool, no turno corrente. É o único lugar do processo
+ * que sabe o fato, e sem ele o diagnóstico da negação nativa mente:
  *
- * - o CLI negou sem nunca consultar o broker (não há entrada aqui) e nenhum card apareceu;
- * - o broker concedeu e **outro** hook da mesma cadeia `PreToolUse` negou depois (há entrada):
- *   o card apareceu, o usuário decidiu, e o nível de acesso da thread não tem efeito nenhum
- *   sobre quem negou.
+ * - `granted` — os três caminhos de `allow` do servidor: política do nível, allowlist ("Permitir
+ *   todos") e decisão do usuário no card. O card apareceu (ou nem precisou), e quem negou depois
+ *   foi outro hook da cadeia `PreToolUse`, sobre o qual o nível de acesso não tem efeito nenhum;
+ * - `denied` — o usuário negou no card;
+ * - `expired` — o gate fechou sem resposta do usuário (timeout fail-closed, cancel do turno) e a
+ *   tool foi negada por omissão;
+ * - `unavailable` — o EngrenaCode nem conseguiu abrir o pedido (`gate_not_persisted`) e negou por
+ *   falha interna, sem chegar a perguntar;
+ * - sem entrada: o CLI negou sem nunca consultar o broker e nenhum card apareceu.
  *
- * Escopo de turno: `createPermissionServer` roda uma vez por turno e zera o conjunto, porque um
- * grant de turno anterior não explica a negação do turno atual.
+ * Distinguir `denied` de "sem entrada" é o defeito R09: as duas superfícies acusavam o CLI de ter
+ * negado por conta própria uma tool que o próprio usuário tinha acabado de recusar no card.
+ *
+ * Escopo de turno: `createPermissionServer` roda uma vez por turno e zera o mapa, porque decisão de
+ * turno anterior não explica a negação do turno atual.
  *
  * Granularidade é o `toolName`, não a chamada: o `POST /permission` do hook manda `toolName` e
  * `toolInput`, nunca o `tool_use_id` com que a negação chega no stream. Duas chamadas da mesma
  * tool no mesmo turno, uma concedida e outra que nem passa pelo hook (o caso `run_in_background`
- * da matriz Sprint 1), ficam indistinguíveis aqui.
+ * da matriz Sprint 1), ficam indistinguíveis aqui — a última decisão registrada vence.
  */
-const brokerGrantsByThread = new Map<string, Set<string>>()
+const brokerOutcomesByThread = new Map<string, Map<string, RecordedBrokerOutcome>>()
 
-function recordBrokerGrant(threadId: string, toolName: string): void {
-  let set = brokerGrantsByThread.get(threadId)
-  if (!set) {
-    set = new Set()
-    brokerGrantsByThread.set(threadId, set)
+function recordBrokerOutcome(threadId: string, toolName: string, outcome: RecordedBrokerOutcome): void {
+  let byTool = brokerOutcomesByThread.get(threadId)
+  if (!byTool) {
+    byTool = new Map()
+    brokerOutcomesByThread.set(threadId, byTool)
   }
-  set.add(toolName)
+  byTool.set(toolName, outcome)
+}
+
+/**
+ * Só `user_decision` é resposta do usuário; timeout, cancel de turno e abandono fecham o gate sem
+ * ele — todos negam por omissão e todos são `expired` para quem lê o diagnóstico.
+ */
+function outcomeForGateDecision(decision: PermissionGateDecision): RecordedBrokerOutcome {
+  if (decision.allow) return 'granted'
+  return decision.reason === GATE_REASON_USER_DECISION ? 'denied' : 'expired'
 }
 
 /** Consumido por `dispatch.ts` ao diagnosticar `permission-native-denial`. */
-export function wasToolGrantedByBroker(threadId: string, toolName: string): boolean {
-  return brokerGrantsByThread.get(threadId)?.has(toolName) === true
+export function brokerOutcomeForTool(threadId: string, toolName: string): BrokerPermissionOutcome {
+  return brokerOutcomesByThread.get(threadId)?.get(toolName) ?? 'never-requested'
 }
 
-export function clearBrokerGrantsForThread(threadId: string): void {
-  brokerGrantsByThread.delete(threadId)
+export function clearBrokerOutcomesForThread(threadId: string): void {
+  brokerOutcomesByThread.delete(threadId)
 }
 
 export interface PermissionServerHandle {
@@ -115,8 +140,8 @@ export function createPermissionServer(
 ): Promise<PermissionServerHandle> {
   const token = randomBytes(24).toString('hex')
   const timeoutMs = options?.timeoutMs ?? PERMISSION_TIMEOUT_MS
-  // Um servidor por turno: zerar aqui é o que dá escopo de turno aos grants.
-  clearBrokerGrantsForThread(threadId)
+  // Um servidor por turno: zerar aqui é o que dá escopo de turno às decisões.
+  clearBrokerOutcomesForThread(threadId)
 
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/permission') {
@@ -166,14 +191,14 @@ export function createPermissionServer(
       // Sem thread (apagada mid-turn) cai no mais restrito — nunca libera por omissão.
       const accessLevel = current?.accessLevel ?? 'supervised'
       if (permissionPolicyDecision(accessLevel, toolName) === 'allow') {
-        recordBrokerGrant(threadId, toolName)
+        recordBrokerOutcome(threadId, toolName, 'granted')
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
       }
 
       if (isToolAllowedForThread(threadId, toolName)) {
-        recordBrokerGrant(threadId, toolName)
+        recordBrokerOutcome(threadId, toolName, 'granted')
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
         return
@@ -181,16 +206,19 @@ export function createPermissionServer(
 
       const opened = openPermissionGate({ threadId, toolName, params: parsed.toolInput, timeoutMs })
       if (!opened.ok) {
+        // Negado sem nunca chegar ao usuário: registrar como `unavailable` é o que impede o
+        // diagnóstico de culpar o CLI (ou o usuário) por uma falha nossa.
+        recordBrokerOutcome(threadId, toolName, 'unavailable')
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: false }))
         return
       }
 
       onRequest?.(opened.gate)
-      opened.decision.then((allow) => {
-        if (allow) recordBrokerGrant(threadId, toolName)
+      opened.decision.then((decision) => {
+        recordBrokerOutcome(threadId, toolName, outcomeForGateDecision(decision))
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ allow }))
+        res.end(JSON.stringify({ allow: decision.allow }))
       })
     })
   })

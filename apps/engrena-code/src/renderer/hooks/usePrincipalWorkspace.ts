@@ -603,10 +603,10 @@ export function usePrincipalWorkspace() {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, mcpNotice(event)))
       return
     }
-    // Tool negada pela aprovação nativa do CLI: ou sem passar pelo broker (o usuário só via o
-    // agente pedindo aprovação em prosa, sem card nenhum), ou depois de o broker conceder, quando
-    // outro hook `PreToolUse` nega. `brokerGranted` no evento é quem separa os dois na copy.
-    // Vai para a mesma faixa do mcp.notice.
+    // Tool negada pela aprovação nativa do CLI. As causas são diferentes (o broker nunca foi
+    // consultado, o broker concedeu e outro hook negou depois, o usuário negou no card, o pedido
+    // expirou, ou o EngrenaCode falhou ao abri-lo) e `brokerOutcome` no evento é quem as separa na
+    // copy. Vai para a mesma faixa do mcp.notice.
     if (event.type === 'permission.native_denial') {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
       return
