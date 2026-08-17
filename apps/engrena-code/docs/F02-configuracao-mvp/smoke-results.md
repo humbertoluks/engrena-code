@@ -49,3 +49,26 @@
 - Vault de smoke isolado via `ENGRENACODE_USER_DATA`.
 - Cross-feature F03/F04: **deferred** (spec §6.3).
 - Re-run 15:14 fechou U3/U4 que tinham falhado por server down na sessão anterior.
+
+## Remoção do token do GitHub — smoke ao vivo (2026-08-17)
+
+Melhoria de UI: a remoção já funcionava por "salvar o campo vazio", mas não havia via visível na
+tela. Entrou um CTA secundário **Remover token**, com confirmação.
+
+Electron real via `pnpm dev`, Chromium headed por `playwright-cli`, cofre real destravado pela UI.
+
+| Estado | Esperado | Resultado |
+|--------|----------|-----------|
+| Sem token guardado | Só "Salvar token" | ok — nenhum botão de remover |
+| Com token guardado | "Remover token" ao lado do salvar | ok |
+| Clique em Remover | `window.confirm` com a copy de consequência | ok — texto literal do `ui.md` |
+| Confirmação cancelada | Token preservado | ok — badge segue "Customizado" |
+| Confirmação aceita | Token apagado do cofre | ok — "Token removido.", badge "Não configurado", botão some |
+
+O token usado no teste era falso (`ghp_smoketokenfalso…`) e foi apagado pelo próprio botão ao fim.
+
+Achado do smoke, já corrigido antes do commit: a primeira regra escondia o botão enquanto houvesse
+rascunho digitado. Como o campo mantém o texto depois de salvar, o botão sumia justamente depois de
+configurar o token. A regra passou a depender só de haver token guardado.
+
+Gates: `tsc -b` exit 0, `pnpm test` 1879 testes / 162 arquivos verde em duas rodadas, `vite build` ok.

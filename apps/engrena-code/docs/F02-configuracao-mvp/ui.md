@@ -38,7 +38,7 @@ Ordem obrigatória de renderização no viewport principal (conteúdo dentro do 
 2. Card **Autenticação do Claude**: título com dot de status + copy + segmented Assinatura|API key + linha de status do modo + CTA “Testar conexão” + feedback.
 3. Card **CLIs de assinatura**: título + CTA “Testar conexões” + copy + lista de 3 rows (Claude, Codex, Kimi) com dot/label/status instalado/logado + hints de login quando não logado.
 4. Card **System prompt global do harness**: título com dot ativo/desligado + copy + textarea + “Salvar prompt global” + “Restaurar padrão” + badge padrão/customizado + feedback.
-5. Card **Token do GitHub** (`KeysForm` layout `field`): título + subtítulo + label/input/helper + CTA “Salvar token” + feedback success/error.
+5. Card **Token do GitHub** (`KeysForm` layout `field`): título + subtítulo + label/input/helper + CTA “Salvar token” + CTA secundário “Remover token” (só com token guardado) + feedback success/error.
 
 **Alinhamento do card / painel:** coluna única centrada no conteúdo do shell (`mx-auto`); cards full-width da coluna; conteúdo alinhado à esquerda  
 **Largura máx.:** `max-w-[760px]` (~760px)
@@ -161,10 +161,15 @@ Células = texto final no produto. Marca: somente EngrenaCode.
 | `github.subtitle` | Personal access token usado pelo git flow ao abrir PRs (ou via CLI gh). |
 | `github.label.token` | Personal access token |
 | `github.placeholder.token` | ghp_… |
-| `github.hint.token` | Escopos necessarios: `repo`, `workflow`. |
+| `github.hint.token` | Escopos recomendados: `repo`, `workflow`. |
 | `github.cta.save` | Salvar token |
 | `github.cta.save.loading` | Salvando... |
+| `github.cta.remove` | Remover token |
+| `github.cta.remove.loading` | Removendo... |
+| `github.cta.remove.title` | Apaga o token guardado no cofre local deste dispositivo |
+| `github.confirm.remove` | Remover o token do GitHub do cofre local? Abrir PR pelo EngrenaCode deixa de funcionar até você salvar outro. Isto não revoga o token no GitHub. |
 | `github.success` | Token salvo localmente (não validado com o GitHub). |
+| `github.success.removed` | Token removido. |
 | `github.reveal` | Revelar Personal access token |
 | `github.hide` | Ocultar Personal access token |
 | `github.error.format` | Formato inválido. Esperado: ghp_… ou github_pat_… |
@@ -175,7 +180,11 @@ Células = texto final no produto. Marca: somente EngrenaCode.
 | `github.error.invalid_request` | Algum campo tem formato inválido. Revise e tente novamente. |
 | `github.error.generic` | Não foi possível salvar. Tente novamente. |
 
-> Tipografia do hint na fonte: “Escopos necessarios” (sem acento) — manter literal da fonte ou corrigir para “necessários”? Ver Perguntas.
+**Remoção do token (2026-08-17).** O botão “Remover token” aparece **apenas** quando há token guardado — sem token não há o que remover — e pede confirmação, porque apaga credencial. A frase da confirmação diz o que para de funcionar (abrir PR pelo EngrenaCode) e o que **não** acontece: não revoga o token no GitHub.
+
+A remoção sempre existiu no backend (salvar o campo vazio apaga o segredo e responde “Token removido.”), mas não havia via visível na tela: quem quisesse revogar ficava sem saber. Uma versão intermediária escondia o botão enquanto houvesse rascunho digitado; o smoke mostrou que o campo **mantém** o texto depois de salvar, então o botão sumia logo depois de configurar o token — exatamente quando alguém pensa em removê-lo. A regra final depende só do que está guardado (`shouldOfferGithubTokenRemoval`).
+
+> Tipografia do hint: a fonte trazia “Escopos necessarios” (sem acento). **Resolvido na implementação:** a tela usa “Escopos recomendados: `repo`, `workflow`.” — com acento e com “recomendados”, porque o token funciona com escopos menores, só não cobre todos os fluxos. A tabela acima reflete o que está na tela.
 
 ## Campos e controles
 
