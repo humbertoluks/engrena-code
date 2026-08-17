@@ -33,6 +33,12 @@ export class DelegatedRun {
   private lastActivityAt: number
   private status: SubagentRunStatus = 'running'
   private readonly idleTimeoutMinutes: number | null
+  /**
+   * Ferramentas iniciadas pelo filho neste run (F29). Mora aqui, e não no orquestrador, porque
+   * `checkIdleTimeout` fecha o run pelo watchdog sem passar pelo caminho de sucesso: sem um dono
+   * único, o run que estoura timeout — justo o que se quer auditar — fechava com contagem zero.
+   */
+  private toolCount = 0
 
   constructor(params: { childThreadId: string; idleTimeoutMinutes: number | null; now?: number }) {
     this.childThreadId = params.childThreadId
@@ -43,6 +49,14 @@ export class DelegatedRun {
 
   recordActivity(now: number = Date.now()): void {
     this.lastActivityAt = now
+  }
+
+  recordToolUse(): void {
+    this.toolCount += 1
+  }
+
+  currentToolCount(): number {
+    return this.toolCount
   }
 
   isIdleTimedOut(now: number = Date.now()): boolean {
@@ -102,13 +116,18 @@ export function startDelegatedRun(input: StartDelegatedRunInput): DelegatedRun {
 /** Chamar periodicamente (watchdog) ou sob demanda; persiste + retorna true se o run virou timeout agora. */
 export function checkIdleTimeout(run: DelegatedRun, now: number = Date.now()): boolean {
   if (!run.isTimedOut(now)) return false
-  updateSubagentRun(run.childThreadId, { status: 'timeout', durationMs: now - run.createdAt })
+  updateSubagentRun(run.childThreadId, {
+    status: 'timeout',
+    actionCount: run.currentToolCount(),
+    durationMs: now - run.createdAt,
+  })
   run.markStatus('timeout')
   return true
 }
 
 export interface CompleteRunResult {
   text: string | null
+  /** Omitido: usa o contador do próprio run (F29). Explícito só quando quem chama sabe mais. */
   actionCount?: number
   usageJson?: string | null
 }
@@ -117,7 +136,7 @@ export function completeDelegatedRun(run: DelegatedRun, result: CompleteRunResul
   updateSubagentRun(run.childThreadId, {
     status: 'completed',
     text: result.text,
-    actionCount: result.actionCount ?? 0,
+    actionCount: result.actionCount ?? run.currentToolCount(),
     usageJson: result.usageJson ?? null,
     durationMs: now - run.createdAt,
   })
@@ -125,7 +144,11 @@ export function completeDelegatedRun(run: DelegatedRun, result: CompleteRunResul
 }
 
 export function cancelDelegatedRun(run: DelegatedRun, now: number = Date.now()): void {
-  updateSubagentRun(run.childThreadId, { status: 'cancelled', durationMs: now - run.createdAt })
+  updateSubagentRun(run.childThreadId, {
+    status: 'cancelled',
+    actionCount: run.currentToolCount(),
+    durationMs: now - run.createdAt,
+  })
   run.markStatus('cancelled')
 }
 
@@ -133,6 +156,7 @@ export function failDelegatedRun(run: DelegatedRun, message: string, now: number
   updateSubagentRun(run.childThreadId, {
     status: 'error',
     text: message,
+    actionCount: run.currentToolCount(),
     durationMs: now - run.createdAt,
   })
   run.markStatus('error')
@@ -286,7 +310,33 @@ export async function runDelegatedSubagentTurn(
       // Idle = silêncio de stream (spec F15 §3.2): qualquer evento do filho conta como atividade,
       // não só texto — evita timeout de um filho ativo em tool calls longas sem texto.
       run.recordActivity()
-      if (event.type === 'text-delta') assistantText += event.text
+      if (event.type === 'text-delta') {
+        assistantText += event.text
+        return
+      }
+      // F29: o que o filho faz sai no fio do **pai**, agregado. Nada de `createToolCall` aqui — a
+      // tool é do filho, e duplicá-la em `tool_calls` da thread pai misturaria as duas execuções
+      // no work log. O que persiste é a contagem, no fechamento do run.
+      if (event.type === 'tool-start') {
+        run.recordToolUse()
+        emit(ctx.parentThread.id, {
+          type: 'subagent.tool_call.start',
+          threadId: ctx.parentThread.id,
+          childThreadId: run.childThreadId,
+          id: event.id,
+          name: event.name,
+        })
+        return
+      }
+      if (event.type === 'tool-result') {
+        emit(ctx.parentThread.id, {
+          type: 'subagent.tool_call.result',
+          threadId: ctx.parentThread.id,
+          childThreadId: run.childThreadId,
+          id: event.id,
+          status: event.status,
+        })
+      }
     },
   }
 

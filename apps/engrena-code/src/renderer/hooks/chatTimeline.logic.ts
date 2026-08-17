@@ -183,7 +183,11 @@ export function chatTimelineReducer(
         ),
         pipeline: history.pipeline,
         // History canónico: zera o overlay otimista (os nós já estão nos arrays persistidos).
-        liveGraphOverlay: emptyLiveOverlay(),
+        // `childTools` sobrevive de propósito: a atividade de tool do filho (F29) **não** tem
+        // equivalente no histórico — `subagent_runs.action_count` só é gravado quando o run
+        // fecha. Zerá-la aqui apagaria a atividade a cada refetch disparado pelas tools do
+        // próprio pai, que acontecem o tempo todo enquanto o filho trabalha.
+        liveGraphOverlay: { ...emptyLiveOverlay(), childTools: state.liveGraphOverlay.childTools },
       }
     }
 

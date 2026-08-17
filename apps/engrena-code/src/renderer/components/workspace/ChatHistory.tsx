@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import type { FeedbackVote, Message, ThreadState, ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
+import type { ChildToolActivity } from './graph/executionGraph.logic'
 import {
   anyToolRunning,
   correlateSubagentRuns,
@@ -443,6 +444,8 @@ export interface ChatHistoryProps {
   toolCalls: ToolCall[]
   subagentRuns: SubagentRun[]
   onOpenSubagentRun: (run: SubagentRun) => void
+  /** Atividade ao vivo dos filhos por `childThreadId` (F29) — mesma fonte que alimenta o grafo. */
+  childTools?: Record<string, ChildToolActivity>
   loading: boolean
   error: string | null
   streamingText: string
@@ -481,6 +484,7 @@ export function ChatHistory({
   toolCalls,
   subagentRuns,
   onOpenSubagentRun,
+  childTools = {},
   loading,
   error,
   streamingText,
@@ -607,7 +611,11 @@ export function ChatHistory({
         if (group.kind === 'subagent') {
           return (
             <div key={group.key} className="mb-sm w-full max-w-[42rem] self-start">
-              <SubagentTimelineBlock run={group.run} onOpen={onOpenSubagentRun} />
+              <SubagentTimelineBlock
+                run={group.run}
+                onOpen={onOpenSubagentRun}
+                activity={childTools[group.run.childThreadId] ?? null}
+              />
             </div>
           )
         }

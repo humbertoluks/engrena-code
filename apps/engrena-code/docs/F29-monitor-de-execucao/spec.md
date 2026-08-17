@@ -28,7 +28,7 @@
 **Escopo — Excluído:**
 
 - ELK.js, Zustand, Framer Motion
-- Streaming de `tool_call.*` do filho no WS do pai (próximo passo; nó-folha mostra `actionCount`, não o detalhe interno)
+- Payload cru das tools do filho no fio do pai (`params`/`result`) — o streaming é agregado, ver §7
 - Grafo global multi-thread / dashboard
 - Edição do grafo pelo usuário (só observação)
 
@@ -98,9 +98,10 @@ Correlação `root → subagent`: reutilizar `correlateSubagentRuns` (F15). Pipe
 | `subagent.result` | Atualiza status/duração; marca aresta de retorno |
 | `pipeline.state` / `pipeline.stage` | Upsert nós stage; status conforme `phase` |
 | `tool_call.start` / `result` | Incrementa contador de tools no root (não cria nó) |
+| `subagent.tool_call.start` / `result` | Conta e nomeia a tool corrente do filho em `childTools[childThreadId]` (§7) |
 | `state.change` | Atualiza state do root |
 
-History refetch continua a ser a fonte canónica; overlay só cobre o gap até o refetch.
+History refetch continua a ser a fonte canónica; overlay só cobre o gap até o refetch — com uma exceção deliberada, `childTools`, que não tem fonte canónica durante o run (§7).
 
 ---
 
@@ -115,6 +116,20 @@ History refetch continua a ser a fonte canónica; overlay só cobre o gap até o
 
 ---
 
-## 7. Próximo passo (fora de escopo)
+## 7. Atividade de tool do filho no fio do pai
 
-Emitir `tool_call.start`/`tool_call.result` do filho no WS do pai (a partir de `delegate.ts`) para o nó-folha exibir atividade interna além de `actionCount`.
+Entre `subagent.start` e `subagent.result` o pai ficava mudo — minutos, e até 4 filhos calados ao mesmo tempo no batch do F18. `delegate.ts` agora repassa a atividade de tool do filho para o WS do pai, sob quatro decisões:
+
+| Decisão | O que vale |
+|---|---|
+| Ao vivo **e** persistido, donos diferentes | Ao vivo no WS do pai; o que sobrevive ao turno é a contagem, em `subagent_runs.action_count`. Tool do filho **nunca** vira linha em `tool_calls` da thread pai. |
+| Evento próprio | `subagent.tool_call.start` / `subagent.tool_call.result`, não reuso de `tool_call.*`: aqueles significam "tool desta thread" para todo consumidor atual. |
+| Agregado | Só `id`, `name` e `status` no fio. Sem `params`, sem `result`. |
+| Superfície | Grafo (nó do subagente) e bloco de subagente na timeline. O work log genérico do pai segue só com as tools do pai. |
+
+Detalhes que o código carrega e valem registro:
+
+- Cada filho é uma sessão de CLI distinta, então `id` de tool pode repetir entre filhos: correlacionar sempre por `childThreadId` + `id`.
+- O evento **não** dispara refetch de histórico (`refetchesHistory`, `threadStream.logic.ts`) — não tem contrapartida no `GET /history` e é o de maior volume.
+- Pelo mesmo motivo, `childTools` sobrevive ao `history_loaded` no reducer da timeline: `action_count` só é gravado quando o run fecha, então zerar no refetch apagaria a atividade a cada tool do próprio pai.
+- A contagem é gravada também quando o run falha ou estoura timeout — é justo o run que se quer auditar.

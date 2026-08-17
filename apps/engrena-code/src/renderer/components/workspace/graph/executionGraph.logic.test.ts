@@ -209,6 +209,40 @@ describe('buildExecutionGraph', () => {
   })
 })
 
+describe('buildExecutionGraph — atividade ao vivo do filho (F29)', () => {
+  const overlayWithChildTool = (count: number, currentName: string | null): LiveGraphOverlay => ({
+    ...emptyLiveOverlay(),
+    childTools: { c1: { count, currentName, currentId: currentName ? 'tu_1' : null } },
+  })
+
+  it('shows the running child tool and the live count while the run is open', () => {
+    const g = buildExecutionGraph({
+      thread: thread({ state: 'running' }),
+      toolCalls: [],
+      subagentRuns: [run({ childThreadId: 'c1', status: 'running', actionCount: 0, text: null })],
+      pipeline: null,
+      liveOverlay: overlayWithChildTool(2, 'Read'),
+    })
+    const node = g.nodes.find((n) => n.id === subagentNodeId('c1'))
+    // `action_count` só é gravado no fechamento do run: enquanto roda, o ao vivo é a única fonte.
+    expect(node?.count).toBe(2)
+    expect(node?.activeTool).toBe('Read')
+  })
+
+  it('drops the active tool once the run is closed, keeping the persisted count', () => {
+    const g = buildExecutionGraph({
+      thread: thread({ state: 'idle' }),
+      toolCalls: [],
+      subagentRuns: [run({ childThreadId: 'c1', status: 'completed', actionCount: 3 })],
+      pipeline: null,
+      liveOverlay: overlayWithChildTool(2, 'Read'),
+    })
+    const node = g.nodes.find((n) => n.id === subagentNodeId('c1'))
+    expect(node?.count).toBe(3)
+    expect(node?.activeTool ?? null).toBeNull()
+  })
+})
+
 describe('applyLiveEvent', () => {
   it('adds optimistic run on subagent.start', () => {
     const next = applyLiveEvent(emptyLiveOverlay(), {
@@ -238,6 +272,75 @@ describe('applyLiveEvent', () => {
     } as StreamEvent)
     expect(next.optimisticRuns[0].status).toBe('completed')
     expect(next.optimisticRuns[0].endedAt).not.toBeNull()
+  })
+
+  it('tracks child tool activity per childThreadId (F29)', () => {
+    const first = applyLiveEvent(emptyLiveOverlay(), {
+      type: 'subagent.tool_call.start',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_1',
+      name: 'Read',
+    } as StreamEvent)
+    expect(first.childTools.c1).toEqual({ count: 1, currentName: 'Read', currentId: 'tu_1' })
+    // Nada de contaminar o contador do root: a tool é do filho.
+    expect(first.rootToolDelta).toBe(0)
+
+    const second = applyLiveEvent(first, {
+      type: 'subagent.tool_call.start',
+      threadId: 'thr_1',
+      childThreadId: 'c2',
+      id: 'tu_1',
+      name: 'Bash',
+    } as StreamEvent)
+    // Mesmo `id` vindo de outro filho (sessões de CLI distintas) não pode se misturar.
+    expect(second.childTools.c1.currentName).toBe('Read')
+    expect(second.childTools.c2).toEqual({ count: 1, currentName: 'Bash', currentId: 'tu_1' })
+  })
+
+  it('clears the current child tool on its own result and keeps the count (F29)', () => {
+    const started = applyLiveEvent(emptyLiveOverlay(), {
+      type: 'subagent.tool_call.start',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_1',
+      name: 'Read',
+    } as StreamEvent)
+    const done = applyLiveEvent(started, {
+      type: 'subagent.tool_call.result',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_1',
+      status: 'completed',
+    } as StreamEvent)
+    expect(done.childTools.c1).toEqual({ count: 1, currentName: null, currentId: null })
+  })
+
+  it('ignores a late result from a previous child tool (F29)', () => {
+    let overlay = applyLiveEvent(emptyLiveOverlay(), {
+      type: 'subagent.tool_call.start',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_1',
+      name: 'Read',
+    } as StreamEvent)
+    overlay = applyLiveEvent(overlay, {
+      type: 'subagent.tool_call.start',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_2',
+      name: 'Bash',
+    } as StreamEvent)
+    const late = applyLiveEvent(overlay, {
+      type: 'subagent.tool_call.result',
+      threadId: 'thr_1',
+      childThreadId: 'c1',
+      id: 'tu_1',
+      status: 'completed',
+    } as StreamEvent)
+    // Resultado atrasado da tool anterior não apaga a que está rodando agora.
+    expect(late).toBe(overlay)
+    expect(late.childTools.c1.currentName).toBe('Bash')
   })
 
   it('increments root tool delta for non-delegate tools', () => {
