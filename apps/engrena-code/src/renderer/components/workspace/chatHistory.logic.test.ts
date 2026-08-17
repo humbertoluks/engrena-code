@@ -62,8 +62,20 @@ describe('correlateSubagentRuns', () => {
       [tool({ id: 'tc_a', name: CALL_SUBAGENT_TOOL_NAME, seq: 1 }), tool({ id: 'tc_b', name: CALL_SUBAGENT_TOOL_NAME, seq: 2 })],
       [run({ childThreadId: 'c1', parentToolCallId: 'tc_b' }), run({ childThreadId: 'c2', parentToolCallId: 'tc_a' })]
     )
-    expect(map.get('tc_a')?.childThreadId).toBe('c2')
-    expect(map.get('tc_b')?.childThreadId).toBe('c1')
+    expect(map.get('tc_a')?.map((r) => r.childThreadId)).toEqual(['c2'])
+    expect(map.get('tc_b')?.map((r) => r.childThreadId)).toEqual(['c1'])
+  })
+
+  it('keeps every child of a parallel batch under the same call_subagent', () => {
+    const map = correlateSubagentRuns(
+      [tool({ id: 'tc_batch', name: CALL_SUBAGENT_TOOL_NAME, seq: 1 })],
+      [
+        run({ childThreadId: 'c1', parentToolCallId: 'tc_batch', parallelBatchId: 'batch-1' }),
+        run({ childThreadId: 'c2', parentToolCallId: 'tc_batch', parallelBatchId: 'batch-1' }),
+        run({ childThreadId: 'c3', parentToolCallId: 'tc_batch', parallelBatchId: 'batch-1' }),
+      ]
+    )
+    expect(map.get('tc_batch')?.map((r) => r.childThreadId)).toEqual(['c1', 'c2', 'c3'])
   })
 
   it('falls back to FIFO for runs without parentToolCallId', () => {
@@ -78,8 +90,8 @@ describe('correlateSubagentRuns', () => {
         run({ childThreadId: 'c2', parentToolCallId: null }),
       ]
     )
-    expect(map.get('tc_1')?.childThreadId).toBe('c1')
-    expect(map.get('tc_2')?.childThreadId).toBe('c2')
+    expect(map.get('tc_1')?.map((r) => r.childThreadId)).toEqual(['c1'])
+    expect(map.get('tc_2')?.map((r) => r.childThreadId)).toEqual(['c2'])
     expect(map.has('other')).toBe(false)
   })
 })
@@ -130,11 +142,30 @@ describe('groupTimelineItems', () => {
       tool({ id: 'tc', name: CALL_SUBAGENT_TOOL_NAME, seq: 2 }),
       tool({ id: 't2', name: 'Bash', seq: 3 }),
     ]
-    const map = new Map([['tc', run({ childThreadId: 'c1', parentToolCallId: 'tc' })]])
+    const map = new Map([['tc', [run({ childThreadId: 'c1', parentToolCallId: 'tc' })]]])
     const groups = groupTimelineItems([], tools, map)
     expect(groups.map((g) => g.kind)).toEqual(['tools', 'subagent', 'tools'])
     expect(groups[0]).toMatchObject({ kind: 'tools', tools: [{ id: 't1' }] })
     expect(groups[2]).toMatchObject({ kind: 'tools', tools: [{ id: 't2' }] })
+  })
+
+  it('carries all batch children in the single subagent group', () => {
+    const tools = [tool({ id: 'tc', name: CALL_SUBAGENT_TOOL_NAME, seq: 1 })]
+    const map = new Map([
+      [
+        'tc',
+        [
+          run({ childThreadId: 'c1', parentToolCallId: 'tc', subagentName: 'explorer' }),
+          run({ childThreadId: 'c2', parentToolCallId: 'tc', subagentName: 'implementer' }),
+        ],
+      ],
+    ])
+    const groups = groupTimelineItems([], tools, map)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatchObject({
+      kind: 'subagent',
+      runs: [{ childThreadId: 'c1' }, { childThreadId: 'c2' }],
+    })
   })
 })
 

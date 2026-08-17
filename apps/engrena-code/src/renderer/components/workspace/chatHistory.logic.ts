@@ -7,20 +7,30 @@ export const CALL_SUBAGENT_TOOL_NAME = 'mcp__engrenacode__call_subagent'
 export const LOAD_SKILL_TOOL_NAME = 'mcp__engrenacode__load_skill'
 
 /**
- * Casa cada tool call `call_subagent` do pai com o `subagent_runs` correspondente (spec F15 §3.2):
+ * Casa cada tool call `call_subagent` do pai com os `subagent_runs` correspondentes (spec F15 §3.2):
  * primeiro por `parentToolCallId`; o que sobrar casa por ordem FIFO.
+ *
+ * A relação é **1:N**, não 1:1 — o batch paralelo do F18 abre até 4 filhos a partir de uma única
+ * chamada `call_subagent` (`tasks[]`), e os N runs gravam o mesmo `parentToolCallId`. Era um
+ * `Map<string, SubagentRun>` até 2026-08-17, e por isso a timeline do pai mostrava só o último
+ * filho do batch: cada `set` sobrescrevia o anterior em silêncio.
  */
-export function correlateSubagentRuns(toolCalls: ToolCall[], runs: SubagentRun[]): Map<string, SubagentRun> {
-  const byToolCallId = new Map<string, SubagentRun>()
+export function correlateSubagentRuns(toolCalls: ToolCall[], runs: SubagentRun[]): Map<string, SubagentRun[]> {
+  const byToolCallId = new Map<string, SubagentRun[]>()
   const unmatchedRuns: SubagentRun[] = []
   for (const run of runs) {
-    if (run.parentToolCallId) byToolCallId.set(run.parentToolCallId, run)
-    else unmatchedRuns.push(run)
+    if (!run.parentToolCallId) {
+      unmatchedRuns.push(run)
+      continue
+    }
+    const existing = byToolCallId.get(run.parentToolCallId)
+    if (existing) existing.push(run)
+    else byToolCallId.set(run.parentToolCallId, [run])
   }
 
   const unmatchedToolCalls = toolCalls.filter((t) => t.name === CALL_SUBAGENT_TOOL_NAME && !byToolCallId.has(t.id))
   for (let i = 0; i < unmatchedToolCalls.length && i < unmatchedRuns.length; i++) {
-    byToolCallId.set(unmatchedToolCalls[i].id, unmatchedRuns[i])
+    byToolCallId.set(unmatchedToolCalls[i].id, [unmatchedRuns[i]])
   }
   return byToolCallId
 }
@@ -97,7 +107,8 @@ export type TimelineSubagentItem = {
   kind: 'subagent'
   key: string
   tool: ToolCall
-  run: SubagentRun
+  /** N ≥ 1 — uma chamada com `tasks[]` (batch paralelo F18) rende um bloco por filho. */
+  runs: SubagentRun[]
 }
 
 export type TimelineGroup = TimelineMessageItem | TimelineToolsItem | TimelineSubagentItem
@@ -109,7 +120,7 @@ export type TimelineGroup = TimelineMessageItem | TimelineToolsItem | TimelineSu
 export function groupTimelineItems(
   messages: Message[],
   toolCalls: ToolCall[],
-  runByToolCallId: Map<string, SubagentRun>
+  runByToolCallId: Map<string, SubagentRun[]>
 ): TimelineGroup[] {
   type Raw =
     | { kind: 'message'; seq: number; message: Message }
@@ -123,7 +134,8 @@ export function groupTimelineItems(
 
   const fusedToolCallIds = new Set<string>()
   for (const tool of toolCalls) {
-    if (runByToolCallId.has(tool.id) && tool.name === CALL_SUBAGENT_TOOL_NAME) {
+    const runs = runByToolCallId.get(tool.id)
+    if (runs !== undefined && runs.length > 0 && tool.name === CALL_SUBAGENT_TOOL_NAME) {
       fusedToolCallIds.add(tool.id)
     }
   }
@@ -135,9 +147,9 @@ export function groupTimelineItems(
       continue
     }
 
-    const run = runByToolCallId.get(item.tool.id)
-    if (run && fusedToolCallIds.has(item.tool.id)) {
-      groups.push({ kind: 'subagent', key: `subagent-${item.tool.id}`, tool: item.tool, run })
+    const runs = runByToolCallId.get(item.tool.id)
+    if (runs && runs.length > 0 && fusedToolCallIds.has(item.tool.id)) {
+      groups.push({ kind: 'subagent', key: `subagent-${item.tool.id}`, tool: item.tool, runs })
       continue
     }
 

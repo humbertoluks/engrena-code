@@ -50,9 +50,57 @@ Screenshots: `smoke/f29_graph_child_live.png` (5 ações em execução), `smoke/
 
 **Falso alarme registrado para não se repetir:** depois do turno assentar, o canvas ficou visualmente vazio com os nós presentes no DOM e `visibility: hidden`. Não é defeito do produto — foi o HMR do Vite recarregando `graphCopy.ts`, que eu editei no meio do run: o React Flow remonta os nós e eles ficam ocultos até uma nova medição. Recarga limpa da página devolveu `visibility: visible` com os dois nós corretos. Editar módulo do renderer durante um smoke invalida a própria observação.
 
-## Não exercitado
+## Rodada 3 (2026-08-17) — batch paralelo (F18) ao vivo
 
-- **Batch paralelo (F18) ao vivo.** Coberto por unitário (`delegate.test.ts`: dois filhos, mesmo `id` de tool, `childThreadId` distintos).
+Fecha o item que estava como "não exercitado". Mesmo método das rodadas anteriores (turno disparado pelo composer da UI, aba Grafo aberta antes do envio), agora com uma única chamada `call_subagent` carregando `tasks[]` de 2 itens: `explorer` e `implementer`, cada um rodando quatro `sleep 12` no Bash.
+
+Turno `thr_af137907-7037-40d0-bb43-2d05288f95da` → batch `d918933c…`, filhos `8102efb6…` (explorer) e `3add7b7a…` (implementer).
+
+1. **Os dois filhos emitem no mesmo fio, intercalados.** Trecho da captura, com o relógio relativo ao início do socket:
+
+```
+  1.5s tool_call.start (PAI)     mcp__engrenacode__call_subagent
+  1.8s subagent.start            child=8102efb6 name=explorer     batch=d918933c
+  1.8s subagent.start            child=3add7b7a name=implementer  batch=d918933c
+ 13.3s subagent.tool_call.start  child=3add7b7a id=…VL4Bwh name=Bash
+ 15.4s subagent.tool_call.start  child=8102efb6 id=…jzEaSb name=Bash
+ 27.9s subagent.tool_call.result child=3add7b7a id=…VL4Bwh status=completed
+ 29.9s subagent.tool_call.result child=8102efb6 id=…jzEaSb status=completed
+ …
+ 80.9s subagent.result           child=3add7b7a status=completed  batch=d918933c
+ 83.4s subagent.result           child=8102efb6 status=completed  batch=d918933c
+ 84.0s tool_call.result (PAI)    status=completed
+```
+
+As janelas se sobrepõem (13.3→27.9 contra 15.4→29.9): paralelismo real, não FIFO. `parallel_batch_id` idêntico nos dois, `childThreadId` e `tool_use_id` distintos — nenhum evento precisou de desempate por nome de tool.
+
+2. **Payload continua magro sob concorrência.** As chaves observadas em todo evento do batch foram exatamente `[type, threadId, childThreadId, id, name]` e `[type, threadId, childThreadId, id, status]`. Nenhum `params`, nenhum `result`.
+3. **Grafo ao vivo, um contador por filho** (`smoke/f29_graph_parallel_live.png`), amostrado a cada 8 s:
+
+| Momento | Nó do batch | explorer | implementer |
+|---|---|---|---|
+| t+8s | `Batch · em execução · 2 filhos` | `Executando… 1 ação` | `Executando… 1 ação` |
+| t+16s | idem | `em execução · 1 ação` | `Executando… 2 ações` |
+| t+32s | idem | `Executando… 3 ações` | `Executando… 3 ações` |
+| t+48s | idem | `Executando… 4 ações` | `Executando… 4 ações` |
+| assentado | `Batch · concluído · 2 filhos` | `concluído · 4 ações · 1m 21s` | `concluído · 4 ações · 1m 19s` |
+
+Em t+16s o `explorer` mostra o status (`em execução`) no lugar do rótulo de atividade: é o intervalo entre o `.result` de uma tool e o `.start` da seguinte, quando `activeTool` volta a `null` de propósito. Assentado (`smoke/f29_graph_parallel_settled.png`), as durações de 79 s e 81 s dentro de um turno de 88 s confirmam de novo o paralelismo.
+
+4. **Persistência.** Os dois runs fecharam com `action_count = 4` e o mesmo `parallel_batch_id`.
+5. **Faixa agregada do card lateral:** `Paralelo · 2/2 concluídos · 0 rodando · 0 erro`.
+6. **Sem poluir o pai.** `log_entries` do turno lista só as tools do pai (`ToolSearch`, `call_subagent`) — nenhum `Bash` de filho vazou para o work log.
+7. **Worktrees limpos.** `git worktree list` no projeto voltou a ter só `main`, e a árvore ficou sem alteração pendente (os filhos só leram).
+
+### Bug real achado e corrigido por esta rodada
+
+**A timeline do pai mostrava só um dos dois filhos** — o bloco do `implementer` aparecia, o do `explorer` sumia sem aviso. Grafo e card lateral mostravam os dois, porque leem `subagentRuns` direto; a timeline era a única superfície a perder um filho.
+
+Causa: `correlateSubagentRuns` devolvia `Map<string, SubagentRun>`, um run por tool call. A relação é 1:N — os N filhos de um `tasks[]` gravam **o mesmo** `parentToolCallId` (aqui, `cfeef238…` nos dois runs), então cada `set` sobrescrevia o anterior em silêncio. O mapa passou a ser `Map<string, SubagentRun[]>`; `groupTimelineItems` carrega `runs[]` no grupo e `ChatHistory.tsx` renderiza um `SubagentTimelineBlock` por filho. O grafo consumia o mesmo mapa e ganhou o laço interno correspondente (o caminho de batch dele já era separado, por isso não exibia o defeito).
+
+Confirmado ao vivo depois do fix, na mesma thread: `explorer · inherit · 4 ações · concluído` **e** `implementer · inherit · 4 ações · concluído` (`smoke/f18_timeline_batch_fixed.png`). Regressão travada em `chatHistory.logic.test.ts` (correlação com três filhos no mesmo tool call; grupo de timeline carregando os dois runs).
+
+Vale o registro de método: só um turno pago real com `tasks[]` expõe isto. O unitário do `delegate.ts` cobre o runner, que estava certo o tempo todo — o defeito morava na correlação do renderer, três camadas adiante.
 
 ## Turno que morria sem registro — investigado e fechado
 
