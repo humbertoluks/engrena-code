@@ -20,8 +20,10 @@ export const GRAPH_COPY = {
     failed: 'falhou',
     skipped: 'ignorado',
   } as const,
-  metaTools: (n: number) => `${n} tools`,
-  metaActions: (n: number) => `${n} ações`,
+  // Singular de verdade: o nó mostra "1 tool"/"1 ação" no primeiro evento do turno, e ele
+  // aparece na tela em todo turno que usa uma ferramenta só.
+  metaTools: (n: number) => (n === 1 ? '1 tool' : `${n} tools`),
+  metaActions: (n: number) => (n === 1 ? '1 ação' : `${n} ações`),
   inspectorTitle: 'Mensagem',
   inspectorFrom: 'De',
   inspectorTo: 'Para',

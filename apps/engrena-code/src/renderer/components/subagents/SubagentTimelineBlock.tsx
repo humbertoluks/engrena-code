@@ -66,7 +66,11 @@ export function SubagentTimelineBlock({
         {run.model ? `/${run.model}` : ''}
       </span>
       {toolCount > 0 ? (
-        <span className="text-muted">{t('subagentsRun.timeline.tools', { N: toolCount })}</span>
+        <span className="text-muted">
+          {toolCount === 1
+            ? t('subagentsRun.timeline.tools.one')
+            : t('subagentsRun.timeline.tools', { N: toolCount })}
+        </span>
       ) : null}
       <span className={`ml-auto ${timelineStatusClassName(run)}`}>
         {liveLabel ?? timelineStatusLabel(run)}
