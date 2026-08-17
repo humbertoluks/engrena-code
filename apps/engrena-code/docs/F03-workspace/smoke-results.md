@@ -669,3 +669,37 @@ O hook passou a repassar `toolUseId`; o broker grava cada decisão em duas chave
 e a agregada por nome — e `brokerOutcomeForTool` consulta a exata primeiro. Com o id nos dois
 lados, duas chamadas da mesma tool no mesmo turno recebem cada uma a sua decisão. `ambiguous` deixa
 de ser a resposta comum e vira fallback para quando o id falta de algum dos lados.
+
+### Smoke ao vivo do R09 e do `tool_use_id` (2026-08-17)
+
+Fecha a pendência que restava do R09 (a correção tinha sido validada só em unitário) e prova a
+atribuição por `tool_use_id` no mesmo turno. Ambiente igual ao dos anteriores: Electron real,
+Chromium headed por `playwright-cli`, projeto `D:\temp\TodoV1`, provider `claude-sonnet-4-6`,
+access **supervised**, `claude` 2.1.233.
+
+Roteiro: um turno com **duas chamadas distintas da mesma ferramenta** (`echo primeira-chamada` e
+`echo segunda-chamada`), a primeira **negada** no card e a segunda **concedida**. É exatamente a
+situação que, sem o id, colapsa numa entrada só e produz `ambiguous`.
+
+Resultado em `log_entries`:
+
+```
+hook started:  PreToolUse:Bash    (1ª chamada)
+Bash (error)                       ← negada
+hook started:  PreToolUse:Bash    (2ª chamada)
+Bash (completed)                   ← concedida
+O usuário negou a ferramenta Bash no card de permissão do EngrenaCode, e o Claude CLI
+registrou a negação.
+```
+
+A frase é a de `after-user-denial`, **não** a de decisões conflitantes: o `tool_use_id` casou a
+negação com a chamada certa mesmo com a outra chamada da mesma tool tendo sido concedida no mesmo
+turno. Sem o id, o outcome agregado por nome seria `ambiguous`.
+
+Faixa âmbar, na mesma tela: *"Você negou a ferramenta Bash no card de permissão, e o Claude CLI
+encerrou a chamada. Nada quebrou: foi a sua decisão. Para liberar, peça a ação de novo ao agente e
+conceda no card; se não quiser ser perguntado outra vez por essa ferramenta, responda 'Permitir
+todos' ou 'Sempre neste projeto'."* Nenhuma menção a revisar o nível de acesso, que era o conselho
+errado do defeito original.
+
+O aviso de versão (D3) apareceu uma vez na mesma faixa, sem bloquear o turno.
