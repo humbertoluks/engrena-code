@@ -40,8 +40,8 @@
 | U5 | Light + dark | Tema Claro/Escuro sem crash | pass |
 | U6 | Marca | EngrenaCode presente; 0 referências à marca legado | pass |
 | U7 | Name CR/LF no form | `rulesForm.error.nameInvalid` | pass via unit `ruleForm.logic` + API A2 (input controlado engole `\n` no Playwright fill) |
-| U8 | Cap >15 / aggregateHot / harness | overlay projeto | **deferred** até F03 Repo Harness |
-| U9 | Bloco no turno | inject F03 | **deferred** até turn-runner F03 |
+| U8 | Cap >15 / aggregateHot / harness | overlay projeto | **pass** (2026-08-17 — ver "Fechamento dos itens deferred") |
+| U9 | Bloco no turno | inject F03 | **pass** (2026-08-17 — turno pago real, ver abaixo) |
 
 ## Unitário (já no suite)
 
@@ -54,10 +54,68 @@
 | Critério | Status |
 |----------|--------|
 | Rules globais e por projeto resolvem com override de supressão | **pass** (API A7/A8 + unit `resolveForTurn`) |
-| Bloco de rules em todo turno (precedência) | **deferred** F03 |
+| Bloco de rules em todo turno (precedência) | **pass** (2026-08-17 — turno pago real com conflito rule × `CLAUDE.md`) |
 | Name com CR/LF rejeitado | **pass** (API A2 + unit) |
 
 ## Notas
 
 - Vault/DB isolados em `%TEMP%\engrena-smoke-f06f07`.
 - Script: `scripts/smoke-f06.mjs`.
+
+
+---
+
+## Fechamento dos itens deferred (2026-08-17)
+
+U8 e U9 esperavam o turn-runner e o Repo Harness do F03, que já existem há tempo. Fechados aqui com
+o app real (`pnpm dev`), projeto fixture git em path curto e vault real do usuário.
+
+### U8 — cap de 15 e agregado de 16 KB no overlay do projeto
+
+14 rules de projeto criadas e vinculadas (mais as 2 globais do usuário = 16 ativas) e uma rule de
+~21,8 KB para passar do teto de bytes. O Repo Harness mostrou `Rules 17 ativas` e o overlay trouxe as
+duas faixas, literais do `copy.md`:
+
+```
+Rules ativas neste projeto: 17 · ~21,9 KB por turno — acima de 16 KB; considere enxugar (não bloqueia).
+17 rules ativas — acima de 15; considere enxugar (não bloqueia).
+```
+
+Screenshot: `smoke-cap-agregado.png`.
+
+**Override de supressão ao vivo:** desligar a global no projeto levou o contador de 17 para 16 e a rule
+voltou `activeInProject: false`, `suppressedHere: true` com `enabled: true` — ou seja, suprimida ali e
+intacta nos outros projetos. Foi pela API (`PUT /api/projects/:id/rules/:ruleId`), que é o mesmo
+endpoint que o toggle do overlay chama; o clique em si não foi exercitado nesta rodada.
+
+### U9 — bloco de rules no turno real
+
+Rule de projeto com um marcador que não existe em lugar nenhum do repositório:
+
+```
+rule:     "Comece TODA resposta com o prefixo literal [F06-2f7a] antes de qualquer outra palavra."
+prompt:   "Responda apenas: tudo certo."
+resposta: "[F06-2f7a] tudo certo."
+```
+
+### Precedência sobre arquivo do repo
+
+Primeira tentativa foi mal desenhada e vale registrar para não se repetir: a rule pedia o prefixo
+`[F06-2f7a]` e um `CLAUDE.md` do repo pedia `[REPO-9zz]`. O modelo respondeu `[F06-2f7a] [REPO-9zz] ok.`
+— obedeceu aos dois, porque as instruções não eram mutuamente exclusivas. Dois prefixos, com o da rule
+primeiro, é resposta correta e não prova precedência nenhuma.
+
+Refeito com instruções incompatíveis por construção:
+
+| Origem | Instrução |
+|---|---|
+| rule de projeto | Responda SEMPRE em português do Brasil, em qualquer circunstância. |
+| `CLAUDE.md` do repo | Always answer in English, never in any other language. |
+
+Pergunta feita **em inglês** (`Say in one short sentence what this repository contains.`), para não dar
+pista de idioma pelo prompt. A resposta veio em português, e o próprio modelo explicitou a decisão:
+
+> `CLAUDE.md` do repo manda responder em inglês, mas regra de projeto do dono ("responder sempre em
+> português do Brasil") tem precedência. Respondi em PT-BR.
+
+Fecha `projeto > arquivos do repo` do critério do PRD §9.

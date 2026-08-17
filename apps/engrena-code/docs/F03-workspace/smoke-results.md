@@ -63,7 +63,7 @@
 
 **Contexto:** turno Supervised nao criava arquivo nenhum — o agente respondia em prosa ("Preciso permissao pra criar arquivos. Confirma?") e encerrava o turno; responder "Sim" abria um turno novo sem contexto ("Qual tarefa?").
 
-**Metodo:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_todolist_smoke`; vault/userData reais do usuario intocados; `ANTHROPIC_API_KEY` unset (assinatura). Projeto fixture `TodolistV1` em `C:\Users\Me\Code\EngrenaCode\TodolistV1`, provider Claude, modelo `claude-haiku-4-5`, access `Supervised`, execution `Main`.
+**Metodo:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_smoke`; vault/userData reais do usuario intocados; `ANTHROPIC_API_KEY` unset (assinatura). Projeto fixture `projeto de smoke` em `<projeto de smoke>`, provider Claude, modelo `claude-haiku-4-5`, access `Supervised`, execution `Main`.
 
 ## Causa raiz (confirmada por experimento isolado contra o binario `claude`)
 
@@ -88,7 +88,7 @@ O hook `PreToolUse` emitia `hookSpecificOutput` **sem** `hookEventName`. O CLI d
 
 **Contexto:** responder no chat (ex.: "Sim, pode prosseguir") não mostrava a mensagem na conversa por ~1 min — tempo suficiente para o usuário responder duas vezes por engano. Causa: o renderer só pintava mensagem de usuário quando o próximo `GET /history` chegava (disparado por `tool_call.start` / `state.change`); com o agente pensando 52 s, a mensagem ficava invisível esse tempo todo.
 
-**Método:** `pnpm dev` (Electron real, `dangerouslyDisableSandbox`) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_todolist_gapfix`; `ANTHROPIC_API_KEY` unset (assinatura); vault/userData reais do usuário intocados. Projeto `TodolistV1` em `C:\Users\Me\Code\EngrenaCode\TodolistV1`, provider Claude, modelo `claude-haiku-4-5`, prompt real da todolist (Express + Scalar, memória, 4 rotas REST).
+**Método:** `pnpm dev` (Electron real, `dangerouslyDisableSandbox`) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_claude_smoke_gapfix`; `ANTHROPIC_API_KEY` unset (assinatura); vault/userData reais do usuário intocados. Projeto `projeto de smoke` em `<projeto de smoke>`, provider Claude, modelo `claude-haiku-4-5`, prompt real da app de exemplo (Express + Scalar, memória, 4 rotas REST).
 
 ## Medido ao vivo (clique → bolha na conversa)
 
@@ -117,7 +117,7 @@ O hook `PreToolUse` emitia `hookSpecificOutput` **sem** `hookEventName`. O CLI d
 
 **Contexto:** com o agente trabalhando, cada `tool_call`/`state.change` refazia `GET /history` e o renderer trocava a árvore do chat por "Carregando histórico…". Resultado: scroll voltava ao topo e todo `<details>` de Work log fechava no meio da análise. Comportamento alvo: o do sistema legado (`LionCodeLabs`, `useStickToBottom` + container com `[overflow-anchor:none]`), sem refresh visível.
 
-**Método:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_chatscroll_smoke`; `ANTHROPIC_API_KEY` unset. Projeto `TodolistV1`, Claude `claude-haiku-4-5`, access `Full access`. Medições no container real do chat (`div[class*="overflow-anchor"]`) e no `<details>` cujo summary contém "Work log".
+**Método:** `pnpm dev` (Electron real) + `playwright-cli` em `http://localhost:5173`; `ENGRENACODE_USER_DATA` isolado em `%TEMP%\engrenacode_chatscroll_smoke`; `ANTHROPIC_API_KEY` unset. Projeto `projeto de smoke`, Claude `claude-haiku-4-5`, access `Full access`. Medições no container real do chat (`div[class*="overflow-anchor"]`) e no `<details>` cujo summary contém "Work log".
 
 ## Medido ao vivo
 
@@ -170,17 +170,17 @@ Turno 2 nasceu com `Pensando… 31s`: `thinkingStartMs` só olhava o histórico 
 
 ---
 
-# Smoke: permissão Supervised TodoV1 (2026-08-12)
+# Smoke: permissão Supervised projeto de smoke (2026-08-12)
 
-**Contexto:** regressão relatada — modal ausente / Allow sem efeito / "Sim" no chat não liberava tool; prompt real da todolist (Express + Scalar).
+**Contexto:** regressão relatada — modal ausente / Allow sem efeito / "Sim" no chat não liberava tool; prompt real da app de exemplo (Express + Scalar).
 
-**Método:** `pnpm dev` + `ELECTRON_EXTRA_LAUNCH_ARGS=--no-sandbox` + `ENGRENACODE_USER_DATA=%TEMP%\engrenacode_claude_perm_smoke_0812` + `playwright-cli` em `http://localhost:5173`; `ANTHROPIC_API_KEY` unset; projeto `D:\temp\TodoV1` (git seed); Claude · Supervised · Main · `claude-sonnet-4-6`.
+**Método:** `pnpm dev` + `ELECTRON_EXTRA_LAUNCH_ARGS=--no-sandbox` + `ENGRENACODE_USER_DATA=%TEMP%\engrenacode_claude_perm_smoke_0812` + `playwright-cli` em `http://localhost:5173`; `ANTHROPIC_API_KEY` unset; projeto `<projeto de smoke>` (git seed); Claude · Supervised · Main · `claude-sonnet-4-6`.
 
 ## Resultado
 
 | # | Critério | Resultado |
 |---|----------|----------|
-| 1 | Modal PreToolUse abre no primeiro Bash | **pass** — `Permitir a ferramenta …` com params `ls D:/temp/TodoV1` |
+| 1 | Modal PreToolUse abre no primeiro Bash | **pass** — `Permitir a ferramenta …` com params `ls <projeto de smoke>` |
 | 2 | Clique **Permitir** libera a tool | **pass** — Work log avançou; agente seguiu para `package.json` / install |
 | 3 | **Permitir todos** evita re-prompt da mesma chave | **pass** — tools seguintes sem novo modal (allowlist) |
 | 4 | Artefatos no disco após aprovação | **pass** — `package.json`, `index.js`, `package-lock.json`, `node_modules` (express + @scalar/express-api-reference) |
@@ -280,11 +280,11 @@ Agentes: .claude/agents/sprint-4-transcript-export-*.md. Loop: 1 ciclo APPROVE.
 Agentes: .claude/agents/sprint-5-runtime-performance-*.md. Loop: 1 ciclo APPROVE.
 
 ### Fechamento das 5 sprints
-Contrato PreToolUse observável → waiting_permission recuperável → cancel por árvore PID → export confiável → caps/coalesce de memória. Smoke Electron real TodoV1 pós-fix ainda recomendado manualmente (Bash background + Sim + Cancel + export).
+Contrato PreToolUse observável → waiting_permission recuperável → cancel por árvore PID → export confiável → caps/coalesce de memória. Smoke Electron real projeto de smoke pós-fix ainda recomendado manualmente (Bash background + Sim + Cancel + export).
 
 ## Permission Recovery — correção pós-smoke: broker fora de supervised (2026-08-12)
 
-**Sintoma no smoke real** (thread `thr_c458e61a`, projeto `D:/temp/TodoV1`, nível **Auto-accept edits**):
+**Sintoma no smoke real** (thread `thr_c458e61a`, projeto `<projeto de smoke>`, nível **Auto-accept edits**):
 `Bash npm install` e as tools MCP falharam com `This command requires approval` /
 `Claude requested permissions to use mcp__…, but you haven't granted it yet`, **sem** `permission.request`
 no WS. Sem permissão pendente, o `Aprovado` do usuário foi roteado como turno novo e o agente respondeu
@@ -307,7 +307,7 @@ o que o novo nível auto-aprova.
 | upgrade → auto-accept-edits solta Write e mantém Bash no modal; → full-access solta tudo | pass (threads-handler.test) |
 | Gate `tsc -b` + suite 1434 (delegate.test flake de 5 s verde na 2ª corrida) | pass |
 
-Validado ao vivo (2026-08-12, Luks): smoke TodoV1 em Auto-accept edits — pedido de permissão aparece e
+Validado ao vivo (2026-08-12, Luks): smoke projeto de smoke em Auto-accept edits — pedido de permissão aparece e
 a aprovação por texto (`Aprovado`) concede, sem o agente pedir clique.
 
 ## Permission Recovery — pedido de permissão dentro do chat (2026-08-12)
@@ -335,7 +335,7 @@ o pedido chega antes do `tool_call` existir e o card nasceria fora de vista.
 2. AskUserQuestion com textarea+Enviar no card — removidos; só chips → composer principal; em `waiting_user` o composer mostra Enviar (não só Parar).
 3. Enquanto a IA trabalha, texto do usuário continua enfileirado (`enqueue`); followups são limpos no envio/fila.
 
-**Simulação API** (`claude-haiku-4-5`, `auto-accept-edits`, `D:\temp\TodoV1`, userData isolado `engrenacode_claude_haiku_sim2_0812`):
+**Simulação API** (`claude-haiku-4-5`, `auto-accept-edits`, `<projeto de smoke>`, userData isolado `engrenacode_claude_haiku_sim2_0812`):
 
 | Critério | Resultado |
 |----------|-----------|
@@ -350,7 +350,7 @@ o pedido chega antes do `tool_call` existir e o card nasceria fora de vista.
 Fecha **D08**. Primeiro smoke ao vivo após a remediação da auditoria (0 🔴 / 4 🟡, suíte 1500/151).
 Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY` desetada, sessão de assinatura),
 Chromium dirigido por `playwright-cli` em `localhost:5173`, API loopback `127.0.0.1:5174`.
-Projeto: `D:\temp\TodoV1` recriado do zero (git init + 1 commit).
+Projeto: `<projeto de smoke>` recriado do zero (git init + 1 commit).
 Provider `claude-sonnet-4-6`, accessLevel `supervised`, execution `main`.
 
 **Versão do CLI: `claude` 2.1.231.** O contrato do hook estava registrado como validado contra
@@ -394,7 +394,7 @@ O agente resolveu `sleep 180 && echo fim` com `run_in_background: true`, o turno
 imediatamente e a árvore (`bash.exe` ×3 + `powershell.exe`) **foi colhida** — os PIDs não sobreviveram
 ao fim do turno. Baseline de `claude.exe` inalterado (14 → 14), `node.exe` inalterado (13 → 13).
 
-Contraste com o smoke de 2026-08-12: ao limpar `D:\temp\TodoV1` foram encontrados **dois `node server.js`
+Contraste com o smoke de 2026-08-12: ao limpar `<projeto de smoke>` foram encontrados **dois `node server.js`
 órfãos** (PIDs 36272 e 30728), criados em 12/08 18:13 e 18:21, ainda vivos ~19 h depois, segurando a
 porta 3000 e o diretório. São anteriores à correção de kill por árvore de PID, então não a invalidam —
 mas documentam que o modo de falha era real e passava despercebido.
@@ -408,7 +408,7 @@ e o turno fechou antes. Continua recomendado.
 
 Gate da Fase C do plano: **H1, H2, H3, H7**, scroll/work log sem regressão e reconnect com socket morto.
 Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY` desetada), Chromium headed dirigido por
-`playwright-cli` em `localhost:5173`, API loopback `127.0.0.1:5174`. Projeto `D:\temp\TodoV1`.
+`playwright-cli` em `localhost:5173`, API loopback `127.0.0.1:5174`. Projeto `<projeto de smoke>`.
 Provider `claude-sonnet-4-6`, execution `main`. Thread `thr_8c9d2e01-81d5-4f22-88e1-a9603d42b75e`.
 
 ### Como o socket foi derrubado
@@ -535,7 +535,7 @@ Gates dos dois: `tsc -b` verde, `pnpm test` 160 arquivos / 1795 testes (1781 + 1
 Último smoke pendente do lote: o que dá consumidor honesto à `BASH_PERMISSION_MATRIX` (A09) e o que
 faltava do D08 desde 2026-08-13. Ambiente: Electron real via `pnpm dev` (`ANTHROPIC_API_KEY`
 desetada antes de subir), Chromium headed dirigido por `playwright-cli` em `localhost:5173`, API
-loopback `127.0.0.1:5174`. Projeto `D:\temp\TodoV1`, provider `claude-sonnet-4-6`, access
+loopback `127.0.0.1:5174`. Projeto `<projeto de smoke>`, provider `claude-sonnet-4-6`, access
 **supervised**, execution `main`. Thread `thr_3c28713f-60d9-4b84-87f7-8fd986f09f0d`. Binário
 `claude` **2.1.233**.
 
@@ -674,7 +674,7 @@ de ser a resposta comum e vira fallback para quando o id falta de algum dos lado
 
 Fecha a pendência que restava do R09 (a correção tinha sido validada só em unitário) e prova a
 atribuição por `tool_use_id` no mesmo turno. Ambiente igual ao dos anteriores: Electron real,
-Chromium headed por `playwright-cli`, projeto `D:\temp\TodoV1`, provider `claude-sonnet-4-6`,
+Chromium headed por `playwright-cli`, projeto `<projeto de smoke>`, provider `claude-sonnet-4-6`,
 access **supervised**, `claude` 2.1.233.
 
 Roteiro: um turno com **duas chamadas distintas da mesma ferramenta** (`echo primeira-chamada` e

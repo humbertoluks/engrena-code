@@ -3,7 +3,7 @@
 **Data:** 2026-08-17
 **Método:** `pnpm dev` real (Electron + Vite, sandbox desabilitado), **vault e projeto reais do usuário** — não fixture. Turno de delegação disparado pela API loopback (`127.0.0.1:5174`), eventos lidos por um WebSocket assinando `?threadId=<pai>`, persistência conferida no `%APPDATA%/engrena-code/engrenacode.db` via `node:sqlite`. UI verificada depois pelo renderer em `localhost:5173`.
 
-**Ambiente:** `claude` 2.1.233 (acima da faixa validada 2.1.226–2.1.231 — o aviso do D3 apareceu ao vivo no log do turno, sem bloquear), modo `subscription`, projeto `TodoV1`, thread `full-access`, subagent `explorer` vinculado ao projeto para o teste e **desvinculado ao final** (o projeto voltou a não ter nenhum subagent vinculado, como estava antes).
+**Ambiente:** `claude` 2.1.233 (acima da faixa validada 2.1.226–2.1.231 — o aviso do D3 apareceu ao vivo no log do turno, sem bloquear), modo `subscription`, projeto `projeto de smoke`, thread `full-access`, subagent `explorer` vinculado ao projeto para o teste e **desvinculado ao final** (o projeto voltou a não ter nenhum subagent vinculado, como estava antes).
 
 ## Confirmado ao vivo
 
