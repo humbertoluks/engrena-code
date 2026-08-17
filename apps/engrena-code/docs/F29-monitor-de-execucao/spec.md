@@ -98,9 +98,10 @@ Correlação `root → subagent`: reutilizar `correlateSubagentRuns` (F15). Pipe
 | `subagent.result` | Atualiza status/duração; marca aresta de retorno |
 | `pipeline.state` / `pipeline.stage` | Upsert nós stage; status conforme `phase` |
 | `tool_call.start` / `result` | Incrementa contador de tools no root (não cria nó) |
+| `subagent.tool_call.start` / `result` | Conta e nomeia a tool corrente do filho em `childTools[childThreadId]` (§7) |
 | `state.change` | Atualiza state do root |
 
-History refetch continua a ser a fonte canónica; overlay só cobre o gap até o refetch.
+History refetch continua a ser a fonte canónica; overlay só cobre o gap até o refetch — com uma exceção deliberada, `childTools`, que não tem fonte canónica durante o run (§7).
 
 ---
 

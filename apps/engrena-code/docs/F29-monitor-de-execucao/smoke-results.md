@@ -17,7 +17,7 @@
 
 - Overlay live `subagent.start` durante turno real (coberto por unitários de `applyLiveEvent` + wiring no hook).
 - Pipeline stages / batch paralelo na UI (cobertos por unitários de `buildExecutionGraph`).
-- Streaming de `tool_call.*` do filho no WS do pai (fora de escopo — próximo passo na spec).
+- Streaming de tool do filho no WS do pai — era fora de escopo aqui; fechado depois, com smoke próprio em `smoke-results-tool-stream.md` (2026-08-17).
 
 ## Screenshots
 
