@@ -471,6 +471,47 @@ describe('handleGitRequest', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  /**
+   * O 422 do GitHub é "Validation Failed" e cobre dois casos: PR já aberto para o head (tratado
+   * pela busca logo acima) e head inexistente no remote. O segundo é o que acontece de verdade
+   * logo depois de aceitar um diff — o commit está local e ninguém deu push. No smoke ao vivo de
+   * 2026-08-17 a faixa mostrava só "Falha ao abrir o PR: Validation Failed", que não diz o que fazer.
+   */
+  it('422 sem PR aberto vira diagnóstico de branch não pushada, não o "Validation Failed" cru', async () => {
+    const dir = makeProjectDir()
+    git(dir, ['remote', 'add', 'origin', 'https://github.com/engrena/repo.git'])
+    const project = createProject({ path: dir })
+    const thread = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'full-access', executionMode: 'main', state: 'idle' })
+    vaultService.setSecret('github:token', 'ghp_faketoken')
+
+    const validationFailed = Object.assign(new Error('Request failed with status code 422'), {
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: { message: 'Validation Failed', errors: [{ field: 'head', message: 'not found' }] },
+      },
+    })
+
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: { default_branch: 'main' } })
+    vi.mocked(axios.post).mockRejectedValueOnce(validationFailed)
+    // Busca de PR existente para o mesmo head: nenhum, então sobra o diagnóstico.
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: [] })
+
+    const req = fakeReq('POST', `/api/threads/${thread.id}/pr`, { title: 'feat: z' }, session)
+    const res = fakeRes()
+    await handleGitRequest(req, res)
+    const { status, body } = await res.result()
+
+    expect(status).toBeGreaterThanOrEqual(400)
+    const message = JSON.stringify(body)
+    expect(message).toContain('push')
+    expect(message).toContain('não foi encontrada no remote')
+    // O texto do GitHub continua na frase, como detalhe — só deixa de ser a frase inteira.
+    expect(message).toContain('Validation Failed')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('git-textgen mode=commit returns subject/body and records a usage_event source=textgen (F14)', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

@@ -703,3 +703,29 @@ todos' ou 'Sempre neste projeto'."* Nenhuma menção a revisar o nível de acess
 errado do defeito original.
 
 O aviso de versão (D3) apareceu uma vez na mesma faixa, sem bloquear o turno.
+
+## F14/F03 — criação real de PR contra a API do GitHub (2026-08-17)
+
+Última lacuna de evidência do lote: o contrato de sucesso do PR estava coberto só por teste com
+axios mockado, e a chamada real nunca tinha sido exercitada (decisão de escopo antiga — ação
+visível e difícil de reverter contra sistema externo).
+
+Ambiente: PAT salvo no cofre pela tela de Configuração, **clone descartável** em
+`D:\temp\engrena-pr-smoke` (o repo de trabalho não foi tocado), branch `smoke/pr-real-f14`,
+access `auto-accept-edits`, `claude` 2.1.233. Um turno mínimo acrescentou uma linha ao `README.md`;
+o diff foi aceito pela UI, o que revelou o botão **Abrir PR**.
+
+**Achado, na primeira tentativa.** Com a branch ainda só local, o botão devolveu
+*"Falha ao abrir o PR: Validation Failed"* — o texto cru do 422 do GitHub. A chamada real
+aconteceu (o erro vem da API), mas a mensagem não diz o que fazer. O 422 cobre dois casos:
+PR já aberto para o head (tratado pela busca de PR existente) e **head inexistente no remote**, que
+é o caso comum logo depois de aceitar um diff, quando o commit está local e ninguém deu push.
+
+**Caminho de sucesso.** Com a mesma branch pushada, o botão criou o PR real
+`humbertoluks/engrena-code#14` (head `smoke/pr-real-f14`, base `main`, autor `humbertoluks`),
+confirmado por `gh pr view`. Fechado em seguida, com comentário explicando a origem, e a branch
+remota apagada — nada ficou aberto no repositório.
+
+**Correção no mesmo dia:** o 422 sem PR existente passa a produzir uma frase que nomeia a branch e
+manda fazer push, mantendo o texto do GitHub como detalhe. Coberto por teste em
+`git-handler.test.ts` com axios mockado devolvendo o payload real do 422.

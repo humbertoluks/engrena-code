@@ -261,6 +261,29 @@ function githubErrorSummary(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * O 422 do GitHub cobre dois casos aqui, e o segundo é o comum: ou já existe PR aberto para este
+ * head (tratado antes desta função), ou o head **não existe no remote**. A API responde os dois com
+ * "Validation Failed", que sozinho não diz nada a quem clicou em Abrir PR.
+ *
+ * O caso da branch não pushada é o mais provável logo depois de aceitar um diff — o commit está
+ * local e o `git push` ainda não aconteceu. Confirmado ao vivo no smoke de 2026-08-17: antes do
+ * push, "Falha ao abrir o PR: Validation Failed"; com a mesma branch pushada, o PR nasce normal.
+ */
+function unpushedBranchDiagnosis(err: unknown, head: string): string {
+  const summary = githubErrorSummary(err)
+  const errors = axios.isAxiosError(err)
+    ? ((err.response?.data as { errors?: Array<{ field?: string; message?: string }> } | undefined)?.errors ?? [])
+    : []
+  // A API às vezes nomeia o campo; quando nomeia, é sinal forte de head inexistente.
+  const blamesHead = errors.some((e) => e.field === 'head' || /head/i.test(e.message ?? ''))
+  const detail = summary === '' ? '' : ` Detalhe do GitHub: ${summary}.`
+  const hint = blamesHead
+    ? `A branch "${head}" não foi encontrada no remote.`
+    : `A causa mais comum é a branch "${head}" ainda não estar no remote.`
+  return `Falha ao abrir o PR. ${hint} Faça push dela antes de abrir o PR.${detail}`
+}
+
 export async function createPullRequest(cwd: string, token: string, input: CreatePullRequestInput): Promise<PullRequestResult> {
   const remoteUrl = await getRemoteOriginUrl(cwd)
   if (!remoteUrl) throw new GitError('pr_no_remote', 'Repositório sem remote origin configurado.')
@@ -301,8 +324,9 @@ export async function createPullRequest(cwd: string, token: string, input: Creat
           return { url: list.data[0].html_url, number: list.data[0].number, existing: true }
         }
       } catch {
-        // segue para o erro genérico abaixo
+        // segue para o diagnóstico abaixo
       }
+      throw new GitError('pr_create_failed', unpushedBranchDiagnosis(err, head))
     }
     throw new GitError('pr_create_failed', `Falha ao abrir o PR: ${githubErrorSummary(err)}`)
   }
