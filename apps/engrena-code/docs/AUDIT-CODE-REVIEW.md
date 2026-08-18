@@ -1907,4 +1907,4 @@ Ordem: 🔴 segurança/parse → 🔴 UX testável → 🔴 testes irmãos → �
 
 ## 6. Como atualizar este artefato
 
-Use [`.claude/skills/audit-full-base/SKILL.md`](../.claude/skills/audit-full-base/SKILL.md): 3 reviews em sequência, preserve esta seção de remediação (texto canônico em [`.claude/skills/audit-full-base/references/remediation.md`](../.claude/skills/audit-full-base/references/remediation.md)), sincronize `coding-*/project.md`, mova Abertos→Corrigidos com evidência, atualize contagens/data. Agente de **fix** segue o protocolo desta seção; não invente outro fluxo.
+Use [`.claude/skills/audit-full-base/SKILL.md`](../../../.claude/skills/audit-full-base/SKILL.md): 3 reviews em sequência, preserve esta seção de remediação (texto canônico em [`.claude/skills/audit-full-base/references/remediation.md`](../../../.claude/skills/audit-full-base/references/remediation.md)), sincronize `coding-*/project.md`, mova Abertos→Corrigidos com evidência, atualize contagens/data. Agente de **fix** segue o protocolo desta seção; não invente outro fluxo.

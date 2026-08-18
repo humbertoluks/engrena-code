@@ -5,6 +5,13 @@
 **Status:** Especificação  
 **Última atualização:** 2026-07-30
 
+> **Nota histórica de paths.** Este documento é de julho/agosto de 2026, antes da conversão para
+> monorepo, e cita `packages/renderer/…` e `src/services/…` na estrutura da época. O código
+> correspondente vive hoje sob `apps/engrena-code/src/` (ex.: `configuracao-service.ts` em
+> `apps/engrena-code/src/renderer/services/`), com os primitives compartilhados em `packages/ui/`.
+> Os paths ficam como estão por serem registro do que foi executado — para a estrutura atual, ver
+> [`DEVELOPMENT.md`](../DEVELOPMENT.md).
+
 ---
 
 ## 1. Escopo

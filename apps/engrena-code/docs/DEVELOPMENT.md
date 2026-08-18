@@ -452,9 +452,10 @@ Isso redireciona `vault.enc`, o SQLite (`engrenacode.db`) e os segredos de MCP p
 pnpm run build
 ```
 
-Compila TypeScript, Vite e gera instaladores:
-- `release/EngrenaCode Setup 0.0.0.exe` — Instalador NSIS (wizard, não silent; deixa escolher pasta; cria atalho)
-- `release/EngrenaCode 0.0.0.exe` — Portable executável
+Compila TypeScript, Vite e gera instaladores. Os caminhos são **relativos ao app**, não à raiz do
+monorepo — escrever só `release/` já fez alguém instalar um binário velho de outra pasta:
+- `apps/engrena-code/release/EngrenaCode Setup 0.0.0.exe` — Instalador NSIS (wizard, não silent; deixa escolher pasta; cria atalho)
+- `apps/engrena-code/release/EngrenaCode 0.0.0.exe` — Portable executável
 
 ---
 
@@ -467,6 +468,7 @@ pnpm run build
 ```
 
 **Outputs:**
+Todos sob `apps/engrena-code/`:
 - `dist-electron/` — Main + preload compilados
 - `dist/` — React app (renderer, output do Vite)
 - `release/` — Instaladores Windows (NSIS + portable), separado de `dist/` para não colidir com o output do Vite

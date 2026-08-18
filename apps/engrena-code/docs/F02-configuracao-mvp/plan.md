@@ -5,6 +5,13 @@
 **Fases:** 5 (inclui fechamento)  
 **Status:** Fechado (2026-08-03) — smoke em `smoke-results.md`; commit `eaa9a0c`
 
+> **Nota histórica de paths.** Este documento é de julho/agosto de 2026, antes da conversão para
+> monorepo, e cita `packages/renderer/…` e `src/services/…` na estrutura da época. O código
+> correspondente vive hoje sob `apps/engrena-code/src/` (ex.: `configuracao-service.ts` em
+> `apps/engrena-code/src/renderer/services/`), com os primitives compartilhados em `packages/ui/`.
+> Os paths ficam como estão por serem registro do que foi executado — para a estrutura atual, ver
+> [`DEVELOPMENT.md`](../DEVELOPMENT.md).
+
 ---
 
 ## Pré-requisitos
