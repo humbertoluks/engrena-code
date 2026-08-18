@@ -274,6 +274,11 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero que novos subagents apareçam no grafo sem refresh manual
 - Como usuário, quero inspecionar a mensagem/task de uma aresta ao clicar nela
 
+### F30. Avisos de runtime e permissão
+- Como usuário, quero que o chat não me avise de versão de CLI quando o turno está seguindo
+- Como usuário, quero ver a versão do Claude CLI em Configuração, em uma linha discreta
+- Como usuário, quero saber que o pedido de permissão vai expirar, e uma frase curta se eu não responder a tempo
+
 ## 6. Funcionalidades
 
 ### F01. Vault e Sessão Local
@@ -1064,6 +1069,36 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 - Sem thread selecionada → empty "Selecione uma thread…"
 - Falha de history → estados existentes do workspace (não há fetch dedicado do grafo)
 
+### F30. Avisos de runtime e permissão
+
+**Consome:**
+- F01.1: tokens `muted` / `amber`
+- F02: card CLIs de `#configuracao` e probe “Testar conexões”
+- F03: tarja do workspace, `PermissionPrompt`, gate `expiresAt`, `nativeDenialMessage`
+- F08: `log_entries` para a linha técnica de versão
+
+**Provê:**
+- Diagnóstico de versão do Claude CLI fora da tarja do chat
+- Copy de produto no expiry do card de permissão + relógio no card
+
+**Capacidades:**
+- `announceClaudeCliVersionOnce` grava log e não emite aviso de chat
+- Caption `{version}` na row Claude de Configuração; segunda linha só se a versão estiver fora da faixa conferida ou for ilegível
+- `GET /api/config/status` permanece PATH-only (sem spawn de `--version`)
+- `nativeDenialMessage` usa frases curtas de produto; motivo cru do CLI fica no log
+- Countdown `mm:ss` no card a partir de `expiresAt`; `PERMISSION_TIMEOUT_MS` permanece 2 min fail-closed
+
+**Experiência:**
+- Primeiro turno com CLI acima da faixa: chat sem tarja de versão
+- Configuração mostra a versão em mono muted depois de Testar conexões
+- Card de permissão mostra relógio; nos últimos 15 s o relógio fica amber
+- Expiry: “A permissão de {tool} expirou. Peça de novo ao agente.”
+
+**Tratamento de Erros:**
+- CLI ausente: row F02 “não instalado”, sem caption de versão
+- Cache de versão frio na hora de uma negação nativa: omite a frase de causa de versão
+- Relógio do cliente vs closeGate: o card some pelo estado do gate, não pelo zero local
+
 ## 7. Fora de Escopo
 
 ### Pipelines e automação avançada (parcialmente promovido — ver F18, F22)
@@ -1127,6 +1162,7 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 | F27 | Ditado por Voz (STT) | 3 | F01.1, F03, F16 |
 | F22 | Automação por Slash Commands (Pipeline) | 1 | F03, F07, F15, F18, F19, F20, F21 |
 | F29 | Monitor de execução (grafo) | 2 | F01.1, F03, F15, F18, F22 |
+| F30 | Avisos de runtime e permissão | 3 | F01.1, F02, F03, F08 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -1146,8 +1182,9 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 - **Onda 5**: F18, F19, F24, F25, F27
 - **Onda 6**: F22
 - **Onda 7**: F29
+- **Onda 8**: F30
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 começa com F29** (monitor de execução). Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 = F29 + F30**. Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22); F30 cai na Onda 8 (copy/diagnóstico sobre F02/F03/F08). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -1244,6 +1281,10 @@ graph TD
   F15 --> F29
   F18 --> F29
   F22 --> F29
+  F011 --> F30[RuntimeNotices]
+  F02 --> F30
+  F03 --> F30
+  F08 --> F30
 ```
 
 ## 9. Critérios de Aceitação
@@ -1438,6 +1479,12 @@ graph TD
 - [x] Clique na aresta abre inspector com from/to, status, horário, duração, task e retorno
 - [x] Light/dark via tema resolvido; React Flow lazy-loaded
 
+### F30. Avisos de runtime e permissão
+- [ ] Primeiro turno com Claude CLI fora da faixa validada não abre tarja âmbar de versão no chat; a linha técnica continua em `log_entries`
+- [ ] `#configuracao` mostra a versão parseada do Claude CLI na row do CLI após Testar conexões; fora da faixa, caption muted “Ainda não conferida nesta versão.” sem alarme
+- [ ] Card de permissão mostra countdown `mm:ss` derivado de `expiresAt`; `PERMISSION_TIMEOUT_MS` permanece 2 min
+- [ ] Expiry do card gera tarja curta (“A permissão de {tool} expirou. Peça de novo ao agente.”) sem “negou por segurança” e sem faixa de versão
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
@@ -1470,3 +1517,4 @@ graph TD
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [x] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
 - [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace
+- [ ] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)
