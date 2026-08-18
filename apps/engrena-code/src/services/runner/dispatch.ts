@@ -55,6 +55,7 @@ import { RuleRegistry } from './rule-registry.js'
 import { MemoryRegistry } from './memory-registry.js'
 import { createMemoryWriteServer, type MemoryWriteServerHandle } from './memory-write-server.js'
 import { CALL_SUBAGENT_TOOL_NAME, resolveSubagentCatalog } from './subagent-registry.js'
+import { INTERNAL_ALWAYS_ALLOWED_TOOLS } from './permission-policy.js'
 import { createDelegationServer, type DelegationServerHandle } from './delegate.js'
 import {
   createAskUserQuestionServer,
@@ -687,9 +688,11 @@ async function runTurn(
       mcpServers: mcpsPrepared.resolved,
       // Tools internas nossas: perguntar ao usuário, ler skill e gravar memória não podem depender
       // do modo de permissão do CLI — sob `acceptEdits` elas eram negadas em silêncio.
-      alwaysAllowedTools: providerSupportsMcp
-        ? [ASK_USER_QUESTION_TOOL_NAME, LOAD_SKILL_TOOL_NAME, CALL_SUBAGENT_TOOL_NAME]
-        : undefined,
+      //
+      // Mesma lista que o broker auto-aprova (`INTERNAL_ALWAYS_ALLOWED_TOOLS`): fonte única, senão
+      // o `--allowedTools` diz uma coisa e o hook `PreToolUse` faz outra — foi o que quebrou a
+      // delegação, ver o comentário em `permission-policy.ts`.
+      alwaysAllowedTools: providerSupportsMcp ? [...INTERNAL_ALWAYS_ALLOWED_TOOLS] : undefined,
       permissionPort: permissionServer?.port,
       permissionToken: permissionServer?.token,
       resumeSessionId: thread.provider === 'claude' ? thread.cliSessionId : undefined,

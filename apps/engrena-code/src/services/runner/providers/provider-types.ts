@@ -63,6 +63,8 @@ export interface ProviderTurnInput {
   /**
    * Tools internas do EngrenaCode liberadas sem passar pelo gate de permissão do CLI (`--allowedTools`).
    * São nossas, não tocam o repositório e viram UI: perguntar ao usuário nunca pode depender do modo.
+   * Vem de `INTERNAL_ALWAYS_ALLOWED_TOOLS` (`permission-policy.ts`) e inclui `ToolSearch`, que é
+   * como o CLI busca o schema delas — a lista tem de ser a mesma que o broker auto-aprova.
    */
   alwaysAllowedTools?: string[]
   /** Anexos de imagem (F16 §3.2) — CLI materializa em ficheiros temporários; Minimax rejeita (text-only). */
