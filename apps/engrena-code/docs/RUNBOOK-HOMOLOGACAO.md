@@ -133,17 +133,33 @@ Gasta cota da assinatura. Só depois do Roteiro A verde.
 | ✅   | **B7** · BLOQUEIA  | Rejeitar um segundo diff                                                                             | Arquivo volta ao estado anterior                                                                                                                                                                   |
 | ✅   | **B8** · BLOQUEIA  | Responder um follow-up na mesma thread                                                               | O agente entende o contexto (usa `--resume`), não pergunta "qual tarefa?"                                                                                                                          |
 | ✅   | **B9** · BLOQUEIA  | Disparar turno longo e clicar em **Parar**                                                           | Ferramenta cancelada em segundos, processo morto, thread assentada em `cancelled`                                                                                                                  |
+|     |                    | *Exemplo de prompt:* `Rode python -m http.server 8931 no terminal.`                                  | Bloqueia em foreground; depois do Parar a porta 8931 tem de ficar livre em segundos                                                                                                                |
 | ✅   | **B10a**           | Enviar durante turno em execução                                                                     | Mensagem entra na fila; o composer mostra **Parar** e **Enviar** juntos e a fila aparece com "1 na fila"                                                                                            |
 | ✅   | **B10b**           | Deixar o turno **terminar sozinho**, sem tocar em Parar                                              | O item da fila vira o turno seguinte, sem clique nenhum                                                                                                                                             |
 |     |                    | *Também vale após **Parar**:* a fila drena em qualquer fim de execução — ver a nota abaixo da tabela  |                                                                                                                                                                                                    |
-| ✅   | **B11**            | Trocar access para **Auto-accept edits** e pedir edição                                              | Edição passa direto; Bash ainda abre card                                                                                                                                                          |
-|     |                    | *Exemplo de prompt:* `Troque a palavra homologado por aprovado em hml.txt e depois rode git status.` |                                                                                                                                                                                                    |
+|     | **B11**            | Trocar access para **Auto-accept edits** e pedir edição                                              | A edição passa **sem card**; o `git status` do mesmo turno **abre card** — os dois no mesmo turno                                                                                                   |
+|     |                    | *Exemplo de prompt:* `Use a ferramenta Edit para trocar a palavra homologado por aprovado em hml.txt, e depois rode git status.` | Nomear a tool é obrigatório — ver a nota abaixo da tabela                                                                                                            |
 | ✅   | **B12**            | Usar "Permitir todos" numa ferramenta                                                                | Próxima chamada da mesma ferramenta não pergunta mais **nesta** thread                                                                                                                             |
 |     |                    | *Exemplo:* conceder em um `Bash`, pedir outro `Bash` e ver que não abre card                         |                                                                                                                                                                                                    |
 | ✅   | **B13**            | Abrir a aba **Grafo** durante uma delegação                                                          | Nó do subagente com ferramenta corrente e contador subindo                                                                                                                                         |
 |     |                    | *Exemplo de prompt:* `Delegue ao subagente explorer um mapa das pastas do projeto.`                  |                                                                                                                                                                                                    |
 | ✅   | **B14** · BLOQUEIA | Conferir `#consumo`                                                                                  | Turnos aparecem com custo; origem coerente com assinatura                                                                                                                                          |
 |     |                    | *Exemplo:* os turnos de B1–B9 somam valor > 0 e o projeto `hml` aparece na lista                     |                                                                                                                                                                                                    |
+
+**O composer nasce em Auto-accept edits, não em Supervised.** B1 e B3 pedem Supervised de
+propósito, e trocar o nível é um clique explícito antes de enviar a primeira mensagem. Deixando o
+padrão, uma escrita feita por `Edit` passa **sem card** — e B3 pareceria reprovar quando na verdade
+nem chegou a ser executado.
+
+**B11 precisa nomear a tool, senão mede outra coisa.** O nível `auto-accept-edits` aprova sem card as
+tools de arquivo (`Read`, `Glob`, `Grep`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `TodoWrite`) e
+**pergunta** para `Bash`, WebFetch e MCP — igual ao `acceptEdits` do Claude Code. Só que "edite a
+palavra X no arquivo" não obriga o agente a usar `Edit`: ele pode resolver com
+`printf 'X' > arquivo` dentro do Bash, e aí o card aparece **corretamente**, porque o broker vê uma
+chamada de Bash e não interpreta o shell (`printf > x` e `rm -rf /` chegam pela mesma tool). Card de
+Bash numa edição feita por Bash **não** é falha do nível; é o nível funcionando. Reprovar B11 exige
+ver card num `Edit`/`Write` de verdade — daí o prompt nomear a ferramenta. Observado ao vivo em
+2026-08-18 com três gates `Bash` (`printf … > homologado.txt`) numa thread `auto-accept-edits`.
 
 **B4/B4b são contrato de produto, não detalhe.** As duas maneiras de decidir têm de funcionar (`spec.md`
 §3.5). Reprova se o chip não conceder no clique, se conceder mas apagar o rascunho do composer, ou
