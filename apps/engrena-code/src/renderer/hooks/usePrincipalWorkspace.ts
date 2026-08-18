@@ -27,7 +27,6 @@ import {
   toWirePayload,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
-import type { PendingMessage } from '../components/workspace/pendingMessages.logic'
 import { PERMISSION_PENDING_HINT } from '../components/workspace/permissionComposer.logic'
 import {
   EXPORT_COPY,
@@ -1062,22 +1061,14 @@ export function usePrincipalWorkspace() {
   )
 
   /**
-   * O que o chat mostra abaixo do histórico: primeiro o que já foi despachado (`sending`/`sent`
-   * /`permission`), depois a fila na ordem em que será executada.
+   * O que o chat mostra abaixo do histórico: só o que já foi despachado (`sending`/`sent`
+   * /`permission`).
+   *
+   * A fila **não** entra aqui. Ela já tem um lugar próprio — o painel acima do composer, com
+   * ordem, editar, priorizar e remover —, e repetir cada item como bolha na timeline mostrava a
+   * mesma mensagem duas vezes na mesma tela, uma delas sem nenhuma das ações.
    */
-  const chatPendingMessages = useMemo<PendingMessage[]>(
-    () => [
-      ...pendingMessages,
-      ...queue.map((item) => ({
-        id: item.id,
-        text: item.text,
-        images: item.images.map((img) => ({ id: img.id, mimeType: img.mimeType, name: img.name, dataBase64: img.dataBase64 })),
-        status: 'queued' as const,
-        createdAt: 0,
-      })),
-    ],
-    [pendingMessages, queue]
-  )
+  const chatPendingMessages = pendingMessages
 
   /** Voto otimista: clicar no mesmo voto desfaz (toggle), igual ao chat do VS Code. */
   const voteMessage = useCallback(
@@ -1225,8 +1216,6 @@ export function usePrincipalWorkspace() {
     dequeue,
     updateQueueItem,
     promoteQueueItem,
-    /** Empurra o topo da fila quando nenhum turno vai drená-la (pós-cancelamento). */
-    runQueueNow: processQueueIfIdle,
     sendError,
     send,
     cancel,

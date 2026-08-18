@@ -75,14 +75,7 @@ const STATUS_LABEL: Record<PendingMessageStatus, string> = {
   permission: 'Resposta enviada ao pedido de permissão',
 }
 
-/**
- * Fila sem turno para drená-la (`ChatSurface.queuePaused`): o rótulo normal mandava aguardar um
- * turno que não existe mais — depois de um **Parar** a fila só anda por ação explícita.
- */
-export const QUEUE_PAUSED_LABEL = 'Na fila — pausada; use "Executar agora"'
-
-export function pendingStatusLabel(status: PendingMessageStatus, queuePaused = false): string {
-  if (status === 'queued' && queuePaused) return QUEUE_PAUSED_LABEL
+export function pendingStatusLabel(status: PendingMessageStatus): string {
   return STATUS_LABEL[status]
 }
 

@@ -298,34 +298,17 @@ describe('deriveChatSurface — runtimeLocked', () => {
   })
 })
 
-describe('deriveChatSurface — fila pausada (pós-cancelamento)', () => {
-  it('thread assentada com item na fila é fila pausada', () => {
-    for (const state of ['cancelled', 'idle', 'committed', 'error'] as const) {
-      expect(deriveChatSurface({ ...base, threadState: state, queueLength: 1 }).queuePaused).toBe(true)
-    }
-  })
-
-  it('não é pausa com turno vivo, com gate aberto nem em stopping', () => {
-    for (const state of ['running', 'stopping', 'waiting_user', 'waiting_permission'] as const) {
-      expect(deriveChatSurface({ ...base, threadState: state, queueLength: 1 }).queuePaused).toBe(false)
-    }
-    expect(
-      deriveChatSurface({ ...base, threadState: 'idle', gate: PERMISSION_GATE, queueLength: 1 }).queuePaused
-    ).toBe(false)
-    expect(
-      deriveChatSurface({ ...base, threadState: 'waiting_user', gate: QUESTION_GATE, queueLength: 1 })
-        .queuePaused
-    ).toBe(false)
-  })
-
-  it('fila vazia nunca é pausa', () => {
-    expect(deriveChatSurface({ ...base, threadState: 'cancelled', queueLength: 0 }).queuePaused).toBe(false)
-  })
-
-  it('com fila cheia o Enviar enfileira e não abre turno, mesmo com a thread parada', () => {
+describe('deriveChatSurface — fila não-vazia com a thread parada', () => {
+  it('com fila cheia o Enviar vai para a fila e não abre turno, mesmo com a thread parada', () => {
     const surface = deriveChatSurface({ ...base, threadState: 'cancelled', queueLength: 1 })
     expect(surface.route).toBe('enqueue')
     expect(surface.sendLabel).toBe(CHAT_SURFACE_COPY.sendEnqueue)
     expect(surface.sendStartsTurn).toBe(false)
+  })
+
+  it('fila vazia com a thread parada abre turno normalmente', () => {
+    const surface = deriveChatSurface({ ...base, threadState: 'cancelled', queueLength: 0 })
+    expect(surface.route).toBe('send_follow_up')
+    expect(surface.sendStartsTurn).toBe(true)
   })
 })

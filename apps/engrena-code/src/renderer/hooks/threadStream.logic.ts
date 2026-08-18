@@ -111,12 +111,14 @@ export const SETTLED_THREAD_STATES: readonly ThreadState[] = [
 /**
  * Assentamentos que deixam resultado a reconciliar (histórico, diffs, sugestões, fila, consumo).
  *
- * `cancelled` fica de fora de propósito, e é a mesma linha que o handler de `state.change` já
- * traçava: turno abortado não produziu resposta, e despachar a fila logo depois de um Parar faz
- * exatamente o contrário do que o usuário pediu. Cancelado só adota o estado (o que já basta
- * para destravar o composer) e limpa o gate.
+ * É todo estado assentado, `cancelled` incluído: a fila anda sozinha assim que a execução termina,
+ * qualquer que tenha sido o desfecho. Já foi o contrário — `cancelled` ficava de fora com o
+ * argumento de que despachar logo após um Parar contraria o usuário —, e o resultado era pior: a
+ * fila congelava sem nada que a movesse, e o item só saía quando outra mensagem qualquer
+ * terminasse, rodando depois dela e fora de ordem. Parar encerra o turno em andamento; não é
+ * ordem de descartar o que já estava na fila (para isso existe o × em cada item).
  */
-export const TURN_RECONCILED_STATES: readonly ThreadState[] = ['idle', 'committed', 'error']
+export const TURN_RECONCILED_STATES: readonly ThreadState[] = SETTLED_THREAD_STATES
 
 /** `state` do wire é `string` cru (`ws-hub.ts`), então os predicados aceitam qualquer string. */
 function isOneOf(states: readonly ThreadState[], state: string | null | undefined): boolean {

@@ -158,14 +158,16 @@ describe('predicados de estado da thread', () => {
     }
   })
 
-  it('cancelled assenta o turno mas não é assentamento com resultado a reconciliar', () => {
+  it('todo assentamento reconcilia, cancelled inclusive: a fila anda sozinha ao fim da execução', () => {
     expect(isSettledThreadState('cancelled')).toBe(true)
-    expect(reconcilesTurnEnd('cancelled')).toBe(false)
-    expect(TURN_RECONCILED_STATES).toEqual(['idle', 'committed', 'error'])
+    expect(reconcilesTurnEnd('cancelled')).toBe(true)
+    expect(TURN_RECONCILED_STATES).toEqual(SETTLED_THREAD_STATES)
     for (const state of TURN_RECONCILED_STATES) {
       expect(reconcilesTurnEnd(state)).toBe(true)
       expect(isSettledThreadState(state)).toBe(true)
     }
+    // Estado ativo nunca reconcilia: o turno ainda está em andamento.
+    for (const state of ACTIVE_THREAD_STATES) expect(reconcilesTurnEnd(state)).toBe(false)
   })
 
   it('string desconhecida ou ausente não é nem ativa nem assentada (o wire manda `state: string` cru)', () => {
@@ -205,11 +207,11 @@ describe('decideThreadStateResync', () => {
     }
   })
 
-  it('cancelamento perdido destrava o composer sem despachar a fila do usuário', () => {
+  it('cancelamento perdido destrava o composer e despacha a fila, como qualquer fim de execução', () => {
     for (const localState of ACTIVE_THREAD_STATES) {
       expect(decideThreadStateResync({ localState, serverState: 'cancelled' })).toEqual({
         adoptState: 'cancelled',
-        reconcileSettled: false,
+        reconcileSettled: true,
       })
     }
   })

@@ -113,7 +113,7 @@ Desvios desta feature: **novo** WebSocket no mesmo server; **nova** migration wo
 | Thread pós-subset | `committed` só se zero pending após accept; senão `idle` | Sempre `committed` | Review arquivo a arquivo |
 | Add project | Sem exigir `.git`; gate `git-init` / composer | Exigir `.git` no add | PRD `git init` opcional |
 | Prefixos API | Sempre `/api/...` | Rotas sem prefixo do legado | Consistente com F02/F05 |
-| Fila follow-up | Local no renderer quando `running` | Só 409 no server | UX `ui.md`; lease ainda cobre 2º dispatch longo |
+| Fila follow-up | Local no renderer sempre que a thread está ocupada; drena sozinha no fim da execução (§3.4) | Só 409 no server | UX `ui.md`; lease ainda cobre 2º dispatch longo |
 
 ### 3.3 Assumptions / Decisions (entrevista)
 
@@ -136,6 +136,31 @@ Desvios desta feature: **novo** WebSocket no mesmo server; **nova** migration wo
 **Rastreabilidade PRD → spec:** Consome/Provê → §1–2; Escopo Central → Incluído; Completo → Adiado; Capacidades → §5–6; Experiência → cita `ui.md`; Erros → §5 + §7; Aceitação §9 F03 + cross-feature → §7.
 
 ---
+
+### 3.4 Fila de mensagens do composer
+
+A fila é o destino de toda mensagem escrita enquanto a thread está ocupada — é o comportamento que
+o usuário já conhece do Cursor e do Claude Code, e o contrato aqui é curto:
+
+| Regra | Detalhe |
+|---|---|
+| **Um lugar só** | A fila vive no painel acima do composer (`ComposerQueuePanel`), com ordem, editar (✎), priorizar e remover (×). Item na fila **não** vira bolha na timeline: repetir a mesma mensagem em dois lugares da mesma tela, um deles sem nenhuma das ações, é ruído. |
+| **Sempre enfileira** | Thread ocupada (`running`, `waiting_user`, `waiting_permission`) → o texto vai para a fila. Vale inclusive com card de permissão aberto: só palavra de decisão (`sim`/`não`/`permitir`/`permitir todos`) resolve o gate; o resto é mensagem e vai para a fila. |
+| **Ordem é do usuário** | Com a fila não-vazia, mensagem nova entra **atrás** mesmo com a thread parada (`routeComposerSend` recebe `queueLength`). Sem isso ela furava a fila e rodava antes de quem já esperava. |
+| **Drena sozinha** | Todo assentamento (`idle`, `committed`, `error`, `cancelled`) despacha o próximo item — `TURN_RECONCILED_STATES` = `SETTLED_THREAD_STATES`. Não há botão de "executar agora": a fila anda quando a execução termina, qualquer que seja o desfecho. |
+| **Parar ≠ descartar** | **Parar** encerra o turno em andamento; não é ordem de esvaziar o que já estava na fila. Para descartar existe o × de cada item. |
+| **Rótulo** | O botão é sempre **Enviar** — a fila é o destino, não a ação. O verbo "enfileirar" não aparece na UI. |
+
+**Por que a drenagem inclui `cancelled`.** A primeira versão excluía cancelamento, com o argumento
+de que despachar logo depois de um Parar contrariaria o usuário. O efeito real foi pior: a fila
+congelava sem nada que a movesse e o item só saía quando outra mensagem qualquer terminasse —
+rodando **depois** dela e fora de ordem. A tentativa de contornar com um CTA "Executar agora" só
+transferiu para o usuário um trabalho que o app tem como saber fazer.
+
+**Persistência.** A fila mora em `localStorage` por `queueKey` (thread, ou projeto antes da thread
+existir) e sobrevive ao F5. Falha no despacho recoloca o item no topo (`dispatchQueueHead`); envio
+recusado devolve o texto ao composer, nunca o descarta.
+
 
 ## 4. Visão Geral de Componentes
 

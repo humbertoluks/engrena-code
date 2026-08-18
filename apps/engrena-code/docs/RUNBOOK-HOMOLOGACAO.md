@@ -134,7 +134,7 @@ Gasta cota da assinatura. Só depois do Roteiro A verde.
 | ✅   | **B9** · BLOQUEIA  | Disparar turno longo e clicar em **Parar**                                                           | Ferramenta cancelada em segundos, processo morto, thread assentada em `cancelled`                                                                                                                  |
 | ✅   | **B10a**           | Enviar durante turno em execução                                                                     | Mensagem entra na fila; o composer mostra **Parar** e **Enviar** juntos e a fila aparece com "1 na fila"                                                                                            |
 | ✅   | **B10b**           | Deixar o turno **terminar sozinho**, sem tocar em Parar                                              | O item da fila vira o turno seguinte, sem clique nenhum                                                                                                                                             |
-|     |                    | *Não confundir com falha:* **Parar não drena a fila** — ver a nota abaixo da tabela                  |                                                                                                                                                                                                    |
+|     |                    | *Também vale após **Parar**:* a fila drena em qualquer fim de execução — ver a nota abaixo da tabela  |                                                                                                                                                                                                    |
 | ✅   | **B11**            | Trocar access para **Auto-accept edits** e pedir edição                                              | Edição passa direto; Bash ainda abre card                                                                                                                                                          |
 |     |                    | *Exemplo de prompt:* `Troque a palavra homologado por aprovado em hml.txt e depois rode git status.` |                                                                                                                                                                                                    |
 | ✅   | **B12**            | Usar "Permitir todos" numa ferramenta                                                                | Próxima chamada da mesma ferramenta não pergunta mais **nesta** thread                                                                                                                             |
@@ -153,9 +153,10 @@ decisão tem de passar pelo Enviar.
 não é defeito — é o recorte da working tree. Um B5 vazio com o arquivo fora do repo reprova o
 roteiro, não a versão: refaça B3–B7 com path dentro do projeto.
 
-**Parar não despacha a fila, e isso é intencional.** Só turno concluído (`idle`, `committed`,
-`error`) dispara o próximo item; depois de um cancelamento o item continua na fila até o usuário
-mandar de novo. Enfileirar e depois cancelar não é caminho válido para exercitar B10b.
+**A fila drena sozinha em todo fim de execução**, `cancelled` incluído: concluído, com erro ou
+parado pelo usuário, o próximo item entra. **Parar** encerra o turno em andamento, não descarta o
+que já estava na fila — para isso existe o × de cada item. Não há botão de "executar agora".
+Contrato completo em [`F03-workspace/spec.md`](./F03-workspace/spec.md) §3.4.
 
 ---
 

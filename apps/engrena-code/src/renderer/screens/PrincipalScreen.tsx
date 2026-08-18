@@ -326,7 +326,6 @@ export function PrincipalScreen(): ReactElement {
               onDequeue={ws.dequeue}
               onUpdateQueueItem={ws.updateQueueItem}
               onPromoteQueueItem={ws.promoteQueueItem}
-              onRunQueue={ws.runQueueNow}
               sendError={ws.sendError}
               configStatus={ws.configStatus}
               vcsStatus={ws.vcsStatus}
