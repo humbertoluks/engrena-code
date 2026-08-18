@@ -2375,6 +2375,63 @@ describe('modo de chat (F28 §3.4)', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('follow-up retomado leva as rules no prompt do turno (rule vinculada com a thread aberta)', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    const thread = createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+      state: 'idle',
+    })
+    // Sessão já gravada no CLI: o system prompt do `--resume` é o de antes da rule existir.
+    updateThread(thread.id, { cliSessionId: 'sessao-antiga' })
+    createRule({ name: 'so-ingles', content: 'Responda SEMPRE em ingles.', isGlobal: true })
+
+    let capturedPrompt = ''
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      return { text: 'ok' }
+    })
+
+    dispatchFollowUp({ threadId: thread.id, prompt: 'quantos arquivos?' })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedPrompt).toContain('Responda SEMPRE em ingles.')
+    expect(capturedPrompt.endsWith('quantos arquivos?')).toBe(true)
+    clearAllLeases()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('turno novo (sem --resume) não repete as rules no prompt: elas já estão no system prompt', async () => {
+    const dir = makeProjectDir()
+    const project = createProject({ path: dir })
+    createRule({ name: 'so-ingles', content: 'Responda SEMPRE em ingles.', isGlobal: true })
+
+    let capturedPrompt = ''
+    let capturedSystemPrompt: string | undefined
+    setRunCliTurnForTesting(async (input) => {
+      capturedPrompt = input.prompt
+      capturedSystemPrompt = input.systemPrompt
+      return { text: 'ok' }
+    })
+
+    const thread = await dispatchNewThread({
+      projectId: project.id,
+      prompt: 'quantos arquivos?',
+      provider: 'claude',
+      accessLevel: 'auto-accept-edits',
+      executionMode: 'main',
+    })
+    await waitForState(thread.id, ['idle', 'error'])
+
+    expect(capturedSystemPrompt).toContain('Responda SEMPRE em ingles.')
+    expect(capturedPrompt).not.toContain('Responda SEMPRE em ingles.')
+    clearAllLeases()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('turno sem modo não ganha bloco nenhum e nome desconhecido é ignorado', async () => {
     const dir = makeProjectDir()
     const project = createProject({ path: dir })

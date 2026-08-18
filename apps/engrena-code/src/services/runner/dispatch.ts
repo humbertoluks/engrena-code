@@ -563,10 +563,20 @@ async function runTurn(
     // Turno retomado (`--resume`) reaproveita o system prompt gravado na sessão do CLI e ignora o
     // `--append-system-prompt` novo — sem isto, trocar de modo no meio da thread não valia nada.
     // Então o bloco do modo viaja no prompt do turno, como os anexos de contexto.
+    //
+    // O mesmo vale para as rules, e pelo mesmo motivo: vincular uma rule ao projeto com a thread
+    // já aberta não mudava nada nos turnos seguintes dela — o critério C4 do runbook ("rule entra
+    // no turno seguinte e o agente obedece") falhava em thread existente e passava em thread nova,
+    // que é a assinatura exata deste bug (visto ao vivo em 2026-08-18 com a rule `so-ingles`).
     const resumingClaude = thread.provider === 'claude' && thread.cliSessionId !== null
-    const modeBlockForTurn = resumingClaude ? composeModeBlock(activeMode) : ''
+    const resumeBlocks = resumingClaude
+      ? [
+          RuleRegistry.composeBlockForTurn(project.id, activeMode?.rules ?? null),
+          composeModeBlock(activeMode),
+        ].filter((block) => block !== '')
+      : []
     const providerPrompt =
-      modeBlockForTurn === '' ? withContext : modeBlockForTurn + '\n\n' + withContext
+      resumeBlocks.length === 0 ? withContext : [...resumeBlocks, withContext].join('\n\n')
     const cwd = resolveThreadCwd(thread, project)
 
     const linkedMcps = McpRegistry.resolveForProject(project.id)
