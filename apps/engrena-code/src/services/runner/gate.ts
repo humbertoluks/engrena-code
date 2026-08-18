@@ -313,7 +313,7 @@ export interface ResolvePermissionGateOptions {
    * enxergar a allowlist. Injetado pelo chamador porque allowlist é assunto do broker, não do gate
    * — é o que evita ciclo de import entre os dois módulos.
    */
-  onGranted?: (info: { threadId: string; toolName: string }) => void
+  onGranted?: (info: { threadId: string; toolName: string; params: unknown }) => void
 }
 
 /**
@@ -337,7 +337,9 @@ export function resolvePermissionGate(
   const toolName = candidate.toolName ?? 'unknown'
   const closed = closeGate(gateId, 'resolved', { kind: 'permission', allow }, GATE_REASON_USER_DECISION, {
     beforeRelease: (gate) => {
-      if (allow) options.onGranted?.({ threadId: gate.threadId, toolName })
+      // `payload` vai junto porque a allowlist do shell é por verbo do comando, não por tool
+      // (`bash-command-scope.ts`): sem ele o "Permitir todos" volta a conceder o Bash inteiro.
+      if (allow) options.onGranted?.({ threadId: gate.threadId, toolName, params: gate.payload })
     },
   })
   // Perdeu a corrida para o timeout entre o SELECT e o UPDATE: nada a consumir.

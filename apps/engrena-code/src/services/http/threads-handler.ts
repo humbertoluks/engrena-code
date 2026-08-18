@@ -558,7 +558,9 @@ async function handleResolveGate(
     const scope = data.scope === 'project' ? 'project' : 'thread'
     const resolved = resolvePermissionGate(threadId, gateId, allow, {
       onGranted:
-        data.always === true ? ({ toolName }) => grantAlwaysAllowedTool(threadId, toolName, scope) : undefined,
+        data.always === true
+          ? ({ toolName, params }) => grantAlwaysAllowedTool(threadId, toolName, scope, params)
+          : undefined,
     })
     if (!resolved.ok) return sendGateResolveError(res, resolved.code)
     return sendJson(res, 200, { resolved: true, kind: 'permission', always: data.always === true, toolName: resolved.toolName })

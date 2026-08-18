@@ -195,12 +195,14 @@ describe('resolvePermissionGate', () => {
     const denied = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
     if (!denied.ok) throw new Error('gate não abriu')
 
-    const calls: Array<{ threadId: string; toolName: string }> = []
+    const calls: Array<{ threadId: string; toolName: string; params: unknown }> = []
     resolvePermissionGate(threadId, denied.gate.requestId, false, { onGranted: (info) => calls.push(info) })
     await expect(denied.decision).resolves.toMatchObject({ allow: false })
     expect(calls).toEqual([])
 
-    const allowed = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
+    // `params` viaja junto: a allowlist do shell é por verbo do comando (`bash-command-scope.ts`),
+    // e sem o payload o "Permitir todos" volta a conceder o Bash inteiro.
+    const allowed = openPermissionGate({ threadId, toolName: 'Bash', params: { command: 'git status' } })
     if (!allowed.ok) throw new Error('gate não abriu')
     // Ordem que importa: quando o hook destrava, a allowlist já tem que estar gravada — senão o
     // tool call seguinte do CLI reabre card mesmo depois do "Permitir todos".
@@ -210,7 +212,7 @@ describe('resolvePermissionGate', () => {
     })
     resolvePermissionGate(threadId, allowed.gate.requestId, true, { onGranted: (info) => calls.push(info) })
     await allowed.decision
-    expect(calls).toEqual([{ threadId, toolName: 'Bash' }])
+    expect(calls).toEqual([{ threadId, toolName: 'Bash', params: { command: 'git status' } }])
     expect(callsAtHookRelease).toBe(1)
   })
 })

@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto'
 import http from 'http'
 import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
+import { commandScope, isCoveredByAllowlist, keysToGrant } from './bash-command-scope.js'
 import { PERMISSION_BODY_MAX_BYTES } from './buffer-cap.js'
 import {
   GATE_REASON_THREAD_CANCELLED,
@@ -23,9 +24,11 @@ export { PERMISSION_TIMEOUT_MS }
 export type { PermissionRequestInfo }
 
 /**
- * Allowlist por thread + toolName — equivalente Claude Code "Yes, don't ask again" para aquela
- * ferramenta pelo resto da sessão do processo (file edits no CC: até o fim da sessão).
- * Bash no CC persiste no repo; aqui a sessão da thread cobre o caso sem settings.local.json.
+ * Allowlist por thread — equivalente Claude Code "Yes, don't ask again" pelo resto da sessão do
+ * processo. A chave **não** é mais só o nome da tool: para shell ela é o verbo do comando
+ * (`Bash(git *)`, ver `bash-command-scope.ts`), porque conceder um `git status` concedia o shell
+ * inteiro, `rm -rf` incluído. A chave larga (`Bash`) continua válida e continua cobrindo tudo —
+ * é o que as concessões anteriores a esta mudança gravaram.
  */
 const allowedToolsByThread = new Map<string, Set<string>>()
 
@@ -180,21 +183,31 @@ export interface PermissionServerOptions {
   timeoutMs?: number
 }
 
-export function isToolAllowedForThread(threadId: string, toolName: string): boolean {
-  if (allowedToolsByThread.get(threadId)?.has(toolName) === true) return true
+/**
+ * Esta chamada já está liberada? `params` entra porque o escopo do shell é o verbo do comando,
+ * não o nome da tool — sem ele, `Bash` só poderia ser tudo ou nada.
+ *
+ * Consulta a allowlist da thread (memória, esta sessão) e a do projeto (`tool_allowlist`,
+ * sobrevive ao restart) pela mesma chave.
+ */
+export function isToolAllowedForThread(threadId: string, toolName: string, params?: unknown): boolean {
+  const scope = commandScope(toolName, params)
+  const threadSet = allowedToolsByThread.get(threadId)
   const thread = getThread(threadId)
-  // Allowlist do projeto sobrevive ao restart; a da thread cobre só esta sessão.
-  return thread !== null && isToolAllowedForProject(thread.projectId, toolName)
+  return isCoveredByAllowlist(scope, (key) => {
+    if (threadSet?.has(key) === true) return true
+    return thread !== null && isToolAllowedForProject(thread.projectId, key)
+  })
 }
 
-/** Claude Code "don't ask again" para a ferramenta — vale até o fim do processo / clear da thread. */
-export function rememberAllowedTool(threadId: string, toolName: string): void {
+/** Claude Code "don't ask again" — grava as chaves desta concessão na sessão da thread. */
+export function rememberAllowedTool(threadId: string, ...keys: string[]): void {
   let set = allowedToolsByThread.get(threadId)
   if (!set) {
     set = new Set()
     allowedToolsByThread.set(threadId, set)
   }
-  set.add(toolName)
+  for (const key of keys) set.add(key)
 }
 
 export function clearAllowedToolsForThread(threadId: string): void {
@@ -285,7 +298,7 @@ export function createPermissionServer(
         return
       }
 
-      if (isToolAllowedForThread(threadId, toolName)) {
+      if (isToolAllowedForThread(threadId, toolName, parsed.toolInput)) {
         recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
@@ -333,10 +346,21 @@ export type PermissionScope = 'thread' | 'project'
  * "Permitir todos" — efeito do `always=true` no `POST /permission`. Fica aqui, e não no `gate.ts`,
  * porque allowlist é assunto do broker; o gate só chama isto pelo hook `onGranted` (o que também
  * evita ciclo de import entre os dois módulos).
+ *
+ * `params` é o payload da chamada concedida: é dele que sai o verbo do shell. Sem ele a concessão
+ * volta a ser a tool inteira — o comportamento antigo, mantido de propósito para o caso em que o
+ * comando não tem verbo nomeável (`./deploy.sh`, `$(…)`).
  */
-export function grantAlwaysAllowedTool(threadId: string, toolName: string, scope: PermissionScope): void {
-  rememberAllowedTool(threadId, toolName)
+export function grantAlwaysAllowedTool(
+  threadId: string,
+  toolName: string,
+  scope: PermissionScope,
+  params?: unknown
+): void {
+  const keys = keysToGrant(commandScope(toolName, params))
+  rememberAllowedTool(threadId, ...keys)
   if (scope !== 'project') return
   const thread = getThread(threadId)
-  if (thread !== null) allowToolForProject(thread.projectId, toolName)
+  if (thread === null) return
+  for (const key of keys) allowToolForProject(thread.projectId, key)
 }

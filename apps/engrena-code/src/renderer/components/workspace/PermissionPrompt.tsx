@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { permissionFromGate, type ThreadGate } from '../../hooks/threadGate.logic'
+import { commandScope } from '../../../services/runner/bash-command-scope'
 import { PERMISSION_CHIPS, type PermissionDecisionKind } from './permissionComposer.logic'
 
 const COPY = {
@@ -8,14 +9,24 @@ const COPY = {
   queue: (n: number) => `+${n} na fila`,
   labelParams: 'Parâmetros',
   hint: 'Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie.',
-  allowAllHint: 'Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code).',
-  allowProjectTitle: 'Não perguntar mais por esta ferramenta neste projeto, mesmo depois de reiniciar',
+  allowAllHint: (target: string) => `Não perguntar de novo por ${target} nesta thread.`,
+  allowProjectTitle: (target: string) =>
+    `Não perguntar mais por ${target} neste projeto, mesmo depois de reiniciar.`,
+  /** Rodapé só quando a concessão é mais estreita que "a ferramenta inteira". */
+  scopeNote: (verbs: string) => `"Permitir todos" libera ${verbs} — os demais comandos seguem perguntando.`,
 } as const
 
-/** Ajuda por chip — só os dois que persistem escolha além deste pedido a têm. */
-const CHIP_TITLE: Partial<Record<PermissionDecisionKind, string>> = {
-  allow_always: COPY.allowAllHint,
-  allow_project: COPY.allowProjectTitle,
+/**
+ * O que os dois chips persistentes concedem, em português.
+ *
+ * Não é enfeite: a allowlist grava por verbo do comando quando dá (`Bash(git *)`), e prometer "esta
+ * ferramenta" quando o que se libera é `git` — ou o contrário — é o tipo de mentira que faz o
+ * usuário conceder mais do que pretendia.
+ */
+function grantTarget(toolName: string, verbs: readonly string[]): string {
+  if (verbs.length === 0) return `a ferramenta ${toolName}`
+  if (verbs.length === 1) return `\`${verbs[0]}\``
+  return verbs.map((v) => `\`${v}\``).join(', ')
 }
 
 const CHIP =
@@ -57,6 +68,14 @@ export function PermissionPrompt({
   error = null,
 }: Readonly<PermissionPromptProps>): ReactElement {
   const { toolName, params } = permissionFromGate(gate) ?? { toolName: 'unknown', params: gate.payload }
+  // Mesma função que o broker usa para gravar a allowlist — o card promete exatamente o que o
+  // clique vai conceder, nem mais nem menos.
+  const { verbs } = commandScope(toolName, params)
+  const target = grantTarget(toolName, verbs)
+  const chipTitle: Partial<Record<PermissionDecisionKind, string>> = {
+    allow_always: COPY.allowAllHint(target),
+    allow_project: COPY.allowProjectTitle(target),
+  }
   return (
     <div className="mb-md w-full max-w-[42rem] self-start rounded-lg border border-accent/40 bg-surface-2 p-sm text-[13px]">
       <div className="mb-[2px] flex items-center justify-between gap-sm">
@@ -82,7 +101,7 @@ export function PermissionPrompt({
           <button
             key={chip.kind}
             type="button"
-            title={CHIP_TITLE[chip.kind]}
+            title={chipTitle[chip.kind]}
             disabled={busy}
             onClick={() => onResolve(chip.kind)}
             className={chip.kind === 'allow' ? CHIP_PRIMARY : CHIP_QUIET}
@@ -91,6 +110,10 @@ export function PermissionPrompt({
           </button>
         ))}
       </div>
+
+      {verbs.length > 0 ? (
+        <p className="mt-xs text-[11px] text-muted">{COPY.scopeNote(target)}</p>
+      ) : null}
 
       {error !== null ? (
         <p role="alert" className="mt-xs text-[11.5px] text-red">

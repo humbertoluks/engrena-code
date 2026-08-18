@@ -390,23 +390,51 @@ describe('decisões do broker (diagnóstico da negação nativa)', () => {
 })
 
 describe('allowlist da thread ("Permitir todos")', () => {
-  it('pula a UI no próximo tool call igual', async () => {
+  it('pula a UI no próximo comando do mesmo verbo', async () => {
     const threadId = seedThread()
     const seen: PermissionRequestInfo[] = []
     const server = await createPermissionServer(threadId, (info) => seen.push(info))
 
-    const first = ask(server, 'Bash', { command: 'ls' })
+    const first = ask(server, 'Bash', { command: 'git status' })
     await waitFor(() => seen.length === 1)
     expect(
       resolvePermissionGate(threadId, seen[0].requestId, true, {
-        onGranted: ({ toolName }) => grantAlwaysAllowedTool(threadId, toolName, 'thread'),
+        onGranted: ({ toolName, params }) => grantAlwaysAllowedTool(threadId, toolName, 'thread', params),
       })
     ).toEqual({ ok: true, toolName: 'Bash' })
     await first
 
-    const second = await ask(server, 'Bash', { command: 'pwd' })
+    const second = await ask(server, 'Bash', { command: 'git log --oneline -1' })
     expect(((await second.json()) as { allow: boolean }).allow).toBe(true)
     expect(seen).toHaveLength(1)
+
+    clearAllowedToolsForThread(threadId)
+    server.close()
+  })
+
+  /**
+   * O ganho sobre o modelo antigo, que gravava a chave `Bash`: liberar um `git status` liberava
+   * `rm -rf` pelo resto da thread. Agora a chave é o verbo (`bash-command-scope.ts`), e o comando
+   * diferente volta a abrir card.
+   */
+  it('conceder um verbo NÃO libera o resto do shell', async () => {
+    const threadId = seedThread()
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const first = ask(server, 'Bash', { command: 'git status' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, true, {
+      onGranted: ({ toolName, params }) => grantAlwaysAllowedTool(threadId, toolName, 'thread', params),
+    })
+    await first
+
+    // Abriu card: é isso que a allowlist antiga engolia em silêncio.
+    const second = ask(server, 'Bash', { command: 'rm -rf build' })
+    await waitFor(() => seen.length === 2)
+    expect(seen[1].toolName).toBe('Bash')
+    resolvePermissionGate(threadId, seen[1].requestId, false)
+    expect(((await (await second).json()) as { allow: boolean }).allow).toBe(false)
 
     clearAllowedToolsForThread(threadId)
     server.close()

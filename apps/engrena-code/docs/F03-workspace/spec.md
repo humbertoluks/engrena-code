@@ -204,6 +204,19 @@ processo) e `Sempre neste projeto` (persistida em disco) concedem no primeiro cl
 Claude Code. É decisão consciente do produto: não há UI para limpar a allowlist de projeto, e o
 `title` de cada chip diz o alcance antes do clique.
 
+**A allowlist é por comando, não pela ferramenta inteira.** "Permitir todos" gravava a chave `Bash`:
+autorizar um `git status` autorizava `rm -rf` pelo resto da thread — e, com "Sempre neste projeto",
+pelo resto da vida do projeto. A chave passou a ser o verbo do comando (`Bash(git *)`), derivada em
+`bash-command-scope.ts`, que o broker usa para gravar e o card usa para escrever o rótulo do chip —
+a mesma função nos dois lados, para o card não prometer diferente do que a allowlist grava. Regras:
+
+| Regra | Detalhe |
+|---|---|
+| **Todos os segmentos contam** | `cd "<proj>" && printf x > a.txt` concede `cd` **e** `printf`. Derivar só do começo da linha daria `Bash(cd *)`, e qualquer coisa encadeada depois de um `cd` passaria sem card |
+| **Um segmento ilegível reprova a linha** | `./deploy.sh`, `$(…)`, `(subshell)`: sem verbo nomeável a concessão cai na chave larga (`Bash`), o comportamento antigo |
+| **Chave larga continua válida** | Quem concedeu `Bash` antes desta mudança segue coberto; nada de migração de dados |
+| **Não é fronteira de segurança** | `git` liberado libera `git push`, e composição contorna prefixo. A doc do Claude Code diz o mesmo do mecanismo dela. O que se ganha é alcance menor e um rótulo honesto no card |
+
 
 ## 4. Visão Geral de Componentes
 
