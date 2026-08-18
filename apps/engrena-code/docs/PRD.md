@@ -274,6 +274,11 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero que novos subagents apareçam no grafo sem refresh manual
 - Como usuário, quero inspecionar a mensagem/task de uma aresta ao clicar nela
 
+### F31. Shell de edição em auto-accept
+- Como usuário, quero que "Auto-accept edits" também valha quando o agente edita arquivo pelo shell
+- Como usuário, quero que essa liberação pare na borda do meu projeto
+- Como usuário, quero que comando fora da lista continue me perguntando
+
 ### F30. Avisos de runtime e permissão
 - Como usuário, quero que o chat não me avise de versão de CLI quando o turno está seguindo
 - Como usuário, quero ver a versão do Claude CLI em Configuração, em uma linha discreta

@@ -153,7 +153,11 @@ nem chegou a ser executado.
 
 **B11 precisa nomear a tool, senão mede outra coisa.** O nível `auto-accept-edits` aprova sem card as
 tools de arquivo (`Read`, `Glob`, `Grep`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `TodoWrite`) e
-**pergunta** para `Bash`, WebFetch e MCP — igual ao `acceptEdits` do Claude Code. Só que "edite a
+**pergunta** para `Bash`, WebFetch e MCP. (Não é idêntico ao `acceptEdits` do Claude Code, como esta
+nota dizia antes: lá o modo também aprova uma lista fixa de comandos de arquivo no shell — `mkdir`,
+`touch`, `rm`, `mv`, `cp`, `sed` — dentro do diretório de trabalho. Aqui nenhum Bash é aprovado
+sozinho; a paridade está especificada em `docs/F31-shell-de-edicao-em-auto-accept/spec.md`, ainda não
+implementada.) Só que "edite a
 palavra X no arquivo" não obriga o agente a usar `Edit`: ele pode resolver com
 `printf 'X' > arquivo` dentro do Bash, e aí o card aparece **corretamente**, porque o broker vê uma
 chamada de Bash e não interpreta o shell (`printf > x` e `rm -rf /` chegam pela mesma tool). Card de
