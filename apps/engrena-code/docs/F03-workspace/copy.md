@@ -3,7 +3,7 @@
 **Produto:** EngrenaCode  
 **Fonte:** sistema legado (`packages/renderer` — `PrincipalScreen`, `ProjectTree`, `AddProjectModal`, `TaskComposer`, `ChatHistory`, `DiffViewer`, `GitActions`, `WorkspaceSidebar`, `PermissionPrompt`)  
 **Mapa de rename:** `sistema legado → EngrenaCode`  
-**Última atualização:** 2026-08-13 (seção `permission` alinhada ao `ui.md`: card inline, não modal)
+**Última atualização:** 2026-08-18 (seção `permission`: o chip concede no clique — `spec.md` §3.5)
 
 Strings literais para UI. Specs de tela (`ui.md`) e código devem importar estes ids — não reinventar texto.
 
@@ -76,7 +76,7 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 |----|-------|-------|
 | `composer.placeholder.new` | Descreva a task para o agente…  (Enter envia) | |
 | `composer.placeholder.followUp` | Responder nesta conversa…  (Enter envia, Shift+Enter quebra linha) | |
-| `composer.placeholder.running` | Agente trabalhando — Enter enfileira para o próximo turno | |
+| `composer.placeholder.running` | Agente trabalhando — Enter envia para a fila | o verbo "enfileirar" não aparece na UI (`spec.md` §3.4) |
 | `composer.placeholder.stopping` | Cancelando execução… | |
 | `composer.pill.access.group` | Access | EN |
 | `composer.pill.access.supervised` | Supervised | EN |
@@ -94,7 +94,7 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 | `composer.gitGate.cta.loading` | Inicializando Git… | |
 | `composer.gitGate.error.network` | Não foi possível contatar o servidor local. | |
 | `composer.gitGate.error.generic` | Não foi possível inicializar o Git. | |
-| `composer.send` | Enviar | aria; em `running` continua visível ao lado de Parar (enfileira para o próximo turno) |
+| `composer.send` | Enviar | aria; em `running` continua visível ao lado de Parar (a mensagem vai para a fila) |
 | `composer.send.title` | Enviar (Enter) | |
 | `composer.send.stop` | Parar execução | em `running` aparece **junto** com Enviar |
 | `composer.send.stopping` | Cancelando execução | em `stopping` o composer mostra **só** Parar |
@@ -106,7 +106,6 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 | `composer.queue.badge.queued` | na fila | |
 | `composer.queue.header` | {N} na fila | painel colapsável acima do composer (padrão Cursor) |
 | `composer.queue.badge.sending` | enviando | |
-| `composer.queue.badge.paused` | pausada | |
 | `composer.queue.badge.error` | erro | |
 | `composer.queue.action.edit` | Editar | |
 | `composer.queue.action.save` | Salvar | |
@@ -224,14 +223,15 @@ Telas neste catálogo: `principal` (shell 3 colunas), `addProject` (modal), `com
 
 ### permission (card inline na timeline)
 
-O pedido de permissão **não é modal**. É um card inline no fim da timeline, igual ao `AskUserQuestionCard`: o pedido nasce no meio do turno e pertence à conversa. Como overlay ele tapava a resposta em andamento e passava a ideia de que o botão sozinho concedia.
+O pedido de permissão **não é modal**. É um card inline no fim da timeline: o pedido nasce no meio do turno e pertence à conversa; como overlay ele tapava a resposta em andamento. Difere do `AskUserQuestionCard` num ponto — aqui o chip decide sozinho, lá ele preenche o composer, porque resposta a pergunta costuma ser editada antes de sair e decisão de permissão não tem o que editar.
 
-Contrato de UX que esta copy precisa refletir:
+Contrato de UX que esta copy precisa refletir (`spec.md` §3.5):
 
-- Clique numa opção **só preenche o composer**. A concessão real é o **Enviar** (ou o texto equivalente digitado: sim / não / permitir todos).
-- O card não tem textarea nem Enviar próprios: só os chips. O envio é sempre o composer principal.
-- Em `running` o composer mostra **Parar e Enviar** (Enviar enfileira para o próximo turno). Em `stopping`, **só Parar**.
-- Texto livre que não seja uma decisão reconhecida não enfileira: cai no hint `permission.composer.pending`.
+- Clique num chip **concede ou nega na hora**. Não escreve no composer nem mexe no rascunho digitado.
+- Digitar a decisão no composer (sim / não / permitir todos / sempre neste projeto) e **Enviar** faz a mesma coisa. Os dois gatilhos valem sempre.
+- O card não tem textarea nem Enviar próprios: só os chips e, quando falha, o alerta de erro.
+- Em `running` o composer mostra **Parar e Enviar** (Enviar manda para a fila). Em `stopping`, **só Parar**.
+- Texto livre que não seja decisão **vai para a fila** como em qualquer thread ocupada. O hint `permission.composer.pending` sobra para o caso raro de `waiting_permission` sem gate conhecido (WS perdido), em que não há o que resolver.
 
 | Id | Texto | Notas |
 |----|-------|-------|
@@ -239,14 +239,14 @@ Contrato de UX que esta copy precisa refletir:
 | `permission.title` | Permitir a ferramenta {toolName}? | |
 | `permission.queue` | +{N} na fila | demais pedidos aguardando |
 | `permission.label.params` | Parâmetros | `<details>` fechado por padrão |
-| `permission.hint` | Escolher aqui preenche o composer — envie (ou digite sim/não/permitir todos) para conceder. | diz ao usuário que o clique não concede |
-| `permission.deny` | Negar | chip; preenche o composer |
-| `permission.allow` | Permitir | chip; só esta chamada |
+| `permission.hint` | Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie. | anuncia os dois gatilhos |
+| `permission.deny` | Negar | chip; nega na hora |
+| `permission.allow` | Permitir | chip; concede na hora, só esta chamada |
 | `permission.allowAll` | Permitir todos | chip; “don’t ask again” por toolName **nesta thread** (memória do processo) |
 | `permission.allowAll.hint` | Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code). | |
 | `permission.allowProject` | Sempre neste projeto | chip; escopo persistido, sobrevive a reinício |
 | `permission.allowProject.title` | Não perguntar mais por esta ferramenta neste projeto, mesmo depois de reiniciar | `title` do chip |
-| `permission.composer.pending` | Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat e envie). | hint quando o texto digitado não é uma decisão; o composer **não** enfileira nesse estado |
+| `permission.composer.pending` | Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat). | `waiting_permission` sem gate conhecido localmente (WS perdido): não há gate a resolver, então o texto não vira decisão nem fila |
 
 Os quatro rótulos de chip (`Permitir`, `Permitir todos`, `Sempre neste projeto`, `Negar`) são também o texto exato que o clique escreve no composer; mudá-los aqui muda o que o roteador de envio precisa reconhecer.
 

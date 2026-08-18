@@ -1,23 +1,60 @@
 /**
- * Interpretação de texto do composer enquanto há PermissionPrompt pendente.
- * Clique no card do chat só preenche o composer; a decisão real é o Enviar (ou o texto digitado).
+ * Decisão de um pedido de permissão: os dois gatilhos e a tradução para o corpo do POST.
+ *
+ * O card concede no clique e o composer concede pelo texto digitado (`sim` / `não` /
+ * `permitir todos`). São dois **gatilhos**, não duas rotas: o chip já nasce sabendo o
+ * `PermissionDecisionKind` e o texto chega ao mesmo `kind` por `interpretPermissionChatReply`.
+ * Daí para a frente há um caminho só — `permissionResolveArgs` monta o corpo e
+ * `usePrincipalWorkspace.decidePermission` faz a chamada, para os dois.
  */
 
 export const PERMISSION_PENDING_HINT =
-  'Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat e envie).'
+  'Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat).'
 
-/** Textos que o card coloca no composer — devem casar com interpretPermissionChatReply. */
+/** Rótulos dos chips do card — também aceitos digitados (ver `PERMISSION_CHIPS`). */
 export const PERMISSION_COMPOSER_ALLOW = 'Permitir'
 export const PERMISSION_COMPOSER_ALLOW_ALL = 'Permitir todos'
 export const PERMISSION_COMPOSER_ALLOW_PROJECT = 'Sempre neste projeto'
 export const PERMISSION_COMPOSER_DENY = 'Negar'
 
-export type PermissionChatReply =
-  | { kind: 'allow' }
-  | { kind: 'allow_always' }
-  | { kind: 'allow_project' }
-  | { kind: 'deny' }
-  | { kind: 'blocked'; message: string }
+/** As quatro decisões possíveis. É nisto que os dois gatilhos convergem. */
+export type PermissionDecisionKind = 'allow' | 'allow_always' | 'allow_project' | 'deny'
+
+export type PermissionChatReply = { kind: PermissionDecisionKind } | { kind: 'blocked'; message: string }
+
+/** Corpo do `POST /gate/:gateId/resolve` para uma decisão de permissão. */
+export interface PermissionResolveArgs {
+  allow: boolean
+  always: boolean
+  scope: 'thread' | 'project'
+}
+
+/**
+ * `kind` → corpo do POST. **Único** lugar onde essa tradução existe.
+ *
+ * Morava inline no envio do composer; repeti-la no clique do chip faria os dois gatilhos
+ * divergirem em silêncio no dia em que um deles mudasse (o caso perigoso é `allow_project`, que
+ * precisa de `always` **e** `scope` juntos — esquecer um grava a allowlist no lugar errado).
+ */
+export function permissionResolveArgs(kind: PermissionDecisionKind): PermissionResolveArgs {
+  return {
+    allow: kind !== 'deny',
+    always: kind === 'allow_always' || kind === 'allow_project',
+    scope: kind === 'allow_project' ? 'project' : 'thread',
+  }
+}
+
+/**
+ * Os chips do card, na ordem de tela. O componente não repete literais: rótulo e decisão saem
+ * daqui, e o rótulo continua sendo texto que `interpretPermissionChatReply` reconhece — quem
+ * preferir digitar "Permitir todos" chega ao mesmo lugar.
+ */
+export const PERMISSION_CHIPS: readonly { kind: PermissionDecisionKind; label: string }[] = [
+  { kind: 'allow', label: PERMISSION_COMPOSER_ALLOW },
+  { kind: 'allow_always', label: PERMISSION_COMPOSER_ALLOW_ALL },
+  { kind: 'allow_project', label: PERMISSION_COMPOSER_ALLOW_PROJECT },
+  { kind: 'deny', label: PERMISSION_COMPOSER_DENY },
+]
 
 /** Remove diacríticos e pontuação para casar "não,"/"nao", "Sim!", "ok." etc. */
 function normalizeReply(text: string): string {

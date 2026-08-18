@@ -368,6 +368,11 @@ Provider `claude-sonnet-4-6`, accessLevel `supervised`, execution `main`.
 | `cliSessionId` persistido para `--resume` | pass (`020a677c-…`) |
 | Composer em `waiting_permission`: Parar **e** "Enviar decisão de permissão" | pass (Enviar desabilitado com texto vazio) |
 | Placeholder muda para modo follow-up em `idle` | pass |
+
+> **Contrato invertido em 2026-08-18.** As linhas acima registram o comportamento vigente na
+> data deste smoke: o clique no chip **só preenchia** o composer. Hoje o chip concede na hora
+> (`spec.md` §3.5), com o caminho digitado seguindo válido. A evidência fica como está — ela
+> descreve o que foi observado, não o que vale agora.
 | **R03** — negação nativa do CLI vira aviso visível | pass (ver ressalva abaixo) |
 | Cancel/lifecycle: turno com `run_in_background` não deixa órfão | pass (ver nota) |
 | Export `format=md` e `format=json` | pass (4 mensagens, 3 tool calls, Work log íntegro) |
@@ -558,7 +563,9 @@ o card apareceu com `run_in_background: true` no payload, igual às outras três
 
 Os quatro gates de permissão nasceram e morreram resolvidos em `thread_gates` (`permission/Bash`,
 quatro linhas, todas `state=resolved`), e o clique só preencheu o composer — a concessão veio do
-Enviar, como manda o contrato.
+Enviar, como mandava o contrato **da época**. Desde 2026-08-18 o chip concede no clique
+(`spec.md` §3.5); o que este parágrafo prova continua valendo é o ciclo completo dos gates em
+`thread_gates`, não o gesto que os resolveu.
 
 ### D08 — Parar durante turno longo em foreground
 

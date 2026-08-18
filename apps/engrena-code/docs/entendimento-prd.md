@@ -130,7 +130,7 @@ Função pura `routeComposerSend`:
 
 `waiting_permission` **não** cai no passo 4. Com `threadState === 'waiting_permission'` o gate do passo 2 sempre dispara primeiro; se a fila local de permissão estiver vazia, o resultado é `permission_blocked` (mais refetch do snapshot via `GET …/permissions`), nunca `enqueue`. Escrever isso como “enqueue quando ocupado” é o tipo de simplificação que faz a UI parecer que engoliu a mensagem.
 
-Contrato de UX crítico: clique em opção do card de permissão/pergunta **só preenche o composer**. A concessão/resposta real é o **Enviar** (ou texto equivalente: sim/não/permitir todos).
+Contrato de UX crítico (`F03-workspace/spec.md` §3.5): o card de **permissão** tem dois gatilhos — o chip concede/nega no clique, sem tocar no composer, e `sim`/`não`/`permitir todos` digitado + **Enviar** faz o mesmo; os dois convergem em `PermissionDecisionKind` e daí há uma rota só até o POST. O card de **pergunta** continua opção → composer → Enviar. Texto livre com card de permissão aberto vai para a fila.
 
 ### 6.2 Dispatch
 
@@ -341,7 +341,7 @@ O entendimento está validado se você concordar ou corrigir os pontos abaixo co
 1. Chat = orquestração de turno CLI + WS + SQLite, não “chat GPT-like” puro.
 2. Continuidade Claude = `--resume` / `cli_session_id`, não replay do history no prompt.
 3. Composer tem um roteador com prioridade permissão > ask > enqueue > send.
-4. Clique em card só preenche; Enviar resolve gate ou envia turno.
+4. Chip de permissão concede no clique; opção de pergunta só preenche; Enviar resolve gate ou envia turno.
 5. Permissão é broker Engrena + policy sob `provider === 'claude' && permissionBrokerApplies(accessLevel)`, com dual-hook `PreToolUse` + `PermissionRequest`, não `--permission-mode acceptEdits` nativo.
 6. Resposta de permissão/ask não é mensagem de usuário persistida como follow-up.
 7. Streaming é efêmero; history é verdade; refetch de stream é background.

@@ -27,7 +27,11 @@ import {
   toWirePayload,
   type ComposerAttachment,
 } from '../components/workspace/composerAttachments.logic'
-import { PERMISSION_PENDING_HINT } from '../components/workspace/permissionComposer.logic'
+import {
+  PERMISSION_PENDING_HINT,
+  permissionResolveArgs,
+  type PermissionDecisionKind,
+} from '../components/workspace/permissionComposer.logic'
 import {
   EXPORT_COPY,
   exportFetchErrorMessage,
@@ -771,21 +775,25 @@ export function usePrincipalWorkspace() {
     })
 
   /**
-   * Resolve o gate de permissão **em tela**, por `gateId`. Falhou (`res.error` ou throw): o card
-   * fica — o broker continua esperando do outro lado, e sumir com o pedido aqui era o sintoma
-   * "clique aceito mas permissão não concedida".
+   * Concede ou nega um pedido de permissão. **Único** caminho daqui até o POST: os dois gatilhos
+   * — o chip do card e o texto digitado no composer — entram por aqui já traduzidos para
+   * `PermissionDecisionKind`, e `permissionResolveArgs` monta o corpo uma vez só.
    *
-   * A falha é do card, e só dele: `gateApi.error` já a mostra no `role="alert"` do
-   * `PermissionPrompt`, que é onde a decisão vive e onde o usuário tenta de novo. Copiar a mesma
-   * frase para `sendError` pintava dois alertas idênticos na tela, um no card e outro no composer.
+   * O chip chama direto, sem escala pelo composer: não escreve rascunho, não pinta bolha, não
+   * depende do parser de texto livre (que existe para quem digita). O envio pelo composer passa
+   * `target` porque pode ter acabado de recuperar o gate por snapshot (`gateApi.refresh`, WS
+   * perdido) e ter em mãos um gate mais novo que o do render corrente.
+   *
+   * Resolve por `gateId` — o gate que está em tela, nunca "o pedido mais recente da thread".
+   * Falhou (`res.error` ou throw): o card fica, porque o broker continua esperando do outro lado e
+   * sumir com o pedido aqui era o sintoma "clique aceito mas permissão não concedida". A falha é
+   * do card, e só dele: `gateApi.error` já a mostra no `role="alert"` do `PermissionPrompt`.
+   * Copiar a mesma frase para `sendError` pintava dois alertas idênticos, um em cada lugar.
    */
-  const resolvePermission = useCallback(
-    async (
-      target: ThreadGate,
-      allow: boolean,
-      always = false,
-      scope: 'thread' | 'project' = 'thread'
-    ): Promise<boolean> => {
+  const decidePermission = useCallback(
+    async (kind: PermissionDecisionKind, target: ThreadGate | null = gate): Promise<boolean> => {
+      if (target === null || target.kind !== 'permission') return false
+      const { allow, always, scope } = permissionResolveArgs(kind)
       const res = await gateApi.resolve(target, {
         kind: 'permission',
         allow,
@@ -794,20 +802,7 @@ export function usePrincipalWorkspace() {
       })
       return res.ok
     },
-    [gateApi]
-  )
-
-  /**
-   * Clique numa resposta da pergunta do agente: preenche o composer — o envio é o Enviar
-   * (resolve permissão / ask_user_question / follow-up conforme o estado).
-   */
-  const sendDecision = useCallback(
-    (text: string) => {
-      const value = text.trim()
-      if (value === '') return
-      updateComposer({ text: value })
-    },
-    [updateComposer]
+    [gate, gateApi]
   )
 
   const send = useCallback(async () => {
@@ -873,16 +868,10 @@ export function usePrincipalWorkspace() {
       const pendingId = addPending(text, [], 'permission')
       // Decisão de permissão não é turno: os anexos ficam para a mensagem que vem depois.
       clearTextAndImages()
-      const allow =
-        route.decision.kind === 'allow' ||
-        route.decision.kind === 'allow_always' ||
-        route.decision.kind === 'allow_project'
-      const always =
-        route.decision.kind === 'allow_always' || route.decision.kind === 'allow_project'
-      const scope = route.decision.kind === 'allow_project' ? 'project' : 'thread'
-      const ok = await resolvePermission(currentGate, allow, always, scope)
+      // Mesma resolução do chip — daqui para baixo os dois gatilhos são o mesmo código. A bolha e
+      // a limpeza acima são a arrumação **deste** gatilho: o texto saiu da tela e precisa de eco.
+      await decidePermission(route.decision.kind, currentGate)
       removePending(pendingId)
-      if (!ok) return
       return
     }
 
@@ -970,7 +959,7 @@ export function usePrincipalWorkspace() {
     enqueue,
     queue.length,
     sendFollowUp,
-    resolvePermission,
+    decidePermission,
     upsertThreadLocal,
     addPending,
     setPendingStatus,
@@ -1163,7 +1152,7 @@ export function usePrincipalWorkspace() {
     followups,
     followupsMessageId,
     followupsPending,
-    sendDecision,
+    decidePermission,
     voteMessage,
     renameThread,
     exportThread,

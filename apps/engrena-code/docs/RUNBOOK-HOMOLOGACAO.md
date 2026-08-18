@@ -126,8 +126,9 @@ Gasta cota da assinatura. Só depois do Roteiro A verde.
 | ✅   | **B2**             | Durante o turno, abrir o Work log                                                                    | Cada ferramenta aparece com início e fim                                                                                                                                                           |
 | ✅   | **B3** · BLOQUEIA  | Pedir uma **escrita** em arquivo                                                                     | Card de permissão inline na timeline, com as opções                                                                                                                                                |
 |     |                    | *Exemplo de prompt:* `Crie o arquivo hml.txt na raiz do projeto com a palavra homologado.`           | O arquivo tem de nascer **dentro** do repositório de teste — ver a nota abaixo da tabela                                                                                                            |
-| ✅   | **B4** · BLOQUEIA  | Clicar em "Permitir" no card                                                                         | O clique **preenche o composer** e nada mais; a concessão só acontece no Enviar                                                                                                                    |
-| ✅   | **B5** · BLOQUEIA  | Enviar                                                                                               | Ferramenta executa; o diff aparece na aba **Diff**                                                                                                                                                 |
+|     | **B4** · BLOQUEIA  | Clicar em "Permitir" no card                                                                         | O clique **concede na hora**: chips desabilitam, o card some e a ferramenta executa. O rascunho que estivesse digitado no composer continua intacto                                                 |
+|     | **B4b** · BLOQUEIA | Repetir B3 e, em vez de clicar, digitar `sim` no composer e enviar                                   | Mesma concessão pelo caminho digitado — os dois gatilhos valem sempre                                                                                                                             |
+| ✅   | **B5** · BLOQUEIA  | Conferir o resultado da concessão                                                                    | Ferramenta executa; o diff aparece na aba **Diff**                                                                                                                                                 |
 | ✅   | **B6** · BLOQUEIA  | Aceitar o diff                                                                                       | Arquivo alterado no repositório; entrada em `#registros`                                                                                                                                           |
 | ✅   | **B7** · BLOQUEIA  | Rejeitar um segundo diff                                                                             | Arquivo volta ao estado anterior                                                                                                                                                                   |
 | ✅   | **B8** · BLOQUEIA  | Responder um follow-up na mesma thread                                                               | O agente entende o contexto (usa `--resume`), não pergunta "qual tarefa?"                                                                                                                          |
@@ -144,8 +145,10 @@ Gasta cota da assinatura. Só depois do Roteiro A verde.
 | ✅   | **B14** · BLOQUEIA | Conferir `#consumo`                                                                                  | Turnos aparecem com custo; origem coerente com assinatura                                                                                                                                          |
 |     |                    | *Exemplo:* os turnos de B1–B9 somam valor > 0 e o projeto `hml` aparece na lista                     |                                                                                                                                                                                                    |
 
-**B4 é contrato de produto, não detalhe.** Se o clique no card conceder sozinho, é `❌` bloqueante: a
-decisão tem de passar pelo Enviar.
+**B4/B4b são contrato de produto, não detalhe.** As duas maneiras de decidir têm de funcionar (`spec.md`
+§3.5). Reprova se o chip não conceder no clique, se conceder mas apagar o rascunho do composer, ou
+se a decisão digitada deixar de valer. Contrato invertido em 2026-08-18: até então o clique só
+preenchia o composer, e um B4 antigo marcado `✅` não vale para esta versão.
 
 **A escrita de B3 tem de cair dentro do repositório de teste.** A aba **Diff** é alimentada por um
 `git diff HEAD` no diretório do projeto: arquivo escrito fora dele (mesmo um nível acima, como
@@ -218,7 +221,7 @@ Preencher a cada rodada e anexar ao PR de release.
 Versão empacotada:  ______   Commit: ______   Data: ______
 Executado por:      ______
 
-Roteiro A: __/10    Roteiro B: __/15    Roteiro C: __/10    Roteiro D: __/7
+Roteiro A: __/10    Roteiro B: __/16    Roteiro C: __/10    Roteiro D: __/7
 ```
 
 Perfil usado:

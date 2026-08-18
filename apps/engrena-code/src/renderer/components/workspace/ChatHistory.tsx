@@ -18,6 +18,7 @@ import {
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ThreadGate } from '../../hooks/threadGate.logic'
 import { PermissionPrompt } from './PermissionPrompt'
+import type { PermissionDecisionKind } from './permissionComposer.logic'
 import { ChatMarkdown } from './ChatMarkdown'
 import { isPendingActive, pendingStatusLabel, type PendingMessage } from './pendingMessages.logic'
 import { deriveChatSurface } from './chatSurface.logic'
@@ -458,8 +459,8 @@ export interface ChatHistoryProps {
   gate?: ThreadGate | null
   /** Gates além do exibido — vira "+N na fila" no card de permissão. */
   gateQueuedCount?: number
-  /** Clique numa decisão de permissão: preenche o composer (envio via Enviar). */
-  onPermissionDecide?: (text: string) => void
+  /** Clique num chip de permissão: concede/nega na hora, sem passar pelo composer. */
+  onPermissionResolve?: (kind: PermissionDecisionKind) => void
   /** Clique numa opção do ask_user_question: preenche o composer (envio via Enviar). */
   onPickAskOption?: (option: string) => void
   gateBusy?: boolean
@@ -492,7 +493,7 @@ export function ChatHistory({
   threadState = null,
   gate = null,
   gateQueuedCount = 0,
-  onPermissionDecide,
+  onPermissionResolve,
   onPickAskOption,
   gateBusy = false,
   gateError = null,
@@ -658,13 +659,14 @@ export function ChatHistory({
 
       {showActivity ? <ActivityIndicator label={activity.label} startMs={activity.startMs} /> : null}
 
-      {gate !== null && gate.kind === 'permission' && onPermissionDecide ? (
+      {gate !== null && gate.kind === 'permission' && onPermissionResolve ? (
         <PermissionPrompt
           key={gate.gateId}
           gate={gate}
           queuedCount={gateQueuedCount}
+          busy={gateBusy}
           error={gateError}
-          onDecide={onPermissionDecide}
+          onResolve={onPermissionResolve}
         />
       ) : null}
 

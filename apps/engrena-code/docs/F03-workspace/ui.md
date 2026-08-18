@@ -345,13 +345,13 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `permission.title` | Permitir a ferramenta {toolName}? |
 | `permission.queue` | +{N} na fila |
 | `permission.label.params` | Parâmetros (`<details>`, fechado) |
-| `permission.hint` | Escolher aqui preenche o composer — envie (ou digite sim/não/permitir todos) para conceder. |
+| `permission.hint` | Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie. |
 | `permission.deny` | Negar |
 | `permission.allow` | Permitir |
 | `permission.allowAll` | Permitir todos |
 | `permission.allowAll.hint` | Não perguntar de novo por esta ferramenta nesta thread (padrão Claude Code). |
 | `permission.allowProject` | Sempre neste projeto |
-| `permission.composer.pending` | Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat e envie). |
+| `permission.composer.pending` | Há uma permissão pendente. Digite sim/não/permitir todos (ou escolha no card do chat). |
 
 ## Campos e controles
 
@@ -397,7 +397,7 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `diffAccepted` / `diffRejected` | todos revisados / reject terminal | banners de sucesso/rejeição; Abrir PR se aplicável |
 | `thread_busy` | HTTP 409 `thread_busy` | mensagem `error.threadBusy` no ponto da ação; **sem** badge dedicado na fonte |
 | `gitBusy` | stage ≠ null **ou** thread running | botões git disabled |
-| `permissionOpen` | tool call pedindo permissão | card inline no fim da timeline com Permitir / Permitir todos / Sempre neste projeto / Negar — o clique **preenche o composer**; concede o Enviar ou o texto digitado (sim/não/permitir todos); outro texto → hint `permission.composer.pending` (não enfileira). Permitir todos = don’t ask again por `toolName` nesta thread até fim do processo |
+| `permissionOpen` | tool call pedindo permissão | card inline no fim da timeline com Permitir / Permitir todos / Sempre neste projeto / Negar — o clique **concede/nega na hora**, sem tocar no composer (chips `disabled` enquanto o POST voa); digitar sim/não/permitir todos e enviar faz o mesmo; outro texto vai para a fila (`spec.md` §3.5). Permitir todos = don’t ask again por `toolName` nesta thread até fim do processo; Sempre neste projeto persiste em disco |
 | `harnessLive` | F05–F07 | Skills/Rules/SubAgents com counts e modais reais |
 
 ## Componentes sugeridos

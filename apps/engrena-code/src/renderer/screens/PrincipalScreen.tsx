@@ -253,7 +253,7 @@ export function PrincipalScreen(): ReactElement {
                     threadState={ws.selectedThread?.state ?? null}
                     gate={ws.gate}
                     gateQueuedCount={ws.gateQueuedCount}
-                    onPermissionDecide={ws.sendDecision}
+                    onPermissionResolve={(kind) => void ws.decidePermission(kind)}
                     onPickAskOption={(text) => ws.updateComposer({ text })}
                     gateBusy={ws.gateBusy}
                     gateError={ws.gateError}

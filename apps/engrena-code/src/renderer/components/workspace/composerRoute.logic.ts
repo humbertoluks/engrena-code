@@ -3,13 +3,14 @@ import type { ThreadGate } from '../../hooks/threadGate.logic'
 import {
   interpretPermissionChatReply,
   PERMISSION_PENDING_HINT,
-  type PermissionChatReply,
+  type PermissionDecisionKind,
 } from './permissionComposer.logic'
 
 export type ComposerRouteDecision =
   | {
       action: 'resolve_permission'
-      decision: Extract<PermissionChatReply, { kind: 'allow' | 'allow_always' | 'allow_project' | 'deny' }>
+      /** O mesmo `kind` que o chip do card produz — daqui para a frente a resolução é uma só. */
+      decision: { kind: PermissionDecisionKind }
     }
   | { action: 'permission_blocked'; message: string }
   | { action: 'answer_question' }
@@ -65,8 +66,8 @@ export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecis
     }
     // Texto comum com card aberto é mensagem, não decisão: vai para a fila como em qualquer outro
     // estado ocupado. Antes era recusado — e recusar é o único destino que perde o que o usuário
-    // escreveu. O card continua sendo respondido pelo clique (que preenche o composer) + Enviar,
-    // e as palavras de decisão seguem sendo lidas como decisão, então o contrato do B4 não muda.
+    // escreveu. O card segue respondido pelo chip (que concede direto, sem passar por aqui) e as
+    // palavras de decisão seguem sendo lidas como decisão.
     return { action: 'enqueue' }
   }
 

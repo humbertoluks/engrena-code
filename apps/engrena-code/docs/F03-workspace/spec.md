@@ -114,6 +114,7 @@ Desvios desta feature: **novo** WebSocket no mesmo server; **nova** migration wo
 | Add project | Sem exigir `.git`; gate `git-init` / composer | Exigir `.git` no add | PRD `git init` opcional |
 | Prefixos API | Sempre `/api/...` | Rotas sem prefixo do legado | Consistente com F02/F05 |
 | Fila follow-up | Local no renderer sempre que a thread está ocupada; drena sozinha no fim da execução (§3.4) | Só 409 no server | UX `ui.md`; lease ainda cobre 2º dispatch longo |
+| Decisão de permissão | Chip concede no clique **e** texto no composer concede; convergem em `PermissionDecisionKind` (§3.5) | Chip só preenche o composer (contrato até 2026-08-17); ou chip escrevendo texto e disparando o envio | Paridade Claude Code/Cursor sem duplicar a rota até o POST |
 
 ### 3.3 Assumptions / Decisions (entrevista)
 
@@ -145,7 +146,7 @@ o usuário já conhece do Cursor e do Claude Code, e o contrato aqui é curto:
 | Regra | Detalhe |
 |---|---|
 | **Um lugar só** | A fila vive no painel acima do composer (`ComposerQueuePanel`), com ordem, editar (✎), priorizar e remover (×). Item na fila **não** vira bolha na timeline: repetir a mesma mensagem em dois lugares da mesma tela, um deles sem nenhuma das ações, é ruído. |
-| **Sempre enfileira** | Thread ocupada (`running`, `waiting_user`, `waiting_permission`) → o texto vai para a fila. Vale inclusive com card de permissão aberto: só palavra de decisão (`sim`/`não`/`permitir`/`permitir todos`) resolve o gate; o resto é mensagem e vai para a fila. |
+| **Sempre enfileira** | Thread ocupada (`running`, `waiting_user`, `waiting_permission`) → o texto vai para a fila. Vale inclusive com card de permissão aberto: só palavra de decisão (`sim`/`não`/`permitir`/`permitir todos`) resolve o gate pelo composer; o resto é mensagem e vai para a fila. O chip do card resolve direto, sem passar por aqui (§3.5) — clicar nele não toca no que está sendo digitado. |
 | **Ordem é do usuário** | Com a fila não-vazia, mensagem nova entra **atrás** mesmo com a thread parada (`routeComposerSend` recebe `queueLength`). Sem isso ela furava a fila e rodava antes de quem já esperava. |
 | **Drena sozinha** | Todo assentamento (`idle`, `committed`, `error`, `cancelled`) despacha o próximo item — `TURN_RECONCILED_STATES` = `SETTLED_THREAD_STATES`. Não há botão de "executar agora": a fila anda quando a execução termina, qualquer que seja o desfecho. |
 | **Parar ≠ descartar** | **Parar** encerra o turno em andamento; não é ordem de esvaziar o que já estava na fila. Para descartar existe o × de cada item. |
@@ -160,6 +161,48 @@ transferiu para o usuário um trabalho que o app tem como saber fazer.
 **Persistência.** A fila mora em `localStorage` por `queueKey` (thread, ou projeto antes da thread
 existir) e sobrevive ao F5. Falha no despacho recoloca o item no topo (`dispatchQueueHead`); envio
 recusado devolve o texto ao composer, nunca o descarta.
+
+---
+
+### 3.5 Decisão de permissão: dois gatilhos, uma rota
+
+O `PermissionPrompt` é card inline da timeline (nunca modal — o pedido nasce no meio do turno e
+pertence à conversa). O usuário tem duas maneiras de responder, e as duas valem sempre:
+
+| Gatilho | Gesto | Efeito |
+|---|---|---|
+| **Chip** | clique em Permitir / Permitir todos / Sempre neste projeto / Negar | Concede ou nega **na hora**. Não escreve no composer, não pinta bolha, não mexe no rascunho que estava sendo digitado. Os quatro chips ficam `disabled` enquanto o POST voa (`gateApi.busy`) — é o que trava o duplo clique. |
+| **Texto** | digitar `sim` / `não` / `permitir todos` / `sempre neste projeto` (e sinônimos) e **Enviar** | Mesma concessão. Aqui há bolha e limpeza do composer, porque o texto saiu da tela e precisa de eco. |
+
+Qualquer outro texto com o card aberto é mensagem, não decisão: vai para a fila (§3.4).
+
+**Uma rota só.** Os dois gatilhos convergem em `PermissionDecisionKind`, não em texto. O chip já
+nasce com o `kind`; o texto chega a ele por `interpretPermissionChatReply`. Daí para a frente há um
+caminho único: `permissionResolveArgs(kind)` monta o corpo e
+`usePrincipalWorkspace.decidePermission` faz o `POST /gate/:gateId/resolve` — por `gateId`, o do
+gate em tela, nunca "o pedido mais recente da thread".
+
+Convergir em **texto** (o chip escrevendo no composer e disparando o envio) foi considerado e
+recusado: obrigaria a reparsear uma string que nós mesmos acabamos de gerar, criando acoplamento
+invisível entre rótulo de UI e os sets do parser — renomear um chip faria o clique cair em
+`blocked` e virar mensagem enfileirada, sem erro nenhum em tela. Além disso destruiria o rascunho
+em andamento e criaria bolha onde não há o que ecoar. O teste de ponte em
+`permissionComposer.logic.test.ts` mantém os rótulos digitáveis sem que o chip dependa disso para
+funcionar.
+
+**Reversão consciente.** Até 2026-08-17 o contrato era o oposto: o clique **só preenchia** o
+composer e a concessão era o Enviar. O motivo original tinha duas partes — simetria com o
+`AskUserQuestionCard` e evitar que o agente escrevesse em prosa "clique no botão para permitir",
+quando o botão não concedia. A segunda deixou de existir junto com a mudança (o botão passa a
+conceder), e a primeira foi trocada de propósito por paridade com Claude Code e Cursor: o turno
+está parado esperando, e um clique a menos nesse ponto vale mais que a simetria entre os cards. O
+`AskUserQuestionCard` **continua** opção → composer → Enviar: lá a resposta costuma ser editada
+antes de sair, aqui não há o que editar.
+
+**Sem confirmação extra nos chips persistentes.** `Permitir todos` (allowlist da thread, sessão do
+processo) e `Sempre neste projeto` (persistida em disco) concedem no primeiro clique, como no
+Claude Code. É decisão consciente do produto: não há UI para limpar a allowlist de projeto, e o
+`title` de cada chip diz o alcance antes do clique.
 
 
 ## 4. Visão Geral de Componentes
