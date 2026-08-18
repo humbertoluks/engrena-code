@@ -174,9 +174,13 @@ describe('deriveChatSurface — rótulo acompanha a rota', () => {
         draftText: 'Sim',
       }).sendLabel
     ).toBe(CHAT_SURFACE_COPY.sendPermission)
+    // Sem gate em maos (WS perdido), so texto de decisao e bloqueado: mensagem comum vai para a fila.
     expect(
-      deriveChatSurface({ ...base, threadState: 'waiting_permission', draftText: 'qualquer coisa' }).sendLabel
+      deriveChatSurface({ ...base, threadState: 'waiting_permission', draftText: 'Sim' }).sendLabel
     ).toBe(CHAT_SURFACE_COPY.sendPermission)
+    expect(
+      deriveChatSurface({ ...base, threadState: 'waiting_permission', draftText: 'qualquer coisa' }).route
+    ).toBe('enqueue')
   })
 
   it('composer vazio cai no rótulo do modo', () => {

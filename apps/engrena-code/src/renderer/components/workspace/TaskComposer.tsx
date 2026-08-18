@@ -44,7 +44,7 @@ import { useVoiceInput } from '../../hooks/useVoiceInput'
 const COPY = {
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
   placeholderFollowUp: 'Responder nesta conversa…  (Enter envia, Shift+Enter quebra linha)',
-  placeholderRunning: 'Agente trabalhando — Enter enfileira para o próximo turno',
+  placeholderRunning: 'Agente trabalhando — Enter envia para a fila',
   placeholderPermission: 'Permissão pendente — digite sim/não e Enter, ou escolha no card do chat',
   placeholderQuestion: 'Resposta pendente — digite no composer ou escolha no card do chat e Enviar',
   placeholderStopping: 'Cancelando execução…',

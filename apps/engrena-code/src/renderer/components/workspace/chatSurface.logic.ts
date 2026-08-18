@@ -83,7 +83,8 @@ export interface ChatSurface {
 /** Rótulos do botão de envio — a rota decide qual aparece. */
 export const CHAT_SURFACE_COPY = {
   send: 'Enviar',
-  sendEnqueue: 'Enfileirar para o próximo turno',
+  /** Mesmo rótulo do envio normal: para o usuário é sempre "enviar"; a fila é o destino, não a ação. */
+  sendEnqueue: 'Enviar',
   sendPermission: 'Enviar decisão de permissão',
   sendQuestion: 'Enviar resposta',
 } as const
@@ -149,7 +150,7 @@ export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
     sendLabel: LABEL_BY_ROUTE[route] ?? LABEL_BY_MODE[composerMode],
     placeholderKey: placeholderKeyFor(composerMode, input.hasSelectedThread),
     // Em waiting_user/waiting_permission o turno continua cancelável; em running o Parar
-    // convive com o Enviar (que enfileira). Esconder o Enviar durante running quebrava a fila.
+    // convive com o Enviar (que manda para a fila). Esconder o Enviar durante running quebrava a fila.
     showStop: stateBusy || gate.permission,
     // Só Parar durante stopping.
     showSend: composerMode !== 'stopping',
@@ -159,7 +160,7 @@ export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
     showActivity: composerMode === 'busy' && !gate.question,
     runtimeLocked: stateBusy || input.queueLength > 0,
     queuePaused: input.queueLength > 0 && composerMode === 'idle',
-    // Enfileirar não abre turno: os gates de projeto/git/limite valem para quem dispara de fato.
+    // Ir para a fila não abre turno: os gates de projeto/git/limite valem para quem dispara de fato.
     sendStartsTurn: (composerMode === 'idle' || composerMode === 'stopping') && route !== 'enqueue',
   }
 }

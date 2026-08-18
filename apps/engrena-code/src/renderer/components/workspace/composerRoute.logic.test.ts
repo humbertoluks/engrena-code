@@ -61,7 +61,9 @@ describe('routeComposerSend', () => {
     ).toEqual({ action: 'resolve_permission', decision: { kind: 'deny' } })
   })
 
-  it('blocks free-form text and never enqueues while permission is pending', () => {
+  it('texto comum com permissao pendente vai para a fila, nao e recusado', () => {
+    // Card aberto nao suspende o chat: mensagem e mensagem, e recusar era o unico destino que
+    // perdia o que o usuario escreveu. A decisao continua sendo o clique no card + Enviar.
     expect(
       routeComposerSend({
         ...base,
@@ -69,7 +71,19 @@ describe('routeComposerSend', () => {
         gate: PERMISSION_GATE,
         threadState: 'waiting_permission',
       })
-    ).toEqual({ action: 'permission_blocked', message: PERMISSION_PENDING_HINT })
+    ).toEqual({ action: 'enqueue' })
+  })
+
+  it('palavra de decisao com permissao pendente continua resolvendo, nao enfileira', () => {
+    for (const text of ['Sim', 'sim', 'Permitir', 'Nao', 'Permitir todos']) {
+      const route = routeComposerSend({
+        ...base,
+        text,
+        gate: PERMISSION_GATE,
+        threadState: 'waiting_permission',
+      })
+      expect(route.action).toBe('resolve_permission')
+    }
   })
 
   it('blocks when waiting_permission but no gate is known locally (lost WS) — never enqueue', () => {

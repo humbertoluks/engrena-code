@@ -54,16 +54,20 @@ export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecis
   const permissionGate = hasPendingPermission || input.threadState === 'waiting_permission'
 
   if (permissionGate) {
-    if (!hasPendingPermission) {
-      // Estado DB diz waiting_permission mas a fila local está vazia (WS perdido) —
-      // nunca enfileira; a UI deve refetch do snapshot antes de resolver.
-      return { action: 'permission_blocked', message: PERMISSION_PENDING_HINT }
-    }
     const reply = interpretPermissionChatReply(text)
-    if (reply.kind === 'blocked') {
-      return { action: 'permission_blocked', message: reply.message }
+    if (reply.kind !== 'blocked') {
+      // Estado DB diz waiting_permission mas o gate local não chegou (WS perdido): não há o que
+      // resolver, e tratar "sim" como decisão aqui concederia no vazio. A UI refetch antes.
+      if (!hasPendingPermission) {
+        return { action: 'permission_blocked', message: PERMISSION_PENDING_HINT }
+      }
+      return { action: 'resolve_permission', decision: reply }
     }
-    return { action: 'resolve_permission', decision: reply }
+    // Texto comum com card aberto é mensagem, não decisão: vai para a fila como em qualquer outro
+    // estado ocupado. Antes era recusado — e recusar é o único destino que perde o que o usuário
+    // escreveu. O card continua sendo respondido pelo clique (que preenche o composer) + Enviar,
+    // e as palavras de decisão seguem sendo lidas como decisão, então o contrato do B4 não muda.
+    return { action: 'enqueue' }
   }
 
   if (input.threadState === 'waiting_user' && input.gate?.kind === 'question') {
