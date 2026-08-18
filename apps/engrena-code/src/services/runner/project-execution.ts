@@ -13,7 +13,10 @@ export class LeaseBusyError extends Error {
   info: LeaseInfo
 
   constructor(info: LeaseInfo) {
-    super(`Projeto ${info.projectId} esta em execucao ou ocupado; tente novamente.`)
+    // Sem o id do projeto e com acento: esta mensagem é lida pelo usuário no composer (o 409 leva
+    // o `info` completo em `details` para diagnóstico). Mesma frase da recusa por thread ocupada
+    // em `dispatch.ts`, porque para quem lê é a mesma situação.
+    super('Este projeto já tem uma execução em andamento; aguarde ou pare o turno atual.')
     this.info = info
   }
 }

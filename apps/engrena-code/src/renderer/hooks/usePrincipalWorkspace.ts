@@ -816,6 +816,26 @@ export function usePrincipalWorkspace() {
     if (text === '') return
     setSendError(null)
 
+    /**
+     * Fotografa o rascunho para devolvê-lo quando o envio não acontece.
+     *
+     * O composer é limpo no otimismo (a bolha já está na timeline), então uma recusa do backend
+     * — `thread_busy`, teto de consumo, rede fora — deixava o usuário sem o texto que escreveu:
+     * o erro aparecia e o prompt tinha de ser digitado de novo.
+     *
+     * Anexos voltam da lista explícita (`composer.attachments`), nunca de `composerAttachments`:
+     * a derivada inclui o contexto implícito do arquivo aberto, que se recompõe sozinho e viraria
+     * um chip fixo se fosse restaurado como explícito.
+     */
+    const draftRestorer = (): (() => void) => {
+      const snapshot = {
+        text: composer.text,
+        images: composer.images,
+        attachments: composer.attachments,
+      }
+      return () => updateComposer(snapshot)
+    }
+
     let currentGate = gate
 
     // waiting_permission sem gate conhecido localmente (WS perdido): snapshot antes de decidir.
@@ -829,6 +849,7 @@ export function usePrincipalWorkspace() {
       text,
       threadState: selectedThread?.state,
       gate: currentGate,
+      queueLength: queue.length,
       hasSelectedThread: selectedThreadId !== null,
       hasSelectedProject: selectedProjectId !== null,
     })
@@ -899,6 +920,7 @@ export function usePrincipalWorkspace() {
       const images = composer.images
       const attachments = composerAttachments
       const pendingId = addPending(text, images, 'sending')
+      const restoreDraft = draftRestorer()
       clearDraftAfterSend()
       try {
         const res = await threadsService.create(selectedProjectId, {
@@ -916,6 +938,7 @@ export function usePrincipalWorkspace() {
         if (res.error) {
           removePending(pendingId)
           setSendError(res.error.message)
+          restoreDraft()
           return
         }
         setPendingStatus(pendingId, 'sent')
@@ -924,14 +947,20 @@ export function usePrincipalWorkspace() {
       } catch {
         removePending(pendingId)
         setSendError('Falha ao enviar a mensagem.')
+        restoreDraft()
       }
       return
     }
 
     const images = composer.images
     const attachments = composerAttachments
+    const restoreDraft = draftRestorer()
     clearDraftAfterSend()
-    await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
+    const sent = await sendFollowUp(text, images, composer.model, composer.reasoningLevel, attachments)
+    // `sendFollowUp` já mostrou o erro e removeu a bolha otimista; o que faltava era devolver o
+    // texto. Na fila o mesmo `false` recoloca o item no topo (`dispatchQueueHead`) — são caminhos
+    // diferentes de um mesmo "não rodou", e cada um restaura o seu lado.
+    if (!sent) restoreDraft()
   }, [
     composer,
     selectedThread,
@@ -940,6 +969,7 @@ export function usePrincipalWorkspace() {
     gate,
     gateApi,
     enqueue,
+    queue.length,
     sendFollowUp,
     resolvePermission,
     upsertThreadLocal,
@@ -949,6 +979,7 @@ export function usePrincipalWorkspace() {
     composerAttachments,
     clearTextAndImages,
     clearDraftAfterSend,
+    updateComposer,
   ])
 
   const cancel = useCallback(async () => {
@@ -1194,6 +1225,8 @@ export function usePrincipalWorkspace() {
     dequeue,
     updateQueueItem,
     promoteQueueItem,
+    /** Empurra o topo da fila quando nenhum turno vai drená-la (pós-cancelamento). */
+    runQueueNow: processQueueIfIdle,
     sendError,
     send,
     cancel,

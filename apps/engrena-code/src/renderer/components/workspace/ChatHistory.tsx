@@ -329,8 +329,12 @@ function UserMessage({ message }: Readonly<{ message: Message }>): ReactElement 
  * Bolha do usuário enviada nesta sessão e ainda não confirmada pelo histórico. Mesma forma da
  * bolha real (nenhum salto quando o servidor confirma) com rótulo de estado embaixo.
  */
-function PendingUserMessage({ pending }: Readonly<{ pending: PendingMessage }>): ReactElement {
-  const active = isPendingActive(pending.status)
+function PendingUserMessage({
+  pending,
+  queuePaused = false,
+}: Readonly<{ pending: PendingMessage; queuePaused?: boolean }>): ReactElement {
+  // Fila pausada não pulsa: o ponto animado é "em movimento", e nada se move até o usuário mandar.
+  const active = isPendingActive(pending.status) && !queuePaused
   return (
     <div className="mb-md flex flex-col items-end">
       {pending.images.length > 0 ? (
@@ -352,7 +356,7 @@ function PendingUserMessage({ pending }: Readonly<{ pending: PendingMessage }>):
         {active ? (
           <span className="h-[5px] w-[5px] flex-none animate-pulse rounded-full bg-accent" aria-hidden="true" />
         ) : null}
-        <span>{pendingStatusLabel(pending.status)}</span>
+        <span>{pendingStatusLabel(pending.status, queuePaused)}</span>
       </div>
     </div>
   )
@@ -560,13 +564,14 @@ export function ChatHistory({
   // Mesma derivação do composer (`deriveChatSurface`), não uma segunda cópia do predicado:
   // indicador de atividade visível o turno inteiro, e nada de chips com a thread ocupada ou
   // com resposta em voo — o usuário via "próximo passo" em cima de "Executando…" e clicava
-  // achando que era a permissão. `queueLength`/`draftText` não afetam nada aqui (a fila e o
-  // rascunho são do composer).
+  // achando que era a permissão. `queueLength` vem das próprias bolhas `queued` (é a mesma fila
+  // do composer, mapeada em `usePrincipalWorkspace`) e serve só para `queuePaused`; `draftText`
+  // não afeta nada aqui — o rascunho é do composer.
   const surface = deriveChatSurface({
     threadState,
     gate,
     hasActivePending: pendingMessages.some((p) => isPendingActive(p.status)),
-    queueLength: 0,
+    queueLength: queued.length,
     hasSelectedThread: hasThread,
     hasSelectedProject: true,
     draftText: '',
@@ -693,7 +698,7 @@ export function ChatHistory({
       ) : null}
 
       {queued.map((pending) => (
-        <PendingUserMessage key={pending.id} pending={pending} />
+        <PendingUserMessage key={pending.id} pending={pending} queuePaused={surface.queuePaused} />
       ))}
     </div>
   )

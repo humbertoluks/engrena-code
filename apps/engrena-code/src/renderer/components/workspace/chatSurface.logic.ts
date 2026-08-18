@@ -65,6 +65,15 @@ export interface ChatSurface {
   /** Turno em andamento ou fila não-vazia: trava troca de provider/anexos/voz. */
   runtimeLocked: boolean
   /**
+   * Fila com item e nenhum turno para drená-la (thread assentada, sem gate aberto).
+   *
+   * Estado real e alcançável: **Parar** assenta em `cancelled`, e `cancelled` não despacha a fila
+   * de propósito (`TURN_RECONCILED_STATES`). Sem este sinal a bolha continuava dizendo "aguarde o
+   * turno atual terminar" sem turno nenhum, e o item só saía de lá quando outra mensagem
+   * qualquer terminasse — depois dela, fora de ordem.
+   */
+  queuePaused: boolean
+  /**
    * O envio abre um turno novo (não é decisão de permissão, resposta nem enfileiramento) e por
    * isso ainda passa pelos gates de projeto/git/limite de consumo do componente.
    */
@@ -129,6 +138,7 @@ export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
     text: input.draftText,
     threadState: state,
     gate: input.gate,
+    queueLength: input.queueLength,
     hasSelectedThread: input.hasSelectedThread,
     hasSelectedProject: input.hasSelectedProject,
   }).action
@@ -148,7 +158,9 @@ export function deriveChatSurface(input: ChatSurfaceInput): ChatSurface {
     showFollowups: !stateBusy && !gate.permission && !gate.question && !input.hasActivePending,
     showActivity: composerMode === 'busy' && !gate.question,
     runtimeLocked: stateBusy || input.queueLength > 0,
-    sendStartsTurn: composerMode === 'idle' || composerMode === 'stopping',
+    queuePaused: input.queueLength > 0 && composerMode === 'idle',
+    // Enfileirar não abre turno: os gates de projeto/git/limite valem para quem dispara de fato.
+    sendStartsTurn: (composerMode === 'idle' || composerMode === 'stopping') && route !== 'enqueue',
   }
 }
 

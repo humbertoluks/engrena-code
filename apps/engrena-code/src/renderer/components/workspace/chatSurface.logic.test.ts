@@ -44,22 +44,27 @@ const base: ChatSurfaceInput = {
 const BOOLS = [false, true]
 const GATES: Array<ThreadGate | null> = [null, PERMISSION_GATE, QUESTION_GATE]
 const TEXTS = ['', '   ', 'oi', 'Sim', 'Permitir todos', 'Negar', 'talvez depois']
+/** Fila vazia e fila com gente: a segunda muda a rota com a thread parada. */
+const QUEUE_LENGTHS = [0, 1]
 
 function allInputs(): ChatSurfaceInput[] {
   const out: ChatSurfaceInput[] = []
   for (const threadState of ALL_STATES) {
     for (const gate of GATES) {
-      for (const hasSelectedThread of BOOLS) {
-        for (const hasSelectedProject of BOOLS) {
-          for (const draftText of TEXTS) {
-            out.push({
-              ...base,
-              threadState,
-              gate,
-              hasSelectedThread,
-              hasSelectedProject,
-              draftText,
-            })
+      for (const queueLength of QUEUE_LENGTHS) {
+        for (const hasSelectedThread of BOOLS) {
+          for (const hasSelectedProject of BOOLS) {
+            for (const draftText of TEXTS) {
+              out.push({
+                ...base,
+                threadState,
+                gate,
+                queueLength,
+                hasSelectedThread,
+                hasSelectedProject,
+                draftText,
+              })
+            }
           }
         }
       }
@@ -72,13 +77,16 @@ describe('deriveChatSurface — rota é a de routeComposerSend, nunca reimplemen
   it('devolve exatamente a mesma action para toda a matriz estado × gate × texto', () => {
     const cases = allInputs()
     // Guarda contra a matriz encolher em silêncio.
-    expect(cases.length).toBe(ALL_STATES.length * GATES.length * 2 * 2 * TEXTS.length)
+    expect(cases.length).toBe(
+      ALL_STATES.length * GATES.length * QUEUE_LENGTHS.length * 2 * 2 * TEXTS.length
+    )
 
     for (const input of cases) {
       const expected = routeComposerSend({
         text: input.draftText,
         threadState: input.threadState,
         gate: input.gate,
+        queueLength: input.queueLength,
         hasSelectedThread: input.hasSelectedThread,
         hasSelectedProject: input.hasSelectedProject,
       }).action
@@ -283,5 +291,37 @@ describe('deriveChatSurface — runtimeLocked', () => {
 
   it('livre com thread parada e fila vazia', () => {
     expect(deriveChatSurface({ ...base, threadState: 'idle' }).runtimeLocked).toBe(false)
+  })
+})
+
+describe('deriveChatSurface — fila pausada (pós-cancelamento)', () => {
+  it('thread assentada com item na fila é fila pausada', () => {
+    for (const state of ['cancelled', 'idle', 'committed', 'error'] as const) {
+      expect(deriveChatSurface({ ...base, threadState: state, queueLength: 1 }).queuePaused).toBe(true)
+    }
+  })
+
+  it('não é pausa com turno vivo, com gate aberto nem em stopping', () => {
+    for (const state of ['running', 'stopping', 'waiting_user', 'waiting_permission'] as const) {
+      expect(deriveChatSurface({ ...base, threadState: state, queueLength: 1 }).queuePaused).toBe(false)
+    }
+    expect(
+      deriveChatSurface({ ...base, threadState: 'idle', gate: PERMISSION_GATE, queueLength: 1 }).queuePaused
+    ).toBe(false)
+    expect(
+      deriveChatSurface({ ...base, threadState: 'waiting_user', gate: QUESTION_GATE, queueLength: 1 })
+        .queuePaused
+    ).toBe(false)
+  })
+
+  it('fila vazia nunca é pausa', () => {
+    expect(deriveChatSurface({ ...base, threadState: 'cancelled', queueLength: 0 }).queuePaused).toBe(false)
+  })
+
+  it('com fila cheia o Enviar enfileira e não abre turno, mesmo com a thread parada', () => {
+    const surface = deriveChatSurface({ ...base, threadState: 'cancelled', queueLength: 1 })
+    expect(surface.route).toBe('enqueue')
+    expect(surface.sendLabel).toBe(CHAT_SURFACE_COPY.sendEnqueue)
+    expect(surface.sendStartsTurn).toBe(false)
   })
 })

@@ -27,6 +27,11 @@ export interface ComposerRouteInput {
    * paralelas do mesmo fato (uma vinda do WS, outra inferida de `toolCalls`).
    */
   gate: ThreadGate | null
+  /**
+   * Itens já esperando na fila do composer. Entra na decisão porque a ordem é do usuário: com
+   * alguém na frente, o texto novo vai para trás dele mesmo com a thread parada.
+   */
+  queueLength: number
   hasSelectedThread: boolean
   hasSelectedProject: boolean
 }
@@ -38,7 +43,8 @@ export interface ComposerRouteInput {
  * 1. waiting_permission OU fila de permissão não-vazia → allow/deny/allow-all ou bloqueio (nunca enqueue)
  * 2. waiting_user + pergunta pendente → answer
  * 3. running / waiting_user / waiting_permission (sem permissão resolvível) → enqueue
- * 4. sem thread → send_new; com thread idle → send_follow_up
+ * 4. thread parada **com fila não-vazia** → enqueue (a ordem do usuário manda, não o estado)
+ * 5. sem thread → send_new; com thread idle e fila vazia → send_follow_up
  */
 export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecision {
   const text = input.text.trim()
@@ -69,6 +75,18 @@ export function routeComposerSend(input: ComposerRouteInput): ComposerRouteDecis
     input.threadState === 'waiting_user' ||
     input.threadState === 'waiting_permission'
   ) {
+    return { action: 'enqueue' }
+  }
+
+  // Thread parada mas com gente na fila: o texto novo entra **atrás**. Sem isto a rota caía em
+  // `send_follow_up` e a mensagem recém-digitada furava a fila — o item antigo só rodava no fim
+  // desse turno novo, exatamente ao contrário do que o usuário pediu. Acontece sempre que um
+  // turno é cancelado com fila cheia: `cancelled` não despacha a fila (decisão de
+  // `TURN_RECONCILED_STATES`), então ela fica esperando um empurrão explícito.
+  //
+  // Só com thread selecionada: a fila é despachada por `sendFollowUp`, e sem thread não há para
+  // onde despachar — enfileirar ali prenderia o usuário sem nunca abrir a conversa.
+  if (input.queueLength > 0 && input.hasSelectedThread) {
     return { action: 'enqueue' }
   }
 

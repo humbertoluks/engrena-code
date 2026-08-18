@@ -4,6 +4,7 @@ import {
   dropStalePermissionDecisionPendings,
   isPendingActive,
   pendingStatusLabel,
+  QUEUE_PAUSED_LABEL,
   reconcilePendingMessages,
   type PendingMessage,
 } from './pendingMessages.logic'
@@ -128,5 +129,18 @@ describe('dropStalePermissionDecisionPendings', () => {
       isDecision
     )
     expect(result.map((p) => p.id)).toEqual(['real'])
+  })
+})
+
+describe('pendingStatusLabel — fila pausada', () => {
+  it('troca o "aguarde o turno atual terminar" quando não há turno para aguardar', () => {
+    expect(pendingStatusLabel('queued')).not.toBe(QUEUE_PAUSED_LABEL)
+    expect(pendingStatusLabel('queued', true)).toBe(QUEUE_PAUSED_LABEL)
+  })
+
+  it('só afeta queued', () => {
+    for (const status of ['sending', 'sent', 'permission'] as const) {
+      expect(pendingStatusLabel(status, true)).toBe(pendingStatusLabel(status))
+    }
   })
 })

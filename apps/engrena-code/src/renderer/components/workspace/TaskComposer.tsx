@@ -73,6 +73,8 @@ const COPY = {
   queueCancel: 'Cancelar',
   queuePromote: 'Priorizar (próxima)',
   queueRemove: 'Remover da fila',
+  queuePausedHint: 'Fila parada — nenhum turno em andamento',
+  queueRunNow: 'Executar agora',
   dropHint: 'Solte para anexar ao contexto',
   savePrompt: '+ prompt',
   savePromptTitle: 'Salvar o texto do composer como prompt reutilizável (aparece no menu /)',
@@ -148,6 +150,12 @@ export interface TaskComposerProps {
   onDequeue: (id: string) => void
   onUpdateQueueItem: (id: string, text: string) => void
   onPromoteQueueItem: (id: string) => void
+  /**
+   * Despacha o topo da fila agora. Só aparece com a fila pausada (`surface.queuePaused`): depois
+   * de um **Parar** nenhum turno vai drená-la sozinho, e sem este botão o item só saía quando
+   * outra mensagem qualquer terminasse — passando na frente dele.
+   */
+  onRunQueue: () => void
   sendError: string | null
   configStatus: ConfigStatus | null
   vcsStatus: VcsStatus | null
@@ -194,6 +202,7 @@ export function TaskComposer({
   onDequeue,
   onUpdateQueueItem,
   onPromoteQueueItem,
+  onRunQueue,
   sendError,
   configStatus,
   vcsStatus,
@@ -442,6 +451,8 @@ export function TaskComposer({
           onDequeue={onDequeue}
           onUpdate={onUpdateQueueItem}
           onPromote={onPromoteQueueItem}
+          paused={surface.queuePaused}
+          onRunNow={onRunQueue}
         />
       ) : null}
 
@@ -762,11 +773,16 @@ function ComposerQueuePanel({
   onDequeue,
   onUpdate,
   onPromote,
+  paused,
+  onRunNow,
 }: Readonly<{
   queue: QueueItem[]
   onDequeue: (id: string) => void
   onUpdate: (id: string, text: string) => void
   onPromote: (id: string) => void
+  /** Nenhum turno vai drenar a fila (thread assentada) — ver `ChatSurface.queuePaused`. */
+  paused: boolean
+  onRunNow: () => void
 }>): ReactElement {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -805,6 +821,23 @@ function ComposerQueuePanel({
           <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span>{COPY.queueHeader(queue.length)}</span>
+        {paused ? (
+          <>
+            <span className="text-amber">{COPY.queuePausedHint}</span>
+            <button
+              type="button"
+              // Dentro do <summary>: sem isto o clique no botão também abre/fecha o painel.
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onRunNow()
+              }}
+              className="ml-auto rounded-md border border-border px-sm py-[3px] text-[11px] font-medium text-fg transition-colors hover:bg-surface-2"
+            >
+              {COPY.queueRunNow}
+            </button>
+          </>
+        ) : null}
       </summary>
       <ul className="border-t border-border px-xs py-xs">
         {queue.map((item, index) => {
