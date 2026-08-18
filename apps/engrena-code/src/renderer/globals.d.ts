@@ -8,7 +8,7 @@ interface EngrenaVaultApi {
 }
 
 interface EngrenaDialogApi {
-  openFolder: () => Promise<{ canceled: boolean; path: string | null }>
+  openFolder: (opts?: { defaultPath?: string | null }) => Promise<{ canceled: boolean; path: string | null }>
 }
 
 interface EngrenaShellApi {

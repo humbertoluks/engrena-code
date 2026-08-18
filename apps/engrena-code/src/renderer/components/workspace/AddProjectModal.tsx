@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import { Modal } from '@engrena/ui'
+import { LOGIN_PRODUCT_CONFIG, Modal, readUnlockedWorkspace } from '@engrena/ui'
 import { browseFolder } from '../../services/projects-service'
+import { resolveBrowseStartPath } from './addProjectModal.logic'
 
 const COPY = {
   title: 'Adicionar projeto',
@@ -51,7 +52,9 @@ export function AddProjectModal({ onClose, onSubmit }: Readonly<AddProjectModalP
   const [error, setError] = useState<string | null>(null)
 
   async function handleBrowse(): Promise<void> {
-    const picked = await browseFolder()
+    const login = LOGIN_PRODUCT_CONFIG.code
+    const unlocked = readUnlockedWorkspace(login.workspaceStorageKey, login.defaultWorkspace)
+    const picked = await browseFolder(resolveBrowseStartPath(path, unlocked))
     if (picked) setPath(picked)
   }
 

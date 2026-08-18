@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import isDev from 'electron-is-dev'
+import { resolveOpenFolderDefaultPath } from '../services/dialog/open-folder-default-path.js'
 import { vaultService } from '../services/vault/vault-service.js'
 import { createUnlockServer } from '../services/http/unlock-handler.js'
 import { ptySessionRegistry, type CreateSessionInput } from '../services/terminal/pty-session-registry.js'
@@ -97,10 +99,25 @@ ipcMain.handle('engrenacode:vault:lock', () => {
   return true
 })
 
+function existsDirectory(candidate: string): boolean {
+  try {
+    return fs.statSync(candidate).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 // Workspace IPC handlers
-ipcMain.handle('engrenacode:dialog:open-folder', async () => {
+ipcMain.handle('engrenacode:dialog:open-folder', async (_event, raw: unknown) => {
   if (!mainWindow) return { canceled: true, path: null }
-  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
+  const defaultPath = resolveOpenFolderDefaultPath(raw, {
+    homedir: os.homedir(),
+    existsDir: existsDirectory,
+  })
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    ...(defaultPath ? { defaultPath } : {}),
+  })
   return { canceled: result.canceled, path: result.canceled ? null : (result.filePaths[0] ?? null) }
 })
 

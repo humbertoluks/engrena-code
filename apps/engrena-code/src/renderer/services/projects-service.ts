@@ -56,8 +56,11 @@ export const projectsService = {
   vcsStatus: (id: string): Promise<VcsStatus & ApiErrorBody> => apiRequest('GET', `/api/projects/${id}/vcs-status`),
 }
 
-export async function browseFolder(): Promise<string | null> {
+export async function browseFolder(defaultPath?: string | null): Promise<string | null> {
   if (!window.electronAPI?.dialog) return null
-  const result = await window.electronAPI.dialog.openFolder()
+  const trimmed = defaultPath?.trim() ?? ''
+  const result = await window.electronAPI.dialog.openFolder(
+    trimmed === '' ? undefined : { defaultPath: trimmed },
+  )
   return result.canceled ? null : result.path
 }

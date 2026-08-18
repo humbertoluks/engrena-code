@@ -10,8 +10,8 @@ const api = {
     },
   },
   dialog: {
-    openFolder: (): Promise<{ canceled: boolean; path: string | null }> =>
-      ipcRenderer.invoke('engrenacode:dialog:open-folder'),
+    openFolder: (opts?: { defaultPath?: string | null }): Promise<{ canceled: boolean; path: string | null }> =>
+      ipcRenderer.invoke('engrenacode:dialog:open-folder', opts ?? null),
   },
   shell: {
     openExternal: (url: string): Promise<boolean> =>
