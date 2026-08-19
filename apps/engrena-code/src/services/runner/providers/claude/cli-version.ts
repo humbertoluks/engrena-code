@@ -49,19 +49,40 @@ const spawnVersionReader: VersionReader = () =>
 
 let readerImpl: VersionReader = spawnVersionReader
 let pending: Promise<ClaudeCliVersionReading> | null = null
+let settled: ClaudeCliVersionReading | null = null
 
 /** Cacheada por processo: o segundo turno reusa a promessa, sem spawn novo. */
 export function readClaudeCliVersion(): Promise<ClaudeCliVersionReading> {
-  pending ??= readerImpl().catch<ClaudeCliVersionReading>(() => ({ outcome: 'unavailable' }))
+  pending ??= readerImpl()
+    .catch<ClaudeCliVersionReading>(() => ({ outcome: 'unavailable' }))
+    .then((reading) => {
+      settled = reading
+      return reading
+    })
   return pending
+}
+
+/**
+ * A leitura **já concluída**, sem spawnar e sem esperar. `null` significa cache frio ou leitura em
+ * voo, nunca "binário ausente" (esse caso é `{ outcome: 'unavailable' }`).
+ *
+ * Existe para os dois pontos que não podem pagar o custo do binário nem atrasar a resposta:
+ * `GET /api/config/status` (F30 — o status alimenta o Dashboard e continua PATH-only) e o instante
+ * da negação nativa em `dispatch.ts`, onde esperar `claude --version` seria atrasar um evento de
+ * erro por um campo acessório.
+ */
+export function peekClaudeCliVersion(): ClaudeCliVersionReading | null {
+  return settled
 }
 
 export function setClaudeCliVersionReaderForTesting(fn: VersionReader): void {
   readerImpl = fn
   pending = null
+  settled = null
 }
 
 export function resetClaudeCliVersionReaderForTesting(): void {
   readerImpl = spawnVersionReader
   pending = null
+  settled = null
 }

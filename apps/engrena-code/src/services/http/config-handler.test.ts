@@ -10,6 +10,9 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { vaultService } = await import('../vault/vault-service.js')
 const { handleConfigRequest } = await import('./config-handler.js')
+const { resetClaudeCliVersionReaderForTesting, setClaudeCliVersionReaderForTesting } = await import(
+  '../runner/providers/claude/cli-version.js'
+)
 
 interface FakeResult {
   status: number
@@ -165,6 +168,90 @@ describe('GET /api/config/status', () => {
     }
     expect(parsed.keys).toEqual({ claude: false, codex: false, minimax: true, glm: false, grok: false })
     expect(parsed.providers.minimax.available).toBe(true)
+  })
+})
+
+// A versão do Claude só existe no wire quando o binário está no PATH desta máquina, e o teste não
+// pode exigir `claude` instalado para passar. Os asserts abaixo cobrem os dois lados do invariante
+// (instalado ⇒ versão presente; ausente ⇒ nenhum campo), então nunca ficam vazios.
+describe('versão do Claude CLI nas rotas de Configuração (F30)', () => {
+  interface CliVersionShape {
+    clis: { claude: { installed: boolean; version?: string; versionStatus?: string } }
+  }
+
+  it('POST /api/config/clis/test devolve version + versionStatus do Claude', async () => {
+    setClaudeCliVersionReaderForTesting(async () => ({
+      outcome: 'answered' as const,
+      rawOutput: '2.1.234 (Claude Code)',
+    }))
+    const session = unlockVault()
+
+    const res = fakeRes()
+    await handleConfigRequest(fakeReq('POST', '/api/config/clis/test', undefined, session), res)
+    const { status, body } = await res.result()
+    expect(status).toBe(200)
+
+    const claude = (body as { results: CliVersionShape['clis'] }).results.claude
+    if (claude.installed) {
+      expect(claude.version).toBe('2.1.234')
+      // 2.1.234 está acima da última versão em que o contrato foi conferido — é o caso que gera a
+      // segunda caption muted, e o que motivou F30.
+      expect(claude.versionStatus).toBe('above-max')
+    } else {
+      expect(claude.version).toBeUndefined()
+      expect(claude.versionStatus).toBeUndefined()
+    }
+
+    resetClaudeCliVersionReaderForTesting()
+  })
+
+  it('GET /api/config/status não lê o binário: cache frio devolve status sem versão', async () => {
+    let readerCalls = 0
+    setClaudeCliVersionReaderForTesting(async () => {
+      readerCalls += 1
+      return { outcome: 'answered' as const, rawOutput: '2.1.234 (Claude Code)' }
+    })
+    const session = unlockVault()
+
+    const res = fakeRes()
+    await handleConfigRequest(fakeReq('GET', '/api/config/status', undefined, session), res)
+    const { body } = await res.result()
+
+    // O status alimenta o Dashboard a cada abertura de tela: 5 s de `claude --version` aqui seria
+    // regressão de boot, então este caminho é PATH-only e só copia o que o cache já tiver.
+    expect(readerCalls).toBe(0)
+    const claude = (body as CliVersionShape).clis.claude
+    expect(claude.version).toBeUndefined()
+    expect(claude.versionStatus).toBeUndefined()
+
+    resetClaudeCliVersionReaderForTesting()
+  })
+
+  it('GET /api/config/status reaproveita o cache já quente, ainda sem spawn novo', async () => {
+    let readerCalls = 0
+    setClaudeCliVersionReaderForTesting(async () => {
+      readerCalls += 1
+      return { outcome: 'answered' as const, rawOutput: '2.1.234 (Claude Code)' }
+    })
+    const session = unlockVault()
+
+    // Esquenta o cache como um turno Claude faria (announceClaudeCliVersionOnce).
+    const { readClaudeCliVersion } = await import('../runner/providers/claude/cli-version.js')
+    await readClaudeCliVersion()
+
+    const res = fakeRes()
+    await handleConfigRequest(fakeReq('GET', '/api/config/status', undefined, session), res)
+    const { body } = await res.result()
+
+    expect(readerCalls).toBe(1)
+    const claude = (body as CliVersionShape).clis.claude
+    if (claude.installed) {
+      expect(claude.version).toBe('2.1.234')
+    } else {
+      expect(claude.version).toBeUndefined()
+    }
+
+    resetClaudeCliVersionReaderForTesting()
   })
 })
 

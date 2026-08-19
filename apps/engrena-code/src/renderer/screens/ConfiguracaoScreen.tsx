@@ -70,6 +70,10 @@ const COPY = {
   clisLoggedIn: 'logado (assinatura)',
   clisNotLoggedIn: 'não logado',
   clisLoggedInUnknown: 'estado desconhecido — clique em Testar',
+  // F30: diagnóstico de versão do Claude CLI mora aqui, não na tarja do chat. Tom muted nos dois
+  // casos — versão fora da faixa conferida não é falha de conexão, e amber aqui viraria alarme.
+  clisVersionUnverified: 'Ainda não conferida nesta versão.',
+  clisVersionUnparseable: 'Versão do Claude CLI ilegível.',
 
   promptTitle: 'System prompt global do harness',
   promptSubtitle:
@@ -252,6 +256,15 @@ interface CliRowProps {
   status: CLIStatusData | null
   loginHint: string
   notInstalledHint: string
+  /** Só a row do Claude (F30): é o único CLI com faixa de contrato de permissão conferida. */
+  showVersion?: boolean
+}
+
+/** Segunda caption da versão, ou `null` quando não há nada honesto a dizer. */
+function cliVersionCaption(status: CLIStatusData | null): string | null {
+  if (status === null || status.versionStatus === undefined) return null
+  if (status.versionStatus === 'in-range') return null
+  return status.versionStatus === 'unparseable' ? COPY.clisVersionUnparseable : COPY.clisVersionUnverified
 }
 
 function cliDot(status: CLIStatusData | null): DotVariant {
@@ -268,11 +281,20 @@ function cliStatusLabel(status: CLIStatusData | null): string {
   return status.loggedIn ? COPY.clisLoggedIn : COPY.clisNotLoggedIn
 }
 
-function CliRow({ name, label, status, loginHint, notInstalledHint }: Readonly<CliRowProps>): ReactElement {
+function CliRow({
+  name,
+  label,
+  status,
+  loginHint,
+  notInstalledHint,
+  showVersion = false,
+}: Readonly<CliRowProps>): ReactElement {
   const dot = cliDot(status)
   const statusLabel = cliStatusLabel(status)
   const showLoginHint = status?.installed && status.loggedIn === false
   const showNotInstalledHint = status !== null && !status.installed
+  const version = showVersion ? (status?.version ?? null) : null
+  const versionCaption = showVersion ? cliVersionCaption(status) : null
 
   return (
     <div className="grid grid-cols-[140px_1fr_auto] items-start gap-sm py-sm">
@@ -284,6 +306,12 @@ function CliRow({ name, label, status, loginHint, notInstalledHint }: Readonly<C
         </div>
         {status?.path !== undefined ? (
           <span className="font-mono text-[11.5px] text-muted">{status.path}</span>
+        ) : null}
+        {version !== null ? (
+          <span className="font-mono text-[11.5px] text-muted">{version}</span>
+        ) : null}
+        {versionCaption !== null ? (
+          <span className="text-[11.5px] text-muted">{versionCaption}</span>
         ) : null}
         {showLoginHint ? (
           <span className="text-[11.5px] text-amber">{loginHint}</span>
@@ -325,6 +353,7 @@ function CLIsCard({ clis, onTest, testLoading, feedback }: Readonly<CLIsCardProp
           status={clis?.claude ?? null}
           loginHint={COPY.clisHintClaude}
           notInstalledHint={COPY.clisHintNotInstalled('claude')}
+          showVersion
         />
         <CliRow
           name="codex"

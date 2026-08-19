@@ -6,6 +6,13 @@ export interface CLIStatusData {
   installed: boolean
   loggedIn: boolean | null
   path?: string
+  /**
+   * Versão parseada do CLI (F30) — só Claude, e só quando o backend conseguiu ler. Ausente em
+   * `GET /api/config/status` com cache frio: a versão não vale um spawn de 5 s no boot da tela.
+   */
+  version?: string
+  /** `in-range` significa "conferida": a UI mostra só a versão, sem segunda linha. */
+  versionStatus?: 'in-range' | 'below-min' | 'above-max' | 'unparseable'
 }
 
 export type ProviderKeyName = 'claude' | 'codex' | 'minimax' | 'glm' | 'grok'

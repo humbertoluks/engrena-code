@@ -18,6 +18,15 @@ import {
 } from '../vault/provider-keys.js'
 import type { ProviderKeyValidation } from '../vault/provider-keys.js'
 import { runClaudeProbe } from './claude-probe.js'
+import {
+  peekClaudeCliVersion,
+  readClaudeCliVersion,
+  type ClaudeCliVersionReading,
+} from '../runner/providers/claude/cli-version.js'
+import {
+  checkClaudeCliVersion,
+  type ClaudeCliVersionStatus,
+} from '../runner/providers/permission-contract.js'
 import { testConnection as testGlmConnection } from '../runner/providers/glm-driver.js'
 import { testConnection as testGrokConnection } from '../runner/providers/grok-driver.js'
 import { DEFAULT_PROMPT } from '../config/defaults.js'
@@ -35,6 +44,27 @@ export interface CLIStatus {
   installed: boolean
   loggedIn: boolean | null
   path?: string
+  /**
+   * Versão parseada do CLI (F30). Só Claude: é o único binário cujo contrato de permissão o
+   * EngrenaCode valida por faixa. Ausente quando o cache está frio, o binário não respondeu ou a
+   * saída de `--version` não tem versão dentro — e nesse caso a UI não mostra a caption.
+   */
+  version?: string
+  /** Presente junto com a checagem; `in-range` omite a segunda caption na UI. */
+  versionStatus?: ClaudeCliVersionStatus
+}
+
+/**
+ * Leitura do binário → campos do wire.
+ *
+ * `unparseable` volta **sem** `version` de propósito: colar a saída crua do binário numa row de
+ * Configuração é despejar texto de terceiro na UI, e a copy desse caso já diz o que houve.
+ */
+function claudeVersionFields(reading: ClaudeCliVersionReading | null): Pick<CLIStatus, 'version' | 'versionStatus'> {
+  if (reading === null || reading.outcome === 'unavailable') return {}
+  const check = checkClaudeCliVersion(reading.rawOutput)
+  if (check.status === 'unparseable') return { versionStatus: 'unparseable' }
+  return { version: check.observed, versionStatus: check.status }
 }
 
 async function detectCLIInstalled(name: string): Promise<{ installed: boolean; path?: string }> {
@@ -47,14 +77,22 @@ async function detectCLIInstalled(name: string): Promise<{ installed: boolean; p
   }
 }
 
+/**
+ * Probe completo — é o caminho de "Testar conexões", onde o usuário já aceitou esperar. Só aqui a
+ * versão do Claude pode ser lida do binário: `readClaudeCliVersion` é cacheada por processo, mas o
+ * primeiro spawn custa até 5 s e não pode acontecer no `GET /api/config/status`, que alimenta o
+ * Dashboard a cada abertura de tela.
+ */
 async function detectCLIFull(name: string): Promise<CLIStatus> {
   const base = await detectCLIInstalled(name)
   if (!base.installed) return { installed: false, loggedIn: false }
 
   let loggedIn = false
+  let versionFields: Pick<CLIStatus, 'version' | 'versionStatus'> = {}
 
   if (name === 'claude') {
     loggedIn = fs.existsSync(path.join(os.homedir(), '.claude.json'))
+    versionFields = claudeVersionFields(await readClaudeCliVersion())
   } else if (name === 'codex') {
     try {
       await execAsync('codex auth status', { timeout: 3000 })
@@ -67,7 +105,7 @@ async function detectCLIFull(name: string): Promise<CLIStatus> {
     } catch { loggedIn = false }
   }
 
-  return { installed: true, loggedIn, path: base.path }
+  return { installed: true, loggedIn, path: base.path, ...versionFields }
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────
@@ -151,7 +189,13 @@ export async function computeConfigStatus(): Promise<ConfigStatus> {
   return {
     claude: { mode: claudeMode, subscriptionOk: claudeLoggedIn },
     clis: {
-      claude: { ...claudeCLI, loggedIn: claudeCLI.installed ? claudeLoggedIn : false },
+      // PATH-only + o que o cache **já** tiver: `peek` nunca spawna nem espera, então o status
+      // continua rápido. Cache frio (nenhum turno Claude ainda) simplesmente omite a versão.
+      claude: {
+        ...claudeCLI,
+        loggedIn: claudeCLI.installed ? claudeLoggedIn : false,
+        ...(claudeCLI.installed ? claudeVersionFields(peekClaudeCliVersion()) : {}),
+      },
       codex: { ...codexCLI, loggedIn: null },
       kimi: { ...kimiCLI, loggedIn: null },
     },

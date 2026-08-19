@@ -18,7 +18,6 @@ import { useThreadGate } from './useThreadGate'
 import { questionFromGate, type ThreadGate } from './threadGate.logic'
 import {
   appendWorkspaceNotice,
-  cliVersionNotice,
   mcpNotice,
   nativeDenialNotice,
   type WorkspaceNotice,
@@ -604,14 +603,11 @@ export function usePrincipalWorkspace() {
     // consultado, o broker concedeu e outro hook negou depois, o usuário negou no card, o pedido
     // expirou, ou o EngrenaCode falhou ao abri-lo) e `brokerOutcome` no evento é quem as separa na
     // copy. Vai para a mesma faixa do mcp.notice.
+    // Versão do Claude CLI fora da faixa validada **não** tem branch aqui (F30): não é falha de
+    // turno, o spawn não bloqueia, e a tarja é lida como erro do que acabou de rodar. O runner nem
+    // emite mais o evento — o diagnóstico vive em `log_entries` e na caption de `#configuracao`.
     if (event.type === 'permission.native_denial') {
       setMcpNotices((prev) => appendWorkspaceNotice(prev, nativeDenialNotice(event)))
-      return
-    }
-    // Versão do Claude CLI fora da faixa em que o contrato de permissão foi validado. Chega no
-    // máximo uma vez por processo e é só aviso: o turno correu normalmente.
-    if (event.type === 'cli.version_notice') {
-      setMcpNotices((prev) => appendWorkspaceNotice(prev, cliVersionNotice(event)))
     }
   }
 

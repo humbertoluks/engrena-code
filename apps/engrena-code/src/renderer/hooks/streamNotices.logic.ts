@@ -1,11 +1,15 @@
 /**
  * Avisos de faixa do workspace (a tarja âmbar acima da conversa).
  *
- * Três emissores hoje: `mcp.notice` (MCP indisponível/degradado), `permission.native_denial` e
- * `cli.version_notice` (versão do Claude CLI fora da faixa validada do contrato de permissão).
- * O segundo chegava tipado no `StreamEvent` e sumia sem branch — o sintoma para o usuário era o
- * agente dizendo que precisava de aprovação sem card nenhum na tela, porque o CLI negou a tool
- * nativamente, sem consultar o broker do EngrenaCode. É contrato quebrado, precisa ser visível.
+ * Dois emissores: `mcp.notice` (MCP indisponível/degradado) e `permission.native_denial`. O segundo
+ * chegava tipado no `StreamEvent` e sumia sem branch — o sintoma para o usuário era o agente dizendo
+ * que precisava de aprovação sem card nenhum na tela, porque o CLI negou a tool nativamente, sem
+ * consultar o broker do EngrenaCode. É contrato quebrado, precisa ser visível.
+ *
+ * O que **não** entra mais aqui (F30): versão do Claude CLI fora da faixa validada. Era um terceiro
+ * kind e uma parede de texto sobre `PreToolUse` e faixa de versão em cima de um turno que correu
+ * normal — a tarja é lida como falha do que acabou de rodar. Esse diagnóstico foi para `log_entries`
+ * (já era gravado) e para a caption da row Claude em `#configuracao`.
  *
  * A negação nativa tem causas diferentes e só o runner sabe qual foi (`brokerOutcome`); a decisão
  * de copy fica em `nativeDenialMessage`, que é puro e coberto por teste em cada caso.
@@ -26,7 +30,6 @@ export const MAX_WORKSPACE_NOTICES = 20
 export type WorkspaceNotice =
   | { kind: 'mcp'; mcpName: string; reason: string; message: string }
   | { kind: 'native_denial'; toolName: string; code: string; message: string }
-  | { kind: 'cli_version'; code: string; message: string }
 
 /**
  * Acrescenta mantendo o teto. Antes a lista crescia sem limite e só era limpa na troca de
@@ -148,56 +151,4 @@ export function nativeDenialMessage(event: NativeDenialEvent): string {
   if (reason !== '') parts.push(`O CLI explicou: ${reason}`)
   parts.push(denialAdvice(denialCase))
   return parts.join(' ')
-}
-
-export interface CliVersionNoticeEvent {
-  /** Sempre um dos três casos de alerta; `in-range` nunca é emitido pelo runner. */
-  status: 'below-min' | 'above-max' | 'unparseable'
-  /** Versão lida, ou a saída crua aparada quando ela não pôde ser interpretada (pode ser vazia). */
-  observedVersion: string
-  minValidated: string
-  maxValidated: string
-}
-
-/**
- * Copy da faixa âmbar para versão do Claude CLI fora da faixa validada.
- *
- * Três coisas precisam estar na frase: qual versão está instalada, contra qual faixa o contrato
- * de permissão foi validado e que o turno **não** foi bloqueado. O que ela não faz é mandar o
- * usuário voltar de versão: o contrato provavelmente continua valendo, e o objetivo é ele saber
- * por que algo pode se comportar diferente, não abrir um chamado de downgrade.
- */
-export function cliVersionNoticeMessage(event: CliVersionNoticeEvent): string {
-  const faixa = `${event.minValidated} a ${event.maxValidated}`
-  const validada = 'contra a qual o contrato de permissão do EngrenaCode foi validado'
-
-  if (event.status === 'unparseable') {
-    const saida =
-      event.observedVersion.trim() === ''
-        ? 'o comando `claude --version` não respondeu nada legível'
-        : `o comando \`claude --version\` respondeu "${event.observedVersion}"`
-    return (
-      `Não consegui ler a versão do Claude CLI: ${saida}. ` +
-      `O contrato de permissão do EngrenaCode foi validado na faixa ${faixa} e não dá para conferir se a versão instalada está dentro dela. ` +
-      'O turno não foi bloqueado.'
-    )
-  }
-
-  if (event.status === 'below-min') {
-    return (
-      `O Claude CLI instalado é a versão ${event.observedVersion}, abaixo da faixa ${faixa} ${validada}. ` +
-      'O turno não foi bloqueado. Nessa versão o hook PreToolUse pode não ter autoridade de allow/deny, ' +
-      'então os cards de permissão podem não aparecer.'
-    )
-  }
-
-  return (
-    `O Claude CLI instalado é a versão ${event.observedVersion}, acima da faixa ${faixa} ${validada}. ` +
-    'O turno não foi bloqueado. Se um card de permissão deixar de aparecer ou uma ferramenta for negada ' +
-    'sem passar pelo EngrenaCode, a diferença de versão é a primeira suspeita.'
-  )
-}
-
-export function cliVersionNotice(event: CliVersionNoticeEvent & { code: string }): WorkspaceNotice {
-  return { kind: 'cli_version', code: event.code, message: cliVersionNoticeMessage(event) }
 }
