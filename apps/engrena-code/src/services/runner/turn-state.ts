@@ -59,8 +59,35 @@ export const INITIAL_TURN_STATE: ThreadState = 'running'
 /** Estados em que existe turno vivo — os únicos de onde um cancelamento ainda faz sentido. */
 const LIVE_STATES: readonly ThreadState[] = ['running', 'waiting_user', 'waiting_permission']
 
-/** Estados já assentados: nenhum turno rodando, nenhum gate aberto. */
-const SETTLED_STATES: readonly ThreadState[] = ['idle', 'committed', 'error', 'cancelled']
+/**
+ * Estados já assentados: nenhum turno rodando, nenhum gate aberto.
+ *
+ * `interrupted` (F35) pertence aqui como qualquer outro assentamento. Ficou de fora na primeira
+ * versão e o efeito foi pior que o defeito que a feature corrigia: `follow_up` só é legal a partir
+ * desta lista, então a thread recuperada no boot **não aceitava mais nenhuma mensagem** — o dispatch
+ * respondia `thread_busy` ("ainda tem um turno em andamento") para uma thread que estava parada, e
+ * não havia botão de Parar para destravar, porque não havia turno. Com `error` isso não acontecia.
+ * Pego no smoke ao vivo de 2026-08-19; a suíte não pegou porque nenhum teste tentava conversar com
+ * uma thread interrompida.
+ */
+const SETTLED_STATES: readonly ThreadState[] = [
+  'idle',
+  'committed',
+  'error',
+  'cancelled',
+  'interrupted',
+]
+
+/**
+ * Todo estado da união cai em exatamente um balde: vivo, assentado, ou `stopping` (o transitório do
+ * cancelamento, que não é nem um nem outro). Existe para o teste de partição — acrescentar valor a
+ * `ThreadState` sem classificá-lo aqui quebra a suíte em vez de virar `thread_busy` em produção.
+ */
+export const TURN_STATE_BUCKETS = {
+  live: LIVE_STATES,
+  settled: SETTLED_STATES,
+  transitional: ['stopping'] as readonly ThreadState[],
+} as const
 
 function from(states: readonly ThreadState[], next: ThreadState): Partial<Record<ThreadState, ThreadState>> {
   const table: Partial<Record<ThreadState, ThreadState>> = {}

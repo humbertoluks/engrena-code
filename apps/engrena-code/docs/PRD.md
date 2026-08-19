@@ -1709,9 +1709,9 @@ graph TD
 - [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos, e escrita e leitura têm rótulos distintos
 - [x] Leitura pelo shell dentro da borda roda sem card; leitura fora da borda, `tail -f` e pipeline com verbo fora da lista abrem card
 
-> **Marcação:** `[x]` só onde há teste automatizado cobrindo o critério. Critério que depende do que
-> aparece na tela segue `[ ]` até a homologação — é a correção da contabilidade otimista que a
-> auditoria de 2026-08-19 apontou (AC marcada com base em unitário para superfície visual).
+> **Marcação:** `[x]` só com evidência — teste automatizado ou smoke ao vivo registrado. F32–F35
+> foram homologadas ao vivo em 2026-08-19 (ver `PROGRESS.md`), e o smoke encontrou um defeito que a
+> suíte não pegava: ver F35 abaixo.
 
 ### F32. Prazo do pedido de permissão
 - [x] `PERMISSION_TIMEOUT_MS` é derivado de `HOOK_COMMAND_TIMEOUT_SEC` menos margem, e não existe literal de prazo em nenhum outro caminho (`closeGate` por expiry, `expireOrphanGates`, relógio do card)
@@ -1726,22 +1726,32 @@ graph TD
 - [x] `limit` acima de 200 é recusado; `before` não numérico, negativo ou fora de faixa responde 400 `invalid_cursor`
 - [x] Resultado de tool acima de 2 KB chega como `resultPreview` + `resultTruncated` + tamanho, e o corpo integral vem por `GET /api/tool-calls/:id/result`
 - [x] Refetch disparado pelo stream busca só a janela recente: o número de mensagens transferidas não cresce com o tamanho da thread
-- [ ] "Carregar mensagens anteriores" prepende a página e a primeira mensagem visível fica na mesma posição de scroll — **depende de tela, pendente de homologação**
+- [x] "Carregar mensagens anteriores" prepende a página e a primeira mensagem visível fica na mesma posição de scroll — conferido ao vivo com thread de 74 mensagens
 - [x] Aba Grafo (F29) projeta a execução inteira mesmo com o chat paginado, lendo a projeção sem corpo de resultado
 - [x] Página anterior e refetch concorrente reconciliam por `seq`, sem duplicata nem buraco
 
 ### F34. Rascunho persistente do composer
-- [ ] Texto não enviado sobrevive a F5 e a restart do app, por thread, com anexos explícitos restaurados — **depende de tela, pendente de homologação** (a serialização está coberta em unitário)
-- [ ] Imagem colada não é persistida e a contagem perdida aparece em linha muted, que sai ao primeiro toque no campo — **depende de tela**; a parte de não persistir a imagem está coberta
+- [x] Texto não enviado sobrevive a F5 e a restart do app, por thread, com anexos explícitos restaurados — conferido ao vivo, inclusive o isolamento entre duas threads
+- [x] Imagem colada não é persistida e a contagem perdida aparece em linha muted, que sai ao primeiro toque no campo — conferido ao vivo
 - [x] Rascunho acima de 32 KB não é persistido e o composer continua funcionando
 - [x] Envio bem-sucedido e DELETE da thread apagam a chave; reabrir não ressuscita rascunho enviado
 - [x] Chave corrompida ou de versão desconhecida é descartada sem erro em tela
 - [x] `QuotaExceededError` não trava o composer
 
 ### F35. Estado honesto de thread interrompida
-- [x] Thread cortada pelo fechamento do app volta como `interrupted`, não `error` (badge muted da sidebar **depende de tela**)
+- [x] Thread cortada pelo fechamento do app volta como `interrupted`, não `error`, com badge muted na sidebar — conferido ao vivo matando o processo main por PID durante um turno
 - [x] `interrupted` está em `SETTLED_THREAD_STATES` e `TURN_RECONCILED_STATES`: a fila do composer drena igual a `cancelled`
-- [ ] Reabrir thread `interrupted` dá composer normal com Enviar, sem passo de limpar erro — **depende de tela, pendente de homologação**
+- [x] Reabrir thread `interrupted` dá composer normal com Enviar, e o envio **funciona** — falhou no primeiro smoke e virou teste; ver nota abaixo
+- [x] `interrupted` está em `SETTLED_STATES` de `turn-state.ts`: `follow_up` a partir dele é legal, e `TURN_STATE_BUCKETS` particiona a união inteira para estado novo sem classificação quebrar a suíte
+
+> **Defeito achado no smoke de 2026-08-19, corrigido no mesmo dia.** `interrupted` entrou na união de
+> estados, nos conjuntos do renderer e na recuperação de boot, mas **não** em `SETTLED_STATES` de
+> `turn-state.ts`. Como `follow_up` só é legal a partir dessa lista, a thread recuperada parava de
+> aceitar qualquer mensagem: o dispatch respondia `thread_busy` para uma thread parada, sem botão de
+> Parar para destravar — pior que o `error` que a feature veio substituir. A suíte não pegou porque
+> testava que `interrupted` era **terminal**, nunca que era **usável**. Este critério estava
+> classificado aqui como "depende de tela"; era tabela de transição no backend, e um unitário de três
+> linhas teria pego.
 - [x] Thread que veio de `waiting_permission` tem o gate fechado antes da mudança de estado, e o gate nega
 - [x] Falha real de turno (spawn, CLI, exceção) continua gravando `error` e mostrando tarja
 - [x] A varredura é idempotente: rodar duas vezes no unlock dá o mesmo resultado
@@ -1781,9 +1791,9 @@ graph TD
 - [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace
 - [x] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)
 - [x] A auto-aprovação de shell (F31) usa a mesma raiz efetiva do turno (F13/F18), registra em Registros (F08) e não altera o gate nem o fail-closed do Workspace (F03)
-- [ ] O prazo derivado de F32 alimenta o relógio `mm:ss` e a copy de expiry de F30 sem número próprio, e o gate/fail-closed de F03 fica intocado
-- [ ] O tempo aberto de cada gate (F32) aparece em Registros (F08) com thread id navegável
-- [ ] A janela e o cursor de F33 alimentam `loadHistory` de F03 sem ligar `historyLoading` no refetch de fundo nem mover o scroll
-- [ ] A projeção sem corpo de resultado de F33 alimenta a aba Grafo de F29 com a execução completa
-- [ ] O rascunho persistido por F34 devolve texto e anexos explícitos ao composer de F03/F16, e model/reasoning continuam vindo da thread
-- [ ] O estado `interrupted` de F35 é lido por `deriveChatSurface` e pela sidebar de F03 como terminal, e a origem da interrupção aparece em Registros (F08)
+- [x] O prazo derivado de F32 alimenta o relógio `mm:ss` e a copy de expiry de F30 sem número próprio, e o gate/fail-closed de F03 fica intocado
+- [x] O tempo aberto de cada gate (F32) aparece em Registros (F08) com thread id navegável — a linha e o thread id conferidos no banco; a navegação da tela de Registros é comportamento de F08, não alterado por F32
+- [x] A janela e o cursor de F33 alimentam `loadHistory` de F03 sem ligar `historyLoading` no refetch de fundo nem mover o scroll
+- [x] A projeção sem corpo de resultado de F33 alimenta a aba Grafo de F29 com a execução completa — provado ao vivo: thread com 3 tool calls fora da janela do chat; o grafo marca 7, não as 4 que veria pela janela
+- [x] O rascunho persistido por F34 devolve texto e anexos explícitos ao composer de F03/F16, e model/reasoning continuam vindo da thread
+- [x] O estado `interrupted` de F35 é lido por `deriveChatSurface` e pela sidebar de F03 como terminal, e a origem da interrupção aparece em Registros (F08)

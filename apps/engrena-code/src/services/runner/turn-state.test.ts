@@ -10,7 +10,9 @@ const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, deleteThread, getThread } = await import('../db/repositories/threads.js')
 type ThreadState = import('../db/repositories/threads.js').ThreadState
 const { clearAllSubscriptions, subscribe } = await import('./ws-hub.js')
-const { applyTransition, nextThreadState, INITIAL_TURN_STATE } = await import('./turn-state.js')
+const { applyTransition, nextThreadState, INITIAL_TURN_STATE, TURN_STATE_BUCKETS } = await import(
+  './turn-state.js'
+)
 type TurnEvent = import('./turn-state.js').TurnEvent
 
 const fixtures: string[] = []
@@ -258,5 +260,71 @@ describe('applyTransition', () => {
 
     expect(received.map((e) => e.state)).toEqual(['stopping', 'cancelled'])
     expect(getThread(threadId)?.state).toBe('cancelled')
+  })
+})
+
+/**
+ * Regressão de 2026-08-19, encontrada no smoke ao vivo e **não** pela suíte.
+ *
+ * `interrupted` (F35) entrou na união de estados e nos conjuntos terminais do renderer, mas ficou
+ * de fora de `SETTLED_STATES` aqui. Como `follow_up` só é legal a partir dessa lista, a thread
+ * recuperada no boot parava de aceitar mensagem: o dispatch respondia `thread_busy` ("ainda tem um
+ * turno em andamento") para uma thread parada, sem botão de Parar para destravar — pior que o
+ * `error` que a feature veio substituir.
+ *
+ * O teste de partição abaixo é o que fecha a classe do defeito, não só o caso: acrescentar valor a
+ * `ThreadState` sem classificá-lo passa a quebrar aqui.
+ */
+describe('interrupted é assentado para a máquina de estado (F35)', () => {
+  it('aceita follow_up e volta a running — o defeito exato do smoke', () => {
+    expect(nextThreadState('interrupted', 'follow_up')).toBe('running')
+  })
+
+  it('aceita revisão de diff, que a thread pode ter deixado pendente antes do corte', () => {
+    expect(nextThreadState('interrupted', 'diffs_committed')).toBe('committed')
+    expect(nextThreadState('interrupted', 'diffs_settled')).toBe('idle')
+  })
+
+  it('não aceita evento de turno vivo: não há turno para fechar nem gate para abrir', () => {
+    for (const evento of ['gates_closed', 'gate_opened_permission', 'gate_opened_question'] as const) {
+      expect(nextThreadState('interrupted', evento)).toBeNull()
+    }
+  })
+
+  it('follow_up em interrupted funciona ponta a ponta no banco', () => {
+    const threadId = seedThread('interrupted')
+    const result = applyTransition(threadId, 'follow_up')
+    expect(result.ok).toBe(true)
+    expect(getThread(threadId)?.state).toBe('running')
+  })
+
+  it('todo estado da união cai em exatamente um balde', () => {
+    // A trava que teria evitado o defeito: estado novo sem classificação quebra aqui, e não em
+    // produção como `thread_busy` numa thread parada.
+    const todos: ThreadState[] = [
+      'running',
+      'idle',
+      'committed',
+      'error',
+      'stopping',
+      'waiting_user',
+      'waiting_permission',
+      'cancelled',
+      'interrupted',
+    ]
+    const baldes = [
+      ...TURN_STATE_BUCKETS.live,
+      ...TURN_STATE_BUCKETS.settled,
+      ...TURN_STATE_BUCKETS.transitional,
+    ]
+    expect([...baldes].sort()).toEqual([...todos].sort())
+    expect(new Set(baldes).size).toBe(baldes.length)
+  })
+
+  it('todo estado assentado aceita follow_up', () => {
+    // Generaliza o caso: qualquer assentamento futuro tem de deixar o usuário continuar a conversa.
+    for (const state of TURN_STATE_BUCKETS.settled) {
+      expect(nextThreadState(state, 'follow_up')).toBe('running')
+    }
   })
 })

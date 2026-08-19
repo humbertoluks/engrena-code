@@ -21,3 +21,9 @@ traga a linha de volta para o arquivo ativo.
 - `Setup · Electron · Em produção sempre loadFile(path.join(__dirname, '../dist/index.html')); nunca file:// + ../../../dist porque files do builder empacota dist ao lado de dist-electron e file:// quebra path no Windows`
 - `Design · Tailwind 4 · Nunca usar max-w-/w-/h- com sufixo xs|sm|md|lg|xl porque --spacing-* do Design Lock alimenta sizing e vence --container-* (max-w-sm vira 8px e colapsa o card); usar valor explícito max-w-[24rem]`
 - `Design · Tailwind 4 · Sempre envolver CSS de elemento em @layer base porque @import 'tailwindcss' põe utilitários em @layer utilities e regra sem layer vence layer, anulando p-*/m-*; nunca repetir reset margin/padding/box-sizing, o preflight já faz`
+
+## Consolidado em 2026-08-19
+
+Saiu do CLAUDE.md por já estar materializada no repo e coberta por asserção de smoke (o smoke assere EngrenaCode presente; nunca espera por Lion*). Continua válida.
+
+- `Marca · Naming · Nunca usar LionCode/lioncode, LionClaw, LionLabs nem LionSprite em UI, copy, smoke ou docs; só EngrenaCode/engrenacode. Em docs/_reversa: marca = "sistema legado"; Design Lock LionClaw → Design Lock; LionLabs Grotesk → experimento Grotesk; LionSprite → EngrenaSprite. Em smoke, assertar EngrenaCode presente — nunca wait por Lion*`
