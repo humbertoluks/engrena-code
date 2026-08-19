@@ -189,11 +189,34 @@ Fora do unitário: um smoke ao vivo repetindo o caso de 2026-08-18 (pedido de es
 
 1. **Qual shell o tool `Bash` usa no Windows nesta máquina?** → **POSIX (Git Bash).** Não foi suposto: os quatro `Bash` gravados em `tool_calls` no banco desta máquina são `cd "C:/Users/Me/dev/HomologacaoEngrena" && printf '…' > teste.txt && cat teste.txt` — barra normal, aspas simples, `printf`. A lista v1 é POSIX. Se o tool um dia executar PowerShell, o classificador passa a não reconhecer nada e o sintoma é card demais, nunca card de menos.
 2. **`rm` entra depois?** → **Continua fora.** A razão de §3.2 não mudou com a implementação: apagado não gera hunk na aba Diff, então o erro não tem revisão nem desfazer. Reabrir só com decisão explícita de produto, e nunca com `-r`/`-f`.
-3. **Redirecionamento entra depois?** → **Continua fora, e a pergunta segue sem medição válida.** Os quatro comandos reais usam `printf … > arquivo`, então a v1 não teria auto-aprovado nenhum deles — mas essa amostra **não serve** para decidir: são 4 chamadas numa janela de dois minutos (2026-08-18 16:23–16:25), e o nudge do `RUNTIME_SAFETY_PROMPT`, que existe justamente para tirar o agente do shell, só entrou no build das 21:58 do mesmo dia. Toda a evidência é anterior ao remédio que ela avaliaria. O que ela estabelece é a família do shell (§11.1), não a frequência de `>`.
+3. **Redirecionamento entra depois?** → **Não. Medido em 2026-08-19, pós-nudge: o agente não usa mais o shell para escrever.** Os quatro comandos reais usam `printf … > arquivo`, então a v1 não teria auto-aprovado nenhum deles — mas essa amostra **não serve** para decidir: são 4 chamadas numa janela de dois minutos (2026-08-18 16:23–16:25), e o nudge do `RUNTIME_SAFETY_PROMPT`, que existe justamente para tirar o agente do shell, só entrou no build das 21:58 do mesmo dia. Toda a evidência é anterior ao remédio que ela avaliaria. O que ela estabelece é a família do shell (§11.1), não a frequência de `>`.
 
    **Regra de parada combinada, para o resultado não ser racionalizado depois:** três turnos do roteiro B em `auto-accept-edits` pedindo escrita de arquivo, com o pedido redigido **sem** nomear a ferramenta (nomear mede a instrução, não o comportamento); depois `select name, count(*) from tool_calls group by name`. Zero `Bash` com `>` → esta pergunta fecha como resolvida pelo nudge, e a v1 fica valendo pelos casos de `mkdir`/`mv`/`cp`. Um ou mais → implementar a **forma estreita** abaixo, nunca redirecionamento genérico.
 
-   **Forma estreita (só se a medição exigir):** exatamente um operador, `>` ou `>>`; sem dígito nem `&` imediatamente antes (mata `2>`, `&>`); sem `|` nem `&` imediatamente depois (mata `>|`, `>&2`); nenhum `<` na linha (mata heredoc e here-string); verbo à esquerda de uma lista que **emite texto e não lê arquivo** (`printf`, `echo`; `cat` fica fora); destino é um token único e passa pelo mesmo `resolveWithinRoot` dos demais caminhos. Isso não é "ler redirecionamento" — é reconhecer uma forma e recusar todo o resto.
+   **Forma estreita, guardada para o caso de a resposta mudar:** exatamente um operador, `>` ou `>>`; sem dígito nem `&` imediatamente antes (mata `2>`, `&>`); sem `|` nem `&` imediatamente depois (mata `>|`, `>&2`); nenhum `<` na linha (mata heredoc e here-string); verbo à esquerda de uma lista que **emite texto e não lê arquivo** (`printf`, `echo`; `cat` fica fora); destino é um token único e passa pelo mesmo `resolveWithinRoot` dos demais caminhos. Isso não é "ler redirecionamento" — é reconhecer uma forma e recusar todo o resto. **Não implementar sem uma medição nova que a justifique.**
+
+### Medição de 2026-08-19 (a que fechou a pergunta 3)
+
+Três turnos `auto-accept-edits`, provider Claude, perfil e projeto isolados, pedidos redigidos **sem** nomear ferramenta ("crie um arquivo…", "troque a palavra…", "crie a pasta e dentro dela…"). Build a partir de `main`, portanto **com** o nudge do `RUNTIME_SAFETY_PROMPT`.
+
+| O que se mediu | Resultado |
+|---|---|
+| Ferramentas de escrita usadas | `Write` × 2, `Edit` × 1 |
+| Escritas por shell | **zero** |
+| Comandos com `>` ou `>>` | **zero** |
+| `Bash` no total | 1, e era **leitura**: `cat -A notas.txt \| head -50` |
+| Auto-aprovações de F31 | zero — correto, `cat \| head` são dois segmentos com pipe e verbos fora da lista |
+| Efeito em disco | os três arquivos pedidos apareceram com o conteúdo certo |
+
+Compare com a amostra de 2026-08-18 (pré-nudge): quatro chamadas, **todas** `printf … > arquivo`. A mudança de comportamento é o resultado que a §11.3 esperava, e ela vem do nudge, não desta feature. Amostra pequena (n=3), mas unânime e na direção oposta à anterior.
+
+### O que a medição revelou de novo: shell de **leitura**
+
+O único `Bash` do teste era read-only, e ficou dois minutos preso no card até expirar por timeout. Isso é incoerente com a própria semântica do nível: `auto-accept-edits` já auto-aprova as tools `Read`, `Glob`, `Grep` e `LS`, mas o mesmo ato pelo shell abre card.
+
+Como candidato a v1.1, ler é melhor aposta que redirecionamento: leitura não tem como danificar arquivo, e o agente já tem a capacidade por tool. O que precisa ser decidido antes é a forma — `cat a \| head` são dois segmentos, então a regra de encadeamento de §3.2 teria de admitir pipe entre verbos de leitura, o que é mais do que o `cd` de prefixo concede hoje. **Registrado como pergunta 5, não como decisão.**
+
+5. **Verbos de leitura entram numa v1.1?** Proposta: `cat`, `head`, `tail`, `wc`, `ls`, `find` sem `-exec`/`-delete`, com todos os caminhos dentro da borda e pipe permitido **apenas** entre verbos dessa lista. Nada disso escreve, e o nível já aprova a tool equivalente. Medir antes com que frequência o card de leitura aparece.
 4. **A auto-aprovação deve aparecer no work log?** → **Não; `log_entries` basta.** O work log da timeline é montado a partir de `tool_calls`, e a chamada `Bash` já aparece lá com nome e status — o usuário vê que um shell rodou. O que faltava não era o *que*, era o *porquê não teve card*, e isso é diagnóstico: vai para `log_entries` kind `tool`, que é o que Registros (F08) mostra. Duplicar na timeline daria duas linhas para o mesmo fato.
 
 ## 12. Desvios da spec na implementação
