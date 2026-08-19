@@ -1,12 +1,19 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { permissionFromGate, type ThreadGate } from '../../hooks/threadGate.logic'
 import { commandScope } from '../../../services/runner/bash-command-scope'
 import { PERMISSION_CHIPS, type PermissionDecisionKind } from './permissionComposer.logic'
+import {
+  isCountdownWarning,
+  PERMISSION_COUNTDOWN_TICK_MS,
+  remainingLabel,
+} from './permissionCountdown.logic'
 
 const COPY = {
   header: 'O agente precisa de permissão',
   title: (toolName: string) => `Permitir a ferramenta ${toolName}?`,
   queue: (n: number) => `+${n} na fila`,
+  /** Só leitores de tela: em tela o relógio fala sozinho, e um rótulo do lado viraria alarme. */
+  countdownLabel: 'Tempo restante para responder',
   labelParams: 'Parâmetros',
   hint: 'Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie.',
   allowAllHint: (target: string) => `Não perguntar de novo por ${target} nesta thread.`,
@@ -15,6 +22,28 @@ const COPY = {
   /** Rodapé só quando a concessão é mais estreita que "a ferramenta inteira". */
   scopeNote: (verbs: string) => `"Permitir todos" libera ${verbs} — os demais comandos seguem perguntando.`,
 } as const
+
+/**
+ * Um tick por segundo enquanto o card tem prazo. Devolve `Date.now()` para o cálculo do relógio
+ * ficar no módulo puro — aqui só mora a cadência.
+ *
+ * Gate sem `expiresAt` (pergunta do `ask_user_question`) não agenda intervalo nenhum: um card que
+ * espera sem teto não tem o que contar, e um `setInterval` vivo à toa repinta a timeline inteira
+ * de segundo em segundo.
+ */
+function useCountdownNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => {
+      setNow(Date.now())
+    }, PERMISSION_COUNTDOWN_TICK_MS)
+    return () => {
+      clearInterval(id)
+    }
+  }, [active])
+  return now
+}
 
 /**
  * O que os dois chips persistentes concedem, em português.
@@ -67,6 +96,9 @@ export function PermissionPrompt({
   busy = false,
   error = null,
 }: Readonly<PermissionPromptProps>): ReactElement {
+  const now = useCountdownNow(gate.expiresAt !== null)
+  const countdown = remainingLabel(gate.expiresAt, now)
+  const countdownWarn = isCountdownWarning(gate.expiresAt, now)
   const { toolName, params } = permissionFromGate(gate) ?? { toolName: 'unknown', params: gate.payload }
   // Mesma função que o broker usa para gravar a allowlist — o card promete exatamente o que o
   // clique vai conceder, nem mais nem menos.
@@ -80,7 +112,17 @@ export function PermissionPrompt({
     <div className="mb-md w-full max-w-[42rem] self-start rounded-lg border border-accent/40 bg-surface-2 p-sm text-[13px]">
       <div className="mb-[2px] flex items-center justify-between gap-sm">
         <p className="text-[10px] uppercase tracking-wide text-muted">{COPY.header}</p>
-        {queuedCount > 0 ? <span className="text-[10.5px] text-muted">{COPY.queue(queuedCount)}</span> : null}
+        <div className="flex items-center gap-sm">
+          {countdown !== null ? (
+            <span
+              aria-label={COPY.countdownLabel}
+              className={`font-mono text-[10.5px] tabular-nums ${countdownWarn ? 'text-amber' : 'text-muted'}`}
+            >
+              {countdown}
+            </span>
+          ) : null}
+          {queuedCount > 0 ? <span className="text-[10.5px] text-muted">{COPY.queue(queuedCount)}</span> : null}
+        </div>
       </div>
 
       <p className="text-fg">{COPY.title(toolName)}</p>

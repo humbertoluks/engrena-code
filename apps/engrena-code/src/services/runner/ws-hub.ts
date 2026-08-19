@@ -57,6 +57,14 @@ export type StreamEvent =
       decisionReasonType?: string | null
       /** `decision_reason` do CLI: a frase de quem negou, quando o payload traz. */
       decisionReason?: string | null
+      /**
+       * Versão do Claude CLI desta máquina (F30), e **só** quando a leitura já estava em cache no
+       * instante da negação — esperar `claude --version` para completar um evento de erro seria
+       * atrasar o erro por um campo acessório. `in-range` não vai ao wire: a UI só usa isto para
+       * acrescentar uma frase quando a permissão quebrou sem card, e versão conferida não explica
+       * nada. Os campos acima seguem indo para o log; este é o único que a tarja lê.
+       */
+      cliVersionStatus?: 'below-min' | 'above-max' | 'unparseable'
     }
   | { type: 'subagent.start'; threadId: string; childThreadId: string; name: string; parallelBatchId?: string | null }
   | { type: 'subagent.result'; threadId: string; childThreadId: string; status: string; parallelBatchId?: string | null }

@@ -503,6 +503,16 @@ describe('dispatchNewThread', () => {
 
   it('Sprint 1 — permission-native-denial persists diagnosis + WS without command body', async () => {
     const { nativeDenialDiagnosis } = await import('./providers/permission-contract.js')
+    const { readClaudeCliVersion, resetClaudeCliVersionReaderForTesting, setClaudeCliVersionReaderForTesting } =
+      await import('./providers/claude/cli-version.js')
+    // Cache quente e fora da faixa: é a condição em que o runner anexa `cliVersionStatus` (F30).
+    // Sem controlar o reader, o teste dependeria do binário desta máquina e da corrida entre o
+    // spawn de `--version` e a negação.
+    setClaudeCliVersionReaderForTesting(async () => ({
+      outcome: 'answered' as const,
+      rawOutput: '2.1.234 (Claude Code)',
+    }))
+    await readClaudeCliVersion()
     const dir = makeProjectDir()
     const project = createProject({ path: dir })
     const diagnosis = nativeDenialDiagnosis({
@@ -574,6 +584,7 @@ describe('dispatchNewThread', () => {
           brokerOutcome?: string
           toolUseId?: string
           decisionReasonType?: string | null
+          cliVersionStatus?: string
         }
       | undefined
     expect(denial).toBeDefined()
@@ -585,6 +596,10 @@ describe('dispatchNewThread', () => {
     // Nenhuma consulta ao broker neste turno: o diagnóstico continua sendo o do caso "broker
     // nunca viu a tool", agora nomeado em vez de derivado de um booleano (R09).
     expect(denial?.brokerOutcome).toBe('never-requested')
+    // F30: o status vem do cache, nunca de um spawn no meio do erro, e é o único dado de versão
+    // que a tarja recebe — o número da versão e a faixa continuam só no log e em #configuracao.
+    expect(denial?.cliVersionStatus).toBe('above-max')
+    expect(denial?.message).not.toContain('2.1.234')
 
     const toolLogs = listLogEntries({ kind: 'tool' })
     expect(toolLogs.some((e) => e.event === diagnosis)).toBe(true)
@@ -596,6 +611,7 @@ describe('dispatchNewThread', () => {
     expect(wire).not.toContain('tool_input')
     expect(wire).toContain(diagnosis)
 
+    resetClaudeCliVersionReaderForTesting()
     rmSync(dir, { recursive: true, force: true })
   })
 

@@ -69,7 +69,27 @@ import {
   hadOversizedPermissionRequest,
   type PermissionServerHandle,
 } from './permission-broker.js'
-import { nativeDenialDiagnosis } from './providers/permission-contract.js'
+import {
+  checkClaudeCliVersion,
+  claudeCliVersionWarrantsNotice,
+  nativeDenialDiagnosis,
+  type ClaudeCliVersionWarning,
+} from './providers/permission-contract.js'
+import { peekClaudeCliVersion } from './providers/claude/cli-version.js'
+
+/**
+ * Versão do CLI para o evento de negação nativa (F30) — só o que o cache **já** tem.
+ *
+ * Nunca espera nem spawna: uma negação é o pior momento para pagar 5 s por um campo que apenas
+ * acrescenta uma frase. Cache frio, binário mudo ou versão dentro da faixa devolvem `undefined`,
+ * e a tarja fica só com as duas frases curtas do caso.
+ */
+function cliVersionStatusForDenial(): ClaudeCliVersionWarning | undefined {
+  const reading = peekClaudeCliVersion()
+  if (reading === null || reading.outcome === 'unavailable') return undefined
+  const status = checkClaudeCliVersion(reading.rawOutput).status
+  return claudeCliVersionWarrantsNotice(status) ? status : undefined
+}
 import { announceClaudeCliVersionOnce } from './claude-version-notice.js'
 import {
   expireOpenPermissionGates,
@@ -806,6 +826,7 @@ async function runTurn(
             toolUseId: event.toolUseId,
             decisionReasonType: event.decisionReasonType,
             decisionReason: event.decisionReason,
+            cliVersionStatus: cliVersionStatusForDenial(),
           })
           return
         }
