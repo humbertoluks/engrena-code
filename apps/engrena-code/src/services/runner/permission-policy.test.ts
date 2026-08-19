@@ -200,12 +200,29 @@ describe('permissionPolicyOutcome — motivo da decisão (F31)', () => {
     })
   })
 
-  it('o cd de prefixo vira a raiz efetiva registrada', () => {
+  it('o cd move de onde o relativo parte, mas a borda registrada continua sendo o projeto', () => {
     const outcome = permissionPolicyOutcome('auto-accept-edits', 'Bash', {
       params: { command: `cd "${root.replace(/\\/g, '/')}/src" && touch a.txt` },
       root,
     })
-    expect(outcome.reason).toMatchObject({ kind: 'shell-file-edit', root: join(root, 'src') })
+    expect(outcome.reason).toEqual({
+      kind: 'shell-file-edit',
+      verb: 'touch',
+      // Resolvido a partir de `src`…
+      paths: [join(root, 'src', 'a.txt')],
+      // …mas o que foi cobrado, e o que o log registra, é a borda do projeto.
+      root,
+    })
+  })
+
+  it('caminho relativo que sobe do cd mas continua no projeto é liberado', () => {
+    // Era reprovado quando a borda encolhia junto com o `cd`. Não sai do projeto em momento nenhum.
+    expect(
+      permissionPolicyDecision('auto-accept-edits', 'Bash', {
+        params: { command: `cd "${root.replace(/\\/g, '/')}/src" && cp ../a.ts b.ts` },
+        root,
+      })
+    ).toBe('allow')
   })
 
   it('separa os motivos: tool interna, nível e shell não se confundem', () => {

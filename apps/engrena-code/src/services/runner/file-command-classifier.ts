@@ -220,5 +220,10 @@ export function cdTarget(segment: string): string | null {
   const tokens = tokenize(line)
   if (tokens === null || tokens.length !== 2 || tokens[0] !== 'cd') return null
   const target = tokens[1]
-  return target.trim() === '' ? null : target
+  if (target.trim() === '') return null
+  // `cd -` vai para `$OLDPWD` e `cd --` vai para `$HOME`; `-L`/`-P` são flags. Nenhum deles é um
+  // diretório com esse nome, e tratá-los como se fossem era escapar da raiz sem escrever `..`:
+  // o destino real depende de estado do shell que não temos como ler. Achado pelo corpus de fuga.
+  if (target.startsWith('-')) return null
+  return target
 }
