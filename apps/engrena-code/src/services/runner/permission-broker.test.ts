@@ -9,6 +9,7 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 
 const { closeDb, getDb } = await import('../db/client.js')
 const { createProject } = await import('../db/repositories/projects.js')
+const { listLogEntries } = await import('../db/repositories/log-entries.js')
 const { createThread, updateThread } = await import('../db/repositories/threads.js')
 const { PERMISSION_BODY_MAX_BYTES } = await import('./buffer-cap.js')
 const {
@@ -32,17 +33,25 @@ const {
 
 const fixtures: string[] = []
 
-function seedThread(accessLevel: ThreadAccessLevel = 'supervised'): string {
+function seedThreadWithDir(accessLevel: ThreadAccessLevel = 'supervised'): {
+  threadId: string
+  dir: string
+} {
   const dir = mkdtempSync(join(tmpdir(), 'engrenacode_claude_broker_proj_'))
   fixtures.push(dir)
   const project = createProject({ path: dir })
-  return createThread({
+  const threadId = createThread({
     projectId: project.id,
     provider: 'claude',
     accessLevel,
     executionMode: 'main',
     state: 'running',
   }).id
+  return { threadId, dir }
+}
+
+function seedThread(accessLevel: ThreadAccessLevel = 'supervised'): string {
+  return seedThreadWithDir(accessLevel).threadId
 }
 
 function ask(
@@ -536,5 +545,106 @@ describe('isToolAllowedForThread', () => {
     expect(isToolAllowedForThread(threadId, 'Bash')).toBe(true)
     clearAllowedToolsForThread(threadId)
     expect(isToolAllowedForThread(threadId, 'Bash')).toBe(false)
+  })
+})
+
+/**
+ * F31 ao vivo no broker: o mesmo pedido que abria card passa a ser respondido sem gate quando o
+ * comando só mexe em arquivo dentro da raiz da thread. O que se cobra aqui, e não no unitário da
+ * política, é o encanamento — `toolInput` e a raiz efetiva chegando até a decisão, e a auditoria
+ * sendo gravada.
+ */
+describe('auto-accept-edits + comando de arquivo (F31)', () => {
+  it('libera mkdir dentro do projeto sem abrir card', async () => {
+    const { threadId } = seedThreadWithDir('auto-accept-edits')
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const res = await ask(server, 'Bash', { command: 'mkdir src/novo' })
+    expect(((await res.json()) as { allow: boolean }).allow).toBe(true)
+    expect(seen).toEqual([])
+    expect(hasOpenPermissionGate(threadId)).toBe(false)
+    expect(brokerOutcomeForTool(threadId, 'Bash')).toBe('granted')
+
+    server.close()
+  })
+
+  it('aceita o prefixo cd do projeto, que é a forma que o agente escreve', async () => {
+    const { threadId, dir } = seedThreadWithDir('auto-accept-edits')
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const command = `cd "${dir.replace(/\\/g, '/')}" && touch a.txt`
+    const res = await ask(server, 'Bash', { command })
+    expect(((await res.json()) as { allow: boolean }).allow).toBe(true)
+    expect(seen).toEqual([])
+
+    server.close()
+  })
+
+  it('grava a auto-aprovação em log_entries com verbo e caminho resolvido', async () => {
+    const { threadId, dir } = seedThreadWithDir('auto-accept-edits')
+    const server = await createPermissionServer(threadId)
+
+    await ask(server, 'Bash', { command: 'mkdir src/novo' })
+
+    // Único `allow` que sai de um parser nosso: quando ele errar, é este registro que explica.
+    const entries = listLogEntries({ kind: 'tool' }).filter(
+      (e) => e.threadId === threadId && e.event.includes('Auto-accept edits')
+    )
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe('tool')
+    expect(entries[0].event).toContain('mkdir')
+    expect(entries[0].event).toContain(join(dir, 'src', 'novo'))
+
+    server.close()
+  })
+
+  it('git continua abrindo card no mesmo nível', async () => {
+    const { threadId } = seedThreadWithDir('auto-accept-edits')
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const pending = ask(server, 'Bash', { command: 'git status' })
+    await waitFor(() => seen.length === 1)
+    expect(hasOpenPermissionGate(threadId)).toBe(true)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
+    expect(((await (await pending).json()) as { allow: boolean }).allow).toBe(false)
+
+    server.close()
+  })
+
+  it('rm e redirecionamento continuam abrindo card', async () => {
+    for (const command of ['rm -rf build', "printf 'x' > a.txt"]) {
+      const { threadId } = seedThreadWithDir('auto-accept-edits')
+      const seen: PermissionRequestInfo[] = []
+      const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+      const pending = ask(server, 'Bash', { command })
+      await waitFor(() => seen.length === 1)
+      resolvePermissionGate(threadId, seen[0].requestId, false)
+      await pending
+
+      // Nenhum log de auto-aprovação: não houve auto-aprovação nenhuma.
+      expect(
+        listLogEntries({ kind: 'tool' }).filter(
+          (e) => e.threadId === threadId && e.event.includes('Auto-accept edits')
+        )
+      ).toEqual([])
+      server.close()
+    }
+  }, 15000)
+
+  it('supervised não ganha o estágio novo', async () => {
+    const { threadId } = seedThreadWithDir('supervised')
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    const pending = ask(server, 'Bash', { command: 'mkdir src/novo' })
+    await waitFor(() => seen.length === 1)
+    resolvePermissionGate(threadId, seen[0].requestId, false)
+    await pending
+
+    server.close()
   })
 })

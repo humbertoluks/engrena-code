@@ -1,5 +1,7 @@
 import { randomBytes } from 'crypto'
 import http from 'http'
+import { createLogEntry } from '../db/repositories/log-entries.js'
+import { getProject } from '../db/repositories/projects.js'
 import { getThread } from '../db/repositories/threads.js'
 import { allowToolForProject, isToolAllowedForProject } from '../db/repositories/tool-allowlist.js'
 import { commandScope, isCoveredByAllowlist, keysToGrant } from './bash-command-scope.js'
@@ -12,7 +14,8 @@ import {
   type PermissionGateDecision,
   type PermissionRequestInfo,
 } from './gate.js'
-import { permissionPolicyDecision } from './permission-policy.js'
+import { permissionPolicyOutcome, type PermissionPolicyReason } from './permission-policy.js'
+import { resolveThreadCwd } from './thread-cwd.js'
 import type { BrokerPermissionOutcome } from './providers/permission-contract.js'
 
 /**
@@ -172,6 +175,47 @@ export function clearBrokerOutcomesForThread(threadId: string): void {
   oversizedRequestsByThread.delete(threadId)
 }
 
+/**
+ * Raiz efetiva da thread para o julgamento de caminho (F31): o worktree quando a thread roda em
+ * worktree, senão o path do projeto. É a mesma função que decide o `cwd` do turno — se as duas
+ * divergissem, a política estaria medindo o comando contra uma raiz onde ele nem roda.
+ *
+ * `null` quando a thread ou o projeto sumiram: sem raiz não há como julgar, e sem julgamento o
+ * comando cai no card.
+ */
+function effectiveThreadRoot(threadId: string): string | null {
+  const thread = getThread(threadId)
+  if (thread === null) return null
+  const project = getProject(thread.projectId)
+  if (project === null) return null
+  return resolveThreadCwd(thread, project)
+}
+
+/**
+ * Auto-aprovação de shell é a única classe de `allow` que depende de análise nossa — as tools de
+ * arquivo são liberadas por uma lista de nomes, esta é liberada por um parser. Quando o parser
+ * errar, este registro é o que permite descobrir por quê.
+ *
+ * Grava caminho resolvido, nunca a linha de comando: o comando pode carregar segredo em argumento,
+ * e o que interessa à auditoria é o que foi tocado.
+ */
+function logShellEditAutoApproval(
+  threadId: string,
+  reason: Extract<PermissionPolicyReason, { kind: 'shell-file-edit' }>
+): void {
+  try {
+    createLogEntry({
+      threadId,
+      kind: 'tool',
+      event:
+        `Auto-accept edits liberou sem card: ${reason.verb} em ${reason.paths.join(', ')} ` +
+        `(raiz ${reason.root}).`,
+    })
+  } catch {
+    // Log é acessório; falha aqui não pode derrubar a resposta ao hook, que tem um CLI esperando.
+  }
+}
+
 export interface PermissionServerHandle {
   port: number
   token: string
@@ -220,9 +264,10 @@ export function clearAllowedToolsForThread(threadId: string): void {
  * resposta até o gate ser resolvido/expirado, devolvendo `{allow}` pro hook decidir
  * `permissionDecision: allow|deny`.
  *
- * Auto-allow sem gate quando: (1) `permission-policy.ts` já decide `allow` para (nível, tool) —
- * full-access inteiro, leitura/edição em auto-accept-edits — ou (2) tool já está na allowlist da
- * thread ("Permitir todos" / don't ask again).
+ * Auto-allow sem gate quando: (1) `permission-policy.ts` já decide `allow` — full-access inteiro,
+ * leitura/edição em auto-accept-edits, e desde F31 também o comando de shell que só mexe em
+ * arquivo dentro da raiz da thread — ou (2) tool já está na allowlist da thread ("Permitir todos"
+ * / don't ask again). Só o caso de shell grava log: é o único `allow` que sai de um parser nosso.
  *
  * Fail-closed em todo caminho de erro: body acima do cap, gate que não persiste (thread apagada
  * mid-turn) e timeout respondem `allow:false`.
@@ -291,7 +336,16 @@ export function createPermissionServer(
       const current = getThread(threadId)
       // Sem thread (apagada mid-turn) cai no mais restrito — nunca libera por omissão.
       const accessLevel = current?.accessLevel ?? 'supervised'
-      if (permissionPolicyDecision(accessLevel, toolName) === 'allow') {
+      // `toolInput` e a raiz entram porque em `auto-accept-edits` a política julga o comando, não
+      // só o nome da tool (F31): `mkdir src/novo` dentro do projeto passa, `rm -rf build` não.
+      const outcome = permissionPolicyOutcome(accessLevel, toolName, {
+        params: parsed.toolInput,
+        root: current === null ? null : effectiveThreadRoot(threadId),
+      })
+      if (outcome.decision === 'allow') {
+        if (outcome.reason.kind === 'shell-file-edit') {
+          logShellEditAutoApproval(threadId, outcome.reason)
+        }
         recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ allow: true }))
