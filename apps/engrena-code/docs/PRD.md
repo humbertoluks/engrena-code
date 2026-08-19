@@ -1074,6 +1074,28 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 - Sem thread selecionada → empty "Selecione uma thread…"
 - Falha de history → estados existentes do workspace (não há fetch dedicado do grafo)
 
+### F31. Shell de edição em auto-accept
+
+**Consome:**
+- F03: broker de permissão, `permission-policy.ts`, `bash-command-scope.ts`
+- F13/F18: raiz efetiva quando a thread roda em worktree
+- F08: `log_entries` para o registro de cada auto-aprovação
+
+**Provê:**
+- `auto-accept-edits` que também vale quando o agente edita arquivo pelo shell
+
+**Capacidades:**
+- Segundo estágio de decisão, ativo só em `auto-accept-edits`: verbo de uma lista fechada (`mkdir`, `touch`, `cp`, `mv`, `sed`) + todo caminho resolvido dentro da raiz da thread
+- Prefixo `cd <dir dentro da raiz> &&` aceito; qualquer outro encadeamento abre card
+- Caminho indecidível (glob, variável, substituição), fora da raiz, ou por dentro de `.git`, abre card
+- `rm`/`rmdir` e redirecionamento (`>`, `>>`) ficam fora da v1, por decisão registrada na spec
+- Toda auto-aprovação por este caminho grava `log_entries` com verbo e caminhos resolvidos
+
+**Experiência:**
+- Pedido de edição de arquivo pelo shell dentro do projeto roda sem card
+- `git`, `pnpm`, `rm` e qualquer coisa com redirecionamento continuam abrindo card
+- A escrita continua visível na aba Diff, que é `git diff HEAD` e pega alteração de qualquer origem
+
 ### F30. Avisos de runtime e permissão
 
 **Consome:**
@@ -1168,6 +1190,7 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 | F22 | Automação por Slash Commands (Pipeline) | 1 | F03, F07, F15, F18, F19, F20, F21 |
 | F29 | Monitor de execução (grafo) | 2 | F01.1, F03, F15, F18, F22 |
 | F30 | Avisos de runtime e permissão | 3 | F01.1, F02, F03, F08 |
+| F31 | Shell de edição em auto-accept | 3 | F03, F08, F13, F18 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -1187,9 +1210,9 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 - **Onda 5**: F18, F19, F24, F25, F27
 - **Onda 6**: F22
 - **Onda 7**: F29
-- **Onda 8**: F30
+- **Onda 8**: F30, F31
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 = F29 + F30**. Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22); F30 cai na Onda 8 (copy/diagnóstico sobre F02/F03/F08). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 = F29 + F30 + F31**. Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22); F30 e F31 caem na Onda 8 e não dependem uma da outra (F30 é copy/diagnóstico sobre F02/F03/F08; F31 é política de permissão sobre F03). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -1290,6 +1313,10 @@ graph TD
   F02 --> F30
   F03 --> F30
   F08 --> F30
+  F03 --> F31[ShellEditAutoAccept]
+  F08 --> F31
+  F13 --> F31
+  F18 --> F31
 ```
 
 ## 9. Critérios de Aceitação
@@ -1490,6 +1517,13 @@ graph TD
 - [x] Card de permissão mostra countdown `mm:ss` derivado de `expiresAt`; `PERMISSION_TIMEOUT_MS` permanece 2 min
 - [x] Expiry do card gera tarja curta (“A permissão de {tool} expirou. Peça de novo ao agente.”) sem “negou por segurança” e sem faixa de versão
 
+### F31. Shell de edição em auto-accept
+- [x] Em `auto-accept-edits`, comando de arquivo da lista fechada com todos os caminhos dentro da raiz da thread roda sem abrir card
+- [x] `cd <dir dentro da raiz> && <comando da lista>` é aceito; qualquer outro encadeamento abre card
+- [x] Caminho fora da raiz, indecidível (glob/variável/substituição), por symlink que sai, ou por dentro de `.git`, abre card
+- [x] `rm`, `rmdir` e redirecionamento continuam abrindo card; `supervised` e `full-access` não mudam de comportamento
+- [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
@@ -1523,3 +1557,4 @@ graph TD
 - [x] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
 - [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace
 - [x] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)
+- [x] A auto-aprovação de shell (F31) usa a mesma raiz efetiva do turno (F13/F18), registra em Registros (F08) e não altera o gate nem o fail-closed do Workspace (F03)

@@ -5,7 +5,7 @@
 **Escopo:** `auto-accept-edits` passa a aprovar sem card uma lista fechada de comandos de shell que só mexem em arquivo, e só dentro do projeto
 **UI:** sem tela nova. Card e chips: `docs/F03-workspace/{ui,copy}.md` §3.5
 **Última atualização:** 2026-08-18
-**Status:** especificada, **não** implementada
+**Status:** implementada em 2026-08-19 (perguntas da §11 fechadas abaixo)
 
 ---
 
@@ -185,9 +185,19 @@ Fora do unitário: um smoke ao vivo repetindo o caso de 2026-08-18 (pedido de es
 
 ---
 
-## 11. Perguntas abertas (decidir antes de implementar)
+## 11. Perguntas abertas — fechadas em 2026-08-19
 
-1. **Qual shell o tool `Bash` usa no Windows nesta máquina?** Determina se a lista v1 é POSIX ou PowerShell. Verificar com uma chamada real antes de escrever o classificador.
-2. **`rm` entra depois?** Proposta: só com confirmação explícita do usuário do produto, e nunca com `-r`/`-f`.
-3. **Redirecionamento entra depois?** Só faz sentido se o nudge de tool (`RUNTIME_SAFETY_PROMPT`) se mostrar insuficiente na prática. Medir antes: se o agente passar a usar `Write`, esta feature perde a maior parte da sua razão de existir — e isso é um bom resultado, não um problema.
-4. **A auto-aprovação deve aparecer no work log**, e não só em `log_entries`? Argumento a favor: escrita silenciosa por shell é justamente o que o usuário não vê.
+1. **Qual shell o tool `Bash` usa no Windows nesta máquina?** → **POSIX (Git Bash).** Não foi suposto: os quatro `Bash` gravados em `tool_calls` no banco desta máquina são `cd "C:/Users/Me/dev/HomologacaoEngrena" && printf '…' > teste.txt && cat teste.txt` — barra normal, aspas simples, `printf`. A lista v1 é POSIX. Se o tool um dia executar PowerShell, o classificador passa a não reconhecer nada e o sintoma é card demais, nunca card de menos.
+2. **`rm` entra depois?** → **Continua fora.** A razão de §3.2 não mudou com a implementação: apagado não gera hunk na aba Diff, então o erro não tem revisão nem desfazer. Reabrir só com decisão explícita de produto, e nunca com `-r`/`-f`.
+3. **Redirecionamento entra depois?** → **Continua fora, e a medição diz que isso importa.** Os quatro comandos reais acima usam `printf … > arquivo`, ou seja: **a v1 não teria auto-aprovado nenhum deles**. O caminho escolhido continua sendo o nudge do `RUNTIME_SAFETY_PROMPT`, que leva o agente a usar `Write`/`Edit`. A medição a fazer no próximo smoke é qual das duas coisas acontece — se o agente migrar para `Write`, esta feature fica valendo pelos casos de `mkdir`/`mv`/`cp` e o redirecionamento perde a urgência; se ele insistir no `printf >`, aí sim vale pagar o preço de ler redirecionamento com cuidado.
+4. **A auto-aprovação deve aparecer no work log?** → **Não; `log_entries` basta.** O work log da timeline é montado a partir de `tool_calls`, e a chamada `Bash` já aparece lá com nome e status — o usuário vê que um shell rodou. O que faltava não era o *que*, era o *porquê não teve card*, e isso é diagnóstico: vai para `log_entries` kind `tool`, que é o que Registros (F08) mostra. Duplicar na timeline daria duas linhas para o mesmo fato.
+
+## 12. Desvios da spec na implementação
+
+| Desvio | Motivo |
+|---|---|
+| `.git` tratado como caminho protegido, mesmo dentro da raiz | Não estava escrito na spec, mas está no precedente que ela cita: o `acceptEdits` do Claude Code exclui caminhos protegidos. Sem isso, um `cp` para `.git/hooks/pre-commit` seria auto-aprovado, e o hook é código que o git executa no próximo commit — o nível viraria execução arbitrária sem card |
+| `resolveWithinRoot` acompanhada de `resolveAgainstRoot` | A spec previa só a primeira (`'inside' \| 'outside' \| 'undecidable'`). A segunda devolve o caminho absoluto já resolvido, que é o que o registro de auditoria precisa gravar |
+| `permissionPolicyOutcome` ao lado de `permissionPolicyDecision` | A política é pura de decisão e não pode gravar log; quem grava é o broker, e para isso precisa saber **por que** foi `allow`. `permissionPolicyDecision` continua existindo com a mesma assinatura, agora delegando |
+| `gate.ts` não recebeu o estágio novo | `allowOpenPermissionGates` (upgrade de nível mid-turn) continua chamando a política sem contexto, então um card já aberto de `Bash` segue não sendo liberado pelo upgrade — exatamente como antes da feature. Fora do escopo de §4; sem regressão |
+| `VERB_RULES` é `Map`, não `Record` | Um teste adversarial pegou: com `Record`, `VERB_RULES['__proto__']` devolve `Object.prototype`, cujos campos numéricos viram `NaN` e fazem `args.length < NaN` ser falso — a linha `__proto__ a b` era classificada como comando de arquivo válido |
