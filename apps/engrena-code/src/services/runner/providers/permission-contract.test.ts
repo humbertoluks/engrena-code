@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   BASH_PERMISSION_MATRIX,
   HOOK_COMMAND_TIMEOUT_SEC,
+  PERMISSION_HOOK_MARGIN_SEC,
+  permissionGateTimeoutMs,
   INCLUDE_HOOK_EVENTS_FLAG,
   OBSERVED_CLI_VERSION_MAX_CHARS,
   PERMISSION_CONTRACT_MAX_VALIDATED_VERSION,
@@ -603,5 +605,35 @@ describe('claudeCliVersionLogLine (D3)', () => {
     const line = claudeCliVersionLogLine(check)
     expect(line).toContain('saída vazia')
     expect(line).not.toContain('saída ""')
+  })
+})
+
+/**
+ * F32 — o prazo do card de permissão. Estes testes não conferem um número bonito: conferem que o
+ * prazo continua **derivado** do teto do hook. O defeito que a feature corrige era exatamente um
+ * literal solto, cinco vezes mais apertado que a restrição, sem nada ligando os dois.
+ */
+describe('prazo do gate de permissão (F32)', () => {
+  it('a margem é positiva e o prazo cabe no teto do hook', () => {
+    expect(PERMISSION_HOOK_MARGIN_SEC).toBeGreaterThan(0)
+    expect(permissionGateTimeoutMs() / 1000 + PERMISSION_HOOK_MARGIN_SEC).toBeLessThanOrEqual(
+      HOOK_COMMAND_TIMEOUT_SEC
+    )
+  })
+
+  it('a margem não come o prazo inteiro', () => {
+    // Margem >= teto deixaria o prazo em zero ou negativo: todo card nasceria vencido.
+    expect(PERMISSION_HOOK_MARGIN_SEC).toBeLessThan(HOOK_COMMAND_TIMEOUT_SEC)
+    expect(permissionGateTimeoutMs()).toBeGreaterThan(0)
+  })
+
+  it('com a margem atual o prazo é 8 minutos', () => {
+    // Trava o valor observável: mexer na margem tem que passar por aqui, não por acidente.
+    expect(permissionGateTimeoutMs()).toBe(480_000)
+  })
+
+  it('o prazo é maior que o literal de 2 min que existia antes', () => {
+    // O ponto da feature. Se alguém reintroduzir o literal, este teste cai.
+    expect(permissionGateTimeoutMs()).toBeGreaterThan(2 * 60 * 1000)
   })
 })

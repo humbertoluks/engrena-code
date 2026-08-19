@@ -12,8 +12,14 @@ import {
   clearDraftAfterSend as clearDraftAfterSendPatch,
   clearTextAndImages as clearTextAndImagesPatch,
   COMPOSER_DRAFT_COPY,
+  DRAFT_WRITE_DEBOUNCE_MS,
   emptyDraft,
+  evictOldDrafts,
+  readDraft,
   rehydrateFromThread,
+  removeDraft,
+  restoreIntoDraft,
+  saveDraft,
   type ComposerDraft,
   type DraftThreadSnapshot,
 } from './composerDraft.logic'
@@ -48,6 +54,13 @@ export interface ComposerDraftApi {
   setActiveFile: Dispatch<SetStateAction<ActiveFile | null>>
   implicitContextEnabled: boolean
   setImplicitContextEnabled: Dispatch<SetStateAction<boolean>>
+  /**
+   * Quantas imagens coladas o rascunho restaurado perdeu (F34), ou 0. Imagem não é persistida — só
+   * contada —, e dizer isso é o que evita o usuário descobrir a perda na hora de enviar.
+   */
+  restoredDroppedImages: number
+  /** Some com o aviso de imagens perdidas ao primeiro toque no campo. */
+  dismissDroppedImages: () => void
 }
 
 /**
@@ -82,6 +95,13 @@ export function useComposerDraft(input: {
   const [implicitContextEnabled, setImplicitContextEnabled] = useState(true)
   const [attachError, setAttachError] = useState<string | null>(null)
   const [codebaseBusy, setCodebaseBusy] = useState(false)
+  const [restoredDroppedImages, setRestoredDroppedImages] = useState(0)
+  /**
+   * Thread cujo rascunho já foi hidratado. Existe para a hidratação rodar **uma vez** por thread:
+   * o efeito de rehidratação das pills roda a cada mudança de pill, e reler o storage ali
+   * sobrescreveria o que o usuário acabou de digitar.
+   */
+  const hydratedThreadRef = useRef<string | null>(null)
 
   // Catálogo do composer: uma carga no boot. Erro só vai para o console — a UI degrada para os
   // defaults das pills, sem faixa de erro.
@@ -135,6 +155,43 @@ export function useComposerDraft(input: {
     setComposer(next)
   }, [])
 
+  /**
+   * Hidrata o rascunho persistido ao abrir uma thread (F34), uma vez por thread.
+   *
+   * Roda **depois** do efeito de rehidratação das pills e não compete com ele: aquele mexe em
+   * provider/model/access, este em texto e anexos. A guarda por `hydratedThreadRef` é o que impede
+   * o storage de sobrescrever a digitação em curso quando uma pill muda.
+   */
+  useEffect(() => {
+    const threadId = selectedThread?.id ?? null
+    if (threadId === null || hydratedThreadRef.current === threadId) return
+    hydratedThreadRef.current = threadId
+    const restored = readDraft(threadId)
+    if (restored === null) {
+      setRestoredDroppedImages(0)
+      return
+    }
+    applyComposer((prev) => restoreIntoDraft(prev, restored))
+    setRestoredDroppedImages(restored.droppedImages)
+  }, [selectedThread?.id, applyComposer])
+
+  /**
+   * Grava o rascunho com atraso curto. Sem o debounce, cada tecla vira uma escrita síncrona no
+   * `localStorage` — em rascunho grande isso bloqueia a thread principal a cada caractere.
+   *
+   * Falha de cota é silenciosa por decisão: o rascunho segue em memória naquela sessão. Travar o
+   * composer por causa da persistência inverteria a prioridade.
+   */
+  useEffect(() => {
+    const threadId = selectedThread?.id ?? null
+    if (threadId === null) return
+    const timer = setTimeout(() => {
+      saveDraft(threadId, composer)
+      evictOldDrafts()
+    }, DRAFT_WRITE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [selectedThread?.id, composer])
+
   const updateComposer = useCallback(
     (patch: Partial<ComposerDraft>) => {
       applyComposer((prev) => ({ ...prev, ...patch }))
@@ -148,7 +205,14 @@ export function useComposerDraft(input: {
 
   const clearDraftAfterSend = useCallback(() => {
     applyComposer(clearDraftAfterSendPatch)
-  }, [applyComposer])
+    // Envio bem-sucedido apaga a chave na hora, sem esperar o debounce: reabrir a thread não pode
+    // ressuscitar o que já foi enviado.
+    const threadId = selectedThread?.id ?? null
+    if (threadId !== null) removeDraft(threadId)
+    setRestoredDroppedImages(0)
+  }, [applyComposer, selectedThread?.id])
+
+  const dismissDroppedImages = useCallback(() => setRestoredDroppedImages(0), [])
 
   const clearAttachError = useCallback(() => setAttachError(null), [])
 
@@ -231,6 +295,8 @@ export function useComposerDraft(input: {
     updateDraft: applyComposer,
     clearTextAndImages,
     clearDraftAfterSend,
+    restoredDroppedImages,
+    dismissDroppedImages,
     composerAttachments,
     attach,
     detach,

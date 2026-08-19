@@ -127,3 +127,55 @@ describe('listRecentActivity', () => {
     expect(listRecentActivity(10)).toHaveLength(10)
   })
 })
+
+/**
+ * F35 — consequência da troca de `error` por `interrupted` na recuperação de boot. A spec da F35 não
+ * previa este arquivo; ele apareceu ao ler o código, porque `dashboard.ts` era um dos dois
+ * consumidores que dependiam de as duas coisas compartilharem rótulo.
+ */
+describe('interrupted no dashboard (F35)', () => {
+  function seedThread(nome: string, state: 'error' | 'interrupted' | 'idle'): string {
+    const project = createProject({ path: makeProjectDir(nome) })
+    return createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state,
+    }).id
+  }
+
+  it('não conta como erro na métrica', () => {
+    seedThread('dash-interrupted', 'interrupted')
+    seedThread('dash-erro', 'error')
+
+    // Turno cortado pelo fechamento do app não é defeito; inflar `errors` com ele era o efeito
+    // colateral de os dois compartilharem estado.
+    expect(getDashboardMetrics().errors).toBe(1)
+  })
+
+  it('aparece na inbox com kind próprio, no último tier', () => {
+    const interrompida = seedThread('dash-inbox-interrupted', 'interrupted')
+    const comErro = seedThread('dash-inbox-error', 'error')
+
+    const inbox = listDashboardInbox(10)
+    const kinds = inbox.map((item) => item.kind)
+    expect(kinds).toContain('interrupted')
+    // `error` primeiro: há algo a consertar. `interrupted` por último: só há algo a retomar.
+    expect(inbox.findIndex((item) => item.threadId === comErro)).toBeLessThan(
+      inbox.findIndex((item) => item.threadId === interrompida)
+    )
+  })
+
+  it('não desaparece da inbox, que era a regressão silenciosa', () => {
+    const id = seedThread('dash-inbox-so-interrupted', 'interrupted')
+    // Antes de F35 essas threads apareciam como `error`. Sumirem seria pior que o rótulo errado
+    // para quem usa a lista como fila de trabalho.
+    expect(listDashboardInbox(10).map((item) => item.threadId)).toContain(id)
+  })
+
+  it('thread idle continua fora da inbox', () => {
+    const id = seedThread('dash-inbox-idle', 'idle')
+    expect(listDashboardInbox(10).map((item) => item.threadId)).not.toContain(id)
+  })
+})

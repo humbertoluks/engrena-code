@@ -2,6 +2,8 @@
 
 **Complexidade:** simples
 
+**Status:** implementada em 2026-08-19. Unitários verdes em duas rodadas; **sem smoke ao vivo** — os critérios que dependem de tela seguem abertos no PRD §9.
+
 ## 1. Visão Geral Técnica
 
 **O quê:** trocar o literal `PERMISSION_TIMEOUT_MS = 2 * 60 * 1000` de `gate.ts` por um valor derivado do contrato do hook do Claude CLI, e instrumentar cada fechamento de gate com o tempo que ele ficou aberto.

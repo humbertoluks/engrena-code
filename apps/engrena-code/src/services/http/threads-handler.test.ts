@@ -11,7 +11,8 @@ const { getDb, closeDb } = await import('../db/client.js')
 const { vaultService } = await import('../vault/vault-service.js')
 const { createProject } = await import('../db/repositories/projects.js')
 const { createThread, getThread, updateThread } = await import('../db/repositories/threads.js')
-const { createToolCall, appendMessage } = await import('../db/repositories/messages.js')
+// `updateToolCall` entrou com F33: a listagem passa a mandar preview e o corpo sai sob demanda.
+const { createToolCall, appendMessage, updateToolCall } = await import('../db/repositories/messages.js')
 const { createAskUserQuestionServer } = await import('../runner/ask-user-question.js')
 const { createPermissionServer } = await import('../runner/permission-broker.js')
 const {
@@ -2171,4 +2172,165 @@ describe('F28 Onda 2 — busca, renomear, exportar e voto', () => {
 
     rmSync(dir, { recursive: true, force: true })
   }), 20000
+})
+
+// ── Janela paginada e rotas novas (F33) ──────────────────────────────────────
+
+describe('GET /history paginado (F33)', () => {
+  function seedThread(): string {
+    const project = createProject({ path: makeProjectDir() })
+    return createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'idle',
+    }).id
+  }
+
+  async function get(url: string): Promise<{ status: number; body: unknown }> {
+    const res = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', url, undefined, session), res)
+    return res.result()
+  }
+
+  it('sem parâmetro devolve no máximo 60 mensagens, com hasMore e cursor', async () => {
+    const id = seedThread()
+    for (let i = 0; i < 70; i += 1) appendMessage({ threadId: id, role: 'user', content: `m${i}` })
+
+    const { status, body } = await get(`/api/threads/${id}/history`)
+    const parsed = body as { messages: unknown[]; hasMore: boolean; cursor: number | null }
+    expect(status).toBe(200)
+    expect(parsed.messages).toHaveLength(60)
+    expect(parsed.hasMore).toBe(true)
+    expect(typeof parsed.cursor).toBe('number')
+  })
+
+  it('before pagina para trás e termina com hasMore falso', async () => {
+    const id = seedThread()
+    for (let i = 0; i < 15; i += 1) appendMessage({ threadId: id, role: 'user', content: `m${i}` })
+
+    const primeira = (await get(`/api/threads/${id}/history?limit=10`)).body as {
+      cursor: number
+      hasMore: boolean
+    }
+    expect(primeira.hasMore).toBe(true)
+    const segunda = (await get(`/api/threads/${id}/history?limit=10&before=${primeira.cursor}`)).body as {
+      messages: unknown[]
+      hasMore: boolean
+    }
+    expect(segunda.messages).toHaveLength(5)
+    expect(segunda.hasMore).toBe(false)
+  })
+
+  it('limit e before inválidos respondem 400, nunca a thread inteira', async () => {
+    const id = seedThread()
+    for (let i = 0; i < 5; i += 1) appendMessage({ threadId: id, role: 'user', content: `m${i}` })
+
+    for (const query of ['limit=0', 'limit=abc', 'limit=9999', 'limit=-3']) {
+      const { status, body } = await get(`/api/threads/${id}/history?${query}`)
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('invalid_limit')
+    }
+    for (const query of ['before=abc', 'before=0', 'before=-1', 'before=999999']) {
+      const { status, body } = await get(`/api/threads/${id}/history?${query}`)
+      expect(status).toBe(400)
+      expect((body as { error: { code: string } }).error.code).toBe('invalid_cursor')
+    }
+  })
+
+  it('resultado grande vem como preview, com tamanho e marca de truncado', async () => {
+    const id = seedThread()
+    const grande = 'x'.repeat(50_000)
+    const call = createToolCall({ threadId: id, name: 'Bash', params: {}, status: 'running' })
+    updateToolCall(call.id, { status: 'completed', result: grande })
+    appendMessage({ threadId: id, role: 'assistant', content: 'pronto' })
+
+    const { body } = await get(`/api/threads/${id}/history`)
+    const toolCalls = (body as {
+      toolCalls: Array<{ resultPreview: string | null; resultTruncated: boolean; resultBytes: number; result?: unknown }>
+    }).toolCalls
+    expect(toolCalls).toHaveLength(1)
+    expect(toolCalls[0].resultPreview).toHaveLength(2 * 1024)
+    expect(toolCalls[0].resultTruncated).toBe(true)
+    expect(toolCalls[0].resultBytes).toBeGreaterThan(2 * 1024)
+    // O corpo inteiro não pode viajar na listagem: é metade do custo que a feature corta.
+    expect(toolCalls[0].result).toBeUndefined()
+  })
+
+  it('thread inexistente continua 404', async () => {
+    const { status } = await get('/api/threads/thr_inexistente/history')
+    expect(status).toBe(404)
+  })
+})
+
+describe('GET /graph e GET /tool-calls/:id/result (F33)', () => {
+  function seedThread(): string {
+    const project = createProject({ path: makeProjectDir() })
+    return createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state: 'idle',
+    }).id
+  }
+
+  async function get(url: string): Promise<{ status: number; body: unknown }> {
+    const res = fakeRes()
+    await handleThreadsRequest(fakeReq('GET', url, undefined, session), res)
+    return res.result()
+  }
+
+  it('a rota de grafo responde — está registrada nas DUAS listas', async () => {
+    // Sem o prefixo no guarda, o request fica pendurado e o teste estoura sem erro nenhum.
+    const id = seedThread()
+    const { status } = await get(`/api/threads/${id}/graph`)
+    expect(status).toBe(200)
+  })
+
+  it('o grafo traz a execução inteira mesmo com o chat paginado, e sem corpo de resultado', async () => {
+    const id = seedThread()
+    for (let i = 0; i < 70; i += 1) {
+      const call = createToolCall({ threadId: id, name: `T${i}`, params: {}, status: 'running' })
+      updateToolCall(call.id, { status: 'completed', result: 'z'.repeat(3_000) })
+      appendMessage({ threadId: id, role: 'assistant', content: `r${i}` })
+    }
+
+    const history = (await get(`/api/threads/${id}/history`)).body as { messages: unknown[]; hasMore: boolean }
+    expect(history.hasMore).toBe(true)
+
+    const { body } = await get(`/api/threads/${id}/graph`)
+    const nodes = (body as { nodes: unknown[] }).nodes
+    expect(nodes).toHaveLength(70)
+    expect(JSON.stringify(nodes)).not.toContain('zzzz')
+  })
+
+  it('o corpo integral sai pela rota própria', async () => {
+    const id = seedThread()
+    const grande = 'y'.repeat(30_000)
+    const call = createToolCall({ threadId: id, name: 'Bash', params: {}, status: 'running' })
+    updateToolCall(call.id, { status: 'completed', result: grande })
+
+    const { status, body } = await get(`/api/tool-calls/${call.id}/result`)
+    expect(status).toBe(200)
+    expect((body as { result: string }).result).toBe(grande)
+    expect((body as { bytes: number }).bytes).toBeGreaterThan(30_000 - 1)
+  })
+
+  it('tool call inexistente devolve 404', async () => {
+    const { status, body } = await get('/api/tool-calls/tc_nao_existe/result')
+    expect(status).toBe(404)
+    expect((body as { error: { code: string } }).error.code).toBe('tool_call_not_found')
+  })
+
+  it('as rotas novas exigem sessão como as demais', async () => {
+    const id = seedThread()
+    for (const url of [`/api/threads/${id}/graph`, '/api/tool-calls/tc_x/result']) {
+      const res = fakeRes()
+      await handleThreadsRequest(fakeReq('GET', url), res)
+      const { status } = await res.result()
+      expect(status).toBe(401)
+    }
+  })
 })

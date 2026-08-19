@@ -2,6 +2,8 @@
 
 **Complexidade:** simples
 
+**Status:** implementada em 2026-08-19. Unitários verdes em duas rodadas; **sem smoke ao vivo** — os critérios que dependem de tela seguem abertos no PRD §9.
+
 ## 1. Visão Geral Técnica
 
 **O quê:** acrescentar `interrupted` a `ThreadState` e fazer a recuperação de boot gravá-lo em vez de `error`, com o gate fechado antes da mudança de estado e o motivo em `log_entries`.
@@ -156,3 +158,26 @@ Nenhum endpoint novo. `GET /api/threads` e `GET /api/threads/:id` passam a poder
 | Origem da interrupção aparece em Registros | ready | F08 implementada |
 | Gate aberto no boot é fechado antes da mudança de estado | peer no lote | F32 depende da mesma ordem; especificada aqui |
 | Export de thread continua consistente com os conjuntos terminais | ready | `thread-export.ts` já consome `SETTLED_THREAD_STATES` |
+
+## 8. Desvios da spec na implementação
+
+**Uma consequência que a spec não previu, encontrada lendo o código.**
+
+O comentário de `recoverRunningThreads` registrava que `error` era escolhido também porque alimenta
+a métrica `errors` e o inbox "Precisa da sua atenção" (`dashboard.ts`). Trocar o estado mexeu nos
+dois, e ignorar isso teria produzido uma regressão silenciosa: a thread interrompida **sumiria** da
+inbox de quem usa a lista como fila de trabalho.
+
+Decisão, com o custo assumido de alargar `DashboardInboxKind`:
+
+| Superfície | Antes | Agora | Por quê |
+|---|---|---|---|
+| Métrica `errors` | contava thread interrompida | não conta | turno cortado pelo fechamento do app não é defeito; inflar a métrica com ele era efeito colateral do rótulo compartilhado |
+| Inbox | aparecia como `error` (tier 0) | aparece como `interrupted` (tier 3, último) | nada falhou e nada está pendente de revisão — só há um turno a retomar. Sumir seria pior que o rótulo errado |
+
+**Outras diferenças:**
+
+| Previsto | Entregue | Motivo |
+|---|---|---|
+| `db.transaction(...)` | `exec('BEGIN')` / `COMMIT` / `ROLLBACK` | `DatabaseSync` (`node:sqlite`) não expõe `transaction()`; o idioma do repo é o par explícito (`subagents.ts`, `usage-events.ts`) |
+| Confirmar se há `CHECK` no estado | Verificado: não há | `threads.state` é `TEXT NOT NULL` em `002_workspace_core.ts`; nenhuma migração foi necessária |

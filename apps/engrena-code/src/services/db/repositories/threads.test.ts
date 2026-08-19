@@ -10,6 +10,7 @@ const { createProject } = await import('./projects.js')
 const { createThread, deleteThread, getThread, updateThread, setThreadState, recoverRunningThreads } = await import(
   './threads.js'
 )
+type ThreadState = Parameters<typeof setThreadState>[1]
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'engrenacode_claude_f08_threads_fixture_'))
 
@@ -30,71 +31,67 @@ afterAll(() => {
   rmSync(fixtureRoot, { recursive: true, force: true })
 })
 
+/**
+ * F35 — a recuperação de boot passa a gravar `interrupted`, não `error`. O que estes testes cobram
+ * não é só o rótulo novo: é a distinção entre "o app cortou" e "o turno falhou", que antes de
+ * 2026-08-19 era invisível porque os dois compartilhavam `error`.
+ */
 describe('recoverRunningThreads', () => {
-  it('moves running threads to error and returns them', () => {
-    const project = createProject({ path: makeProjectDir('project-a') })
-    const running = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'running' })
+  function seed(nome: string, state: ThreadState): string {
+    const project = createProject({ path: makeProjectDir(nome) })
+    return createThread({
+      projectId: project.id,
+      provider: 'claude',
+      accessLevel: 'supervised',
+      executionMode: 'main',
+      state,
+    }).id
+  }
+
+  it('marca os quatro estados vivos como interrupted e devolve o estado de origem', () => {
+    const ids = {
+      running: seed('rec-running', 'running'),
+      waiting_user: seed('rec-waiting-user', 'waiting_user'),
+      waiting_permission: seed('rec-waiting-permission', 'waiting_permission'),
+      stopping: seed('rec-stopping', 'stopping'),
+    } as const
 
     const recovered = recoverRunningThreads()
 
-    expect(recovered.map((t) => t.id)).toEqual([running.id])
-    expect(getThread(running.id)?.state).toBe('error')
+    expect(recovered).toHaveLength(4)
+    for (const [origem, id] of Object.entries(ids)) {
+      expect(getThread(id)?.state).toBe('interrupted')
+      const entry = recovered.find((r) => r.thread.id === id)
+      // O estado de origem é o que o log usa para dizer que espera a thread perdeu.
+      expect(entry?.recoveredFrom).toBe(origem)
+    }
   })
 
-  it('leaves non-running threads untouched', () => {
-    const project = createProject({ path: makeProjectDir('project-b') })
-    const idle = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'idle' })
+  it('não confunde interrupção com falha: error e cancelled ficam intocados', () => {
+    const erro = seed('rec-error', 'error')
+    const cancelada = seed('rec-cancelled', 'cancelled')
+    const idle = seed('rec-idle', 'idle')
+    const committed = seed('rec-committed', 'committed')
 
-    const recovered = recoverRunningThreads()
+    expect(recoverRunningThreads()).toEqual([])
 
-    expect(recovered).toEqual([])
-    expect(getThread(idle.id)?.state).toBe('idle')
+    expect(getThread(erro)?.state).toBe('error')
+    expect(getThread(cancelada)?.state).toBe('cancelled')
+    expect(getThread(idle)?.state).toBe('idle')
+    expect(getThread(committed)?.state).toBe('committed')
   })
 
-  it('returns an empty list when there is nothing to recover', () => {
+  it('devolve lista vazia quando não há nada a recuperar', () => {
     expect(recoverRunningThreads()).toEqual([])
   })
 
-  it('moves waiting_user threads to error and returns them (F21 §3.2)', () => {
-    const project = createProject({ path: makeProjectDir('project-waiting-user') })
-    const waiting = createThread({ projectId: project.id, provider: 'claude', accessLevel: 'supervised', executionMode: 'main', state: 'waiting_user' })
+  it('é idempotente: a segunda varredura não encontra nada', () => {
+    const id = seed('rec-idempotente', 'running')
 
-    const recovered = recoverRunningThreads()
-
-    expect(recovered.map((t) => t.id)).toEqual([waiting.id])
-    expect(getThread(waiting.id)?.state).toBe('error')
-  })
-
-  it('moves waiting_permission threads to error and returns them (Sprint 2)', () => {
-    const project = createProject({ path: makeProjectDir('project-waiting-permission') })
-    const waiting = createThread({
-      projectId: project.id,
-      provider: 'claude',
-      accessLevel: 'supervised',
-      executionMode: 'main',
-      state: 'waiting_permission',
-    })
-
-    const recovered = recoverRunningThreads()
-
-    expect(recovered.map((t) => t.id)).toEqual([waiting.id])
-    expect(getThread(waiting.id)?.state).toBe('error')
-  })
-
-  it('moves stopping threads to error and returns them', () => {
-    const project = createProject({ path: makeProjectDir('project-stopping') })
-    const stopping = createThread({
-      projectId: project.id,
-      provider: 'claude',
-      accessLevel: 'supervised',
-      executionMode: 'main',
-      state: 'stopping',
-    })
-
-    const recovered = recoverRunningThreads()
-
-    expect(recovered.map((t) => t.id)).toEqual([stopping.id])
-    expect(getThread(stopping.id)?.state).toBe('error')
+    expect(recoverRunningThreads()).toHaveLength(1)
+    // `interrupted` não é estado vivo: rodar de novo no unlock seguinte é no-op.
+    expect(recoverRunningThreads()).toEqual([])
+    expect(getThread(id)?.state).toBe('interrupted')
   })
 })
 

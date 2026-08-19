@@ -2,9 +2,12 @@
  * Relógio do card de permissão.
  *
  * O EngrenaCode responde ao `PreToolUse` de um CLI que ele mesmo spawnou: o hook fica pendurado
- * esperando a resposta do broker, então o gate **precisa** ter teto — `PERMISSION_TIMEOUT_MS`, 2
- * minutos, fail-closed. Claude Code e Cursor esperam o humano sem relógio porque lá quem espera é
- * a própria TUI, que não tem processo preso do outro lado.
+ * esperando a resposta do broker, então o gate **precisa** ter teto — `PERMISSION_TIMEOUT_MS`,
+ * fail-closed. Claude Code e Cursor esperam o humano sem relógio porque lá quem espera é a própria
+ * TUI, que não tem processo preso do outro lado.
+ *
+ * O teto não é número escolhido aqui: F32 o derivou de `HOOK_COMMAND_TIMEOUT_SEC` menos margem (8
+ * min hoje). Este módulo nunca repete o valor — lê `expiresAt`, que o gate calculou.
  *
  * Se o teto existe, ele tem que ser visível: o usuário que sai para pensar no comando merece saber
  * que a janela fecha. O que ele não merece é a explicação disso na cara — daí só o relógio, sem

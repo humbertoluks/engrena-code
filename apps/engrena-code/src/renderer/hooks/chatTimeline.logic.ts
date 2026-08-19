@@ -14,6 +14,7 @@ import {
 } from '../components/workspace/graph/executionGraph.logic'
 import {
   mergeById,
+  unionBySeq,
   mergeSubagentRunsByChildId,
   sameMessageLike,
   sameSubagentRunLike,
@@ -56,6 +57,19 @@ export interface ChatTimelineState {
   historyLoading: boolean
   historyError: string | null
   streamingText: string
+  /**
+   * Thread a que a timeline em memória pertence (F33). Existe para decidir entre **substituir** (o
+   * histórico é de outra thread) e **unir** (é outra página da mesma): sem isso, a janela recente
+   * derrubaria as páginas antigas já carregadas, ou a troca de thread misturaria conversas.
+   */
+  historyThreadId: string | null
+  /** `seq` da mensagem mais antiga já carregada; `null` quando não há nada. */
+  historyCursor: number | null
+  /** Existe página anterior à `historyCursor`. */
+  historyHasMore: boolean
+  /** Carga da página anterior — separada de `historyLoading` para não trocar a árvore por spinner. */
+  historyPageLoading: boolean
+  historyPageError: string | null
 }
 
 /** O que o `GET /history` devolve — só a parte que a timeline consome. */
@@ -65,6 +79,9 @@ export interface ChatHistorySnapshot {
   toolCalls: ToolCall[]
   subagentRuns: SubagentRun[]
   pipeline: PipelineHistory | null
+  /** Janela paginada (F33); ausente = resposta de servidor antigo, tratada como página única. */
+  hasMore?: boolean
+  cursor?: number | null
 }
 
 export type ChatTimelineAction =
@@ -73,7 +90,11 @@ export type ChatTimelineAction =
   /** Falha em primeiro plano. Refetch de fundo **nunca** passa por aqui (vai para o console). */
   | { type: 'history_load_failed'; message: string }
   /** A transição atômica: repõe a timeline inteira a partir do histórico canónico. */
-  | { type: 'history_loaded'; history: ChatHistorySnapshot }
+  | { type: 'history_loaded'; history: ChatHistorySnapshot; threadId: string }
+  /** Página anterior prepende; nunca mexe em `historyLoading` (F33). */
+  | { type: 'history_page_load_started' }
+  | { type: 'history_page_load_failed'; message: string }
+  | { type: 'history_page_loaded'; history: ChatHistorySnapshot; threadId: string }
   /** Fim do fetch em primeiro plano (o de fundo não liga nem desliga `historyLoading`). */
   | { type: 'history_load_settled' }
   /** Thread selecionada com id: só o streaming do turno anterior sai de cena. */
@@ -115,6 +136,11 @@ export function emptyChatTimeline(): ChatTimelineState {
     historyLoading: false,
     historyError: null,
     streamingText: '',
+    historyThreadId: null,
+    historyCursor: null,
+    historyHasMore: false,
+    historyPageLoading: false,
+    historyPageError: null,
   }
 }
 
@@ -152,6 +178,29 @@ function feedbackMapFrom(entries: readonly MessageFeedback[]): Record<string, Fe
   return Object.fromEntries(entries.map((f): [string, FeedbackVote] => [f.messageId, f.vote]))
 }
 
+/**
+ * Como a janela recém-chegada mexe no cursor.
+ *
+ * O cursor guarda o **mais antigo já carregado**. Um refetch da janela recente traz um cursor mais
+ * novo que o nosso quando o usuário já paginou para trás — adotá-lo faria o botão "carregar
+ * anterior" reoferecer páginas que já estão na tela. Por isso o cursor só recua, nunca avança.
+ */
+function windowFields(
+  state: ChatTimelineState,
+  history: ChatHistorySnapshot,
+  sameThread: boolean
+): Pick<ChatTimelineState, 'historyCursor' | 'historyHasMore'> {
+  const cursor = history.cursor ?? null
+  const hasMore = history.hasMore ?? false
+  if (!sameThread || state.historyCursor === null) return { historyCursor: cursor, historyHasMore: hasMore }
+  if (cursor === null) return { historyCursor: state.historyCursor, historyHasMore: state.historyHasMore }
+  // Já paginamos mais para trás do que esta janela alcança: o que ela diz sobre o passado é velho.
+  if (cursor >= state.historyCursor) {
+    return { historyCursor: state.historyCursor, historyHasMore: state.historyHasMore }
+  }
+  return { historyCursor: cursor, historyHasMore: hasMore }
+}
+
 export function chatTimelineReducer(
   state: ChatTimelineState,
   action: ChatTimelineAction
@@ -164,18 +213,23 @@ export function chatTimelineReducer(
       return { ...state, historyError: action.message }
 
     case 'history_loaded': {
-      const { history } = action
+      const { history, threadId } = action
+      // Mesma thread = outra página da mesma conversa: **une**, porque a janela recente (F33) não
+      // pode derrubar as páginas antigas que o usuário carregou. Thread diferente = substitui, e a
+      // timeline nunca mistura duas conversas.
+      const sameThread = state.historyThreadId === threadId
+      const mergeMessages: typeof mergeById<Message> = sameThread ? unionBySeq : mergeById
+      const mergeToolCalls: typeof mergeById<ToolCall> = sameThread ? unionBySeq : mergeById
       return {
         ...state,
-        // Merge por id, nunca append: o refetch traz o histórico inteiro e append duplicaria a
-        // timeline a cada evento de stream. O merge ainda preserva a referência das linhas que
-        // não mudaram (Work log aberto não remonta).
-        messages: mergeById(state.messages, history.messages, sameMessageLike),
+        // Merge por id, nunca append: append duplicaria a timeline a cada evento de stream. O
+        // merge preserva a referência das linhas que não mudaram (Work log aberto não remonta).
+        messages: mergeMessages(state.messages, history.messages, sameMessageLike),
         feedback: feedbackMapFrom(history.feedback ?? []),
         // Bolha otimista reconcilia por `clientMessageId`, nunca por conteúdo: o servidor
         // reescreve o prompt antes de persistir.
         pendingMessages: reconcilePendingMessages(state.pendingMessages, history.messages),
-        toolCalls: mergeById(state.toolCalls, history.toolCalls, sameToolCallLike),
+        toolCalls: mergeToolCalls(state.toolCalls, history.toolCalls, sameToolCallLike),
         subagentRuns: mergeSubagentRunsByChildId(
           state.subagentRuns,
           history.subagentRuns,
@@ -188,6 +242,30 @@ export function chatTimelineReducer(
         // fecha. Zerá-la aqui apagaria a atividade a cada refetch disparado pelas tools do
         // próprio pai, que acontecem o tempo todo enquanto o filho trabalha.
         liveGraphOverlay: { ...emptyLiveOverlay(), childTools: state.liveGraphOverlay.childTools },
+        ...windowFields(state, history, sameThread),
+        historyThreadId: threadId,
+      }
+    }
+
+    case 'history_page_load_started':
+      return { ...state, historyPageLoading: true, historyPageError: null }
+
+    case 'history_page_load_failed':
+      // A janela já lida permanece na tela: falhar em carregar o passado não apaga o presente.
+      return { ...state, historyPageLoading: false, historyPageError: action.message }
+
+    case 'history_page_loaded': {
+      const { history, threadId } = action
+      // Página anterior chegando para outra thread (troca durante a busca) é descartada.
+      if (state.historyThreadId !== threadId) return { ...state, historyPageLoading: false }
+      return {
+        ...state,
+        messages: unionBySeq(state.messages, history.messages, sameMessageLike),
+        toolCalls: unionBySeq(state.toolCalls, history.toolCalls, sameToolCallLike),
+        historyCursor: history.cursor ?? state.historyCursor,
+        historyHasMore: history.hasMore ?? false,
+        historyPageLoading: false,
+        historyPageError: null,
       }
     }
 
@@ -205,6 +283,11 @@ export function chatTimelineReducer(
         toolCalls: [],
         subagentRuns: [],
         pipeline: null,
+        historyThreadId: null,
+        historyCursor: null,
+        historyHasMore: false,
+        historyPageLoading: false,
+        historyPageError: null,
       }
 
     // Bolha otimista pertence à thread onde foi digitada — trocar de thread/projeto descarta as

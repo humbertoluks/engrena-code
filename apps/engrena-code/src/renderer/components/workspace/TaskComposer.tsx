@@ -42,6 +42,8 @@ import { insertAtCursor } from './voiceInput.logic'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
 
 const COPY = {
+  draftImageDropped: '1 imagem colada não foi guardada no rascunho',
+  draftImagesDropped: '{n} imagens coladas não foram guardadas no rascunho',
   placeholderNew: 'Descreva a task para o agente…  (Enter envia)',
   placeholderFollowUp: 'Responder nesta conversa…  (Enter envia, Shift+Enter quebra linha)',
   placeholderRunning: 'Agente trabalhando — Enter envia para a fila',
@@ -117,6 +119,9 @@ export interface TaskComposerProps {
   onAttach: (attachment: ComposerAttachment) => void
   onDetach: (id: string) => void
   attachError: string | null
+  /** Imagens que o rascunho restaurado não guardou (F34); 0 esconde o aviso. */
+  restoredDroppedImages?: number
+  onDismissDroppedImages?: () => void
   onAttachCodebase?: () => void
   codebaseBusy?: boolean
   /** Prompts salvos e modos de chat do projeto (F28 §3.4). */
@@ -171,6 +176,8 @@ export function TaskComposer({
   onAttach,
   onDetach,
   attachError,
+  restoredDroppedImages = 0,
+  onDismissDroppedImages,
   onAttachCodebase,
   codebaseBusy = false,
   savedPrompts = [],
@@ -272,6 +279,9 @@ export function TaskComposer({
     updateComposer({ text: e.target.value })
     syncTriggers(e.target.value, e.target.selectionStart ?? e.target.value.length)
     if (slashError !== null) setSlashError(null)
+    // O aviso de imagem perdida cumpriu o papel no instante em que o usuário voltou a escrever;
+    // deixá-lo fixo viraria ruído permanente no composer (F34).
+    if (restoredDroppedImages > 0) onDismissDroppedImages?.()
   }
 
   function handleSelectMention(path: string): void {
@@ -490,6 +500,16 @@ export function TaskComposer({
       {attachError !== null ? (
         <p role="alert" className="mb-xs text-[12px] text-amber">
           {attachError}
+        </p>
+      ) : null}
+
+      {/* Muted, não alerta: o texto voltou, só a imagem não. Dizer é o que evita o usuário
+          descobrir a perda na hora de enviar (F34). */}
+      {restoredDroppedImages > 0 ? (
+        <p role="status" className="mb-xs text-[11.5px] text-muted">
+          {restoredDroppedImages === 1
+            ? COPY.draftImageDropped
+            : COPY.draftImagesDropped.replace('{n}', String(restoredDroppedImages))}
         </p>
       ) : null}
 

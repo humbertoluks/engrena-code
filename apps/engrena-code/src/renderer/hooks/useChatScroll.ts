@@ -36,6 +36,14 @@ export interface ChatScrollHandle<T extends HTMLElement> {
   ref: RefObject<T | null>
   showJump: boolean
   jumpToLatest: () => void
+  /**
+   * Roda `load` preservando a posição visual do conteúdo que já estava na tela (F33).
+   *
+   * Inserir mensagens **acima** aumenta `scrollHeight`, e sem compensar `scrollTop` a leitura salta
+   * para cima — o botão "carregar anterior" pareceria teleportar o usuário. A compensação é a
+   * diferença de altura medida entre antes e depois da carga, aplicada num único frame.
+   */
+  preservingScrollAnchor: (load: () => Promise<void>) => Promise<void>
 }
 
 export function useChatScroll<T extends HTMLElement>({
@@ -165,5 +173,23 @@ export function useChatScroll<T extends HTMLElement>({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [enabled, jumpToLatest])
 
-  return { ref, showJump, jumpToLatest }
+  const preservingScrollAnchor = useCallback(async (load: () => Promise<void>) => {
+    const el = ref.current
+    if (el === null) {
+      await load()
+      return
+    }
+    const alturaAntes = el.scrollHeight
+    const topoAntes = el.scrollTop
+    await load()
+    // Depois do commit do React: medir antes dele daria a altura velha e a conta erraria por tudo.
+    requestAnimationFrame(() => {
+      const atual = ref.current
+      if (atual === null) return
+      const crescimento = atual.scrollHeight - alturaAntes
+      if (crescimento > 0) atual.scrollTop = topoAntes + crescimento
+    })
+  }, [])
+
+  return { ref, showJump, jumpToLatest, preservingScrollAnchor }
 }

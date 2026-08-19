@@ -8,7 +8,7 @@ export interface DashboardMetrics {
   errors: number
 }
 
-export type DashboardInboxKind = 'error' | 'pendingDiff' | 'running'
+export type DashboardInboxKind = 'error' | 'pendingDiff' | 'running' | 'interrupted'
 
 export interface DashboardInboxItem {
   kind: DashboardInboxKind
@@ -60,6 +60,9 @@ export function getDashboardMetrics(): DashboardMetrics {
         (SELECT COUNT(*) FROM threads WHERE state = 'running') AS running,
         (SELECT COUNT(*) FROM diffs WHERE status = 'pending') AS pendingDiffs,
         (SELECT COUNT(*) FROM threads WHERE state = 'error') AS errors`
+      // `interrupted` (F35) de propósito fora da contagem: turno cortado pelo fechamento do app
+      // não é erro, e inflar a métrica com ele era o efeito colateral de os dois compartilharem
+      // rótulo até 2026-08-19.
     )
     .get() as unknown as DashboardMetrics
   return row
@@ -67,9 +70,16 @@ export function getDashboardMetrics(): DashboardMetrics {
 
 /**
  * Itens elegíveis para a inbox "Precisa da sua atenção": um item por thread.
- * Precedência de classificação: pendingDiff (diff status='pending' na thread) > error (state='error') > running (state='running').
+ * Precedência de classificação: pendingDiff (diff status='pending' na thread) > error (state='error')
+ * > running (state='running') > interrupted (state='interrupted').
  * Threads idle/committed/stopping sem diff pendente ficam de fora.
- * Ordenação: tier fixo (error > pendingDiff > running), desempate por updated_at desc. Corte em `limit`.
+ * Ordenação: tier fixo (error > pendingDiff > running > interrupted), desempate por updated_at desc.
+ * Corte em `limit`.
+ *
+ * `interrupted` (F35) entra por último porque é o menos urgente da inbox: nada falhou e nada está
+ * pendente de revisão, só há um turno a retomar. Ficar de fora, porém, não serve — antes de F35
+ * essas threads apareciam como `error`, e simplesmente sumirem da inbox seria regressão silenciosa
+ * para quem usa a lista como fila de trabalho.
  */
 export function listDashboardInbox(limit: number): DashboardInboxItem[] {
   const db = getDb()
@@ -82,11 +92,13 @@ export function listDashboardInbox(limit: number): DashboardInboxItem[] {
             WHEN EXISTS (SELECT 1 FROM diffs d WHERE d.thread_id = t.id AND d.status = 'pending') THEN 'pendingDiff'
             WHEN t.state = 'error' THEN 'error'
             WHEN t.state = 'running' THEN 'running'
+            WHEN t.state = 'interrupted' THEN 'interrupted'
           END AS kind
         FROM threads t
         JOIN projects p ON p.id = t.project_id
       ) WHERE kind IS NOT NULL
-      ORDER BY CASE kind WHEN 'error' THEN 0 WHEN 'pendingDiff' THEN 1 WHEN 'running' THEN 2 END, updated_at DESC
+      ORDER BY CASE kind WHEN 'error' THEN 0 WHEN 'pendingDiff' THEN 1 WHEN 'running' THEN 2
+        WHEN 'interrupted' THEN 3 END, updated_at DESC
       LIMIT ?`
     )
     .all(limit) as unknown as InboxRow[]

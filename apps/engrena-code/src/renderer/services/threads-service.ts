@@ -19,6 +19,8 @@ export type ThreadState =
   | 'waiting_user'
   | 'waiting_permission'
   | 'cancelled'
+  /** Turno cortado pelo fechamento do app, não por falha (F35). Terminal. */
+  | 'interrupted'
 
 export interface Thread {
   id: string
@@ -88,7 +90,17 @@ export interface ToolCall {
   name: string
   params: unknown
   status: ToolCallStatus
-  result: unknown
+  /**
+   * Corpo do resultado. **Ausente na listagem** desde F33: `GET /history` manda `resultPreview`, e o
+   * corpo integral vem de `toolCallResult` quando o work log expande. Continua presente no que
+   * chega pelo stream, que é pequeno por natureza.
+   */
+  result?: unknown
+  /** Preview de até 2 KB (F33); `null` quando não houve resultado. */
+  resultPreview?: string | null
+  /** `true` quando o corpo é maior que o preview e há mais a buscar. */
+  resultTruncated?: boolean
+  resultBytes?: number
   seq: number
   startedAt: number
   endedAt: number | null
@@ -209,9 +221,13 @@ export const threadsService = {
 
   composerCatalog: (): Promise<ComposerCatalog & ApiErrorBody> => apiRequest('GET', '/api/composer/catalog'),
 
+  /**
+   * Janela de histórico (F33). Sem `before`, devolve a mais recente; com `before`, a página
+   * imediatamente anterior àquele `seq`. `hasMore`/`cursor` dizem se há passado e onde ele começa.
+   */
   history: (
     threadId: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; limit?: number; before?: number | null }
   ): Promise<
     {
       messages: Message[]
@@ -219,8 +235,51 @@ export const threadsService = {
       toolCalls: ToolCall[]
       subagentRuns: SubagentRun[]
       pipeline: PipelineHistory | null
+      hasMore: boolean
+      cursor: number | null
     } & ApiErrorBody
-  > => apiRequest('GET', `/api/threads/${threadId}/history`, undefined, options),
+  > => {
+    const query = new URLSearchParams()
+    if (options?.limit !== undefined) query.set('limit', String(options.limit))
+    if (options?.before !== undefined && options.before !== null) {
+      query.set('before', String(options.before))
+    }
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`
+    return apiRequest('GET', `/api/threads/${threadId}/history${suffix}`, undefined, options)
+  },
+
+  /**
+   * Projeção do grafo (F33): a execução inteira da thread, sem corpo de resultado. É o que impede a
+   * paginação do chat de amputar a aba Grafo.
+   */
+  threadGraph: (
+    threadId: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<
+    {
+      nodes: Array<{
+        id: string
+        name: string
+        messageId: string | null
+        status: ToolCall["status"]
+        seq: number
+        startedAt: number
+        endedAt: number | null
+      }>
+      subagentRuns: SubagentRun[]
+      pipeline: PipelineHistory | null
+    } & ApiErrorBody
+  > => apiRequest("GET", `/api/threads/${threadId}/graph`, undefined, options),
+
+  /**
+   * Corpo integral do resultado de uma tool call (F33): buscado só quando o work log expande, para
+   * a listagem não carregar 64 KB por tool call.
+   */
+  toolCallResult: (
+    toolCallId: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ result: unknown; bytes: number } & ApiErrorBody> =>
+    apiRequest('GET', `/api/tool-calls/${toolCallId}/result`, undefined, options),
 
   diffs: (threadId: string): Promise<{ diffs: Diff[] } & ApiErrorBody> =>
     apiRequest('GET', `/api/threads/${threadId}/diffs`),

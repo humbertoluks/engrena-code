@@ -148,6 +148,7 @@ const ALL_STATES: readonly ThreadState[] = [
   'committed',
   'error',
   'cancelled',
+  'interrupted',
 ]
 
 describe('predicados de estado da thread', () => {
@@ -283,5 +284,27 @@ describe('roteamento de eventos de execução (F29)', () => {
       const isChildTool = event.type.startsWith('subagent.tool_call.')
       expect(refetchesHistory(event)).toBe(!isChildTool)
     }
+  })
+})
+
+/**
+ * F35 — `interrupted` é terminal. Ficar fora de `TURN_RECONCILED_STATES` é o defeito que já
+ * congelou a fila do composer uma vez com `cancelled`: nada movia a fila e o item só saía quando
+ * outra mensagem qualquer terminasse, fora de ordem.
+ */
+describe('interrupted é estado assentado (F35)', () => {
+  it('entra nos dois conjuntos terminais', () => {
+    expect(SETTLED_THREAD_STATES).toContain('interrupted')
+    expect(TURN_RECONCILED_STATES).toContain('interrupted')
+  })
+
+  it('não é estado ativo', () => {
+    expect(isActiveThreadState('interrupted')).toBe(false)
+    expect(isSettledThreadState('interrupted')).toBe(true)
+  })
+
+  it('os dois conjuntos continuam idênticos', () => {
+    // A fila drena em todo fim de execução, qualquer que tenha sido o desfecho.
+    expect([...TURN_RECONCILED_STATES].sort()).toEqual([...SETTLED_THREAD_STATES].sort())
   })
 })

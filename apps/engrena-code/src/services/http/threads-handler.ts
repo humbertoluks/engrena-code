@@ -7,7 +7,19 @@ import {
   searchThreadsForProject,
   updateThread,
 } from '../db/repositories/threads.js'
-import { listMessagesForThread, listToolCallsForThread } from '../db/repositories/messages.js'
+import {
+  HISTORY_WINDOW_DEFAULT,
+  HISTORY_WINDOW_MAX,
+  listMessagesForThread,
+  listMessagesWindow,
+  listToolCallGraphForThread,
+  listToolCallsForThread,
+  listToolCallsWindow,
+  getToolCallResult,
+  maxSeqForThread,
+  previewToolCallResult,
+  toolCallWindowStart,
+} from '../db/repositories/messages.js'
 import { listDiffsForThread, deleteDiffsForThread } from '../db/repositories/diffs.js'
 import { getProject } from '../db/repositories/projects.js'
 import { listSubagentRunsForParentThread } from '../db/repositories/subagents.js'
@@ -473,13 +485,82 @@ function resolveHistoryPipeline(threadId: string): { pipeline: Pipeline; stages:
   return { pipeline, stages: listStagesForPipeline(pipeline.id) }
 }
 
-function handleHistory(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
+/**
+ * Lê um inteiro positivo da query. `undefined` = ausente; `null` = presente e inválido.
+ * A distinção existe porque parâmetro inválido tem de responder 400: recair no default devolveria a
+ * thread inteira em silêncio, que é exatamente o comportamento que F33 remove.
+ */
+function readPositiveInt(url: URL, name: string): number | undefined | null {
+  const raw = url.searchParams.get(name)
+  if (raw === null) return undefined
+  if (!/^\d+$/.test(raw)) return null
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value <= 0) return null
+  return value
+}
+
+function handleHistory(req: IncomingMessage, res: ServerResponse, threadId: string): void {
+  const thread = getThread(threadId)
+  if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
+
+  const url = new URL(req.url ?? '', 'http://127.0.0.1')
+  const limit = readPositiveInt(url, 'limit')
+  if (limit === null || (limit !== undefined && limit > HISTORY_WINDOW_MAX)) {
+    return sendError(res, 400, 'invalid_limit', `limit deve ser inteiro entre 1 e ${HISTORY_WINDOW_MAX}.`)
+  }
+  const before = readPositiveInt(url, 'before')
+  if (before === null) {
+    return sendError(res, 400, 'invalid_cursor', 'before deve ser um seq inteiro positivo.')
+  }
+  if (before !== undefined) {
+    const max = maxSeqForThread(threadId)
+    if (max === null || before > max + 1) {
+      return sendError(res, 400, 'invalid_cursor', 'before está fora da faixa de seq desta thread.')
+    }
+  }
+
+  const window = listMessagesWindow(threadId, limit ?? HISTORY_WINDOW_DEFAULT, before)
+  // Tool calls da faixa que esta página cobre, e o resultado vai como preview: o corpo integral sai
+  // por `GET /api/tool-calls/:id/result` quando o work log expande.
+  const toolCalls = listToolCallsWindow(threadId, toolCallWindowStart(window), before).map((call) => {
+    const { result, ...rest } = call
+    return { ...rest, ...previewToolCallResult(result) }
+  })
+
+  sendJson(res, 200, {
+    messages: window.messages,
+    feedback: listFeedbackForThread(threadId),
+    toolCalls,
+    subagentRuns: listSubagentRunsForParentThread(threadId),
+    pipeline: resolveHistoryPipeline(threadId),
+    hasMore: window.hasMore,
+    cursor: window.cursor,
+  })
+}
+
+/**
+ * Corpo integral do resultado de uma tool call (F33), buscado só quando o work log expande.
+ *
+ * A listagem entrega preview de 2 KB; puxar 64 KB por tool call para exibir 2 KB era metade do
+ * custo que a paginação existe para cortar.
+ */
+function handleToolCallResult(res: ServerResponse, toolCallId: string): void {
+  const found = getToolCallResult(toolCallId)
+  if (found === null) return sendError(res, 404, 'tool_call_not_found', 'Tool call não encontrada.')
+  sendJson(res, 200, { result: found.result, bytes: found.bytes })
+}
+
+/**
+ * Projeção do grafo (F29): a execução inteira da thread, sem nenhum corpo de resultado.
+ *
+ * Rota própria, e não `limit` gigante no history: um teto disfarçado é o problema de volta. Sem
+ * corpo, o payload é pequeno por construção mesmo numa thread de centenas de tool calls.
+ */
+function handleGraph(_req: IncomingMessage, res: ServerResponse, threadId: string): void {
   const thread = getThread(threadId)
   if (thread === null) return sendError(res, 404, 'thread_not_found', 'Thread não encontrada.')
   sendJson(res, 200, {
-    messages: listMessagesForThread(threadId),
-    feedback: listFeedbackForThread(threadId),
-    toolCalls: listToolCallsForThread(threadId),
+    nodes: listToolCallGraphForThread(threadId),
     subagentRuns: listSubagentRunsForParentThread(threadId),
     pipeline: resolveHistoryPipeline(threadId),
   })
@@ -768,6 +849,7 @@ const CREATE_THREAD_RE = /^\/api\/projects\/([^/]+)\/threads$/
 const THREAD_RE = /^\/api\/threads\/([^/]+)$/
 const MESSAGES_RE = /^\/api\/threads\/([^/]+)\/messages$/
 const HISTORY_RE = /^\/api\/threads\/([^/]+)\/history$/
+const GRAPH_RE = /^\/api\/threads\/([^/]+)\/graph$/
 const DIFFS_RE = /^\/api\/threads\/([^/]+)\/diffs$/
 const CANCEL_RE = /^\/api\/threads\/([^/]+)\/cancel$/
 const GATES_LIST_RE = /^\/api\/threads\/([^/]+)\/gate$/
@@ -779,6 +861,7 @@ const RENAME_RE = /^\/api\/threads\/([^/]+)\/title$/
 const EXPORT_RE = /^\/api\/threads\/([^/]+)\/export$/
 const FEEDBACK_RE = /^\/api\/threads\/([^/]+)\/messages\/([^/]+)\/feedback$/
 const FOLLOWUPS_RE = /^\/api\/threads\/([^/]+)\/followups$/
+const TOOL_CALL_RESULT_RE = /^\/api\/tool-calls\/([^/]+)\/result$/
 
 export async function handleThreadsRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = (req.url ?? '').split('?')[0]
@@ -789,6 +872,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     THREAD_RE.test(url) ||
     MESSAGES_RE.test(url) ||
     HISTORY_RE.test(url) ||
+    GRAPH_RE.test(url) ||
     DIFFS_RE.test(url) ||
     CANCEL_RE.test(url) ||
     // Rota nova entra nas DUAS listas (esta e o dispatch abaixo): sem o prefixo aqui o guarda
@@ -801,6 +885,7 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     EXPORT_RE.test(url) ||
     FEEDBACK_RE.test(url) ||
     FOLLOWUPS_RE.test(url) ||
+    TOOL_CALL_RESULT_RE.test(url) ||
     COMPOSER_CATALOG_RE.test(url)
 
   if (!matchesThreadsRoute) return false
@@ -808,6 +893,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
   if (!guard(req, res)) return true
 
   try {
+    const resultMatch = TOOL_CALL_RESULT_RE.exec(url)
+    if (resultMatch && method === 'GET') {
+      handleToolCallResult(res, resultMatch[1])
+      return true
+    }
+
     if (COMPOSER_CATALOG_RE.test(url) && method === 'GET') {
       sendJson(res, 200, getComposerCatalog())
       return true
@@ -860,6 +951,12 @@ export async function handleThreadsRequest(req: IncomingMessage, res: ServerResp
     const messagesMatch = MESSAGES_RE.exec(url)
     if (messagesMatch && method === 'POST') {
       await handleFollowUp(req, res, messagesMatch[1])
+      return true
+    }
+
+    const graphMatch = GRAPH_RE.exec(url)
+    if (graphMatch && method === 'GET') {
+      handleGraph(req, res, graphMatch[1])
       return true
     }
 

@@ -2,6 +2,8 @@
 
 **Complexidade:** médio
 
+**Status:** implementada em 2026-08-19. Unitários verdes em duas rodadas; **sem smoke ao vivo** — os critérios que dependem de tela seguem abertos no PRD §9.
+
 ## 1. Visão Geral Técnica
 
 **O quê:** transformar `GET /api/threads/:id/history` numa janela paginada com cursor, dar ao grafo de execução uma rota de projeção própria, e passar a buscar o corpo integral de um resultado de tool sob demanda.
@@ -234,3 +236,28 @@ O que a feature explora é uma propriedade que já existe: `nextSeq(threadId)` c
 | Janela e cursor alimentam `loadHistory` sem ligar `historyLoading` no refetch de fundo nem mover o scroll | ready | F03 implementada |
 | Projeção sem corpo alimenta a aba Grafo com a execução completa | ready | F29 implementada |
 | Reconciliação com as bolhas otimistas do composer segue por conteúdo no `GET /history` | ready | F03 — o merge por `seq` é entre páginas, não substitui a reconciliação otimista |
+
+## 8. Desvios da spec na implementação
+
+**Um defeito real apareceu ao implementar, e mudou o contrato do recorte.**
+
+A spec dizia "tool calls da mesma faixa de `seq` da janela", com o piso no cursor. Implementado assim,
+uma tool call com `seq` **anterior** à mensagem mais antiga da thread — o turno que chama uma tool
+antes de gravar qualquer mensagem — não era alcançável por `seq >= cursor` de página nenhuma e
+**sumia do histórico inteiro**. O teste de rota pegou (a listagem voltou com zero tool calls onde
+havia uma).
+
+Correção: `toolCallWindowStart(window)` devolve `0` quando não há página anterior, e o cursor só
+quando há. Com isso as páginas **azulejam** o eixo de `seq`, e a faixa ganhou teto (`seq < before`)
+para a página antiga não repetir o que a nova já trouxe.
+
+**Outras diferenças em relação ao que a spec previa:**
+
+| Previsto | Entregue | Motivo |
+|---|---|---|
+| `listToolCallsForMessages(messageIds)` | `listToolCallsWindow(threadId, fromSeq, beforeSeq?)` | `tool_calls.message_id` é nullable; chavear por ele perderia toda tool call sem mensagem, em silêncio |
+| Índice novo `ix_tool_calls_message` | Nenhum índice novo | `ix_messages_thread_seq` e `ix_tool_calls_thread_seq` já existem e cobrem o keyset |
+| `tool-calls-handler.ts` próprio | Rota dentro de `threads-handler.ts` | Mesmo `guard()` de cofre e sessão; um arquivo novo para uma rota só não pagava |
+| Merge da janela pelo `mergeById` existente | `unionBySeq` novo | `mergeById` **substitui** a lista pela recebida — correto com histórico inteiro, e exatamente errado com janela: o refetch da janela recente derrubaria as páginas que o usuário acabou de carregar |
+| — | `historyThreadId` no estado da timeline | Sem ele, unir por `seq` misturaria duas conversas na troca de thread. Mesma thread une, thread diferente substitui |
+| — | Fetch da projeção dentro do `ExecutionGraphPanel` | O grafo lia `ws.toolCalls`, que passou a ser a janela. Sem isso a aba Grafo seria amputada sem nada indicando |

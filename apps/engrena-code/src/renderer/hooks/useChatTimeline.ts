@@ -17,8 +17,15 @@ export interface ChatTimelineApi extends ChatTimelineState {
   historyLoadStarted: () => void
   /** Só primeiro plano: refetch de fundo reporta no console e não pinta erro na árvore. */
   historyLoadFailed: (message: string) => void
-  /** Transição atômica com o histórico canónico (merge por id + reconcile + overlay zerado). */
-  historyLoaded: (history: ChatHistorySnapshot) => void
+  /**
+   * Transição atômica com a janela de histórico (merge por id + reconcile + overlay zerado).
+   * `threadId` decide entre unir (mesma thread, outra página) e substituir (thread nova).
+   */
+  historyLoaded: (history: ChatHistorySnapshot, threadId: string) => void
+  /** Carga da página anterior (F33) — nunca liga `historyLoading`. */
+  historyPageLoadStarted: () => void
+  historyPageLoadFailed: (message: string) => void
+  historyPageLoaded: (history: ChatHistorySnapshot, threadId: string) => void
   historyLoadSettled: () => void
   threadOpened: () => void
   threadCleared: () => void
@@ -59,7 +66,21 @@ export function useChatTimeline(): ChatTimelineApi {
     []
   )
   const historyLoaded = useCallback(
-    (history: ChatHistorySnapshot) => dispatch({ type: 'history_loaded', history }),
+    (history: ChatHistorySnapshot, threadId: string) =>
+      dispatch({ type: 'history_loaded', history, threadId }),
+    []
+  )
+  const historyPageLoadStarted = useCallback(
+    () => dispatch({ type: 'history_page_load_started' }),
+    []
+  )
+  const historyPageLoadFailed = useCallback(
+    (message: string) => dispatch({ type: 'history_page_load_failed', message }),
+    []
+  )
+  const historyPageLoaded = useCallback(
+    (history: ChatHistorySnapshot, threadId: string) =>
+      dispatch({ type: 'history_page_loaded', history, threadId }),
     []
   )
   const historyLoadSettled = useCallback(() => dispatch({ type: 'history_load_settled' }), [])
@@ -112,6 +133,9 @@ export function useChatTimeline(): ChatTimelineApi {
     historyLoadStarted,
     historyLoadFailed,
     historyLoaded,
+    historyPageLoadStarted,
+    historyPageLoadFailed,
+    historyPageLoaded,
     historyLoadSettled,
     threadOpened,
     threadCleared,

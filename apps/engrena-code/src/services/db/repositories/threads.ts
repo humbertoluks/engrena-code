@@ -13,6 +13,12 @@ export type ThreadState =
   | 'waiting_user'
   | 'waiting_permission'
   | 'cancelled'
+  /**
+   * Turno cortado por fora, não por falha: o app fechou (ou morreu) com a thread em execução.
+   * Distinto de `error` porque não houve defeito, e distinto de `cancelled` porque o usuário não
+   * pediu para parar. Só a reconciliação de boot o grava — ver `recoverRunningThreads`.
+   */
+  | 'interrupted'
 
 export interface Thread {
   id: string
@@ -226,21 +232,66 @@ export function deleteThread(id: string): boolean {
  * cancelada no crash fica presa em `stopping` para sempre — sem turno vivo para pará-la e sem
  * caminho de volta para `idle`.
  *
- * `error` (e não `cancelled`) por dois motivos: crash não é cancelamento — o usuário não pediu nada,
- * e herdar `cancelled` mentiria sobre a intenção; e `error` é o que alimenta a métrica `errors` e a
- * classificação do inbox "Precisa da sua atenção" (`dashboard.ts`), de onde uma thread quebrada
- * desapareceria se virasse `cancelled`.
+ * Grava `interrupted` (F32/F35), não `error`. Nem `cancelled`: crash não é cancelamento, o usuário
+ * não pediu nada. E não `error` porque nada falhou — o turno foi cortado por fora, e usar o mesmo
+ * rótulo da falha real deixava os dois casos indistinguíveis na lista e no diagnóstico, com o app
+ * se acusando de um defeito que não cometeu. A troca tem duas consequências deliberadas em
+ * `dashboard.ts`: a métrica `errors` deixa de contar thread interrompida (ela não é erro), e o
+ * inbox ganha o tier `interrupted`, último na precedência — não há nada a corrigir, só a retomar.
  *
- * Retorna as threads afetadas para o chamador gravar `log_entries` `kind='task'` por thread.
+ * Devolve o estado **de origem** por thread (`recoveredFrom`), não só o novo: é o que o chamador
+ * grava em `log_entries` para o diagnóstico depois saber se a thread morreu executando, esperando
+ * resposta ou esperando permissão. Por isso a leitura vem antes do UPDATE, dentro da mesma
+ * transação — `RETURNING *` devolveria a linha já reescrita.
+ *
+ * Idempotente: rodar de novo no unlock seguinte não encontra nada em estado vivo e é no-op.
  */
-export function recoverRunningThreads(): Thread[] {
-  const rows = getDb()
-    .prepare(
-      `UPDATE threads SET state = 'error', updated_at = ?
-       WHERE state IN ('running', 'waiting_user', 'waiting_permission', 'stopping')
-       RETURNING *`
-    )
-    .all(Date.now()) as unknown as ThreadRow[]
+export interface RecoveredThread {
+  thread: Thread
+  recoveredFrom: ThreadState
+}
 
-  return rows.map(toThread)
+const LIVE_STATES_AT_BOOT: readonly ThreadState[] = [
+  'running',
+  'waiting_user',
+  'waiting_permission',
+  'stopping',
+]
+
+export function recoverRunningThreads(): RecoveredThread[] {
+  const db = getDb()
+  const placeholders = LIVE_STATES_AT_BOOT.map(() => '?').join(', ')
+
+  // BEGIN/COMMIT explícito é o idioma do repo (`subagents.ts`, `usage-events.ts`): o driver
+  // `node:sqlite` não expõe `transaction()`. A transação existe porque a leitura do estado de
+  // origem e o UPDATE precisam ver a mesma foto — no meio delas nenhum turno pode nascer.
+  db.exec('BEGIN')
+  try {
+    const before = db
+      .prepare(`SELECT id, state FROM threads WHERE state IN (${placeholders})`)
+      .all(...LIVE_STATES_AT_BOOT) as unknown as Array<{ id: string; state: string }>
+    if (before.length === 0) {
+      db.exec('COMMIT')
+      return []
+    }
+
+    const origem = new Map(before.map((row) => [row.id, row.state as ThreadState]))
+    const rows = db
+      .prepare(
+        `UPDATE threads SET state = 'interrupted', updated_at = ?
+         WHERE state IN (${placeholders})
+         RETURNING *`
+      )
+      .all(Date.now(), ...LIVE_STATES_AT_BOOT) as unknown as ThreadRow[]
+    db.exec('COMMIT')
+
+    return rows.map((row) => {
+      const thread = toThread(row)
+      // `origem` foi lida na mesma transação: a chave existe. O fallback é só para o tipo.
+      return { thread, recoveredFrom: origem.get(thread.id) ?? 'running' }
+    })
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
 }

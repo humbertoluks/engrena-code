@@ -23,6 +23,31 @@ export const SUPERVISED_PERMISSION_MODE = 'auto' as const
 export const HOOK_COMMAND_TIMEOUT_SEC = 600
 export const INCLUDE_HOOK_EVENTS_FLAG = '--include-hook-events' as const
 
+/**
+ * Quanto do teto do hook fica reservado para nós, e não para o usuário (F32).
+ *
+ * O teto real é `HOOK_COMMAND_TIMEOUT_SEC`: passado dele, o CLI mata o processo do hook e a
+ * resposta que o broker fosse dar não chega a ninguém. A margem cobre o que acontece **depois** de
+ * o usuário clicar — spawn frio do hook no Windows, ida e volta HTTP ao broker, gravação da decisão
+ * e leitura do stdout pelo CLI. Sem ela, o clique cairia num card que já não vale nada.
+ *
+ * Ela não existe para ser generosa: existe para o prazo do card não ser um número solto. Até
+ * 2026-08-19 o prazo era o literal `2 * 60 * 1000`, cinco vezes mais apertado que a restrição e sem
+ * nada no código ligando os dois — e a consequência estava medida, com gate expirando por timeout na
+ * homologação de 2026-08-18 e outra vez na medição da F31 (num `cat`).
+ */
+export const PERMISSION_HOOK_MARGIN_SEC = 120
+
+/**
+ * Prazo de resposta do card de permissão, derivado do teto do hook.
+ *
+ * Derivado, e não literal, para que subir `HOOK_COMMAND_TIMEOUT_SEC` mova o prazo sozinho: um
+ * literal aqui é exatamente como os dois números divergiram na primeira vez.
+ */
+export function permissionGateTimeoutMs(): number {
+  return (HOOK_COMMAND_TIMEOUT_SEC - PERMISSION_HOOK_MARGIN_SEC) * 1000
+}
+
 export type PermissionContractCheck =
   | { ok: true }
   | { ok: false; missing: string[] }

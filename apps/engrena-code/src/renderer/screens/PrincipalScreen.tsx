@@ -251,6 +251,14 @@ export function PrincipalScreen(): ReactElement {
                     streamingText={ws.streamingText}
                     hasThread={ws.selectedThreadId !== null}
                     threadState={ws.selectedThread?.state ?? null}
+                    historyHasMore={ws.historyHasMore}
+                    historyPageLoading={ws.historyPageLoading}
+                    historyPageError={ws.historyPageError}
+                    onLoadOlder={() => {
+                      // A carga passa pela âncora: prepender sem compensar o scroll teleportaria
+                      // a leitura para cima (F33).
+                      void chatScroll.preservingScrollAnchor(ws.loadOlderHistoryPage)
+                    }}
                     gate={ws.gate}
                     gateQueuedCount={ws.gateQueuedCount}
                     onPermissionResolve={(kind) => void ws.decidePermission(kind)}
@@ -303,6 +311,8 @@ export function PrincipalScreen(): ReactElement {
               onAttach={ws.attach}
               onDetach={ws.detach}
               attachError={ws.attachError}
+              restoredDroppedImages={ws.restoredDroppedImages}
+              onDismissDroppedImages={ws.dismissDroppedImages}
               onAttachCodebase={() => void ws.attachCodebase()}
               codebaseBusy={ws.codebaseBusy}
               savedPrompts={ws.savedPrompts}

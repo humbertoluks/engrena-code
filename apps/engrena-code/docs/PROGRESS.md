@@ -56,11 +56,20 @@ Espelha as Ondas de Execução do PRD §8 — **toda** feature da tabela de depe
 | 2 | F02, F05, F06, F07 | Parcial — F02 (fundação) primeiro; F05, F06 e F07 em paralelo depois | **Completa** — F02+F05+F06+F07 smoke; a integração no turno, que ficava no F03, fechou para F06 em 2026-08-17 |
 | 3 | F03, F10, F17 | Sim — as três são independentes entre si | **Completa** — F03, F10 e F17 feitas, todas com smoke real |
 | 4 | F04, F08, F09, F11, F12, F13, F14, F15, F16, F20, F21, F23, F26 | Sim — nenhuma depende de outra da onda; atenção só ao acoplamento de arquivo (F15 mexe em `dispatch.ts`/`delegate.ts`, F16 no composer, F20/F21 também em `dispatch.ts`, F23 em `cli-driver.ts`/`provider-catalog.ts`/`mcp-secrets.ts`, F26 em `src/main/index.ts`/`src/preload/index.ts`/`vite.config.ts`; F20/F21/F23/F26 são adição da 1.3 mas caem mecanicamente aqui — dependem só de fundação + F03/F09-F16, não de features novas entre si) | **Completa** — todas as 13 features da onda feitas (F26 fechou por último) |
-| 5 | F18, F19, F24, F25, F34, F27, F35 | Sim — nenhuma depende de outra da onda; F18 e F19 tocam `delegate.ts`/`subagent-mcp-server.ts` (mesma área de F15/F12), atenção a conflito de arquivo. F34 e F35 são adição da 1.5 mas caem mecanicamente aqui (dependem só de F03/F08/F16): F34 no composer (mesma área de F16), F35 em `turn-state.ts` + `recoverRunningThreads()` | **Pendente** — F18, F19, F24, F25 e F27 feitas; F34 e F35 abertas (auditoria de 2026-08-19) |
+| 5 | F18, F19, F24, F25, F34, F27, F35 | Sim — nenhuma depende de outra da onda; F18 e F19 tocam `delegate.ts`/`subagent-mcp-server.ts` (mesma área de F15/F12), atenção a conflito de arquivo. F34 e F35 são adição da 1.5 mas caem mecanicamente aqui (dependem só de F03/F08/F16): F34 no composer (mesma área de F16), F35 em `turn-state.ts` + `recoverRunningThreads()` | **Implementada, sem smoke** — as sete features estão no repo; F34 e F35 entraram em 2026-08-19 com unitário verde e **nenhuma validação ao vivo** |
 | 6 | F22 | Sozinha — orquestra F18/F19/F20/F21 (todos da onda 4/5), não pode começar antes deles | **Completa** — smoke real ponta a ponta em 2026-08-08 |
 | 7 | F28, F29 | Sim — F28 mexe no composer/chat (F03/F16) e F29 no monitor; nenhuma depende da outra | **Completa** — paridade de chat (F28, quatro ondas) e monitor de execução como grafo (F29), ambas em 2026-08-11. A lacuna declarada do F28 (modo de chat sem skills/rules) fechou em 2026-08-17 |
-| 8 | F33, F30, F31 | Sim — F30 é copy/diagnóstico sobre F02/F03/F08, F31 é política de permissão sobre F03 e F33 pagina o history de F03 com projeção própria para o grafo de F29; nenhuma depende da outra | **Pendente** — F30 e F31 implementadas em 2026-08-19 (sem smoke ao vivo); F33 aberta |
-| 9 | F32 | Sozinha — deriva o prazo do gate do contrato do hook e reusa o relógio/copy de F30, que é da onda 8 | **Pendente** — aberta (auditoria de 2026-08-19) |
+| 8 | F33, F30, F31 | Sim — F30 é copy/diagnóstico sobre F02/F03/F08, F31 é política de permissão sobre F03 e F33 pagina o history de F03 com projeção própria para o grafo de F29; nenhuma depende da outra | **Implementada, sem smoke** — as três em 2026-08-19, todas com unitário verde e nenhuma validação ao vivo |
+| 9 | F32 | Sozinha — deriva o prazo do gate do contrato do hook e reusa o relógio/copy de F30, que é da onda 8 | **Implementada, sem smoke** — 2026-08-19, unitário verde |
+
+**Versão 1.5 (F32–F35) implementada em 2026-08-19, nenhuma com smoke ao vivo.** Saíram da auditoria do
+mesmo dia: prazo do card derivado do teto do hook (2 min → 8 min), histórico do chat paginado por
+keyset, rascunho do composer persistente e estado `interrupted` distinto de `error`. Suíte em 2313
+testes, verde em duas rodadas; `tsc -b` limpo. **O que falta é evidência de tela**: os critérios do
+PRD §9 que dependem do que o usuário vê seguem `[ ]` de propósito, e o runbook ainda não tem check
+para nenhuma das quatro — nem para F30/F31. Duas correções vieram de ler o código durante a
+implementação e estão registradas nas §8 das specs de F33 (tool call órfã fora de toda página) e F35
+(métrica `errors` e inbox do Dashboard).
 
 **Versão 1.2 fechada (F12–F17).** Todas as seis features do backlog 1.2 estão feitas com smoke real: F12 (`load_skill` no MCP `engrenacode`), F13 (worktree real), F14 (git/PR+textgen), F15 (subagent runtime E2E), F16 (composer avançado — model/reasoning/@file/imagens) e F17 (catálogo seed de onboarding). Todos os residuais foram fechados ao vivo em 2026-08-07 (ver `Esclarecimentos`): os dois gaps de F16 (CTA de imagem em provider não-multimodal, thumb de imagem no histórico), a criação real de PR contra o GitHub (F03/F14) e o idle timeout visível na UI (F07/F15).
 

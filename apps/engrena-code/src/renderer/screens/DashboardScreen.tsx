@@ -49,6 +49,7 @@ const COPY = {
   kindPendingDiff: 'diff pendente',
   kindError: 'erro',
   kindSetupIncomplete: 'setup incompleto',
+  kindInterrupted: 'interrompida',
   errorGeneric: 'Não foi possível carregar o dashboard.',
   errorNetwork: 'Não foi possível contatar o servidor local. Verifique se o EngrenaCode está em execução.',
   ctaRetry: 'Tentar novamente',
@@ -62,6 +63,8 @@ const INBOX_BADGE_CLASS: Record<DashboardInboxKind, string> = {
   pendingDiff: 'border-amber/40 bg-amber/10 text-amber',
   error: 'border-red/40 bg-red/10 text-red',
   setupIncomplete: 'border-amber/40 bg-amber/10 text-amber',
+  // Muted, não destrutivo: a conversa não deu errado, foi cortada (F35).
+  interrupted: 'border-line bg-surface-2 text-muted',
 }
 
 const INBOX_KIND_LABEL: Record<DashboardInboxKind, string> = {
@@ -69,6 +72,7 @@ const INBOX_KIND_LABEL: Record<DashboardInboxKind, string> = {
   pendingDiff: COPY.kindPendingDiff,
   error: COPY.kindError,
   setupIncomplete: COPY.kindSetupIncomplete,
+  interrupted: COPY.kindInterrupted,
 }
 
 function providerLabel(provider: string | null): string {

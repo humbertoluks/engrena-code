@@ -11,6 +11,11 @@ export interface Identified {
   id: string
 }
 
+/** Item da timeline que carrega a ordem canônica da thread. */
+export interface Sequenced extends Identified {
+  seq: number
+}
+
 /** Stable JSON for deep-ish equality of blocks/params/result without key order games. */
 function stableJson(value: unknown): string {
   try {
@@ -93,32 +98,28 @@ export function sameMessageLike(
   )
 }
 
-export function sameToolCallLike(
-  a: {
-    id: string
-    threadId: string
-    messageId: string | null
-    name: string
-    params: unknown
-    status: string
-    result: unknown
-    seq: number
-    startedAt: number
-    endedAt: number | null
-  },
-  b: {
-    id: string
-    threadId: string
-    messageId: string | null
-    name: string
-    params: unknown
-    status: string
-    result: unknown
-    seq: number
-    startedAt: number
-    endedAt: number | null
-  }
-): boolean {
+/**
+ * Forma mínima de tool call para a comparação. `result` e o trio de preview são **opcionais**
+ * porque F33 tirou o corpo da listagem: o histórico paginado manda `resultPreview`, e o corpo
+ * integral só chega quando o work log expande.
+ */
+export interface ToolCallLike {
+  id: string
+  threadId: string
+  messageId: string | null
+  name: string
+  params: unknown
+  status: string
+  result?: unknown
+  resultPreview?: string | null
+  resultTruncated?: boolean
+  resultBytes?: number
+  seq: number
+  startedAt: number
+  endedAt: number | null
+}
+
+export function sameToolCallLike(a: ToolCallLike, b: ToolCallLike): boolean {
   return (
     a.id === b.id &&
     a.threadId === b.threadId &&
@@ -128,7 +129,11 @@ export function sameToolCallLike(
     a.seq === b.seq &&
     a.startedAt === b.startedAt &&
     a.endedAt === b.endedAt &&
+    // O preview entra na comparação junto do corpo: sem ele, o resultado que chega truncado
+    // pela listagem nunca sinalizaria mudança e a linha ficaria com o texto do turno anterior.
+    a.resultTruncated === b.resultTruncated &&
     stableJson(a.params) === stableJson(b.params) &&
+    stableJson(a.resultPreview) === stableJson(b.resultPreview) &&
     stableJson(a.result) === stableJson(b.result)
   )
 }
@@ -269,4 +274,42 @@ export function isAbortError(err: unknown): boolean {
   if (err == null || typeof err !== 'object') return false
   const name = 'name' in err ? String((err as { name?: unknown }).name) : ''
   return name === 'AbortError'
+}
+
+/**
+ * União de duas páginas da mesma thread, deduplicada por `id` e ordenada por `seq` (F33).
+ *
+ * `mergeById` **substitui** a lista pela que chegou — é o certo enquanto o histórico vem inteiro,
+ * e é exatamente o errado com janela: o refetch da janela recente derrubaria as páginas antigas que
+ * o usuário acabou de carregar. Aqui a lista só cresce, e a ordem vem de `seq`, que o servidor
+ * atribui num contador único por thread.
+ *
+ * Mantém a referência do objeto já em memória quando ele não mudou, pelo mesmo motivo de
+ * `mergeById`: Work log aberto não pode remontar.
+ */
+export function unionBySeq<T extends Sequenced>(
+  prev: readonly T[],
+  next: readonly T[],
+  same: (a: T, b: T) => boolean
+): T[] {
+  if (next.length === 0) return prev as T[]
+  if (prev.length === 0) return next as T[]
+
+  const byId = new Map<string, T>()
+  for (const row of prev) byId.set(row.id, row)
+  let changed = false
+  for (const row of next) {
+    const old = byId.get(row.id)
+    if (old === undefined) {
+      byId.set(row.id, row)
+      changed = true
+      continue
+    }
+    if (!same(old, row)) {
+      byId.set(row.id, row)
+      changed = true
+    }
+  }
+  if (!changed && byId.size === prev.length) return prev as T[]
+  return [...byId.values()].sort((a, b) => a.seq - b.seq)
 }

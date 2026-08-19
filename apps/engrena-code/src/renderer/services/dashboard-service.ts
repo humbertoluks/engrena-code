@@ -20,7 +20,7 @@ export interface DashboardMetrics {
   errors: number
 }
 
-export type DashboardInboxKind = 'setupIncomplete' | 'error' | 'pendingDiff' | 'running'
+export type DashboardInboxKind = 'setupIncomplete' | 'error' | 'pendingDiff' | 'running' | 'interrupted'
 
 export interface DashboardInboxItem {
   kind: DashboardInboxKind

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import type { FeedbackVote, Message, ThreadState, ToolCall } from '../../services/threads-service'
+import { threadsService, type FeedbackVote, type Message, type ThreadState, type ToolCall } from '../../services/threads-service'
 import type { SubagentRun } from '../../services/subagents-service'
 import { SubagentTimelineBlock } from '../subagents/SubagentTimelineBlock'
 import type { ChildToolActivity } from './graph/executionGraph.logic'
@@ -43,6 +43,13 @@ const COPY = {
   followupsLabel: 'Sugestões de próximo passo',
   decisionLabel: 'Respostas para a pergunta do agente',
   followupsLoading: 'Sugerindo próximos passos…',
+  loadOlder: 'Carregar mensagens anteriores',
+  loadOlderBusy: 'Carregando…',
+  loadOlderFailed: 'Não deu para carregar. Tentar de novo.',
+  historyStart: 'Início da conversa',
+  resultLoading: 'Carregando resultado…',
+  resultFailed: 'Resultado completo indisponível.',
+  interruptedSeparator: 'Turno interrompido quando o app fechou',
 } as const
 
 interface ImageBlock {
@@ -167,13 +174,59 @@ function ToolStatusMark({ status }: Readonly<{ status: ToolCall['status'] }>): R
   return <span className="ml-auto flex-none text-[10px] text-red/80">{TOOL_STATUS_LABEL[status]}</span>
 }
 
+/**
+ * Resultado da tool no work log (F33).
+ *
+ * A listagem traz preview de 2 KB; o corpo integral só é buscado quando o usuário expande. Antes de
+ * F33 o histórico carregava até 64 KB por tool call para exibir as primeiras linhas de cada uma —
+ * metade do custo que a paginação existe para cortar.
+ *
+ * Falhar em buscar o corpo **não** apaga o preview: o que já estava legível continua na tela.
+ */
+function useToolResultBody(tool: ToolCall, open: boolean): { text: string; notice: string | null } {
+  const [full, setFull] = useState<string | null>(null)
+  const [state, setState] = useState<'idle' | 'loading' | 'failed'>('idle')
+  const truncated = tool.resultTruncated === true
+
+  useEffect(() => {
+    if (!open || !truncated || full !== null || state !== 'idle') return
+    setState('loading')
+    let cancelled = false
+    void threadsService
+      .toolCallResult(tool.id)
+      .then((res) => {
+        if (cancelled) return
+        if (res.error) {
+          setState('failed')
+          return
+        }
+        setFull(formatToolPayload(res.result, 6000))
+        setState('idle')
+      })
+      .catch(() => {
+        if (!cancelled) setState('failed')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, truncated, full, state, tool.id])
+
+  // `result` ainda chega pelo stream; `resultPreview` é o caminho do histórico paginado.
+  const preview = tool.resultPreview ?? formatToolPayload(tool.result, 6000)
+  if (full !== null) return { text: full, notice: null }
+  if (state === 'loading') return { text: preview ?? '', notice: COPY.resultLoading }
+  if (state === 'failed') return { text: preview ?? '', notice: COPY.resultFailed }
+  return { text: preview ?? '', notice: null }
+}
+
 function ToolCallRow({
   tool,
   open,
   onToggle,
 }: Readonly<{ tool: ToolCall; open: boolean; onToggle: (open: boolean) => void }>): ReactElement {
   const params = formatToolPayload(tool.params, 2000)
-  const result = formatToolPayload(tool.result, 6000)
+  const body = useToolResultBody(tool, open)
+  const result = body.text
   const hasDetail = Boolean(params || result)
 
   return (
@@ -197,6 +250,11 @@ function ToolCallRow({
             <pre className="m-0 max-h-[280px] overflow-auto whitespace-pre-wrap border-t border-border px-md py-sm font-mono text-[11px] leading-relaxed text-muted">
               {result}
             </pre>
+          ) : null}
+          {body.notice !== null ? (
+            <p role="status" className="m-0 border-t border-border px-md py-[3px] text-[11px] text-muted">
+              {body.notice}
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -452,6 +510,11 @@ export interface ChatHistoryProps {
   streamingText: string
   hasThread: boolean
   threadState?: ThreadState | null
+  /** Paginação do histórico (F33). */
+  historyHasMore?: boolean
+  historyPageLoading?: boolean
+  historyPageError?: string | null
+  onLoadOlder?: () => void
   /**
    * Gate aberto da thread (`useThreadGate`) — permissão **ou** pergunta, card inline na timeline.
    * Fonte única: nada aqui é inferido de `toolCalls`, que chega por refetch abortável.
@@ -491,6 +554,10 @@ export function ChatHistory({
   streamingText,
   hasThread,
   threadState = null,
+  historyHasMore = false,
+  historyPageLoading = false,
+  historyPageError = null,
+  onLoadOlder,
   gate = null,
   gateQueuedCount = 0,
   onPermissionResolve,
@@ -584,6 +651,13 @@ export function ChatHistory({
 
   return (
     <div className="flex flex-col p-md">
+      <HistoryTop
+        hasMore={historyHasMore}
+        loading={historyPageLoading}
+        error={historyPageError}
+        onLoadOlder={onLoadOlder}
+      />
+
       {groups.map((group) => {
         if (group.kind === 'message') {
           if (group.message.role === 'user') {
@@ -694,10 +768,77 @@ export function ChatHistory({
         </ul>
       ) : null}
 
+      {threadState === 'interrupted' ? <InterruptedSeparator /> : null}
+
       {queued.map((pending) => (
         <PendingUserMessage key={pending.id} pending={pending} />
       ))}
     </div>
+  )
+}
+
+/**
+ * Topo da timeline: o que existe antes da janela carregada (F33).
+ *
+ * Botão explícito, não scroll infinito: carregar sozinho ao encostar no topo faz a leitura andar
+ * debaixo do dedo do usuário e torna impossível parar no começo de um trecho. Sem mais páginas,
+ * o botão sai e entra o marcador de início — a ausência dos dois seria indistinguível de "ainda
+ * não sei", que é pior que qualquer das duas respostas.
+ */
+function HistoryTop({
+  hasMore,
+  loading,
+  error,
+  onLoadOlder,
+}: Readonly<{
+  hasMore: boolean
+  loading: boolean
+  error: string | null
+  onLoadOlder?: () => void
+}>): ReactElement | null {
+  if (!hasMore) {
+    return (
+      <p className="mb-md flex items-center gap-sm text-[11.5px] text-muted">
+        <span aria-hidden className="h-px flex-1 bg-border" />
+        {COPY.historyStart}
+        <span aria-hidden className="h-px flex-1 bg-border" />
+      </p>
+    )
+  }
+  return (
+    <div className="mb-md flex flex-col items-center gap-[4px]">
+      <button
+        type="button"
+        onClick={onLoadOlder}
+        disabled={loading}
+        className="rounded-full border border-border bg-surface-2 px-sm py-[3px] text-[12px] text-muted transition-colors hover:border-accent hover:text-fg disabled:opacity-60"
+      >
+        {loading ? COPY.loadOlderBusy : COPY.loadOlder}
+      </button>
+      {/* A janela já lida permanece na tela: falhar em buscar o passado não apaga o presente. */}
+      {error !== null ? (
+        <p role="status" className="text-[11.5px] text-amber">
+          {COPY.loadOlderFailed}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Fecho de uma conversa que o app cortou (F35).
+ *
+ * Não é tarja de erro e não usa o token de falha: nada deu errado, o turno foi interrompido. Sem
+ * ela a thread simplesmente para no meio e o usuário fica sem saber se a resposta se perdeu ou se
+ * o agente desistiu — que é o buraco que sobrava mesmo depois de o estado deixar de mentir.
+ */
+function InterruptedSeparator(): ReactElement {
+  return (
+    <p role="status" className="mb-md flex items-center gap-sm text-[11.5px] text-muted">
+      <span aria-hidden className="h-px flex-1 bg-border" />
+      {COPY.interruptedSeparator}
+      <span aria-hidden className="h-px flex-1 bg-border" />
+    </p>
   )
 }
 

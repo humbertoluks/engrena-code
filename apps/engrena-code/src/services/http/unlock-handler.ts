@@ -33,21 +33,46 @@ import { SESSION_HEADER } from './_transport.js'
 export { isAllowedLoopbackOrigin }
 
 const BOOT_RESTART_REASON = 'Aplicação reiniciada durante a execução.'
+
+/** Qual espera a thread perdeu quando o app fechou. Diagnóstico, não copy de produto. */
+const BOOT_ORIGIN_LABEL: Record<string, string> = {
+  running: 'executando',
+  waiting_user: 'esperando resposta a uma pergunta',
+  waiting_permission: 'esperando decisão de permissão',
+  stopping: 'sendo cancelada',
+}
 const BOOT_GATE_REASON = 'Pedido de permissão expirado: a aplicação reiniciou antes da sua resposta.'
 
 /**
- * Reconciliação de boot (spec.md F08 §3.2): threads presas em `running` viram `error` +
- * log_entries kind='task'. Antes disso, gate órfão (linha `open` sem continuação neste processo —
- * o socket do hook morreu com o processo anterior) é expirado com motivo legível, senão o
- * reconnect remontaria um card que ninguém consegue mais responder.
+ * Reconciliação de boot (spec.md F08 §3.2; estado próprio em F35): threads presas em execução viram
+ * `interrupted` + log_entries kind='task' com o estado de origem.
+ *
+ * A ordem importa e não é preferência: gate órfão é expirado **antes** de a thread mudar de estado.
+ * Ao contrário, sobra gate `open` apontando para thread já assentada — exatamente o resíduo que a
+ * varredura existe para limpar. Gate órfão é fail-closed: expira negando, nunca liberando.
+ *
+ * Falha ao gravar o log não impede o assentamento: registro perdido é diagnóstico perdido, thread
+ * presa em `running` é o app quebrado.
  */
 function recoverInterruptedThreads(): void {
   for (const gate of expireOrphanGates()) {
-    createLogEntry({ threadId: gate.threadId, kind: 'task', event: BOOT_GATE_REASON })
+    try {
+      createLogEntry({ threadId: gate.threadId, kind: 'task', event: BOOT_GATE_REASON })
+    } catch {
+      // Ver doc acima: o gate já está fechado, e é isso que corrige a thread.
+    }
   }
-  const recovered = recoverRunningThreads()
-  for (const thread of recovered) {
-    createLogEntry({ threadId: thread.id, kind: 'task', event: BOOT_RESTART_REASON })
+  for (const { thread, recoveredFrom } of recoverRunningThreads()) {
+    const origem = BOOT_ORIGIN_LABEL[recoveredFrom] ?? recoveredFrom
+    try {
+      createLogEntry({
+        threadId: thread.id,
+        kind: 'task',
+        event: `${BOOT_RESTART_REASON} A thread estava ${origem}.`,
+      })
+    } catch {
+      // Idem: o estado já assentou.
+    }
   }
 }
 
@@ -241,8 +266,14 @@ async function routeDomainHandlers(
     if (handled) return true
   }
 
-  // Threads routes (async — must not mix with data event listeners)
-  if (req.url?.startsWith('/api/threads') || req.url?.startsWith('/api/projects/')) {
+  // Threads routes (async — must not mix with data event listeners).
+  // `/api/tool-calls/` mora aqui porque o corpo de resultado (F33) é servido pelo mesmo handler,
+  // com o mesmo `guard()` de cofre e sessão.
+  if (
+    req.url?.startsWith('/api/threads') ||
+    req.url?.startsWith('/api/tool-calls/') ||
+    req.url?.startsWith('/api/projects/')
+  ) {
     const handled = await handleThreadsRequest(req, res)
     if (handled) return true
   }

@@ -55,7 +55,7 @@ afterAll(() => {
 })
 
 describe('createUnlockServer boot recovery', () => {
-  it('moves orphaned running threads to error and records a task log_entries', () => {
+  it('marca thread órfã como interrupted e registra o estado de origem (F35)', () => {
     const project = createProject({ path: makeProjectDir('project-a') })
     const running = createThread({
       projectId: project.id,
@@ -67,10 +67,13 @@ describe('createUnlockServer boot recovery', () => {
 
     server = createUnlockServer(0)
 
-    expect(getThread(running.id)?.state).toBe('error')
+    // Não `error`: nada falhou, o turno foi cortado pelo fechamento do app (F35).
+    expect(getThread(running.id)?.state).toBe('interrupted')
     const entries = listLogEntries({ kind: 'task' })
     expect(entries).toHaveLength(1)
     expect(entries[0]?.threadId).toBe(running.id)
+    // O estado de origem entra no registro: é o que diz qual espera a thread perdeu.
+    expect(entries[0]?.event).toContain('executando')
   })
 
   it('does nothing when there are no orphaned threads', () => {

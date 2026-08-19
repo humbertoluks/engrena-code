@@ -10,7 +10,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useTheme } from '@engrena/ui'
-import type { PipelineHistory, Thread, ToolCall } from '../../../services/threads-service'
+import { threadsService, type PipelineHistory, type Thread, type ToolCall } from '../../../services/threads-service'
 import type { SubagentRun } from '../../../services/subagents-service'
 import {
   buildExecutionGraph,
@@ -35,14 +35,73 @@ export interface ExecutionGraphPanelProps {
   liveOverlay: LiveGraphOverlay
 }
 
+/**
+ * Tool calls da thread **inteira** para o grafo (F33).
+ *
+ * O chat passou a carregar por janela, e o grafo lia a mesma lista: sem isto, abrir uma conversa
+ * longa mostraria só a execução das últimas dezenas de mensagens, sem nada indicando a amputação.
+ * A rota de projeção devolve a thread completa porque não carrega corpo de resultado — é pequena
+ * por construção, ao contrário do histórico.
+ *
+ * A lista da janela entra em união com ela: uma tool call que acabou de começar já está no estado
+ * do chat (overlay/stream) antes de a projeção ser rebuscada.
+ */
+function useFullThreadToolCalls(threadId: string | null, windowToolCalls: ToolCall[]): ToolCall[] {
+  const [projected, setProjected] = useState<ToolCall[]>([])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `windowToolCalls.length` é sinal de propósito, não dependência de leitura — o efeito rebusca a projeção quando o turno cria tool call nova. O array inteiro muda de identidade a cada merge e dispararia um GET por evento de stream.
+  useEffect(() => {
+    if (threadId === null) {
+      setProjected([])
+      return
+    }
+    let cancelled = false
+    void threadsService
+      .threadGraph(threadId)
+      .then((res) => {
+        if (cancelled || res.error) return
+        setProjected(
+          res.nodes.map((node) => ({
+            id: node.id,
+            threadId,
+            messageId: node.messageId,
+            name: node.name,
+            // A projeção não traz `params` nem `result` de propósito: o grafo não os usa, e é o que
+            // mantém o payload pequeno o bastante para servir a thread inteira.
+            params: null,
+            result: null,
+            status: node.status,
+            seq: node.seq,
+            startedAt: node.startedAt,
+            endedAt: node.endedAt,
+          }))
+        )
+      })
+      .catch(() => {
+        // Grafo degrada para a janela do chat; nenhum erro em tela por isso.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [threadId, windowToolCalls.length])
+
+  return useMemo(() => {
+    if (projected.length === 0) return windowToolCalls
+    const byId = new Map(projected.map((call) => [call.id, call]))
+    for (const call of windowToolCalls) byId.set(call.id, call)
+    return [...byId.values()].sort((a, b) => a.seq - b.seq)
+  }, [projected, windowToolCalls])
+}
+
 function ExecutionGraphCanvas({
   thread,
-  toolCalls,
+  toolCalls: windowToolCalls,
   subagentRuns,
   pipeline,
   liveOverlay,
 }: ExecutionGraphPanelProps) {
   const { resolvedTheme } = useTheme()
+  const toolCalls = useFullThreadToolCalls(thread?.id ?? null, windowToolCalls)
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
 
   const laid = useMemo(() => {

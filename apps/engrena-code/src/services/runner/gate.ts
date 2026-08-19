@@ -8,13 +8,24 @@ import {
   listOpenThreadGates,
   type ThreadGate,
 } from '../db/repositories/thread-gates.js'
+import { createLogEntry } from '../db/repositories/log-entries.js'
 import { getThread, type ThreadAccessLevel } from '../db/repositories/threads.js'
 import { permissionPolicyDecision } from './permission-policy.js'
+import { permissionGateTimeoutMs } from './providers/permission-contract.js'
 import { applyTransition } from './turn-state.js'
 import { emit } from './ws-hub.js'
 
-/** Fail-closed: sem resposta do usuário, a tool é negada e o HTTP do hook não fica preso 10+ min. */
-export const PERMISSION_TIMEOUT_MS = 2 * 60 * 1000
+/**
+ * Fail-closed: sem resposta do usuário, a tool é negada e o HTTP do hook não fica preso além do
+ * que o CLI aguenta.
+ *
+ * O valor é **derivado** do contrato do hook (`HOOK_COMMAND_TIMEOUT_SEC` menos
+ * `PERMISSION_HOOK_MARGIN_SEC`), nunca escrito à mão: o teto de quem espera é o do CLI, e o
+ * literal que morava aqui era cinco vezes mais apertado que ele sem nada explicando por quê.
+ * Este é o único ponto de verdade — `openPermissionGate`, `expireDueGates` e o relógio do card
+ * leem daqui, direto ou pelo `expiresAt` que ele calcula.
+ */
+export const PERMISSION_TIMEOUT_MS = permissionGateTimeoutMs()
 
 /** Resposta do usuário a um gate de pergunta (`ask_user_question` e checkpoint de pipeline). */
 export interface GateAnswer {
@@ -195,6 +206,39 @@ interface CloseOptions {
   beforeRelease?: (gate: ThreadGate) => void
 }
 
+/** Desfecho registrado no log, na mesma partição de `BrokerPermissionOutcome`. */
+function gateClosureOutcome(state: 'resolved' | 'expired', allow: boolean): string {
+  if (state === 'expired') return 'expired'
+  return allow ? 'granted' : 'denied'
+}
+
+/**
+ * Registra quanto tempo o card ficou aberto e como terminou (F32).
+ *
+ * É a instrumentação que falta para julgar o prazo por dado em vez de por impressão: sem ela, a
+ * pergunta "8 minutos bastam?" só se responde abrindo o código. Só gate de permissão entra — o de
+ * pergunta tem outra semântica de espera e outro dono de copy.
+ *
+ * Nunca embute `payload` (é o `tool_input`, pode conter comando e credencial) e nunca deixa uma
+ * falha de escrita derrubar o fechamento: perder o registro é preferível a deixar a thread presa.
+ */
+function logGateClosure(gate: ThreadGate, outcome: GateOutcome, reason: string): void {
+  if (gate.kind !== 'permission' || outcome.kind !== 'permission') return
+  const tool = (gate.toolName ?? '').trim() === '' ? 'desconhecida' : (gate.toolName as string).trim()
+  const abertoSeg = Math.max(0, Math.round(((gate.resolvedAt ?? Date.now()) - gate.createdAt) / 1000))
+  const prazoSeg = Math.round(PERMISSION_TIMEOUT_MS / 1000)
+  const desfecho = gateClosureOutcome(gate.state === 'expired' ? 'expired' : 'resolved', outcome.allow)
+  try {
+    createLogEntry({
+      threadId: gate.threadId,
+      kind: 'tool',
+      event: `Permissão de ${tool}: ${desfecho} após ${abertoSeg}s (prazo ${prazoSeg}s, motivo ${reason}).`,
+    })
+  } catch {
+    // Registro é diagnóstico; fechamento do gate é correção. Nunca inverter a prioridade.
+  }
+}
+
 /**
  * Consome o gate (CAS no SQLite) e destrava a continuação. Só o primeiro chamador ganha: timeout e
  * clique do usuário podem correr juntos e o perdedor vira no-op em vez de responder duas vezes.
@@ -217,6 +261,7 @@ function closeGate(
 
   options.beforeRelease?.(gate)
   releaseContinuation(gateId, outcome, reason)
+  logGateClosure(gate, outcome, reason)
 
   emit(gate.threadId, {
     type: 'gate.resolved',

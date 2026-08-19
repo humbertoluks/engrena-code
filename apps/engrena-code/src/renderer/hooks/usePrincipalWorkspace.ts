@@ -120,9 +120,16 @@ export function usePrincipalWorkspace() {
     historyLoading,
     historyError,
     streamingText,
+    historyCursor,
+    historyHasMore,
+    historyPageLoading,
+    historyPageError,
     historyLoadStarted,
     historyLoadFailed,
     historyLoaded,
+    historyPageLoadStarted,
+    historyPageLoadFailed,
+    historyPageLoaded,
     historyLoadSettled,
     threadOpened,
     threadCleared,
@@ -192,6 +199,8 @@ export function usePrincipalWorkspace() {
     setActiveFile,
     implicitContextEnabled,
     setImplicitContextEnabled,
+    restoredDroppedImages,
+    dismissDroppedImages,
   } = useComposerDraft({
     projectId: selectedProjectId,
     selectedThread,
@@ -333,7 +342,8 @@ export function usePrincipalWorkspace() {
         return
       }
       // Uma transição só: merge por id das listas, reconcile das bolhas e overlay zerado.
-      historyLoaded(res)
+      // O `threadId` decide entre unir (outra página da mesma thread) e substituir (thread nova).
+      historyLoaded(res, threadId)
       recordHistoryRefetchCompleted()
     } catch (err: unknown) {
       if (isAbortError(err) || signal.aborted) {
@@ -351,6 +361,41 @@ export function usePrincipalWorkspace() {
       }
     }
   }, [historyLoadStarted, historyLoadFailed, historyLoaded, historyLoadSettled])
+
+  /**
+   * Carrega a página **anterior** do histórico (F33).
+   *
+   * Fora do gate de single-flight de propósito: aquele existe para coalescer a rajada de refetch da
+   * janela recente disparada pelo stream, e esta busca é um clique do usuário — coalescê-la faria o
+   * botão parecer morto. Nunca liga `historyLoading`: trocar a árvore por "Carregando…" jogaria o
+   * scroll ao topo, que é o oposto do que o botão promete.
+   */
+  const loadOlderHistoryPage = useCallback(async () => {
+    const threadId = selectedThreadId
+    if (threadId === null || !historyHasMore || historyPageLoading) return
+    const before = historyCursor
+    if (before === null) return
+    historyPageLoadStarted()
+    try {
+      const res = await threadsService.history(threadId, { before })
+      if (!mountedRef.current) return
+      if (res.error) {
+        historyPageLoadFailed(res.error.message)
+        return
+      }
+      historyPageLoaded(res, threadId)
+    } catch {
+      if (mountedRef.current) historyPageLoadFailed('Não deu para carregar. Tentar de novo.')
+    }
+  }, [
+    selectedThreadId,
+    historyHasMore,
+    historyPageLoading,
+    historyCursor,
+    historyPageLoadStarted,
+    historyPageLoadFailed,
+    historyPageLoaded,
+  ])
 
   /** Sugestões de próximo passo: best-effort, nunca bloqueia nem mostra erro. */
   const loadFollowups = useCallback(async (threadId: string) => {
@@ -1166,6 +1211,10 @@ export function usePrincipalWorkspace() {
     closeSubagentRun,
     historyLoading,
     historyError,
+    historyHasMore,
+    historyPageLoading,
+    historyPageError,
+    loadOlderHistoryPage,
     streamingText,
     diffs,
     activeTab,
@@ -1183,6 +1232,8 @@ export function usePrincipalWorkspace() {
     setActiveFile,
     implicitContextEnabled,
     setImplicitContextEnabled,
+    restoredDroppedImages,
+    dismissDroppedImages,
     updateComposer,
     setAccessLevel,
     savedPrompts,

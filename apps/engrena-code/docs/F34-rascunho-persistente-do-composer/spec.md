@@ -2,6 +2,8 @@
 
 **Complexidade:** simples
 
+**Status:** implementada em 2026-08-19. Unitários verdes em duas rodadas; **sem smoke ao vivo** — os critérios que dependem de tela seguem abertos no PRD §9.
+
 ## 1. Visão Geral Técnica
 
 **O quê:** persistir o rascunho não enviado do composer por thread, em `localStorage`, seguindo a mesma convenção que a fila de mensagens já usa.

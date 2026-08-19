@@ -106,12 +106,16 @@ export const SETTLED_THREAD_STATES: readonly ThreadState[] = [
   'committed',
   'error',
   'cancelled',
+  // Turno cortado pelo fechamento do app (F35). Terminal como qualquer outro: se ficasse fora,
+  // o composer abriria em modo ocupado numa thread que o backend já considera parada.
+  'interrupted',
 ]
 
 /**
  * Assentamentos que deixam resultado a reconciliar (histórico, diffs, sugestões, fila, consumo).
  *
- * É todo estado assentado, `cancelled` incluído: a fila anda sozinha assim que a execução termina,
+ * É todo estado assentado, `cancelled` e `interrupted` incluídos: a fila anda sozinha assim que a
+ * execução termina,
  * qualquer que tenha sido o desfecho. Já foi o contrário — `cancelled` ficava de fora com o
  * argumento de que despachar logo após um Parar contraria o usuário —, e o resultado era pior: a
  * fila congelava sem nada que a movesse, e o item só saía quando outra mensagem qualquer

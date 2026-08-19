@@ -8,8 +8,22 @@ process.env.ENGRENACODE_USER_DATA = mkdtempSync(join(tmpdir(), 'engrenacode_clau
 const { getDb, closeDb } = await import('../client.js')
 const { createProject } = await import('./projects.js')
 const { createThread } = await import('./threads.js')
-const { appendMessage, cancelRunningToolCallsForThread, createToolCall, listMessagesForThread, listToolCallsForThread, updateToolCall } =
-  await import('./messages.js')
+const {
+  appendMessage,
+  cancelRunningToolCallsForThread,
+  createToolCall,
+  getToolCallResult,
+  HISTORY_WINDOW_DEFAULT,
+  listMessagesForThread,
+  listMessagesWindow,
+  listToolCallGraphForThread,
+  listToolCallsForThread,
+  listToolCallsWindow,
+  maxSeqForThread,
+  previewToolCallResult,
+  TOOL_RESULT_PREVIEW_CHARS,
+  updateToolCall,
+} = await import('./messages.js')
 
 let threadId: string
 
@@ -152,5 +166,176 @@ describe('cancelRunningToolCallsForThread', () => {
 
   it('returns empty when nothing is running', () => {
     expect(cancelRunningToolCallsForThread(threadId)).toEqual([])
+  })
+})
+
+// ── Janela paginada (F33) ────────────────────────────────────────────────────
+//
+// A janela é keyset sobre `seq`, e funciona porque `nextSeq` tira `MAX(seq)` de messages **e**
+// tool_calls: `seq` é um contador único por thread e ordena as duas tabelas no mesmo eixo.
+
+/** Thread nova num projeto novo, para não brigar com a thread do `beforeEach`. */
+function freshThread(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'engrenacode_f33_proj_'))
+  const project = createProject({ path: dir })
+  return createThread({
+    projectId: project.id,
+    provider: 'claude',
+    accessLevel: 'supervised',
+    executionMode: 'main',
+    state: 'idle',
+  }).id
+}
+
+function seedMensagens(id: string, quantas: number): void {
+  for (let i = 0; i < quantas; i += 1) appendMessage({ threadId: id, role: 'user', content: `msg ${i}` })
+}
+
+describe('listMessagesWindow / listToolCallsWindow (F33)', () => {
+  it('sem parâmetro devolve as mais recentes, em ordem ascendente', () => {
+    const id = freshThread()
+    seedMensagens(id, HISTORY_WINDOW_DEFAULT + 10)
+
+    const janela = listMessagesWindow(id)
+
+    expect(janela.messages).toHaveLength(HISTORY_WINDOW_DEFAULT)
+    expect(janela.messages.at(-1)?.content).toBe(`msg ${HISTORY_WINDOW_DEFAULT + 9}`)
+    expect(janela.messages[0].seq).toBeLessThan(janela.messages.at(-1)?.seq as number)
+    expect(janela.hasMore).toBe(true)
+    expect(janela.cursor).toBe(janela.messages[0].seq)
+  })
+
+  it('thread menor que a janela: sem página anterior', () => {
+    const id = freshThread()
+    seedMensagens(id, 3)
+    const janela = listMessagesWindow(id)
+    expect(janela.messages).toHaveLength(3)
+    expect(janela.hasMore).toBe(false)
+  })
+
+  it('thread vazia devolve cursor nulo', () => {
+    const janela = listMessagesWindow(freshThread())
+    expect(janela.messages).toEqual([])
+    expect(janela.cursor).toBeNull()
+    expect(janela.hasMore).toBe(false)
+  })
+
+  it('before devolve a página anterior sem sobreposição nem buraco', () => {
+    const id = freshThread()
+    seedMensagens(id, 25)
+
+    const primeira = listMessagesWindow(id, 10)
+    const segunda = listMessagesWindow(id, 10, primeira.cursor)
+    const terceira = listMessagesWindow(id, 10, segunda.cursor)
+
+    const seqs = [...terceira.messages, ...segunda.messages, ...primeira.messages].map((m) => m.seq)
+    expect(seqs).toHaveLength(25)
+    expect(new Set(seqs).size).toBe(25)
+    expect(seqs).toEqual([...seqs].sort((x, y) => x - y))
+    expect(terceira.hasMore).toBe(false)
+  })
+
+  it('escrita concorrente não desloca a página (keyset, não offset)', () => {
+    const id = freshThread()
+    seedMensagens(id, 20)
+
+    const primeira = listMessagesWindow(id, 10)
+    // Mensagem nova entre as duas leituras — o caso que mais acontece numa thread viva, e onde
+    // `offset` duplicaria ou pularia uma linha.
+    appendMessage({ threadId: id, role: 'assistant', content: 'nova' })
+    const segunda = listMessagesWindow(id, 10, primeira.cursor)
+
+    const ids = [...segunda.messages, ...primeira.messages].map((m) => m.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(segunda.messages.some((m) => m.content === 'nova')).toBe(false)
+  })
+
+  it('limit é capado no teto e nunca é zero', () => {
+    const id = freshThread()
+    seedMensagens(id, 5)
+    expect(listMessagesWindow(id, 10_000).messages).toHaveLength(5)
+    expect(listMessagesWindow(id, 0).messages).toHaveLength(1)
+  })
+
+  it('tool call sem message_id entra na faixa igual, e a de fora não entra', () => {
+    const id = freshThread()
+    seedMensagens(id, 5)
+    // `message_id` é nullable: chavear a janela por ele perderia esta em silêncio.
+    createToolCall({ threadId: id, name: 'Bash', params: {}, status: 'completed' })
+    seedMensagens(id, 5)
+
+    const recente = listMessagesWindow(id, 3)
+    expect(listToolCallsWindow(id, recente.cursor)).toHaveLength(0)
+
+    const inteira = listMessagesWindow(id, 200)
+    expect(listToolCallsWindow(id, inteira.cursor).map((c) => c.name)).toEqual(['Bash'])
+  })
+
+  it('cursor nulo não busca tool call nenhuma', () => {
+    expect(listToolCallsWindow(freshThread(), null)).toEqual([])
+  })
+
+  it('maxSeqForThread cobre as duas tabelas', () => {
+    const id = freshThread()
+    seedMensagens(id, 2)
+    const call = createToolCall({ threadId: id, name: 'Read', params: {}, status: 'running' })
+    expect(maxSeqForThread(id)).toBe(call.seq)
+    expect(maxSeqForThread(freshThread())).toBeNull()
+  })
+})
+
+describe('previewToolCallResult / getToolCallResult (F33)', () => {
+  it('resultado curto vai inteiro, sem marca de truncado', () => {
+    const preview = previewToolCallResult('ok')
+    expect(preview.resultTruncated).toBe(false)
+    // Resultado que já é string não é re-serializado: aspas extras vazariam para a tela.
+    expect(preview.resultPreview).toBe('ok')
+    expect(preview.resultBytes).toBe(2)
+  })
+
+  it('resultado nulo não inventa preview', () => {
+    expect(previewToolCallResult(null)).toEqual({
+      resultPreview: null,
+      resultTruncated: false,
+      resultBytes: 0,
+    })
+  })
+
+  it('resultado grande vem cortado, com o tamanho real', () => {
+    const grande = 'x'.repeat(TOOL_RESULT_PREVIEW_CHARS * 3)
+    const preview = previewToolCallResult(grande)
+    expect(preview.resultPreview).toHaveLength(TOOL_RESULT_PREVIEW_CHARS)
+    expect(preview.resultTruncated).toBe(true)
+    // O tamanho real é o que a UI usa para dizer que há mais.
+    expect(preview.resultBytes).toBeGreaterThan(TOOL_RESULT_PREVIEW_CHARS)
+  })
+
+  it('o corpo integral sai pela consulta própria', () => {
+    const id = freshThread()
+    const grande = 'y'.repeat(TOOL_RESULT_PREVIEW_CHARS * 2)
+    const call = createToolCall({ threadId: id, name: 'Bash', params: {}, status: 'running' })
+    updateToolCall(call.id, { status: 'completed', result: grande })
+
+    expect(getToolCallResult(call.id)?.result).toBe(grande)
+    expect(getToolCallResult('tc_inexistente')).toBeNull()
+  })
+})
+
+describe('listToolCallGraphForThread (F33)', () => {
+  it('devolve a thread inteira e nenhum corpo de resultado', () => {
+    const id = freshThread()
+    for (let i = 0; i < 5; i += 1) {
+      const call = createToolCall({ threadId: id, name: `T${i}`, params: {}, status: 'running' })
+      updateToolCall(call.id, { status: 'completed', result: 'z'.repeat(5_000) })
+      appendMessage({ threadId: id, role: 'assistant', content: `r ${i}` })
+    }
+
+    const nodes = listToolCallGraphForThread(id)
+
+    // A paginação do chat não pode amputar o grafo.
+    expect(nodes).toHaveLength(5)
+    // Pequeno por construção: é isso que permite servir a thread inteira sem custo.
+    expect(JSON.stringify(nodes)).not.toContain('zzzz')
+    expect(nodes.map((n) => n.seq)).toEqual([...nodes.map((n) => n.seq)].sort((x, y) => x - y))
   })
 })

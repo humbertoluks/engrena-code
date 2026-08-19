@@ -71,6 +71,9 @@ const STATE_DOT: Record<Thread['state'], string> = {
   waiting_permission: 'bg-accent',
   // Cancelada pelo usuário: assentou, não é falha — neutro como `idle`, nunca o vermelho de `error`.
   cancelled: 'bg-muted',
+  // Cortada pelo fechamento do app (F35): também assentou e também não é falha. Neutro pelo mesmo
+  // motivo de `cancelled` — o vermelho de `error` acusaria um defeito que não houve.
+  interrupted: 'bg-muted',
 }
 
 /** Linha da conversa com ações de renomear e exportar (F28 Onda 2). */

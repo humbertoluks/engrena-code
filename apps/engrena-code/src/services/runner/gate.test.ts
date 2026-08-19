@@ -11,6 +11,10 @@ const { createThread, getThread, updateThread } = await import('../db/repositori
 const { createThreadGate, getThreadGate, listOpenThreadGates } = await import(
   '../db/repositories/thread-gates.js'
 )
+const { listLogEntries } = await import('../db/repositories/log-entries.js')
+const { HOOK_COMMAND_TIMEOUT_SEC, PERMISSION_HOOK_MARGIN_SEC } = await import(
+  './providers/permission-contract.js'
+)
 const { clearAllSubscriptions, subscribe } = await import('./ws-hub.js')
 const {
   allowOpenPermissionGates,
@@ -26,6 +30,7 @@ const {
   markThreadWaitingUser,
   openPermissionGate,
   openQuestionGate,
+  PERMISSION_TIMEOUT_MS,
   resolvePermissionGate,
   resolveQuestionGate,
 } = await import('./gate.js')
@@ -580,5 +585,122 @@ describe('listOpenGates', () => {
     expect(listOpenGates(threadId)).toHaveLength(1)
 
     expireOpenPermissionGates(threadId, 'turn_ended')
+  })
+})
+
+/**
+ * F32 — prazo derivado e instrumentado. O que estes testes protegem é a ligação entre o prazo do
+ * card e o teto do hook do CLI: um literal aqui volta a ser o defeito que a feature corrigiu.
+ */
+
+describe('prazo do card de permissão (F32)', () => {
+  /** `listLogEntries` só filtra por `kind`; o recorte por thread é do chamador. */
+  function linhasDePermissao(threadId: string, tool: string): string[] {
+    return listLogEntries({ kind: 'tool' })
+      .filter((entry) => entry.threadId === threadId)
+      .map((entry) => entry.event)
+      .filter((event) => event.startsWith(`Permissão de ${tool}:`))
+  }
+
+  it('o prazo do gate é o derivado do contrato do hook, não um literal', () => {
+    expect(PERMISSION_TIMEOUT_MS).toBe((HOOK_COMMAND_TIMEOUT_SEC - PERMISSION_HOOK_MARGIN_SEC) * 1000)
+    expect(PERMISSION_TIMEOUT_MS).toBe(480_000)
+  })
+
+  it('openPermissionGate usa esse prazo quando ninguém passa timeoutMs', async () => {
+    const threadId = seedThread()
+    const opened = openPermissionGate({ threadId, toolName: 'Bash', params: {} })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    const gate = getThreadGate(opened.gate.requestId)
+    expect(gate).not.toBeNull()
+    // Medido do próprio createdAt do gate, não de um relógio do turno.
+    expect((gate?.expiresAt as number) - (gate?.createdAt as number)).toBe(PERMISSION_TIMEOUT_MS)
+    resolvePermissionGate(threadId, opened.gate.requestId, false)
+    await opened.decision
+  })
+
+  it('nenhum caminho de gate tem prazo próprio (anti-drift)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const fonte = readFileSync(new URL('./gate.ts', import.meta.url), 'utf-8')
+    // Só a linha do derivado pode falar de prazo. Qualquer `N * 60 * 1000` novo é drift.
+    expect(fonte).not.toMatch(/\d+\s*\*\s*60\s*\*\s*1000/)
+    expect(fonte).toContain('permissionGateTimeoutMs()')
+  })
+
+  it('gate concedido grava desfecho granted e os segundos abertos', async () => {
+    const threadId = seedThread()
+    const opened = openPermissionGate({ threadId, toolName: 'Write', params: { file_path: 'x' } })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    resolvePermissionGate(threadId, opened.gate.requestId, true)
+    await opened.decision
+
+    const linhas = linhasDePermissao(threadId, 'Write')
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0]).toContain('granted')
+    expect(linhas[0]).toMatch(/após \d+s/)
+    expect(linhas[0]).toContain('prazo 480s')
+  })
+
+  it('gate negado grava denied, e o params nunca vaza para o log', async () => {
+    const threadId = seedThread()
+    const opened = openPermissionGate({
+      threadId,
+      toolName: 'Bash',
+      params: { command: 'echo $SENHA_SECRETA' },
+    })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    resolvePermissionGate(threadId, opened.gate.requestId, false)
+    await opened.decision
+
+    const linhas = linhasDePermissao(threadId, 'Bash')
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0]).toContain('denied')
+    // `params` vira o payload do gate: pode conter comando e credencial. Nunca no log.
+    expect(linhas[0]).not.toContain('SENHA_SECRETA')
+    expect(linhas[0]).not.toContain('echo')
+  })
+
+  it('gate expirado grava expired e continua fail-closed', async () => {
+    const threadId = seedThread()
+    const opened = openPermissionGate({ threadId, toolName: 'WebFetch', params: {}, timeoutMs: 40 })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    // Fail-closed: expiry nega, nunca libera.
+    await expect(opened.decision).resolves.toMatchObject({ allow: false })
+
+    const linhas = linhasDePermissao(threadId, 'WebFetch')
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0]).toContain('expired')
+  })
+
+  it('gate de pergunta não gera linha de permissão', () => {
+    const threadId = seedThread()
+    markThreadWaitingUser(threadId)
+    const opened = openQuestionGate({ threadId, question: { prompt: 'segue?', options: ['sim'] } })
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    resolveQuestionGate(threadId, opened.gate.gateId, { selectedOptions: ['sim'] })
+    const linhas = listLogEntries({ kind: 'tool' })
+      .filter((entry) => entry.threadId === threadId)
+      .filter((entry) => entry.event.startsWith('Permissão de'))
+    expect(linhas).toHaveLength(0)
+  })
+
+  it('dois gates no mesmo turno medem prazos independentes', async () => {
+    const threadId = seedThread()
+    const primeiro = openPermissionGate({ threadId, toolName: 'Read', params: {} })
+    const segundo = openPermissionGate({ threadId, toolName: 'Grep', params: {} })
+    expect(primeiro.ok && segundo.ok).toBe(true)
+    if (!primeiro.ok || !segundo.ok) return
+    const a = getThreadGate(primeiro.gate.requestId)
+    const b = getThreadGate(segundo.gate.requestId)
+    expect((a?.expiresAt as number) - (a?.createdAt as number)).toBe(PERMISSION_TIMEOUT_MS)
+    expect((b?.expiresAt as number) - (b?.createdAt as number)).toBe(PERMISSION_TIMEOUT_MS)
+    resolvePermissionGate(threadId, primeiro.gate.requestId, false)
+    resolvePermissionGate(threadId, segundo.gate.requestId, false)
+    await Promise.all([primeiro.decision, segundo.decision])
   })
 })

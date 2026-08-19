@@ -1709,38 +1709,43 @@ graph TD
 - [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos, e escrita e leitura têm rótulos distintos
 - [x] Leitura pelo shell dentro da borda roda sem card; leitura fora da borda, `tail -f` e pipeline com verbo fora da lista abrem card
 
+> **Marcação:** `[x]` só onde há teste automatizado cobrindo o critério. Critério que depende do que
+> aparece na tela segue `[ ]` até a homologação — é a correção da contabilidade otimista que a
+> auditoria de 2026-08-19 apontou (AC marcada com base em unitário para superfície visual).
+
 ### F32. Prazo do pedido de permissão
-- [ ] `PERMISSION_TIMEOUT_MS` é derivado de `HOOK_COMMAND_TIMEOUT_SEC` menos margem, e não existe literal de prazo em nenhum outro caminho (`closeGate` por expiry, `expireOrphanGates`, relógio do card)
-- [ ] Teste falha se a margem for ≤ 0 ou se o prazo derivado passar do teto do hook
-- [ ] Card aberto por 5 min e respondido concede a tool normalmente; card aberto por mais de 8 min expira e nega
-- [ ] Expiry continua fail-closed: nenhum caminho de gate vencido libera tool
-- [ ] Todo gate fechado grava `log_entries` com desfecho (`granted` | `denied` | `expired`) e segundos aberto
-- [ ] App fechado com gate aberto: o gate é fechado no boot antes de a thread mudar de estado, sem gate órfão
+- [x] `PERMISSION_TIMEOUT_MS` é derivado de `HOOK_COMMAND_TIMEOUT_SEC` menos margem, e não existe literal de prazo em nenhum outro caminho (`closeGate` por expiry, `expireOrphanGates`, relógio do card)
+- [x] Teste falha se a margem for ≤ 0 ou se o prazo derivado passar do teto do hook
+- [x] Card aberto por 5 min e respondido concede a tool normalmente; card aberto por mais de 8 min expira e nega
+- [x] Expiry continua fail-closed: nenhum caminho de gate vencido libera tool
+- [x] Todo gate fechado grava `log_entries` com desfecho (`granted` | `denied` | `expired`) e segundos aberto
+- [x] App fechado com gate aberto: o gate é fechado no boot antes de a thread mudar de estado, sem gate órfão
 
 ### F33. Histórico de chat paginado
-- [ ] `GET /history` sem parâmetro devolve no máximo 60 mensagens (as mais recentes) com `hasMore` e `cursor`
-- [ ] `limit` acima de 200 é recusado; `before` não numérico, negativo ou fora de faixa responde 400 `invalid_cursor`
-- [ ] Resultado de tool acima de 2 KB chega como `resultPreview` + `resultTruncated` + tamanho, e o corpo integral vem por `GET /api/tool-calls/:id/result`
-- [ ] Refetch disparado pelo stream busca só a janela recente: o número de mensagens transferidas não cresce com o tamanho da thread
-- [ ] "Carregar mensagens anteriores" prepende a página e a primeira mensagem visível fica na mesma posição de scroll
-- [ ] Aba Grafo (F29) projeta a execução inteira mesmo com o chat paginado, lendo a projeção sem corpo de resultado
-- [ ] Página anterior e refetch concorrente reconciliam por `seq`, sem duplicata nem buraco
+- [x] `GET /history` sem parâmetro devolve no máximo 60 mensagens (as mais recentes) com `hasMore` e `cursor`
+- [x] `limit` acima de 200 é recusado; `before` não numérico, negativo ou fora de faixa responde 400 `invalid_cursor`
+- [x] Resultado de tool acima de 2 KB chega como `resultPreview` + `resultTruncated` + tamanho, e o corpo integral vem por `GET /api/tool-calls/:id/result`
+- [x] Refetch disparado pelo stream busca só a janela recente: o número de mensagens transferidas não cresce com o tamanho da thread
+- [ ] "Carregar mensagens anteriores" prepende a página e a primeira mensagem visível fica na mesma posição de scroll — **depende de tela, pendente de homologação**
+- [x] Aba Grafo (F29) projeta a execução inteira mesmo com o chat paginado, lendo a projeção sem corpo de resultado
+- [x] Página anterior e refetch concorrente reconciliam por `seq`, sem duplicata nem buraco
 
 ### F34. Rascunho persistente do composer
-- [ ] Texto não enviado sobrevive a F5 e a restart do app, por thread, com anexos explícitos restaurados
-- [ ] Imagem colada não é persistida e a contagem perdida aparece em linha muted, que sai ao primeiro toque no campo
-- [ ] Rascunho acima de 32 KB não é persistido e o composer continua funcionando
-- [ ] Envio bem-sucedido e DELETE da thread apagam a chave; reabrir não ressuscita rascunho enviado
-- [ ] Chave corrompida ou de versão desconhecida é descartada sem erro em tela
-- [ ] `QuotaExceededError` não trava o composer
+- [ ] Texto não enviado sobrevive a F5 e a restart do app, por thread, com anexos explícitos restaurados — **depende de tela, pendente de homologação** (a serialização está coberta em unitário)
+- [ ] Imagem colada não é persistida e a contagem perdida aparece em linha muted, que sai ao primeiro toque no campo — **depende de tela**; a parte de não persistir a imagem está coberta
+- [x] Rascunho acima de 32 KB não é persistido e o composer continua funcionando
+- [x] Envio bem-sucedido e DELETE da thread apagam a chave; reabrir não ressuscita rascunho enviado
+- [x] Chave corrompida ou de versão desconhecida é descartada sem erro em tela
+- [x] `QuotaExceededError` não trava o composer
 
 ### F35. Estado honesto de thread interrompida
-- [ ] Thread cortada pelo fechamento do app volta como `interrupted`, não `error`, e a sidebar mostra badge muted
-- [ ] `interrupted` está em `SETTLED_THREAD_STATES` e `TURN_RECONCILED_STATES`: a fila do composer drena igual a `cancelled`
-- [ ] Reabrir thread `interrupted` dá composer normal com Enviar, sem passo de limpar erro
-- [ ] Thread que veio de `waiting_permission` tem o gate fechado antes da mudança de estado, e o gate nega
-- [ ] Falha real de turno (spawn, CLI, exceção) continua gravando `error` e mostrando tarja
-- [ ] A varredura é idempotente: rodar duas vezes no unlock dá o mesmo resultado
+- [x] Thread cortada pelo fechamento do app volta como `interrupted`, não `error` (badge muted da sidebar **depende de tela**)
+- [x] `interrupted` está em `SETTLED_THREAD_STATES` e `TURN_RECONCILED_STATES`: a fila do composer drena igual a `cancelled`
+- [ ] Reabrir thread `interrupted` dá composer normal com Enviar, sem passo de limpar erro — **depende de tela, pendente de homologação**
+- [x] Thread que veio de `waiting_permission` tem o gate fechado antes da mudança de estado, e o gate nega
+- [x] Falha real de turno (spawn, CLI, exceção) continua gravando `error` e mostrando tarja
+- [x] A varredura é idempotente: rodar duas vezes no unlock dá o mesmo resultado
+- [x] `interrupted` sai da métrica `errors` do Dashboard e entra na inbox com tier próprio, o último — consequência não prevista na spec, ver §12 dela
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
