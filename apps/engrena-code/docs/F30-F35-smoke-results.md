@@ -1,4 +1,4 @@
-# Smoke ao vivo — F32 a F35 (Versão 1.5)
+# Smoke ao vivo — F30 a F35 (Versões 1.4 e 1.5)
 
 **Data:** 2026-08-19
 **Build:** `pnpm dev` (Electron real), Vite 5173, unlock/API/WS em `127.0.0.1:5174`
@@ -19,6 +19,11 @@ autenticar pela sessão de assinatura e não por API key.
 | F33 — histórico paginado | ✅ passou | visual + fixture de 74 mensagens |
 | F34 — rascunho persistente | ✅ passou | visual |
 | F35 — thread interrompida | ✅ passou **na segunda tentativa** | banco + log; primeira rodada achou defeito |
+| F30 — avisos de runtime | ✅ passou | API de config + log do turno |
+| F31 — shell em auto-accept | ✅ passou | log de auto-aprovação + zero gates; borda conferida |
+
+Roteiro E do `RUNBOOK-HOMOLOGACAO.md` fechou **10/12** nesta rodada; os dois abertos (caption em
+`#configuracao` e inbox do Dashboard) estão nomeados lá com o motivo.
 
 ---
 
@@ -122,3 +127,68 @@ voltou a rodar de verdade e abriu card novo.
 - O `RUNBOOK-HOMOLOGACAO.md` ainda não tem roteiro para F30–F35; este documento é o registro do que
   foi conferido, não substitui o check no runbook.
 - F30 e F31 seguem **sem smoke ao vivo**.
+
+---
+
+## F30 — avisos de runtime e permissão
+
+O CLI da máquina é **2.1.234** e a faixa validada do contrato é 2.1.226–2.1.231, então a condição do
+smoke é `above-max` — exatamente o caso que a feature existe para tratar sem alarmar.
+
+A distinção que a F30 introduziu, conferida pelas três chamadas:
+
+| Chamada | `version` | Spawn de `--version` |
+|---|---|---|
+| `GET /api/config/status` (cache frio) | ausente | **não** |
+| `POST /api/config/clis/test` ("Testar conexões") | `2.1.234` / `above-max` | sim |
+| `GET /api/config/status` (cache quente) | `2.1.234` / `above-max` | **não** (`peekClaudeCliVersion`) |
+
+A rota que alimenta o Dashboard nunca paga o spawn de até 5 s, e a diferença entre "cache frio" e
+"sem versão" fica preservada.
+
+No turno, a linha técnica foi para `log_entries` e **não** para a tarja do chat:
+
+```
+Claude CLI 2.1.234 está acima da faixa 2.1.226 a 2.1.231 em que o contrato de permissão
+foi validado. Aviso apenas, o turno não foi bloqueado.
+```
+
+O turno rodou até `idle`. Não há como o aviso aparecer no chat: a variante `cli.version_notice` foi
+removida do union do `ws-hub`, então não existe emissor.
+
+**Não conferido em tela:** a caption na row do Claude em `#configuracao` (E2 do roteiro).
+
+## F31 — shell de edição e leitura em auto-accept
+
+Turno em `auto-accept-edits` pedindo três comandos de shell, um por chamada. As três executaram e
+**nenhum card abriu** — `SELECT COUNT(*) FROM thread_gates WHERE thread_id = …` devolveu `0`.
+
+| Comando | Registro |
+|---|---|
+| `mkdir smoke-f31` | `Auto-accept edits escreveu sem card: mkdir em …\HomologacaoEngrena\smoke-f31 (raiz …\HomologacaoEngrena).` |
+| `ls -la` | `Auto-accept edits leu sem card: ls no diretório do turno (raiz …\HomologacaoEngrena).` |
+| `head teste.txt` | `Auto-accept edits leu sem card: head em …\HomologacaoEngrena\teste.txt (raiz …\HomologacaoEngrena).` |
+
+A borda foi conferida pelo lado negativo, que é o que importa numa feature de permissão: com o mesmo
+nível, `cat ../fora-do-projeto.txt` **abriu card** em vez de passar, e a negação registrou
+`Permissão de Bash: denied após 27s (prazo 480s, motivo user_decision).`
+
+### Defeito de copy achado aqui
+
+A linha do `ls` saía como *"leu sem card: ls **em o** diretório do turno"*: a preposição estava fixa
+no template e a alternativa sem caminho já vinha com artigo. Registros é superfície que o usuário lê,
+então virou correção mais teste (`permission-broker.test.ts`), não só ajuste de texto.
+
+---
+
+## Notas de método
+
+- **Editar arquivo do processo main durante o smoke reinicia o Electron e trava o cofre de novo.** O
+  cofre vive em memória; o vite reconstrói e reinicia o main a cada mudança em `src/services/**`, e a
+  próxima chamada de API responde `423 vault_locked`. Destravar outra vez resolve, mas convém não
+  editar código do main no meio de uma bateria.
+- O cofre foi destravado por `POST /api/vault/unlock` (`workspace` só chaveia o backoff) e os turnos
+  foram disparados pela API com `x-engrenacode-session`, sem tocar na janela — exceto os checks que
+  são visuais por natureza.
+- Resíduos removidos ao fim: a thread de fixture da F33 (com as mensagens e tool calls artificiais) e
+  o diretório `smoke-f31` criado no projeto de homologação.

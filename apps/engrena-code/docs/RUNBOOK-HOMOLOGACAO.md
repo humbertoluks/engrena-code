@@ -4,9 +4,10 @@ Roteiro de validação manual do build empacotado antes de liberar uma versão. 
 automáticos (`tsc -b`, `vitest`): eles provam que o código compila e que a lógica se comporta; este
 runbook prova que o **produto instalado** funciona na máquina de destino.
 
-**Aplica-se a:** EngrenaCode (`apps/engrena-code`), Windows x64, features F01–F29.
+**Aplica-se a:** EngrenaCode (`apps/engrena-code`), Windows x64, features F01–F35.  
+**Roteiro E** cobre F30–F35 (Versões 1.4 e 1.5), implementadas em 2026-08-19.  
 **Duração:** ~40 min sem turno pago (Roteiros A, C, D) · ~75 min com turno pago (todos).
-**Última revisão:** 2026-08-17.
+**Última revisão:** 2026-08-19.
 
 > **Como marcar.** As listas de preparação (§3.2) são checkbox de clique. Nos roteiros a marcação é na
 > coluna **✔**: troque `☐` por **`✅`** (passou) ou **`❌`** (falhou) — dentro de tabela o markdown não
@@ -217,7 +218,7 @@ resto passe.
 
 | ✔   | ID                | Passo                                                                                                                                           | Esperado                                                                                      |
 | --- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| ✅   | **D1** · BLOQUEIA | Matar o app durante um turno e reabrir                                                                                                          | Thread presa em `running` é reconciliada para `error` com motivo em `#registros`              |
+| ☐   | **D1** · BLOQUEIA | Matar o app durante um turno e reabrir                                                                                                          | Thread presa é reconciliada para **`interrupted`** (não `error`) com motivo em `#registros` — ver E7/E8 |
 |     |                   | *Exemplo:* disparar o prompt longo de B9 e matar o processo por PID no meio                                                                     |                                                                                               |
 | ✅   | **D2** · BLOQUEIA | Derrubar o WebSocket                                                                                                                            | Ao voltar, o composer reflete o estado real do backend — sem ficar preso em "Executando…"     |
 |     |                   | *Exemplo:* com a thread ociosa, fechar e reabrir a janela; o composer tem de mostrar **Enviar**, não **Parar**                                  |                                                                                               |
@@ -233,6 +234,37 @@ resto passe.
 
 ---
 
+## 7.1 Roteiro E — Runtime, prazo, histórico e recuperação (F30–F35)
+
+Acrescentado em 2026-08-19, quando F30–F35 entraram sem roteiro próprio. E1–E6 não custam turno pago;
+E7–E11 exigem um turno real.
+
+| ✔   | ID                | Passo                                                                                          | Esperado                                                                                                          |
+| --- | ----------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| ✅   | **E1** (F30)      | Abrir `#configuracao` sem clicar em nada                                                       | Row do Claude **sem** versão: `GET /api/config/status` é PATH-only e não dá spawn de `--version`                   |
+| ☐   | **E2** (F30)      | Clicar em **Testar conexões**                                                                  | Row do Claude passa a mostrar a versão em mono muted; fora da faixa validada, caption discreta, sem alarme         |
+|     |                   | *Exemplo:* com CLI 2.1.234 e faixa 2.1.226–2.1.231, caption “Ainda não conferida nesta versão.” |                                                                                                                   |
+| ✅   | **E3** (F30) · BLOQUEIA | Primeiro turno com CLI fora da faixa validada                                            | Chat **sem tarja âmbar de versão**; a linha técnica aparece só em `#registros`                                     |
+| ✅   | **E4** (F33)      | Abrir thread com mais de 60 mensagens                                                          | Abre no fim da conversa; topo traz **“Carregar mensagens anteriores”**, não o marcador de início                   |
+| ✅   | **E5** (F33) · BLOQUEIA | Clicar em “Carregar mensagens anteriores”                                                 | Página anterior prepende, o botão sai no fim e entra “Início da conversa”; **o scroll não salta**                  |
+| ✅   | **E6** (F33) · BLOQUEIA | Expandir um Work log de tool com resultado grande                                         | Resultado aparece dentro (a listagem manda preview de 2 KB e o corpo vem sob demanda) — vazio aqui é defeito       |
+| ✅   | **E7** (F32) · BLOQUEIA | Turno em `supervised` que chame `Bash`; conferir o card                                   | Relógio abre em **08:00** e conta para baixo; últimos 15 s em amber                                                |
+| ✅   | **E8** (F32)      | Responder o card e abrir `#registros`                                                          | Linha `Permissão de <tool>: granted após <n>s (prazo 480s…)`; o comando (`tool_input`) **não** aparece no log      |
+| ✅   | **E9** (F31) · BLOQUEIA | Em `auto-accept-edits`, pedir escrita e leitura **pelo shell**                             | Nenhum card; `#registros` mostra `escreveu sem card: mkdir …` e `leu sem card: ls no diretório do turno …`         |
+|     |                   | *Exemplo:* `mkdir smoke`, `ls -la` e `head arquivo.txt`, um por comando                        |                                                                                                                   |
+| ✅   | **E10** (F31) · BLOQUEIA | Ainda em `auto-accept-edits`, pedir leitura **fora** do projeto                          | Abre card: a borda do projeto vale igual para leitura (`cat ../fora/x`, `cat ~/.ssh/id_rsa`)                       |
+| ✅   | **E11** (F35) · BLOQUEIA | Matar o processo main por PID no meio de um turno e reabrir                              | Thread volta como **interrompida** (badge muted, não vermelho), separador na timeline, e **o composer aceita envio** |
+|     |                   | *Exemplo:* se ela morrer em `waiting_permission`, o gate tem de fechar negando (`app_restarted`) antes do estado |                                                                                              |
+| ☐   | **E12** (F35)     | Abrir `#dashboard` com uma thread interrompida                                                 | Ela **não** entra no contador de erros e aparece na inbox no último tier                                           |
+
+> **E11 é o check que mais paga.** No smoke de 2026-08-19 ele reprovou: a thread voltava como
+> `interrupted` corretamente, mas o envio era recusado com `thread_busy` — `interrupted` estava fora
+> de `SETTLED_STATES` em `turn-state.ts` e `follow_up` só é legal a partir dela. Nenhum dos 2313
+> testes pegou, porque todos provavam que o estado era terminal e nenhum tentava conversar com a
+> thread. Marcar E11 exige **enviar** de verdade, não só olhar o composer.
+
+---
+
 ## 8. Registro do resultado
 
 Preencher a cada rodada e anexar ao PR de release.
@@ -241,8 +273,32 @@ Preencher a cada rodada e anexar ao PR de release.
 Versão empacotada:  ______   Commit: ______   Data: ______
 Executado por:      ______
 
-Roteiro A: __/10    Roteiro B: __/16    Roteiro C: __/10    Roteiro D: __/7
+Roteiro A: __/10    Roteiro B: __/16    Roteiro C: __/10    Roteiro D: __/7    Roteiro E: __/12
 ```
+
+### Rodada de 2026-08-19 — Roteiro E (F30–F35)
+
+```
+Versão empacotada:  não empacotada (dev, pnpm dev)   Commit: 6db47a2+   Data: 2026-08-19
+Executado por:      Luks (janela) + agente (API loopback e leitura do engrenacode.db)
+
+Roteiro E: 10/12
+```
+
+Abertos, e o motivo:
+
+- **E2** — a versão foi conferida pela API (`POST /api/config/clis/test` devolveu `2.1.234` /
+  `above-max`, e o `GET /api/config/status` seguinte passou a trazê-la sem novo spawn), mas a
+  **caption na row do Claude em `#configuracao`** não foi vista em tela.
+- **E12** — depende de uma thread em `interrupted` no momento da conferência; a do smoke foi retomada
+  e assentou. O comportamento (fora do contador de erros, último tier da inbox) está coberto em
+  unitário, não ao vivo.
+
+**E11 reprovou na primeira tentativa** e virou correção mais teste — ver a nota do roteiro e
+`F30-F35-smoke-results.md`.
+
+**D1 voltou para `☐`**: o ✅ anterior foi obtido contra o comportamento antigo (reconciliar para
+`error`), que a F35 mudou. Precisa de nova passada.
 
 Perfil usado:
 

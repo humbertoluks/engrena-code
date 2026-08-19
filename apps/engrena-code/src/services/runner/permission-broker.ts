@@ -209,12 +209,15 @@ function logShellAutoApproval(
     reason.kind === 'shell-file-edit'
       ? ['escreveu sem card', reason.verb]
       : ['leu sem card', reason.verbs.join(' | ')]
-  const alvo = reason.paths.length === 0 ? 'o diretório do turno' : reason.paths.join(', ')
+  // A frase carrega a própria preposição: verbo sem caminho (`ls`) dizia "em o diretório do turno",
+  // que é o tipo de erro que só aparece quando alguém lê o Registros de verdade.
+  const alvo =
+    reason.paths.length === 0 ? 'no diretório do turno' : `em ${reason.paths.join(', ')}`
   try {
     createLogEntry({
       threadId,
       kind: 'tool',
-      event: `Auto-accept edits ${rotulo}: ${verbos} em ${alvo} (raiz ${reason.root}).`,
+      event: `Auto-accept edits ${rotulo}: ${verbos} ${alvo} (raiz ${reason.root}).`,
     })
   } catch {
     // Log é acessório; falha aqui não pode derrubar a resposta ao hook, que tem um CLI esperando.

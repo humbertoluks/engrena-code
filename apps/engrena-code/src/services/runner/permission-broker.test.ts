@@ -681,6 +681,27 @@ describe('auto-accept-edits + comando de leitura (F31 v1.1)', () => {
     server.close()
   }, 15000)
 
+  it('verbo sem caminho registra "no diretório do turno", não "em o diretório do turno"', async () => {
+    // `ls` é o único verbo que faz sentido sem argumento, e por isso o único que exercita o ramo
+    // sem caminho da frase. O smoke de 2026-08-19 leu "em o diretório do turno" no Registros: a
+    // preposição estava fixa no template e a alternativa já vinha com artigo. Registros é superfície
+    // que o usuário lê, então a copy dele é contrato como qualquer outra.
+    const { threadId } = seedThreadWithDir('auto-accept-edits')
+    const server = await createPermissionServer(threadId)
+
+    await ask(server, 'Bash', { command: 'ls' })
+
+    const linha = listLogEntries({ kind: 'tool' })
+      .filter((e) => e.threadId === threadId)
+      .map((e) => e.event)
+      .find((event) => event.includes('leu sem card'))
+    expect(linha).toBeDefined()
+    expect(linha).toContain('no diretório do turno')
+    expect(linha).not.toContain('em o ')
+
+    server.close()
+  }, 15000)
+
   it('leitura fora do projeto e pipeline com shell continuam abrindo card', async () => {
     for (const command of ['cat /etc/passwd', 'cat notas.txt | sh']) {
       const { threadId } = seedThreadWithDir('auto-accept-edits')
