@@ -284,6 +284,27 @@ Já usa agente de IA em repositórios reais; prefere app local com cofre; aceita
 - Como usuário, quero ver a versão do Claude CLI em Configuração, em uma linha discreta
 - Como usuário, quero saber que o pedido de permissão vai expirar, e uma frase curta se eu não responder a tempo
 
+### F32. Prazo do pedido de permissão
+- Como usuário, quero poder sair da mesa por alguns minutos e ainda encontrar o pedido de permissão esperando por mim
+- Como usuário, quero que o prazo do card seja o maior que o Claude CLI aguenta, não um número escolhido a esmo
+- Como sistema, quero medir quanto tempo cada card fica aberto para saber se o prazo é suficiente
+
+### F33. Histórico de chat paginado
+- Como usuário, quero abrir uma thread longa e ver as mensagens recentes na hora, sem esperar a conversa inteira carregar
+- Como usuário, quero clicar em "Carregar mensagens anteriores" e continuar lendo de onde estava, sem o scroll pular
+- Como usuário, quero abrir o resultado inteiro de uma tool quando eu expandir o work log, não antes
+- Como sistema, quero que o refetch disparado pelo stream custe o mesmo numa thread de 5 mensagens e numa de 500
+
+### F34. Rascunho persistente do composer
+- Como usuário, quero que o texto que eu digitei e não enviei ainda esteja lá depois de um F5 ou de fechar o app
+- Como usuário, quero rascunho separado por thread, para não misturar o que ia escrever em cada conversa
+- Como usuário, quero saber que imagens coladas não foram guardadas, em vez de descobrir na hora de enviar
+
+### F35. Estado honesto de thread interrompida
+- Como usuário, quero que uma conversa cortada pelo fechamento do app não apareça como erro
+- Como usuário, quero reabrir essa conversa e simplesmente continuar digitando
+- Como sistema, quero registrar de qual estado a thread veio quando foi interrompida
+
 ## 6. Funcionalidades
 
 ### F01. Vault e Sessão Local
@@ -1129,6 +1150,142 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 - Cache de versão frio na hora de uma negação nativa: omite a frase de causa de versão
 - Relógio do cliente vs closeGate: o card some pelo estado do gate, não pelo zero local
 
+### F32. Prazo do pedido de permissão
+
+**Consome:**
+- F03: gate de permissão (`openPermissionGate`, `expiresAt`, varredura de gate órfão) e fail-closed do dispatch
+- F08: `log_entries` para o tempo real que cada card ficou aberto
+- F30: relógio `mm:ss` no card e a copy curta de expiry
+
+**Provê:**
+- Prazo de resposta derivado do contrato do hook, e não de constante avulsa (usado por F03)
+- Amostra de tempo-até-resposta em `log_entries` (usado por F08)
+
+**Escopo Central:**
+- Derivar o teto do contrato do hook, medir o tempo real de resposta e manter o fail-closed
+
+**Adições ao Escopo Completo:**
+- Notificação nativa do SO quando o card abre com a janela fora de foco
+
+**Capacidades:**
+- `PERMISSION_TIMEOUT_MS` deixa de ser literal e passa a ser derivado: `(HOOK_COMMAND_TIMEOUT_SEC - PERMISSION_HOOK_MARGIN_SEC) * 1000`, com `HOOK_COMMAND_TIMEOUT_SEC = 600` e `PERMISSION_HOOK_MARGIN_SEC = 120` — 8 min de prazo, 2 min de margem
+- A margem cobre spawn do hook, ida e volta HTTP ao broker, gravação da decisão e leitura do stdout pelo CLI; teste falha se a margem for ≤ 0 ou se o prazo passar do teto do hook
+- Um teto só: `closeGate` por expiry, `expireOrphanGates()` e o relógio do card leem a mesma constante — nenhum caminho com número próprio
+- Expiry continua **fail-closed**: gate vencido nega a tool, nunca libera
+- Cada gate fechado grava `log_entries` com o desfecho (`granted` | `denied` | `expired`) e os segundos que ficou aberto
+- Provider sem hook (Codex, Kimi) não usa este prazo — o teto vale para o caminho do broker Claude
+
+**Experiência:**
+- Card abre marcando `08:00` e conta para baixo; os últimos 15 s ficam amber, como já em F30
+- Sair da mesa por cinco minutos e voltar: o card ainda está lá e o clique concede normalmente
+- Passar de 8 min: card sai, tarja curta de F30, turno segue com a tool negada
+- Registros mostra a linha do gate com o tempo aberto, para conferir se 8 min bastam sem abrir o código
+
+**Tratamento de Erros:**
+- Hook morto pelo CLI antes da resposta: o broker responde `deny` e a thread assenta; o card sai por estado do gate, não por zero do relógio local
+- App fechado com gate aberto: a varredura de boot fecha o gate antes de mexer no estado da thread, sem deixar gate órfão apontando para thread assentada
+- Relógio do sistema alterado no meio do card: `expiresAt` é absoluto e a autoridade é o gate; o relógio da UI pode mentir, a decisão não
+- Duas tools pedindo permissão no mesmo turno: cada gate tem seu próprio prazo, medido do próprio `openPermissionGate`
+
+### F33. Histórico de chat paginado
+
+**Consome:**
+- F03: rota `GET /api/threads/:id/history`, `loadHistory` (single-flight + coalesce), `useChatScroll`, work log da timeline
+- F29: projeção de grafo que hoje é montada a partir do history inteiro da thread
+
+**Provê:**
+- Janela de histórico com cursor e `hasMore` (usado por F03)
+- Projeção enxuta de tool calls sem corpo de resultado (usado por F29)
+- Corpo integral de um resultado de tool sob demanda (usado por F03)
+
+**Escopo Central:**
+- Janela + cursor na rota de history, projeção própria para o grafo e botão "Carregar mensagens anteriores" sem pulo de scroll
+
+**Adições ao Escopo Completo:**
+- Corpo de resultado de tool sob demanda, com preview de 2 KB na listagem
+
+**Capacidades:**
+- `GET /api/threads/:id/history?limit=&before=` devolve a janela mais recente: `limit` default 60, máximo 200; `before` é `seq` inteiro positivo e devolve o que vem antes dele
+- Resposta carrega `hasMore` e `cursor` (o `seq` da mensagem mais antiga devolvida); `cursor` nulo quando a thread acabou
+- Tool calls vêm junto das mensagens da janela, não da thread inteira
+- Resultado de tool acima de 2 KB vem como `resultPreview` (2 KB) + `resultTruncated: true` + tamanho em bytes; o corpo integral sai por `GET /api/tool-calls/:id/result`, que respeita o mesmo teto de `TOOL_RESULT_MAX_CHARS`
+- Refetch disparado pelo stream busca **só** a janela mais recente — custo constante, independente do tamanho da thread
+- F29 passa a ler `GET /api/threads/:id/graph`, que devolve id, nome, `parentToolCallId`, status e horários de todo tool call da thread, sem nenhum corpo de resultado: o grafo continua completo mesmo com o chat paginado
+- `before` inválido (não numérico, negativo, acima do maior `seq`) responde 400 `invalid_cursor`, nunca a thread inteira
+
+**Experiência:**
+- Abrir thread longa mostra as mensagens recentes já posicionadas no fim, sem tela de "Carregando…" sobre a árvore inteira
+- Topo da timeline traz o botão "Carregar mensagens anteriores"; clicar prepende a janela anterior e mantém a primeira mensagem visível exatamente onde estava
+- Sem mais páginas, o botão sai e o topo mostra "Início da conversa"
+- Expandir o work log de um resultado truncado busca o corpo integral e troca o preview no lugar, sem refetch do histórico
+- Aba Grafo continua projetando a execução inteira, inclusive a parte da conversa que não está na janela do chat
+
+**Tratamento de Erros:**
+- Falha ao carregar página anterior: botão volta com "Não deu para carregar. Tentar de novo." e a janela já lida permanece na tela
+- Falha ao buscar corpo integral: work log mostra o preview com "Resultado completo indisponível", sem apagar o que já estava
+- Página anterior chegando junto de um refetch da janela recente: reconciliação por `seq`, sem mensagem duplicada nem buraco no meio
+- Thread apagada durante a paginação: 404 fecha a thread na UI em vez de acumular erro na timeline
+
+### F34. Rascunho persistente do composer
+
+**Consome:**
+- F03: `composerDraft.logic.ts`, `clearDraftAfterSend`, ciclo de vida da thread (troca e DELETE)
+- F16: anexos explícitos, imagens coladas, model/reasoning do composer
+
+**Provê:**
+- Rascunho por thread que sobrevive a reload e a restart (usado por F03)
+
+**Capacidades:**
+- Chave versionada por thread: `engrenacode.composer-draft.v1.<threadId>`, mesma convenção de `QUEUE_STORAGE_PREFIX`, guardando texto, caminhos de anexo explícito e a contagem de imagens que não foram guardadas
+- Imagens coladas **não** são persistidas (base64 estoura a cota do localStorage); só o número delas é guardado
+- Model/reasoning não entram no rascunho — já persistem na thread por F16
+- Teto de 32 KB por rascunho; acima disso não persiste e o composer segue funcionando com o rascunho em memória
+- Escrita com debounce de 500 ms, para digitação não bater no storage a cada tecla
+- Máximo de 20 threads com rascunho; a evicção derruba a mais antiga por último toque
+- Rascunho vazio remove a chave em vez de gravar string vazia
+- Envio bem-sucedido e DELETE da thread apagam a chave; a restauração de rascunho após recusa do backend (thread_busy, teto de consumo, rede) continua vindo da memória, como já hoje
+
+**Experiência:**
+- Digitar meio prompt, dar F5 e voltar: o texto está lá, com o cursor no fim, e os chips de anexo explícito reaparecem
+- Se havia imagem colada, uma linha muted diz "2 imagens não foram guardadas no rascunho" e ela sai ao primeiro toque no campo
+- Trocar de thread e voltar: cada conversa mostra o próprio rascunho
+- Enviar limpa o rascunho de verdade — reabrir não ressuscita o que já foi enviado
+
+**Tratamento de Erros:**
+- `QuotaExceededError` no storage: falha silenciosa, o composer não trava e o rascunho continua em memória naquela sessão
+- Chave corrompida ou de versão desconhecida: descartada, composer abre vazio, sem erro em tela
+- Rascunho de thread que não existe mais: varrido no DELETE e na evicção, nunca restaurado às cegas
+- Duas janelas do app na mesma thread: a última escrita vence; rascunho não é canal de sincronização
+
+### F35. Estado honesto de thread interrompida
+
+**Consome:**
+- F03: `turn-state.ts` (dono único do estado), `SETTLED_THREAD_STATES`, `TURN_RECONCILED_STATES`, `deriveChatSurface`, badge da sidebar
+- F08: `log_entries` para registrar de qual estado a thread veio
+
+**Provê:**
+- Estado `interrupted` distinto de `error` (usado por F03)
+
+**Capacidades:**
+- `interrupted` entra em `ThreadState` e nos dois conjuntos terminais (`SETTLED_THREAD_STATES` e `TURN_RECONCILED_STATES`), para a fila do composer drenar igual ao que já acontece com `cancelled`
+- `recoverRunningThreads()` passa a gravar `interrupted` em vez de `error` para `running` | `waiting_user` | `waiting_permission` | `stopping`, num único UPDATE em lote
+- Cada thread recuperada grava `log_entries` com o estado de origem, para diagnóstico depois
+- Gate aberto é fechado **antes** da mudança de estado, ainda fail-closed (nega), nunca vira allow
+- `error` fica reservado para falha real de turno: spawn, CLI, exceção do dispatch
+- Threads já gravadas como `error` pelo boot antigo não são reescritas — não há como distinguir retroativamente interrupção de falha
+
+**Experiência:**
+- Abrir uma thread interrompida mostra separador "Turno interrompido quando o app fechou", sem tarja âmbar de falha
+- Badge da sidebar em muted, não em destrutivo — a conversa não deu errado, foi cortada
+- Composer abre normal, com Enviar: continuar é digitar, sem passo de "limpar erro"
+- Thread com falha real continua com a tarja de erro de sempre, e as duas ficam distinguíveis na lista
+
+**Tratamento de Erros:**
+- Boot com muitas threads pendentes: um UPDATE em lote numa transação, sem laço por thread
+- Thread que estava em `waiting_permission`: gate fechado primeiro, senão sobra gate órfão apontando para thread assentada
+- Falha ao gravar o log da recuperação: o estado ainda assenta — registro perdido é preferível a thread presa em `running`
+- Crash durante a própria recuperação: a varredura é idempotente, rodar de novo no unlock seguinte dá o mesmo resultado
+
 ## 7. Fora de Escopo
 
 ### Pipelines e automação avançada (parcialmente promovido — ver F18, F22)
@@ -1158,6 +1315,14 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 - Type scale, shadows, z-index e motion tokenizados além do Escopo Central de F01.1
 - Storybook, MUI/Chakra e design-system package separado
 - Clientes mobile/web; instaladores store como entrega comercial (dev local ok)
+
+### Histórico, rascunho e recuperação (limites de F32–F35)
+- Busca no histórico pelo servidor e filtro por tipo de mensagem — F33 pagina, não indexa
+- Scroll infinito que carrega página anterior sozinho ao chegar no topo — F33 exige clique
+- Prazo de permissão configurável pelo usuário na UI — F32 deriva do contrato do hook e não expõe knob
+- Sincronizar rascunho entre máquinas ou entre janelas do mesmo app, e guardar imagem colada — F34 é local, por thread, e só conta as imagens perdidas
+- Retomar automaticamente o turno interrompido no boot — F35 nomeia o estado; retomar é ação do usuário
+- Reclassificar retroativamente as threads gravadas como `error` pelo boot antigo
 
 ## 8. Grafo de Dependências
 
@@ -1194,6 +1359,10 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 | F29 | Monitor de execução (grafo) | 2 | F01.1, F03, F15, F18, F22 |
 | F30 | Avisos de runtime e permissão | 3 | F01.1, F02, F03, F08 |
 | F31 | Shell de edição em auto-accept | 3 | F03, F08, F13, F18 |
+| F33 | Histórico de chat paginado | 2 | F03, F29 |
+| F34 | Rascunho persistente do composer | 2 | F03, F16 |
+| F35 | Estado honesto de thread interrompida | 3 | F03, F08 |
+| F32 | Prazo do pedido de permissão | 2 | F03, F08, F30 |
 
 ### Features de Fundação
 Estas features configuram infraestrutura compartilhada do projeto. Em um projeto greenfield devem ser implementadas sequencialmente antes ou junto de qualquer feature que dependa delas:
@@ -1210,12 +1379,15 @@ Features dentro da mesma onda podem ser construídas em paralelo. Uma onda come�
 - **Onda 2**: F02, F05, F06, F07
 - **Onda 3**: F03, F10, F17
 - **Onda 4**: F04, F08, F09, F11, F12, F13, F14, F15, F16, F20, F21, F23, F26
-- **Onda 5**: F18, F19, F24, F25, F27
+- **Onda 5**: F18, F19, F24, F25, F34, F27, F35
 - **Onda 6**: F22
 - **Onda 7**: F29
-- **Onda 8**: F30, F31
+- **Onda 8**: F33, F30, F31
+- **Onda 9**: F32
 
-Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 = F29 + F30 + F31**. Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22); F30 e F31 caem na Onda 8 e não dependem uma da outra (F30 é copy/diagnóstico sobre F02/F03/F08; F31 é política de permissão sobre F03). Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
+Release gates de produto (independentes do paralelismo mecânico): MVP = F01, F01.1, F02–F07 + F04; Versão 1.0 = F08–F10; Versão 1.1 = F11; Versão 1.2 = F12–F17; **Versão 1.3 = F18–F27**; **Versão 1.4 = F29 + F30 + F31**; **Versão 1.5 = F32–F35** (endurecimento saído da auditoria de 2026-08-19). Ondas 1–6 com F01–F27 já entregues no repo; F29 cai na Onda 7 (depende de F03/F15/F18/F22); F30 e F31 caem na Onda 8 e não dependem uma da outra (F30 é copy/diagnóstico sobre F02/F03/F08; F31 é política de permissão sobre F03).
+
+As features de 1.5 caem em ondas diferentes porque a onda é mecânica, não cronológica: F34 e F35 só dependem de F03/F08/F16 e por isso pousam na Onda 5, F33 espera F29 (o grafo lê history e não pode quebrar com a paginação) e F32 espera F30 (o relógio do card e a copy de expiry vêm de lá). As quatro são independentes entre si e podem ser construídas em paralelo, na ordem que o backlog quiser. Na Onda 1, F01 e F01.1 (fundação) serializam. Na Onda 2, F02 (fundação) serializa antes de F05–F07.
 
 ### Níveis de Prioridade
 - **1** = Essencial — produto não funciona sem
@@ -1320,6 +1492,15 @@ graph TD
   F08 --> F31
   F13 --> F31
   F18 --> F31
+  F03 --> F33[HistoryPaging]
+  F29 --> F33
+  F03 --> F34[DraftPersist]
+  F16 --> F34
+  F03 --> F35[Interrupted]
+  F08 --> F35
+  F03 --> F32[PermissionDeadline]
+  F08 --> F32
+  F30 --> F32
 ```
 
 ## 9. Critérios de Aceitação
@@ -1528,6 +1709,39 @@ graph TD
 - [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos, e escrita e leitura têm rótulos distintos
 - [x] Leitura pelo shell dentro da borda roda sem card; leitura fora da borda, `tail -f` e pipeline com verbo fora da lista abrem card
 
+### F32. Prazo do pedido de permissão
+- [ ] `PERMISSION_TIMEOUT_MS` é derivado de `HOOK_COMMAND_TIMEOUT_SEC` menos margem, e não existe literal de prazo em nenhum outro caminho (`closeGate` por expiry, `expireOrphanGates`, relógio do card)
+- [ ] Teste falha se a margem for ≤ 0 ou se o prazo derivado passar do teto do hook
+- [ ] Card aberto por 5 min e respondido concede a tool normalmente; card aberto por mais de 8 min expira e nega
+- [ ] Expiry continua fail-closed: nenhum caminho de gate vencido libera tool
+- [ ] Todo gate fechado grava `log_entries` com desfecho (`granted` | `denied` | `expired`) e segundos aberto
+- [ ] App fechado com gate aberto: o gate é fechado no boot antes de a thread mudar de estado, sem gate órfão
+
+### F33. Histórico de chat paginado
+- [ ] `GET /history` sem parâmetro devolve no máximo 60 mensagens (as mais recentes) com `hasMore` e `cursor`
+- [ ] `limit` acima de 200 é recusado; `before` não numérico, negativo ou fora de faixa responde 400 `invalid_cursor`
+- [ ] Resultado de tool acima de 2 KB chega como `resultPreview` + `resultTruncated` + tamanho, e o corpo integral vem por `GET /api/tool-calls/:id/result`
+- [ ] Refetch disparado pelo stream busca só a janela recente: o número de mensagens transferidas não cresce com o tamanho da thread
+- [ ] "Carregar mensagens anteriores" prepende a página e a primeira mensagem visível fica na mesma posição de scroll
+- [ ] Aba Grafo (F29) projeta a execução inteira mesmo com o chat paginado, lendo a projeção sem corpo de resultado
+- [ ] Página anterior e refetch concorrente reconciliam por `seq`, sem duplicata nem buraco
+
+### F34. Rascunho persistente do composer
+- [ ] Texto não enviado sobrevive a F5 e a restart do app, por thread, com anexos explícitos restaurados
+- [ ] Imagem colada não é persistida e a contagem perdida aparece em linha muted, que sai ao primeiro toque no campo
+- [ ] Rascunho acima de 32 KB não é persistido e o composer continua funcionando
+- [ ] Envio bem-sucedido e DELETE da thread apagam a chave; reabrir não ressuscita rascunho enviado
+- [ ] Chave corrompida ou de versão desconhecida é descartada sem erro em tela
+- [ ] `QuotaExceededError` não trava o composer
+
+### F35. Estado honesto de thread interrompida
+- [ ] Thread cortada pelo fechamento do app volta como `interrupted`, não `error`, e a sidebar mostra badge muted
+- [ ] `interrupted` está em `SETTLED_THREAD_STATES` e `TURN_RECONCILED_STATES`: a fila do composer drena igual a `cancelled`
+- [ ] Reabrir thread `interrupted` dá composer normal com Enviar, sem passo de limpar erro
+- [ ] Thread que veio de `waiting_permission` tem o gate fechado antes da mudança de estado, e o gate nega
+- [ ] Falha real de turno (spawn, CLI, exceção) continua gravando `error` e mostrando tarja
+- [ ] A varredura é idempotente: rodar duas vezes no unlock dá o mesmo resultado
+
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
 - [x] Tokens, tema resolvido, Shiki/xterm e markdown chat de F01.1 alimentam o Workspace (F03)
@@ -1562,3 +1776,9 @@ graph TD
 - [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace
 - [x] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)
 - [x] A auto-aprovação de shell (F31) usa a mesma raiz efetiva do turno (F13/F18), registra em Registros (F08) e não altera o gate nem o fail-closed do Workspace (F03)
+- [ ] O prazo derivado de F32 alimenta o relógio `mm:ss` e a copy de expiry de F30 sem número próprio, e o gate/fail-closed de F03 fica intocado
+- [ ] O tempo aberto de cada gate (F32) aparece em Registros (F08) com thread id navegável
+- [ ] A janela e o cursor de F33 alimentam `loadHistory` de F03 sem ligar `historyLoading` no refetch de fundo nem mover o scroll
+- [ ] A projeção sem corpo de resultado de F33 alimenta a aba Grafo de F29 com a execução completa
+- [ ] O rascunho persistido por F34 devolve texto e anexos explícitos ao composer de F03/F16, e model/reasoning continuam vindo da thread
+- [ ] O estado `interrupted` de F35 é lido por `deriveChatSurface` e pela sidebar de F03 como terminal, e a origem da interrupção aparece em Registros (F08)
