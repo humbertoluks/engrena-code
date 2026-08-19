@@ -238,6 +238,7 @@ Contrato de UX que esta copy precisa refletir (`spec.md` §3.5):
 | `permission.header` | O agente precisa de permissão | header do card |
 | `permission.title` | Permitir a ferramenta {toolName}? | |
 | `permission.queue` | +{N} na fila | demais pedidos aguardando |
+| `permission.countdown` | {mm}:{ss} | relógio de `gate.expiresAt` à esquerda da fila; amber nos últimos 15 s. Fonte: `docs/F30-avisos-de-runtime-e-permissao/copy.md` |
 | `permission.label.params` | Parâmetros | `<details>` fechado por padrão |
 | `permission.hint` | Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie. | anuncia os dois gatilhos |
 | `permission.deny` | Negar | chip; nega na hora |

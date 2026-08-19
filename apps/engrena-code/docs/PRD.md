@@ -1485,10 +1485,10 @@ graph TD
 - [x] Light/dark via tema resolvido; React Flow lazy-loaded
 
 ### F30. Avisos de runtime e permissão
-- [ ] Primeiro turno com Claude CLI fora da faixa validada não abre tarja âmbar de versão no chat; a linha técnica continua em `log_entries`
-- [ ] `#configuracao` mostra a versão parseada do Claude CLI na row do CLI após Testar conexões; fora da faixa, caption muted “Ainda não conferida nesta versão.” sem alarme
-- [ ] Card de permissão mostra countdown `mm:ss` derivado de `expiresAt`; `PERMISSION_TIMEOUT_MS` permanece 2 min
-- [ ] Expiry do card gera tarja curta (“A permissão de {tool} expirou. Peça de novo ao agente.”) sem “negou por segurança” e sem faixa de versão
+- [x] Primeiro turno com Claude CLI fora da faixa validada não abre tarja âmbar de versão no chat; a linha técnica continua em `log_entries`
+- [x] `#configuracao` mostra a versão parseada do Claude CLI na row do CLI após Testar conexões; fora da faixa, caption muted “Ainda não conferida nesta versão.” sem alarme
+- [x] Card de permissão mostra countdown `mm:ss` derivado de `expiresAt`; `PERMISSION_TIMEOUT_MS` permanece 2 min
+- [x] Expiry do card gera tarja curta (“A permissão de {tool} expirou. Peça de novo ao agente.”) sem “negou por segurança” e sem faixa de versão
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock
@@ -1522,4 +1522,4 @@ graph TD
 - [x] Terminal PTY (F26) abre sempre na cwd resolvida pelo Workspace (F03), incluindo worktree (F13) quando aplicável
 - [x] Transcrição de voz (F27) insere texto no mesmo campo do composer consumido por F16
 - [x] Grafo de execução (F29) projeta history/WS de F03/F15/F18/F22 na aba Grafo do Workspace
-- [ ] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)
+- [x] Avisos de runtime (F30) tiram a versão do CLI da tarja do Workspace (F03), gravam em Registros (F08) e mostram caption na Configuração (F02)

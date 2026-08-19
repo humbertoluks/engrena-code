@@ -344,6 +344,7 @@ Aplicar mapa de rename: `sistema legado → EngrenaCode`. Células = texto final
 | `permission.header` | O agente precisa de permissão |
 | `permission.title` | Permitir a ferramenta {toolName}? |
 | `permission.queue` | +{N} na fila |
+| `permission.countdown` | {mm}:{ss} — relógio de `gate.expiresAt`, mono muted à esquerda da fila, amber nos últimos 15 s (F30) |
 | `permission.label.params` | Parâmetros (`<details>`, fechado) |
 | `permission.hint` | Escolher aqui concede na hora — ou digite sim/não/permitir todos e envie. |
 | `permission.deny` | Negar |

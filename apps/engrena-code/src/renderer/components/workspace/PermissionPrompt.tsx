@@ -115,6 +115,9 @@ export function PermissionPrompt({
         <div className="flex items-center gap-sm">
           {countdown !== null ? (
             <span
+              // `timer` é o papel que existe para contagem regressiva, e o `aria-live` implícito
+              // dele é `off`: o leitor de tela não anuncia o relógio a cada segundo.
+              role="timer"
               aria-label={COPY.countdownLabel}
               className={`font-mono text-[10.5px] tabular-nums ${countdownWarn ? 'text-amber' : 'text-muted'}`}
             >
