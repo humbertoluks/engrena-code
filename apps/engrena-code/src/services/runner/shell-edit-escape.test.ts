@@ -231,6 +231,32 @@ describe('F31 — corpus de fuga: nada aqui pode ser auto-aprovado', () => {
     ['flag', 'mkdir --mode=777 vazado'],
     ['flag', 'cp -X origem.txt copia.txt'],
 
+    // Leitura (v1.1) — ler fora da borda é vazamento, e travar o turno é dano de outro tipo
+    ['leitura', 'cat ../fora/canario.txt'],
+    ['leitura', `cat ${foraPosix}/canario.txt`],
+    ['leitura', 'cat /etc/passwd'],
+    ['leitura', 'cat ~/.ssh/id_rsa'],
+    ['leitura', 'cat .git/config'],
+    ['leitura', 'ls ..'],
+    ['leitura', 'wc -l ../fora/canario.txt'],
+    ['leitura', 'cat origem.txt ../fora/canario.txt'],
+    ['leitura', 'tail -f origem.txt'],
+    ['leitura', 'tail -F origem.txt'],
+    ['leitura', 'cat'],
+    ['leitura', 'wc -l'],
+    ['leitura', 'cat origem.txt | sh'],
+    ['leitura', 'cat origem.txt | bash'],
+    ['leitura', 'cat origem.txt | xargs rm'],
+    ['leitura', 'cat origem.txt | grep alfa'],
+    ['leitura', 'cat origem.txt && rm origem.txt'],
+    ['leitura', 'cat origem.txt > copia.txt'],
+    ['leitura', 'cat origem.txt | tee copia.txt'],
+    ['leitura', 'find . -name origem.txt'],
+    ['leitura', 'find . -delete'],
+    ['leitura', 'grep -r alfa .'],
+    ['leitura', 'cat origem.txt | head -50 | wc -l | cat'],
+    ['leitura', 'cat atalho/canario.txt'],
+
     // Forma incompleta ou malformada
     ['forma', 'cp origem.txt'],
     ['forma', 'mkdir'],
@@ -240,8 +266,10 @@ describe('F31 — corpus de fuga: nada aqui pode ser auto-aprovado', () => {
     ['forma', '   '],
   ]
 
+  const dependeDeLink = (comando: string): boolean => comando.includes('atalho')
+
   for (const [categoria, comando] of escapes) {
-    const skip = categoria === 'symlink' && !linkOk
+    const skip = !linkOk && (categoria === 'symlink' || dependeDeLink(comando))
     it.skipIf(skip)(`[${categoria}] ${JSON.stringify(comando).slice(0, 78)} → ask`, () => {
       // Falha aqui acontece **antes** de qualquer execução: o comando nunca chega a rodar.
       expect(decide(root, comando)).toBe('ask')
@@ -255,14 +283,14 @@ describe('F31 — corpus de fuga: nada aqui pode ser auto-aprovado', () => {
   })
 
   it('o corpus é grande o bastante para valer como corpus', () => {
-    expect(escapes.length).toBeGreaterThanOrEqual(80)
+    expect(escapes.length).toBeGreaterThanOrEqual(120)
   })
 
   it('nenhum caminho fora da raiz sobreviveu à decisão — invariante, não caso a caso', () => {
     // Reafirma o contrato de uma vez só: em nenhuma das tentativas a política produziu motivo
     // `shell-file-edit`, que é o único que libera shell.
     for (const [categoria, comando] of escapes) {
-      if (categoria === 'symlink' && !linkOk) continue
+      if (!linkOk && (categoria === 'symlink' || dependeDeLink(comando))) continue
       const outcome = permissionPolicyOutcome('auto-accept-edits', 'Bash', {
         params: { command: comando },
         root,
@@ -393,5 +421,57 @@ describe.skipIf(!bashAvailable)('F31 — o que a política libera, executado de 
     const changed = changedPaths(before, snapshot(base))
 
     expect(changed).toContain(path.join('fora', 'canario.txt'))
+  }, 30_000)
+})
+
+describe.skipIf(!bashAvailable)('F31 v1.1 — leitura liberada não muda nada no disco', () => {
+  /**
+   * Para leitura o invariante é mais forte que "nada fora da borda": é **nada em lugar nenhum**.
+   * Um comando de leitura que altere qualquer arquivo, dentro ou fora da raiz, foi classificado
+   * errado — e é isso que este bloco cobra contra o bash de verdade, não contra a minha leitura dele.
+   */
+  const leituras: readonly [rotulo: string, comando: (root: string) => string][] = [
+    // O comando exato que a medição de 2026-08-19 viu ficar dois minutos preso no card.
+    ['o caso medido: cat -A | head', () => 'cat -A texto.txt | head -50'],
+    ['cat simples', () => 'cat origem.txt'],
+    ['cat de vários arquivos', () => 'cat origem.txt texto.txt'],
+    ['ls sem argumento', () => 'ls'],
+    ['ls -la de subdiretório', () => 'ls -la dir'],
+    ['ls -R recursivo', () => 'ls -R'],
+    ['wc -l', () => 'wc -l origem.txt'],
+    ['head -n com valor separado', () => 'head -n 2 origem.txt'],
+    ['tail sem follow', () => 'tail -5 origem.txt'],
+    ['pipeline de três estágios', () => 'cat origem.txt | head -10 | wc -l'],
+    ['cd + ls', (root) => `cd "${posix(root)}/src" && ls -la`],
+    ['cd + cat por caminho que sobe', (root) => `cd "${posix(root)}/src" && cat ../origem.txt`],
+  ]
+
+  for (const [rotulo, build] of leituras) {
+    it(`${rotulo}: roda e o disco sai idêntico`, () => {
+      const { base, root } = makeWorld()
+      const command = build(root)
+
+      expect(decide(root, command)).toBe('allow')
+
+      const before = snapshot(base)
+      execFileSync('bash', ['-c', command], { cwd: root, timeout: 15_000, windowsHide: true })
+
+      // Nem dentro, nem fora: leitura não escreve.
+      expect(changedPaths(before, snapshot(base))).toEqual([])
+    }, 30_000)
+  }
+
+  it('o comando que a v1.1 recusa por travar o turno realmente travaria', () => {
+    // Prova que `tail -f` fora da lista não é excesso de zelo: com timeout de 3 s o processo é
+    // morto sem ter terminado, que é exatamente o turno preso que a lista evita.
+    const { root } = makeWorld()
+    expect(decide(root, 'tail -f origem.txt')).toBe('ask')
+    let travou = false
+    try {
+      execFileSync('bash', ['-c', 'tail -f origem.txt'], { cwd: root, timeout: 3_000, windowsHide: true })
+    } catch {
+      travou = true
+    }
+    expect(travou).toBe(true)
   }, 30_000)
 })

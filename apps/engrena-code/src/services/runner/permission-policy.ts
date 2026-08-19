@@ -1,6 +1,11 @@
 import type { ThreadAccessLevel } from '../db/repositories/threads.js'
 import { commandFromParams, isShellTool, splitCommandSegments } from './bash-command-scope.js'
-import { cdTarget, classifyFileCommand } from './file-command-classifier.js'
+import {
+  cdTarget,
+  classifyFileCommand,
+  classifyReadCommand,
+  READ_VERBS_WITHOUT_PATH,
+} from './file-command-classifier.js'
 import { resolveAgainstRoot, resolveWithinRoot } from './project-path-scope.js'
 
 /**
@@ -94,11 +99,68 @@ export type PermissionPolicyReason =
   | { kind: 'internal-tool' }
   | { kind: 'access-level' }
   | { kind: 'shell-file-edit'; verb: string; paths: readonly string[]; root: string }
+  /** Comando que só lê, dentro da borda (F31 v1.1). Separado porque o risco é outro. */
+  | { kind: 'shell-read'; verbs: readonly string[]; paths: readonly string[]; root: string }
   | { kind: 'ask' }
 
 export interface PermissionPolicyOutcome {
   decision: PermissionPolicyDecision
   reason: PermissionPolicyReason
+}
+
+/** Resolve contra o cwd do segmento e cobra a borda do projeto. `null` reprova a linha. */
+function pathsWithinBoundary(
+  candidates: readonly string[],
+  resolutionBase: string,
+  boundary: string
+): string[] | null {
+  const resolved: string[] = []
+  for (const candidate of candidates) {
+    const absolute = resolveAgainstRoot(resolutionBase, candidate)
+    if (absolute === null) return null
+    if (resolveWithinRoot(boundary, absolute) !== 'inside') return null
+    resolved.push(absolute)
+  }
+  return resolved
+}
+
+/** Teto de estágios do pipeline de leitura: `cat a | grep x | head` já é o limite do legível. */
+const MAX_READ_SEGMENTS = 3
+
+/**
+ * Pipeline em que **todo** segmento só lê (F31 v1.1).
+ *
+ * Aceita mais de um segmento, ao contrário do caminho de escrita, porque a forma natural de leitura
+ * no shell é encadeada — o comando real medido em 2026-08-19 era `cat -A notas.txt | head -50`.
+ * Encadear leitura não compõe poder: dois `cat` continuam sendo dois `cat`. Um único segmento fora
+ * da lista reprova a linha inteira, então `cat a.txt | sh` não passa.
+ *
+ * O primeiro segmento precisa nomear caminho (ou ser `ls`): `cat` sem argumento fica esperando stdin
+ * e o turno trava. Do segundo em diante o stdin vem do pipe, então caminho é opcional.
+ */
+function shellReadApproval(
+  segments: readonly string[],
+  resolutionBase: string,
+  boundary: string
+): Extract<PermissionPolicyReason, { kind: 'shell-read' }> | null {
+  if (segments.length === 0 || segments.length > MAX_READ_SEGMENTS) return null
+
+  const verbs: string[] = []
+  const paths: string[] = []
+
+  for (const [index, segment] of segments.entries()) {
+    const classified = classifyReadCommand(segment)
+    if (classified.kind !== 'file-read') return null
+    if (index === 0 && classified.paths.length === 0 && !READ_VERBS_WITHOUT_PATH.includes(classified.verb)) {
+      return null
+    }
+    const resolved = pathsWithinBoundary(classified.paths, resolutionBase, boundary)
+    if (resolved === null) return null
+    verbs.push(classified.verb)
+    paths.push(...resolved)
+  }
+
+  return { kind: 'shell-read', verbs, paths, root: boundary }
 }
 
 /**
@@ -115,40 +177,38 @@ export interface PermissionPolicyOutcome {
  * Estreitar a borda junto com o `cd` parecia mais seguro e não era: reprovava `cd src && cp
  * ../a.ts b.ts`, que não sai do projeto em momento nenhum, sem ganhar segurança nenhuma em troca.
  */
-function shellFileEditApproval(
+function shellApproval(
   command: string,
   root: string
-): Extract<PermissionPolicyReason, { kind: 'shell-file-edit' }> | null {
+): Extract<PermissionPolicyReason, { kind: 'shell-file-edit' | 'shell-read' }> | null {
   const segments = splitCommandSegments(command)
-  if (segments.length === 0 || segments.length > 2) return null
+  if (segments.length === 0) return null
 
   let resolutionBase = root
-  let target = segments[0]
+  let rest = segments
 
-  if (segments.length === 2) {
-    const dir = cdTarget(segments[0])
-    if (dir === null) return null
+  // O `cd` de prefixo vale para os dois caminhos: ele move o cwd, nunca a borda.
+  const dir = segments.length > 1 ? cdTarget(segments[0]) : null
+  if (dir !== null) {
     if (resolveWithinRoot(root, dir) !== 'inside') return null
     const resolvedDir = resolveAgainstRoot(root, dir)
     if (resolvedDir === null) return null
     resolutionBase = resolvedDir
-    target = segments[1]
+    rest = segments.slice(1)
   }
 
-  const classified = classifyFileCommand(target)
-  if (classified.kind !== 'file-edit') return null
-
-  const resolvedPaths: string[] = []
-  for (const candidate of classified.paths) {
-    // Resolve a partir do cwd do segmento, mas cobra a borda do projeto — inclusive `.git`,
-    // symlink que sai e `..` que atravessa.
-    const absolute = resolveAgainstRoot(resolutionBase, candidate)
-    if (absolute === null) return null
-    if (resolveWithinRoot(root, absolute) !== 'inside') return null
-    resolvedPaths.push(absolute)
+  // Escrita: um comando só, sempre. Encadear escrita compõe poder, e é por isso que não passa.
+  if (rest.length === 1) {
+    const classified = classifyFileCommand(rest[0])
+    if (classified.kind === 'file-edit') {
+      const resolvedPaths = pathsWithinBoundary(classified.paths, resolutionBase, root)
+      if (resolvedPaths === null) return null
+      return { kind: 'shell-file-edit', verb: classified.verb, paths: resolvedPaths, root }
+    }
   }
 
-  return { kind: 'shell-file-edit', verb: classified.verb, paths: resolvedPaths, root }
+  // Leitura: pipeline inteiro, desde que nenhum segmento saia da lista.
+  return shellReadApproval(rest, resolutionBase, root)
 }
 
 /**
@@ -175,6 +235,7 @@ export function permissionPolicyOutcome(
   if (AUTO_ACCEPTED.has(toolName)) return { decision: 'allow', reason: { kind: 'access-level' } }
 
   // F31: o nível promete "edite arquivos sem me interromper", e o agente edita arquivo pelo shell.
+  // v1.1 acrescentou leitura, porque o nível já auto-aprova Read/Glob/Grep/LS como tool.
   if (!isShellTool(toolName)) return { decision: 'ask', reason: { kind: 'ask' } }
   const root = context?.root ?? null
   if (root === null || root.trim() === '') return { decision: 'ask', reason: { kind: 'ask' } }
@@ -182,7 +243,7 @@ export function permissionPolicyOutcome(
   if (command === null) return { decision: 'ask', reason: { kind: 'ask' } }
 
   try {
-    const approval = shellFileEditApproval(command, root)
+    const approval = shellApproval(command, root)
     return approval === null
       ? { decision: 'ask', reason: { kind: 'ask' } }
       : { decision: 'allow', reason: approval }

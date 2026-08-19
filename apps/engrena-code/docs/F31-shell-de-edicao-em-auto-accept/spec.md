@@ -5,7 +5,7 @@
 **Escopo:** `auto-accept-edits` passa a aprovar sem card uma lista fechada de comandos de shell que só mexem em arquivo, e só dentro do projeto
 **UI:** sem tela nova. Card e chips: `docs/F03-workspace/{ui,copy}.md` §3.5
 **Última atualização:** 2026-08-18
-**Status:** implementada em 2026-08-19 (perguntas da §11 fechadas abaixo)
+**Status:** v1 e v1.1 implementadas em 2026-08-19 (perguntas da §11 fechadas abaixo; v1.1 na §13)
 
 ---
 
@@ -216,8 +216,33 @@ O único `Bash` do teste era read-only, e ficou dois minutos preso no card até 
 
 Como candidato a v1.1, ler é melhor aposta que redirecionamento: leitura não tem como danificar arquivo, e o agente já tem a capacidade por tool. O que precisa ser decidido antes é a forma — `cat a \| head` são dois segmentos, então a regra de encadeamento de §3.2 teria de admitir pipe entre verbos de leitura, o que é mais do que o `cd` de prefixo concede hoje. **Registrado como pergunta 5, não como decisão.**
 
-5. **Verbos de leitura entram numa v1.1?** Proposta: `cat`, `head`, `tail`, `wc`, `ls`, `find` sem `-exec`/`-delete`, com todos os caminhos dentro da borda e pipe permitido **apenas** entre verbos dessa lista. Nada disso escreve, e o nível já aprova a tool equivalente. Medir antes com que frequência o card de leitura aparece.
+5. **Verbos de leitura entram numa v1.1?** → **Sim, implementada. Com `find` fora**, ao contrário da proposta original — ver §13.
 4. **A auto-aprovação deve aparecer no work log?** → **Não; `log_entries` basta.** O work log da timeline é montado a partir de `tool_calls`, e a chamada `Bash` já aparece lá com nome e status — o usuário vê que um shell rodou. O que faltava não era o *que*, era o *porquê não teve card*, e isso é diagnóstico: vai para `log_entries` kind `tool`, que é o que Registros (F08) mostra. Duplicar na timeline daria duas linhas para o mesmo fato.
+
+## 13. v1.1 — shell de leitura (2026-08-19)
+
+**Por quê:** o nível `auto-accept-edits` já auto-aprova as tools `Read`, `Glob`, `Grep` e `LS`. O mesmo ato pelo shell abria card, e a medição de §11.3 mostrou o custo disso ao vivo: o único `Bash` dos três turnos era `cat -A notas.txt | head -50`, read-only, e ficou dois minutos preso no card até expirar por timeout. Ler pelo shell ser mais difícil que ler por tool é incoerência do nível com ele mesmo, não política.
+
+**Por que é aposta melhor que redirecionamento:** leitura não escreve. O erro de classificar mal um `cp` custa um arquivo sobrescrito; o de classificar mal um `cat` custa, no pior caso, texto a mais no contexto do agente.
+
+**Lista v1.1:** `cat`, `head`, `tail`, `wc`, `ls`.
+
+**`find` ficou fora**, contra a proposta original desta pergunta. A gramática dele não é "flags e caminhos": `-exec`, `-execdir`, `-ok`, `-delete`, `-fprint` e `-fls` executam e escrevem, e os predicados consomem valor em posição variável. É a mesma armadilha do `sed -e`, num verbo em que errar não custa um arquivo: custa execução arbitrária. `grep` ficou fora pelo mesmo motivo (`-f arquivo`, padrão em posição variável). Quem precisa dos dois tem `Glob` e `Grep` como tool.
+
+**Dois riscos próprios da leitura, e o que os trata:**
+
+| Risco | Tratamento |
+|---|---|
+| Ler fora da borda (`cat ~/.ssh/id_rsa`, `cat ../fora/x`, `cat .git/config`) | Mesma resolução de caminho da escrita, sem exceção — inclusive `.git` protegido e `realpath` contra symlink |
+| **Travar o turno** | `tail -f` nunca retorna e `cat`/`wc`/`head` sem argumento ficam esperando stdin. Por isso `f`/`F` estão fora do `tail`, e o **primeiro** segmento do pipeline precisa nomear caminho (ou ser `ls`, o único que faz sentido sem argumento). Um teste executa `tail -f` de propósito com timeout de 3 s para provar que a exclusão não é excesso de zelo |
+
+**Pipe:** aceito, mas **só** entre verbos da lista de leitura, até 3 estágios. Encadear leitura não compõe poder — dois `cat` continuam sendo dois `cat` — e a forma natural de ler no shell é encadeada, como o próprio comando medido mostra. Um único segmento fora da lista reprova a linha inteira, então `cat a.txt | sh` não passa. Encadear **escrita** continua recusado: `mkdir a | mkdir b` abre card.
+
+**Nota sobre flag que consome valor** (`head -n 50 a.txt`): o valor **não** é pulado, entra na lista de caminhos e passa pela mesma resolução. Parece descuido e é o contrário: `50` só é aceito porque resolve para dentro da borda, e um `-n /etc/passwd` seria recusado. Pular o valor é que abriria buraco.
+
+**Auditoria:** leitura também grava `log_entries`, com rótulo próprio (`leu sem card` vs `escreveu sem card`). Quem for auditar um `allow` indevido precisa saber de qual dos dois estágios ele saiu.
+
+**Testes:** `classifyReadCommand` (tabela + adversariais), matriz da política, encanamento no broker, e no `shell-edit-escape.test.ts` a categoria `leitura` do corpus de fuga mais um bloco diferencial próprio — nele o invariante é mais forte que o da escrita: leitura liberada tem de deixar o disco **idêntico**, dentro e fora da borda.
 
 ## 12. Desvios da spec na implementação
 

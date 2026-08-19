@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ThreadAccessLevel } from '../db/repositories/threads.js'
@@ -230,5 +230,105 @@ describe('permissionPolicyOutcome — motivo da decisão (F31)', () => {
     expect(permissionPolicyOutcome('auto-accept-edits', 'Write').reason).toEqual({ kind: 'access-level' })
     expect(permissionPolicyOutcome('full-access', 'Bash').reason).toEqual({ kind: 'access-level' })
     expect(permissionPolicyOutcome('supervised', 'Bash').reason).toEqual({ kind: 'ask' })
+  })
+})
+
+/**
+ * F31 v1.1 — leitura pelo shell. O nível já auto-aprova `Read`/`Glob`/`Grep`/`LS` como tool; o que
+ * este estágio corrige é a incoerência de o mesmo ato pelo shell abrir card. Risco menor que o de
+ * escrita (ler não danifica), mas dois riscos próprios: ler fora da borda e travar o turno.
+ */
+describe('permissionPolicyDecision — shell de leitura em auto-accept-edits (F31 v1.1)', () => {
+  const base = mkdtempSync(join(tmpdir(), 'engrenacode_f31_read_'))
+  const root = join(base, 'projeto')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  mkdirSync(join(base, 'fora'), { recursive: true })
+  writeFileSync(join(root, 'notas.txt'), 'alfa\n')
+  writeFileSync(join(base, 'fora', 'segredo.txt'), 'x\n')
+
+  afterAll(() => {
+    rmSync(base, { recursive: true, force: true })
+  })
+
+  function decide(command: string, level: ThreadAccessLevel = 'auto-accept-edits'): string {
+    return permissionPolicyDecision(level, 'Bash', { params: { command }, root })
+  }
+
+  it('libera o comando exato que a medição de 2026-08-19 viu expirar no card', () => {
+    expect(decide('cat -A notas.txt | head -50')).toBe('allow')
+  })
+
+  it('libera leitura simples e pipeline de leitura', () => {
+    expect(decide('cat notas.txt')).toBe('allow')
+    expect(decide('ls')).toBe('allow')
+    expect(decide('ls -la src')).toBe('allow')
+    expect(decide('wc -l notas.txt')).toBe('allow')
+    expect(decide('cat notas.txt | wc -l')).toBe('allow')
+    expect(decide('cat notas.txt | head -20 | wc -l')).toBe('allow')
+  })
+
+  it('aceita o cd de prefixo antes do pipeline', () => {
+    expect(decide(`cd "${root.replace(/\\/g, '/')}/src" && ls -la`)).toBe('allow')
+  })
+
+  it('recusa leitura fora da borda', () => {
+    expect(decide('cat ../fora/segredo.txt')).toBe('ask')
+    expect(decide(`cat ${join(base, 'fora', 'segredo.txt').replace(/\\/g, '/')}`)).toBe('ask')
+    expect(decide('cat /etc/passwd')).toBe('ask')
+    expect(decide('cat ~/.ssh/id_rsa')).toBe('ask')
+    expect(decide('cat notas.txt | head -50 ../fora/segredo.txt')).toBe('ask')
+  })
+
+  it('recusa leitura do .git, igual à escrita', () => {
+    expect(decide('cat .git/config')).toBe('ask')
+  })
+
+  it('recusa o que travaria o turno', () => {
+    // `cat` sem caminho fica esperando stdin; `tail -f` nunca retorna.
+    expect(decide('cat')).toBe('ask')
+    expect(decide('wc -l')).toBe('ask')
+    expect(decide('head -50')).toBe('ask')
+    expect(decide('tail -f notas.txt')).toBe('ask')
+  })
+
+  it('um segmento fora da lista reprova o pipeline inteiro', () => {
+    expect(decide('cat notas.txt | sh')).toBe('ask')
+    expect(decide('cat notas.txt | bash')).toBe('ask')
+    expect(decide('cat notas.txt | xargs rm')).toBe('ask')
+    expect(decide('cat notas.txt | grep alfa')).toBe('ask')
+    expect(decide('cat notas.txt && rm notas.txt')).toBe('ask')
+  })
+
+  it('não abre porta para escrita: redirecionamento segue fora', () => {
+    expect(decide('cat notas.txt > copia.txt')).toBe('ask')
+    expect(decide('cat notas.txt >> copia.txt')).toBe('ask')
+    expect(decide('cat notas.txt | tee copia.txt')).toBe('ask')
+  })
+
+  it('pipeline longo demais deixa de ser legível e vira card', () => {
+    expect(decide('cat notas.txt | head -50 | wc -l | cat')).toBe('ask')
+  })
+
+  it('encadear escrita continua recusado, mesmo entre verbos da lista de escrita', () => {
+    expect(decide('mkdir a | mkdir b')).toBe('ask')
+    expect(decide('touch a.txt | touch b.txt')).toBe('ask')
+  })
+
+  it('não vaza para os outros níveis', () => {
+    expect(decide('cat notas.txt', 'supervised')).toBe('ask')
+  })
+
+  it('registra verbos e caminhos da leitura para a auditoria', () => {
+    const outcome = permissionPolicyOutcome('auto-accept-edits', 'Bash', {
+      params: { command: 'cat -A notas.txt | head -50' },
+      root,
+    })
+    expect(outcome.decision).toBe('allow')
+    expect(outcome.reason).toEqual({
+      kind: 'shell-read',
+      verbs: ['cat', 'head'],
+      paths: [join(root, 'notas.txt')],
+      root,
+    })
   })
 })

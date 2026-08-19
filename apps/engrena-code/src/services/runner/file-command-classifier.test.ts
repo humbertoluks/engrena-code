@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { cdTarget, classifyFileCommand, FILE_EDIT_VERBS } from './file-command-classifier.js'
+import {
+  cdTarget,
+  classifyFileCommand,
+  classifyReadCommand,
+  FILE_EDIT_VERBS,
+  FILE_READ_VERBS,
+} from './file-command-classifier.js'
 
 /**
  * A tabela adversarial **faz parte** do critério de aceitação da F31, não é extra: o que este
@@ -140,6 +146,72 @@ describe('cdTarget', () => {
   it('recusa o que não é exatamente cd <dir>', () => {
     for (const segment of ['cd', 'cd a b', 'cd $HOME', 'cd ~', 'pushd src', 'cd -- src', '']) {
       expect(cdTarget(segment)).toBeNull()
+    }
+  })
+})
+
+describe('classifyReadCommand — verbos que só leem (v1.1)', () => {
+  it('a lista é exatamente esta; find NÃO entra', () => {
+    expect([...FILE_READ_VERBS].sort()).toEqual(['cat', 'head', 'ls', 'tail', 'wc'])
+    // `find` tem `-exec`, `-delete`, `-fprint`: a gramática dele executa e escreve, e os predicados
+    // consomem valor em posição variável. Quem precisa de find tem a tool `Glob`.
+    expect(classifyReadCommand('find . -name *.ts').kind).toBe('unknown')
+    expect(classifyReadCommand('find . -exec rm {} ;').kind).toBe('unknown')
+  })
+
+  it('lê as formas comuns', () => {
+    expect(classifyReadCommand('cat notas.txt')).toEqual({
+      kind: 'file-read',
+      verb: 'cat',
+      paths: ['notas.txt'],
+    })
+    expect(classifyReadCommand('cat -A notas.txt')).toMatchObject({ verb: 'cat', paths: ['notas.txt'] })
+    expect(classifyReadCommand('wc -l src/a.ts')).toMatchObject({ verb: 'wc', paths: ['src/a.ts'] })
+    expect(classifyReadCommand('ls -la src')).toMatchObject({ verb: 'ls', paths: ['src'] })
+  })
+
+  it('ls sem argumento é válido: lista o cwd', () => {
+    expect(classifyReadCommand('ls')).toEqual({ kind: 'file-read', verb: 'ls', paths: [] })
+  })
+
+  it('contagem colada é flag, não caminho', () => {
+    expect(classifyReadCommand('head -50')).toEqual({ kind: 'file-read', verb: 'head', paths: [] })
+    expect(classifyReadCommand('tail -n20 a.txt')).toMatchObject({ verb: 'tail', paths: ['a.txt'] })
+  })
+
+  it('o valor de uma flag que consome argumento entra como caminho, de propósito', () => {
+    // `50` vai ser conferido contra a borda como qualquer caminho — e passa porque resolve para
+    // dentro. Pular o valor é que abriria buraco: `-n /etc/passwd` deixaria de ser conferido.
+    expect(classifyReadCommand('head -n 50 a.txt')).toMatchObject({ paths: ['50', 'a.txt'] })
+  })
+
+  it('tail -f fica fora: um turno preso é pior que um card', () => {
+    for (const comando of ['tail -f log.txt', 'tail -F log.txt', 'tail --follow log.txt']) {
+      expect(classifyReadCommand(comando).kind).toBe('unknown')
+    }
+  })
+
+  it('verbo de escrita não vira leitura, e vice-versa', () => {
+    for (const comando of ['rm a.txt', 'mkdir x', 'touch a.txt', 'cp a b', 'sed -i s/a/b/ x']) {
+      expect(classifyReadCommand(comando).kind).toBe('unknown')
+    }
+    for (const comando of ['cat a.txt', 'ls', 'wc -l a.txt']) {
+      expect(classifyFileCommand(comando).kind).toBe('unknown')
+    }
+  })
+
+  it('herda as mesmas recusas do outro classificador', () => {
+    for (const comando of [
+      'cat a.txt > b.txt',
+      'cat $HOME/a.txt',
+      'cat *.ts',
+      'cat `whoami`',
+      'cat -Z a.txt',
+      'grep x a.txt',
+      'sh -c "cat a.txt"',
+      '',
+    ]) {
+      expect(classifyReadCommand(comando).kind).toBe('unknown')
     }
   })
 })

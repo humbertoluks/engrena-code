@@ -27,9 +27,17 @@ export interface FileEditCommand {
   paths: string[]
 }
 
-export type FileCommandClassification = FileEditCommand | { kind: 'unknown' }
+/** Comando que só lê. O `paths` é conferido igual: ler fora da borda também é vazamento. */
+export interface FileReadCommand {
+  kind: 'file-read'
+  verb: string
+  paths: string[]
+}
 
-const UNKNOWN: FileCommandClassification = { kind: 'unknown' }
+export type FileCommandClassification = FileEditCommand | { kind: 'unknown' }
+export type ReadCommandClassification = FileReadCommand | { kind: 'unknown' }
+
+const UNKNOWN = { kind: 'unknown' } as const
 
 /**
  * Caracteres que tiram a linha do que sabemos ler, por dois motivos diferentes:
@@ -58,6 +66,8 @@ interface VerbRule {
   minPaths: number
   /** `sed -i` / `sed -i.bak`: a flag carrega sufixo colado. */
   allowsInPlaceSuffix?: boolean
+  /** `head -50`, `tail -n20`: contagem escrita como se fosse flag. */
+  allowsNumericFlag?: boolean
 }
 
 /**
@@ -104,6 +114,74 @@ const VERB_RULES = new Map<string, VerbRule>(Object.entries({
 
 /** Os verbos da v1, para doc e teste — a fonte é `VERB_RULES`. */
 export const FILE_EDIT_VERBS: readonly string[] = [...VERB_RULES.keys()]
+
+/**
+ * Verbos que **só leem** (F31 v1.1).
+ *
+ * Motivo de existirem: o nível `auto-accept-edits` já auto-aprova as tools `Read`, `Glob`, `Grep` e
+ * `LS`, mas o mesmo ato pelo shell abria card — e na medição de 2026-08-19 o único `Bash` do turno
+ * era exatamente isso (`cat -A notas.txt | head -50`), que ficou dois minutos preso no card até
+ * expirar por timeout. Ler pelo shell ser mais difícil que ler por tool é incoerência do nível com
+ * ele mesmo, não política.
+ *
+ * O risco aqui é outro e menor: leitura não escreve. Sobram dois, e a lista trata os dois:
+ *
+ * - **ler fora da borda** (`cat ~/.ssh/id_rsa`) — mesma resolução de caminho dos verbos de escrita,
+ *   sem exceção;
+ * - **travar o turno** — `tail -f` nunca retorna, e `cat` sem argumento fica esperando stdin. Por
+ *   isso `f`/`F` estão fora do `tail`, e por isso a política exige caminho no primeiro segmento.
+ *
+ * **`find` ficou fora**, ao contrário do que eu tinha proposto. A gramática dele não é "flags e
+ * caminhos": `-exec`, `-execdir`, `-ok`, `-delete`, `-fprint` e `-fls` executam e escrevem, e os
+ * predicados consomem valor em posição variável. É a mesma armadilha do `sed -e`, e num verbo em que
+ * errar não custa um arquivo a mais: custa execução arbitrária. Quem precisa de `find` tem `Glob`.
+ */
+const READ_VERB_RULES = new Map<string, VerbRule>(
+  Object.entries({
+    cat: {
+      shortFlags: 'AbeEnstTv',
+      longFlags: ['--show-all', '--number', '--number-nonblank', '--squeeze-blank', '--show-ends', '--show-tabs', '--show-nonprinting'],
+      leadingNonPathArgs: 0,
+      minPaths: 0,
+    },
+    head: {
+      shortFlags: 'cnqvz',
+      longFlags: ['--bytes', '--lines', '--quiet', '--silent', '--verbose'],
+      leadingNonPathArgs: 0,
+      minPaths: 0,
+      allowsNumericFlag: true,
+    },
+    // Sem `f`/`F`: `tail -f` não retorna, e um turno preso é pior que um card.
+    tail: {
+      shortFlags: 'cnqvz',
+      longFlags: ['--bytes', '--lines', '--quiet', '--silent', '--verbose'],
+      leadingNonPathArgs: 0,
+      minPaths: 0,
+      allowsNumericFlag: true,
+    },
+    wc: {
+      shortFlags: 'clmwL',
+      longFlags: ['--bytes', '--chars', '--lines', '--words', '--max-line-length'],
+      leadingNonPathArgs: 0,
+      minPaths: 0,
+    },
+    ls: {
+      shortFlags: '1aAdFhlLrRSt',
+      longFlags: ['--all', '--almost-all', '--classify', '--human-readable', '--recursive', '--reverse', '--size'],
+      leadingNonPathArgs: 0,
+      minPaths: 0,
+    },
+  } satisfies Record<string, VerbRule>)
+)
+
+/** Os verbos de leitura, para doc e teste. */
+export const FILE_READ_VERBS: readonly string[] = [...READ_VERB_RULES.keys()]
+
+/**
+ * `ls` é o único que faz sentido sem argumento nenhum: lista o cwd, que a política já sabe estar
+ * dentro da borda. Os outros sem argumento ficam lendo stdin e o turno trava.
+ */
+export const READ_VERBS_WITHOUT_PATH: readonly string[] = ['ls']
 
 /** Teto do que lemos: linha maior que isto não é comando de arquivo, é script. */
 const MAX_SEGMENT_LENGTH = 1024
@@ -161,6 +239,8 @@ function flagIsAccepted(rule: VerbRule, token: string): boolean {
   if (token === '--') return true
   if (token.startsWith('--')) return rule.longFlags.includes(token)
   if (rule.allowsInPlaceSuffix === true && /^-i/.test(token)) return true
+  // `head -50` / `tail -n20`: a contagem vem colada onde uma flag estaria.
+  if (rule.allowsNumericFlag === true && /^-[cn]?\d+$/.test(token)) return true
   // Curta, possivelmente agrupada (`-pv`).
   return token
     .slice(1)
@@ -174,34 +254,59 @@ function flagIsAccepted(rule: VerbRule, token: string): boolean {
  * Nunca lança: exceção aqui viraria decisão de permissão por acidente, e o contrato de F31 é que
  * a única saída nova é `allow`.
  */
-export function classifyFileCommand(segment: string): FileCommandClassification {
+/**
+ * Leitura comum às duas tabelas: verbo conhecido, toda flag conhecida, e o que sobra é caminho.
+ *
+ * Nota sobre flags que consomem valor (`head -n 50`): o valor **não** é pulado, ele entra em
+ * `paths`. Isso parece descuido e é o contrário — todo argumento não-flag passa pela resolução
+ * contra a borda, então `50` só é aceito porque resolve para dentro, e `-n /etc/passwd` seria
+ * recusado. Tratar o valor como caminho é a leitura conservadora; pulá-lo é que abriria buraco.
+ */
+function parseAgainstRules(
+  segment: string,
+  rules: Map<string, VerbRule>
+): { verb: string; paths: string[] } | null {
   const line = segment.trim()
-  if (line === '' || line.length > MAX_SEGMENT_LENGTH) return UNKNOWN
-  if (UNREADABLE_SHELL.test(line)) return UNKNOWN
+  if (line === '' || line.length > MAX_SEGMENT_LENGTH) return null
+  if (UNREADABLE_SHELL.test(line)) return null
 
   const tokens = tokenize(line)
-  if (tokens === null || tokens.length === 0 || tokens.length > MAX_TOKENS) return UNKNOWN
+  if (tokens === null || tokens.length === 0 || tokens.length > MAX_TOKENS) return null
 
   const verb = tokens[0]
-  const rule = VERB_RULES.get(verb)
-  if (rule === undefined) return UNKNOWN
+  const rule = rules.get(verb)
+  if (rule === undefined) return null
 
   const args: string[] = []
   let endOfFlags = false
   for (const token of tokens.slice(1)) {
     if (!endOfFlags && isFlag(token)) {
-      if (!flagIsAccepted(rule, token)) return UNKNOWN
+      if (!flagIsAccepted(rule, token)) return null
       if (token === '--') endOfFlags = true
       continue
     }
     args.push(token)
   }
 
-  if (args.length < rule.leadingNonPathArgs + rule.minPaths) return UNKNOWN
+  if (args.length < rule.leadingNonPathArgs + rule.minPaths) return null
   const paths = args.slice(rule.leadingNonPathArgs)
-  if (paths.some((p) => p.trim() === '')) return UNKNOWN
+  if (paths.some((p) => p.trim() === '')) return null
 
-  return { kind: 'file-edit', verb, paths }
+  return { verb, paths }
+}
+
+export function classifyFileCommand(segment: string): FileCommandClassification {
+  const parsed = parseAgainstRules(segment, VERB_RULES)
+  return parsed === null ? UNKNOWN : { kind: 'file-edit', verb: parsed.verb, paths: parsed.paths }
+}
+
+/**
+ * Um segmento que só lê, ou `unknown`. Separado de `classifyFileCommand` de propósito: as duas
+ * decisões têm risco diferente e a política precisa saber qual das duas aconteceu para registrar.
+ */
+export function classifyReadCommand(segment: string): ReadCommandClassification {
+  const parsed = parseAgainstRules(segment, READ_VERB_RULES)
+  return parsed === null ? UNKNOWN : { kind: 'file-read', verb: parsed.verb, paths: parsed.paths }
 }
 
 /**

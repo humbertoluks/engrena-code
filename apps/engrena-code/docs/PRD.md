@@ -1086,13 +1086,16 @@ Tratamento de Erros omitido — indexação e busca são somente-leitura; falha 
 
 **Capacidades:**
 - Segundo estágio de decisão, ativo só em `auto-accept-edits`: verbo de uma lista fechada (`mkdir`, `touch`, `cp`, `mv`, `sed`) + todo caminho resolvido dentro da raiz da thread
+- Leitura pelo shell (`cat`, `head`, `tail`, `wc`, `ls`) também sem card, com pipe permitido apenas entre esses verbos; `find` e `grep` ficam fora (gramática que executa/escreve)
 - Prefixo `cd <dir dentro da raiz> &&` aceito; qualquer outro encadeamento abre card
 - Caminho indecidível (glob, variável, substituição), fora da raiz, ou por dentro de `.git`, abre card
-- `rm`/`rmdir` e redirecionamento (`>`, `>>`) ficam fora da v1, por decisão registrada na spec
+- `rm`/`rmdir` e redirecionamento (`>`, `>>`) ficam fora, por decisão registrada na spec
+- Comando que travaria o turno abre card: `tail -f` fora da lista, e o primeiro estágio precisa nomear caminho (`cat` sem argumento espera stdin)
 - Toda auto-aprovação por este caminho grava `log_entries` com verbo e caminhos resolvidos
 
 **Experiência:**
 - Pedido de edição de arquivo pelo shell dentro do projeto roda sem card
+- Ler arquivo do projeto pelo shell também roda sem card, como já acontecia pela tool `Read`
 - `git`, `pnpm`, `rm` e qualquer coisa com redirecionamento continuam abrindo card
 - A escrita continua visível na aba Diff, que é `git diff HEAD` e pega alteração de qualquer origem
 
@@ -1522,7 +1525,8 @@ graph TD
 - [x] `cd <dir dentro da raiz> && <comando da lista>` é aceito; qualquer outro encadeamento abre card
 - [x] Caminho fora da raiz, indecidível (glob/variável/substituição), por symlink que sai, ou por dentro de `.git`, abre card
 - [x] `rm`, `rmdir` e redirecionamento continuam abrindo card; `supervised` e `full-access` não mudam de comportamento
-- [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos
+- [x] Toda auto-aprovação por este caminho aparece em `log_entries` com verbo e caminhos resolvidos, e escrita e leitura têm rótulos distintos
+- [x] Leitura pelo shell dentro da borda roda sem card; leitura fora da borda, `tail -f` e pipeline com verbo fora da lista abrem card
 
 ### Integração Cross-Feature
 - [x] Tokens/tema/padrões de superfície de F01.1 renderizam a tela `#configuracao` (F02) sem hexes fora do Design Lock

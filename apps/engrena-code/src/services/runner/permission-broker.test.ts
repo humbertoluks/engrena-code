@@ -648,3 +648,51 @@ describe('auto-accept-edits + comando de arquivo (F31)', () => {
     server.close()
   })
 })
+
+describe('auto-accept-edits + comando de leitura (F31 v1.1)', () => {
+  it('libera o comando exato que a medição viu expirar no card, sem abrir gate', async () => {
+    const { threadId } = seedThreadWithDir('auto-accept-edits')
+    const seen: PermissionRequestInfo[] = []
+    const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+    // Em 2026-08-19 este comando abriu card e expirou por timeout, prendendo o turno por 2 min.
+    const res = await ask(server, 'Bash', { command: 'cat -A notas.txt | head -50' })
+    expect(((await res.json()) as { allow: boolean }).allow).toBe(true)
+    expect(seen).toEqual([])
+    expect(hasOpenPermissionGate(threadId)).toBe(false)
+
+    server.close()
+  })
+
+  it('registra a leitura com rótulo próprio, distinguível da escrita', async () => {
+    const { threadId } = seedThreadWithDir('auto-accept-edits')
+    const server = await createPermissionServer(threadId)
+
+    await ask(server, 'Bash', { command: 'ls -la' })
+    await ask(server, 'Bash', { command: 'mkdir novo' })
+
+    const entries = listLogEntries({ kind: 'tool' }).filter(
+      (e) => e.threadId === threadId && e.event.includes('Auto-accept edits')
+    )
+    // Quem for auditar um allow indevido precisa saber de qual estágio ele saiu.
+    expect(entries.some((e) => e.event.includes('leu sem card') && e.event.includes('ls'))).toBe(true)
+    expect(entries.some((e) => e.event.includes('escreveu sem card') && e.event.includes('mkdir'))).toBe(true)
+
+    server.close()
+  }, 15000)
+
+  it('leitura fora do projeto e pipeline com shell continuam abrindo card', async () => {
+    for (const command of ['cat /etc/passwd', 'cat notas.txt | sh']) {
+      const { threadId } = seedThreadWithDir('auto-accept-edits')
+      const seen: PermissionRequestInfo[] = []
+      const server = await createPermissionServer(threadId, (info) => seen.push(info))
+
+      const pending = ask(server, 'Bash', { command })
+      await waitFor(() => seen.length === 1)
+      resolvePermissionGate(threadId, seen[0].requestId, false)
+      await pending
+
+      server.close()
+    }
+  }, 20000)
+})

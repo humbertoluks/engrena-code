@@ -199,17 +199,22 @@ function effectiveThreadRoot(threadId: string): string | null {
  * Grava caminho resolvido, nunca a linha de comando: o comando pode carregar segredo em argumento,
  * e o que interessa à auditoria é o que foi tocado.
  */
-function logShellEditAutoApproval(
+function logShellAutoApproval(
   threadId: string,
-  reason: Extract<PermissionPolicyReason, { kind: 'shell-file-edit' }>
+  reason: Extract<PermissionPolicyReason, { kind: 'shell-file-edit' | 'shell-read' }>
 ): void {
+  // Escrita e leitura ficam distinguíveis no Registros: são riscos diferentes, e quem for auditar
+  // um `allow` indevido precisa saber de qual dos dois estágios ele saiu.
+  const [rotulo, verbos] =
+    reason.kind === 'shell-file-edit'
+      ? ['escreveu sem card', reason.verb]
+      : ['leu sem card', reason.verbs.join(' | ')]
+  const alvo = reason.paths.length === 0 ? 'o diretório do turno' : reason.paths.join(', ')
   try {
     createLogEntry({
       threadId,
       kind: 'tool',
-      event:
-        `Auto-accept edits liberou sem card: ${reason.verb} em ${reason.paths.join(', ')} ` +
-        `(raiz ${reason.root}).`,
+      event: `Auto-accept edits ${rotulo}: ${verbos} em ${alvo} (raiz ${reason.root}).`,
     })
   } catch {
     // Log é acessório; falha aqui não pode derrubar a resposta ao hook, que tem um CLI esperando.
@@ -265,9 +270,10 @@ export function clearAllowedToolsForThread(threadId: string): void {
  * `permissionDecision: allow|deny`.
  *
  * Auto-allow sem gate quando: (1) `permission-policy.ts` já decide `allow` — full-access inteiro,
- * leitura/edição em auto-accept-edits, e desde F31 também o comando de shell que só mexe em
- * arquivo dentro da raiz da thread — ou (2) tool já está na allowlist da thread ("Permitir todos"
- * / don't ask again). Só o caso de shell grava log: é o único `allow` que sai de um parser nosso.
+ * leitura/edição em auto-accept-edits, e desde F31 também o comando de shell que mexe em arquivo
+ * (ou só lê) dentro da raiz da thread — ou (2) tool já está na allowlist da thread ("Permitir
+ * todos" / don't ask again). Só os casos de shell gravam log: são os únicos `allow` que saem de um
+ * parser nosso, e escrita e leitura aparecem com rótulos diferentes.
  *
  * Fail-closed em todo caminho de erro: body acima do cap, gate que não persiste (thread apagada
  * mid-turn) e timeout respondem `allow:false`.
@@ -343,8 +349,8 @@ export function createPermissionServer(
         root: current === null ? null : effectiveThreadRoot(threadId),
       })
       if (outcome.decision === 'allow') {
-        if (outcome.reason.kind === 'shell-file-edit') {
-          logShellEditAutoApproval(threadId, outcome.reason)
+        if (outcome.reason.kind === 'shell-file-edit' || outcome.reason.kind === 'shell-read') {
+          logShellAutoApproval(threadId, outcome.reason)
         }
         recordBrokerOutcome(threadId, toolName, 'granted', toolUseId)
         res.writeHead(200, { 'Content-Type': 'application/json' })
