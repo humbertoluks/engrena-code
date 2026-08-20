@@ -55,9 +55,9 @@ graph TD
 
 ## 3. Decisões Técnicas
 
-### 3.1 Herdadas do brief / docs canônicos
+### 3.1 Herdadas dos docs canônicos
 
-`docs/_shared/codebase-patterns.md` não existe (lote inline, sem Research). Padrões da Descoberta 1.3: rota nova exige registro nas **duas** listas de `threads-handler.ts` (regex + `matchesThreadsRoute`), sob pena de o request ficar pendurado sem erro; `guard()` checa `vaultService.isLocked()` (423) antes do token (401); repositórios devolvem entidades já mapeadas; testes colocados ao lado do módulo. Desvios desta feature: nenhum.
+O brief compartilhado que o Modo Lote usava existia mas estava stale (`git_sha` anterior à conversão monorepo, declarando-se `fresh`); o Modo Lote e o brief foram removidos em 2026-08-20. Padrões da Descoberta 1.3: rota nova exige registro nas **duas** listas de `threads-handler.ts` (regex + `matchesThreadsRoute`), sob pena de o request ficar pendurado sem erro; `guard()` checa `vaultService.isLocked()` (423) antes do token (401); repositórios devolvem entidades já mapeadas; testes colocados ao lado do módulo. Desvios desta feature: nenhum.
 
 ### 3.2 Específicas da feature
 

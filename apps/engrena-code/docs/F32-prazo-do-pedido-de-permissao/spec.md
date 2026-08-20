@@ -45,9 +45,9 @@ graph TD
 
 ## 3. Decisões Técnicas
 
-### 3.1 Herdadas do brief / docs canônicos
+### 3.1 Herdadas dos docs canônicos
 
-`docs/_shared/codebase-patterns.md` não existe (lote rodado inline, sem Research). Padrões vieram da Descoberta 1.3 executada nesta sessão sobre o repo: TypeScript estrito, Vitest colocado ao lado do módulo (`*.test.ts`), SQLite via `better-sqlite3` nos repositórios, `createLogEntry` como única porta de auditoria, `pnpm --filter engrena-code exec tsc -b` como gate de tipo. Desvios desta feature: nenhum.
+O brief compartilhado que o Modo Lote usava existia mas estava stale (`git_sha` anterior à conversão monorepo, declarando-se `fresh`); o Modo Lote e o brief foram removidos em 2026-08-20. Padrões vieram da Descoberta 1.3 executada nesta sessão sobre o repo: TypeScript estrito, Vitest colocado ao lado do módulo (`*.test.ts`), SQLite via `node:sqlite` (`DatabaseSync`) nos repositórios, `createLogEntry` como única porta de auditoria, `pnpm --filter engrena-code exec tsc -b` como gate de tipo. Desvios desta feature: nenhum.
 
 ### 3.2 Específicas da feature
 

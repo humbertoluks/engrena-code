@@ -53,9 +53,9 @@ graph TD
 
 ## 3. Decisões Técnicas
 
-### 3.1 Herdadas do brief / docs canônicos
+### 3.1 Herdadas dos docs canônicos
 
-`docs/_shared/codebase-patterns.md` não existe (lote inline, sem Research). Padrões da Descoberta 1.3: `turn-state.ts` é o dono único de `threads.state` fora do boot, e o boot é a exceção declarada (UPDATE em lote); `deriveChatSurface` é o único lugar que decide rótulo e visibilidade do composer, e `TaskComposer.tsx`/`ChatHistory.tsx` não reimplementam o predicado; `createLogEntry` como porta de auditoria. Desvios desta feature: nenhum.
+O brief compartilhado que o Modo Lote usava existia mas estava stale (`git_sha` anterior à conversão monorepo, declarando-se `fresh`); o Modo Lote e o brief foram removidos em 2026-08-20. Padrões da Descoberta 1.3: `turn-state.ts` é o dono único de `threads.state` fora do boot, e o boot é a exceção declarada (UPDATE em lote); `deriveChatSurface` é o único lugar que decide rótulo e visibilidade do composer, e `TaskComposer.tsx`/`ChatHistory.tsx` não reimplementam o predicado; `createLogEntry` como porta de auditoria. Desvios desta feature: nenhum.
 
 ### 3.2 Específicas da feature
 
