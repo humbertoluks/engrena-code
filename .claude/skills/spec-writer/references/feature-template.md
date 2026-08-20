@@ -7,7 +7,7 @@ Cada feature produz DOIS arquivos em uma subpasta:
 | `spec.md` | Especificação técnica | Arquitetura, contratos de API, modelos de dados, estratégia de testes |
 | `plan.md` | Roteiro de implementação | Fases, passos numerados com descrições alto-nível |
 
-**Fonte de padrões (Two-phase batch):** em Modo Lote, a autoridade de stack/convenções é `docs/_shared/codebase-patterns.md` (gerado pelo Research, Phase A). Schema: `references/research-brief-template.md`. A spec **cita** o brief e documenta só o delta da feature; não recopiar Camada 1. Em single-feature sem brief fresco, a Descoberta 1.3 ainda roda inline.
+**Fonte de padrões:** a autoridade de stack e convenções é o próprio codebase, lido pela Descoberta 1.3, mais os docs canônicos do repo. A spec cita o que herdou; não recopia checklist.
 
 **UI da feature (`ui.md` / `copy.md`):** quando a feature tem superfície visual, o EngrenaCode escreve `docs/<feature-id>-<kebab-name>/ui.md` (anatomia, tokens, aceite visual) e `docs/<feature-id>-<kebab-name>/copy.md` (catálogo de strings literais por id) como processo separado, ANTES ou em paralelo à spec técnica. Quando esses arquivos já existem, são a fonte de verdade para UX/copy: a spec **cita** os caminhos e usa os ids de copy declarados, nunca reinventa texto ou reordena a anatomia documentada. Quando não existem ainda, a spec anota a lacuna em Assumptions ("`ui.md`/`copy.md` ainda não escritos — pendente do processo de design") em vez de inventar layout/copy.
 
@@ -107,14 +107,14 @@ graph TD
 
 ### Seção 3: Decisões Técnicas
 
-Separe herdado (brief/docs) do específico da feature. Em Modo Lote, **3.3 é obrigatório** para cada padrão Auto-Aceitar aplicado.
+Separe o que foi herdado dos docs canônicos do específico desta feature.
 
-#### 3.1 Herdadas do brief / docs canônicos
+#### 3.1 Herdadas dos docs canônicos
 
 Cite o path; não recopiar o checklist Camada 1.
 
 ```markdown
-Padrões herdados de `docs/_shared/codebase-patterns.md` (e docs canônicos listados no brief).
+Padrões herdados da Descoberta 1.3 e dos docs canônicos do repo (ver `project.md`).
 Desvios desta feature: nenhum | [listar].
 ```
 
@@ -128,11 +128,11 @@ Desvios desta feature: nenhum | [listar].
 
 #### 3.3 Assumptions / Auto-Aceitar
 
-Obrigatório em Modo Lote quando o PRD não respondeu a decisão. Nomeie a linha da política. Também usado para registrar a ausência de `ui.md`/`copy.md` quando a feature tem UI e esses arquivos ainda não existem.
+Obrigatório sempre que o PRD não respondeu a decisão e ela foi tomada aqui. Também usado para registrar a ausência de `ui.md`/`copy.md` quando a feature tem UI e esses arquivos ainda não existem.
 
 | Assumption | Origem | Pode sobrescrever? |
 |------------|--------|--------------------|
-| [Decisão aplicada] | Auto-Aceitar: [linha] \| entrevista \| brief \| ui.md/copy.md ausente | sim |
+| [Decisão aplicada] | entrevista \| padrão do codebase \| ui.md/copy.md ausente | sim |
 
 ### Seção 4: Visão Geral de Componentes
 
@@ -297,7 +297,7 @@ Checklist executável pós-implementação (fluxo feliz + 2–3 erros). Cada ite
 
 #### 7.3 Cross-feature
 
-Critérios de integração com outras features. Se a dependência ainda não está implementada, marque **deferred** com a feature alvo (ex.: `deferred até F04`). Peers da mesma onda no lote atual (ainda sem spec no disco): use status `peer no lote` e o índice Consome/Provê do brief.
+Critérios de integração com outras features. Se a dependência ainda não está implementada, marque **deferred** com a feature alvo (ex.: `deferred até F04`).
 
 | Critério | Status | Nota |
 |----------|--------|------|
@@ -313,8 +313,7 @@ Critérios de integração com outras features. Se a dependência ainda não est
 # Plano de Implementação: [Nome da Feature]
 
 **Pré-requisitos:**
-- Herdar stack/tooling de `docs/_shared/codebase-patterns.md` quando o brief existir; listar só o que esta feature adiciona
-- Ferramentas/bibliotecas com versões (somente deltas vs brief)
+- Ferramentas/bibliotecas com versões — só o que **esta** feature adiciona ao que o repo já usa
 - Variáveis de ambiente
 - Arquivos de configuração
 ```
@@ -372,8 +371,8 @@ Critérios de integração com outras features. Se a dependência ainda não est
 7. Inclua smoke/aceitação manual e cross-feature (ou deferred / peer no lote)
 8. Use diagramas Mermaid para arquitetura
 9. Apresente trade-offs para decisões feature-local (Seção 3.2)
-10. Referencie padrões do brief (`docs/_shared/codebase-patterns.md`), docs canônicos do repo, e specs anteriores: "Siga padrão X"
-11. Em Modo Lote: preencha Seção 3.1 (herdadas) e 3.3 (Assumptions / Auto-Aceitar)
+10. Referencie docs canônicos do repo e specs anteriores: "Siga padrão X"
+11. Preencha Seção 3.1 (herdadas dos docs canônicos) e 3.3 (Assumptions) sempre que houver o que registrar
 12. Features com UI: cite `ui.md`/`copy.md` da feature quando existirem — nunca redescreva anatomia ou strings que já estão lá
 
 ### Documento SPEC - NÃO FAÇA:
@@ -383,7 +382,7 @@ Critérios de integração com outras features. Se a dependência ainda não est
 3. Repita requisitos de produto do PRD
 4. Inclua estimativas de tempo
 5. Adicione histórias de usuário ou justificação comercial
-6. Recopie o checklist Camada 1 do brief na Visão Geral ou Decisões — cite o path e desvie só o delta da feature
+6. Recopie checklist de padrões do repo na Visão Geral ou Decisões — cite o doc canônico e registre só o delta desta feature
 7. Recopie a anatomia/tokens de `ui.md` ou a tabela de strings de `copy.md` — cite os caminhos
 
 ### Documento PLAN - FAÇA:

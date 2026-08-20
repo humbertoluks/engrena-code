@@ -2,25 +2,25 @@
 name: audit-full-base
 description: >-
   Orquestra auditoria full-base do EngrenaCode: review-architecture,
-  review-robustness e review-delivery em sequência; grava
+  review-robustness, review-delivery e review-docs em sequência; grava
   apps/engrena-code/docs/AUDIT-CODE-REVIEW.md; sincroniza Coding Experts (.claude/skills/coding-*).
-  Use com /audit-full-base, reauditoria, “rodar as 3 reviews”, auditoria da base,
+  Use com /audit-full-base, reauditoria, “rodar as reviews”, auditoria da base,
   escopo src/, ou quando o diff das reviews individuais estiver vazio.
 ---
 
 # Audit — Full base
 
-Coordena as 3 reviews, atualiza o artefato **e** as Coding Experts. **Não** edita `src/` (correção é sessão à parte).
+Coordena as 4 reviews, atualiza o artefato **e** as Coding Experts. **Não** edita `src/` (correção é sessão à parte).
 
 **Idioma:** artefato/relatos em PT-BR; paths, símbolos, códigos e commits em inglês.
 
 ## Quando usar
 
-- Reauditoria / “3 reviews” / auditoria da base / `/audit-full-base`.
+- Reauditoria / “as reviews” / auditoria da base / `/audit-full-base`.
 - Escopo = `src/` completo (não só `git diff` do branch).
 - Precisa de `apps/engrena-code/docs/AUDIT-CODE-REVIEW.md` + coding experts alinhadas.
 
-Diff/PR/feature isolada → use `review-architecture` | `review-robustness` | `review-delivery` direto.
+Diff/PR/feature isolada → use `review-architecture` | `review-robustness` | `review-delivery` | `review-docs` direto.
 
 ## Orquestração
 
@@ -29,6 +29,7 @@ coordenador
   → review-architecture   (leitura, contexto limpo)
   → review-robustness     (leitura; resumo curto dos 🔴 de arch)
   → review-delivery       (leitura; achados 1–2; pode pnpm test)
+  → review-docs           (leitura; confere doc contra código, nunca contra outro doc)
   → consolida apps/engrena-code/docs/AUDIT-CODE-REVIEW.md
   → sincroniza .claude/skills/coding-*
 ```
@@ -42,7 +43,7 @@ Regras:
 5. Sem lote de fix em `src/`.
 6. Sem sync das Coding Experts a passagem está **incompleta**.
 
-Reviews: `review-architecture` · `review-robustness` · `review-delivery`  
+Reviews: `review-architecture` · `review-robustness` · `review-delivery` · `review-docs`  
 Exemplos de relato e prompt de subagente: [references/examples.md](references/examples.md)
 
 ### Coding Experts

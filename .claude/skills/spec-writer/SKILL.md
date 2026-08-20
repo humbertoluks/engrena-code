@@ -1,33 +1,43 @@
 ---
 name: spec-writer
-description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Suporta modo lote para gerar múltiplas features da mesma onda em paralelo. Adaptado ao EngrenaCode — integra apps/engrena-code/docs/PRD.md existente e trata ui.md/copy.md por feature como fonte de verdade de UX/copy.
+description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Trata ui.md/copy.md por feature como fonte de verdade de UX e copy quando existem.
 ---
 
 # Feature Specs Writer
 
-Gera especificações técnicas prontas para implementação com base no PRD do projeto e padrões existentes do codebase. A skill tem dois modos:
+Gera especificações técnicas prontas para implementação com base no PRD do projeto e padrões existentes do codebase.
 
-- **Modo de single-feature (padrão):** opera em uma feature por vez, identificada por seu ID de feature do PRD (F01, F02...), com entrevista interativa (Passos 1–6 abaixo).
-- **Modo Lote:** opera em múltiplas features da mesma onda via **Two-phase batch** (Research 1× → N writers), auto-aceitando recomendações. Ativado automaticamente quando a entrada contém múltiplos IDs, referência a onda, ou uma mistura. Veja a seção **Modo Lote** perto do final deste arquivo.
+Opera em **uma feature por vez**, identificada por seu ID de feature do PRD (F01, F02...), com entrevista interativa (Passos 1–6 abaixo).
+
+> Houve um "Modo Lote" que gerava várias features da mesma onda em paralelo, via um agente Research
+> que gravava um brief compartilhado. Foi removido em 2026-08-20: o brief envelhecia em silêncio (o
+> que estava no repo declarava `status: fresh` com um `git_sha` anterior à conversão monorepo) e o
+> modo dependia de despachar sub-agentes. Se a geração paralela voltar a fazer sentido, volta como
+> skill própria — não como modo enterrado nesta.
 
 **Saída:** DOIS arquivos são necessários:
 1. `spec.md` - Especificação técnica (7 seções)
 2. `plan.md` - Plano de implementação (fases e passos)
 
-**Localização da saída:** `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`
-- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `apps/engrena-code/docs/F03-video-upload/`.
+**Localização da saída:** `<raiz de docs>/<feature-id>-<kebab-name>/{spec.md,plan.md}` — a raiz está em [`project.md`](project.md)
+- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `<raiz de docs>/F03-video-upload/`.
 
-## Adaptação ao EngrenaCode
+## Bindings do projeto
 
-- `apps/engrena-code/docs/PRD.md` já existe neste repositório (PT-BR, 9 seções, features F01–F11). Use-o diretamente como o PRD — não pergunte onde encontrá-lo.
-- Cada feature pasta (`docs/F<ID>-<kebab-name>/`) pode conter, além de `spec.md`/`plan.md`: `ui.md` (anatomia, tokens, aceite visual) e `copy.md` (catálogo de strings literais por id). Esses dois arquivos são escritos por um processo de design separado (ver `CLAUDE.md` → "Design · Processo") e, quando presentes, são a **fonte de verdade** para qualquer UX/copy que a spec descreva. A skill nunca redefine anatomia ou strings já documentadas ali — só cita os caminhos.
-- Ao trabalhar em uma feature com UI: antes do Passo 2 (Entrevista), verifique se `apps/engrena-code/docs/<feature-id>-*/ui.md` e `copy.md` já existem.
-  - Se existirem, leia-os por completo e trate seu conteúdo (anatomia, tokens, tabela de copy, aceite visual) como respondido — não pergunte sobre isso na entrevista, referencie os ids de copy e a anatomia diretamente na spec.
-  - Se não existirem, anote a lacuna em Assumptions/Decisions ("`ui.md`/`copy.md` ainda não escritos para esta feature") e prossiga com a spec técnica; não invente copy final nem anatomia de tela — descreva o contrato de dados/estado que a UI vai consumir e sinalize que o processo de design de UI é pré-requisito antes da implementação visual.
-- Referências de template usadas por esta skill vivem em `references/feature-template.md` e `references/research-brief-template.md`, dentro desta mesma pasta de skill (não em `refrerences/` nem fora de `.claude/skills/spec-writer/`).
-- **Precedência entre PRD e `PROGRESS.md`:** a composição das ondas e as dependências vêm sempre do PRD §8; o status real de implementação vem da tabela "Resumo por feature" de `apps/engrena-code/docs/PROGRESS.md`. A tabela de Ondas do `PROGRESS.md` é apenas um espelho e pode estar stale — se ela divergir do PRD §8 (feature do PRD ausente da tabela, ou onda marcada "Completa" com feature pendente), **não** use o espelho para resolver ondas nem para julgar dependências: use o PRD, e avise o usuário da divergência no relatório final (Passo 6 / B.6) para que ela seja corrigida.
+Esta skill é method puro. Tudo que é deste repo — caminho do PRD, raiz de docs, pasta por feature,
+gates de tipo/teste/lint, arquivos que são fonte de verdade de UI e copy, precedência de fontes —
+vive em [`project.md`](project.md). É o único arquivo a reescrever ao levar a skill para outro
+projeto.
 
----
+Dois pontos que valem repetir aqui porque mudam o comportamento da skill:
+
+- **`ui.md` / `copy.md` da feature, quando existem, são fonte de verdade.** Leia-os antes da
+  entrevista (Passo 1.5b) e trate anatomia, tokens, estados e strings como já respondidos — a spec
+  cita os caminhos e os ids, nunca redescreve. Quando não existem, registre a lacuna em Assumptions
+  e siga com o contrato de dados; não invente copy final nem layout.
+- **Precedência de fontes:** o status real de implementação vem do arquivo de progresso, mas a
+  composição das ondas e as dependências vêm sempre do PRD. Se o espelho de ondas divergir do PRD,
+  use o PRD e reporte a divergência.
 
 ## Passos de Execução (6 Passos)
 
@@ -37,9 +47,9 @@ Nota: Estes são passos internos de execução do agente. O documento de plano O
 
 **1.1: Identificar o PRD e a feature-alvo**
 
-Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`apps/engrena-code/docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
+Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
 
-- Localize o arquivo PRD a partir da referência do usuário ou procure por `apps/engrena-code/docs/PRD.md` (neste repositório, é sempre esse — ver "Adaptação ao EngrenaCode"), `PRD.md`, ou locais convencionais similares. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
+- Localize o arquivo PRD a partir da referência do usuário, do caminho declarado em `project.md`, ou de locais convencionais (`docs/PRD.md`). Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
 - Identifique a feature-alvo dentro do PRD por ID ou nome.
 - Se a entrada for ambígua (ex.: "upload" bate em múltiplas features), confirme com o usuário antes de prosseguir.
 - Se a feature referenciada não existir no PRD, liste as features disponíveis da Seção 8 e peça ao usuário para esclarecer.
@@ -48,7 +58,7 @@ Aceite entrada em formato livre do usuário. O usuário pode referenciar a featu
 
 **1.2: Verificar disponibilidade de dependências e Features de Fundação (greenfield)**
 
-Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque também `apps/engrena-code/docs/PROGRESS.md`, que é a fonte de status real F01–F11 deste repositório). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
+Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque o arquivo de progresso declarado em `project.md`). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
 
 Se o PRD contém uma subseção **Features de Fundação** na Seção 8, aplique estas verificações adicionais com base no estado de implementação de cada feature de Fundação:
 
@@ -59,13 +69,11 @@ Se o PRD contém uma subseção **Features de Fundação** na Seção 8, aplique
 - **Cenário 1 — greenfield + feature-alvo É uma Feature de Fundação:** prossiga sem aviso extra. Este é o caminho esperado para um projeto greenfield.
 - **Cenário 2 — greenfield + feature-alvo NÃO está em Features de Fundação:** avise o usuário: "Isto parece ser um projeto greenfield (nenhuma feature de Fundação está implementada ainda). F<alvo> não é uma feature de Fundação. Features de Fundação (F<ID>, ...) configuram a infraestrutura compartilhada e devem ser implementadas primeiro. Recomendo começar com F<primeira-fundacao>. Continuar com F<alvo> mesmo assim?" Prossiga apenas se confirmado.
 - **Cenário 3 — Fundação Parcial (algumas features de Fundação implementadas, outras pendentes) e alvo não é uma das Fundações restantes:** liste as features de Fundação pendentes e avise: "Features de Fundação F<ID1>, F<ID2>... não estão implementadas ainda. Implementar F<alvo> antes destas pode criar conflitos de arquivo no scaffolding. Continuar mesmo assim?" Prossiga apenas se confirmado.
-- **Fundação completa (codebase maduro para fins de Fundação):** pule todas as verificações específicas de Fundação. A verificação normal de disponibilidade de dependências acima é suficiente. Este é o estado atual do EngrenaCode a partir de F01/F01.1 implementadas.
-
-**Nota de Modo Lote:** Em Modo Lote, o orquestrador executa estas verificações de dependência e Fundação uma vez para todo o lote (B.2 e B.3) e filtra features antes do dispatch. Sub-agentes pulam todos os prompts "avise o usuário / Continuar mesmo assim?" neste passo — presuma que a verificação já foi resolvida pelo orquestrador e prossiga.
+- **Fundação completa (codebase maduro para fins de Fundação):** pule todas as verificações específicas de Fundação. A verificação normal de disponibilidade de dependências acima é suficiente. É o estado de qualquer repo cuja Fundação já esteja no lugar.
 
 **1.3: Descoberta de Padrões do Codebase (duas camadas)**
 
-Explore o codebase antes de escrever a spec (antes da entrevista em modo single-feature; antes de aplicar a Política de Auto-Aceitar em Modo Lote) para extrair padrões. Isto é obrigatório sempre que o codebase não está vazio — não espere o usuário fornecer caminhos.
+Explore o codebase antes da entrevista, para extrair padrões. Isto é obrigatório sempre que o codebase não está vazio — não espere o usuário fornecer caminhos.
 
 **Camada 1 — Baseline (piso, não teto):** no mínimo, extraia padrões observáveis nessas categorias. Exemplos são ilustrativos em múltiplas stacks — as categorias são a intenção agnóstica de stack.
 - Runtime e linguagem (qualquer — Node, Python, Ruby, Go, Java, .NET, Rust, PHP, etc.)
@@ -80,17 +88,13 @@ Explore o codebase antes de escrever a spec (antes da entrevista em modo single-
 
 **Camada 2 — Exploração ampla (também obrigatória):** além do baseline, capture qualquer padrão adicional que você observe que pudesse informar a implementação — decisões arquiteturais, idiomas do codebase, abstrações recorrentes, logging/observabilidade, gerenciamento de config, convenções de deploy, internacionalização, acessibilidade, qualquer coisa. Não restrinja a si mesmo à lista de baseline. Um relatório minucioso em um projeto médio típicamente tem 8-15 padrões.
 
-**Nota de Modo Lote (Two-phase):** Em Modo Lote, Camada 1 + Camada 2 amplas rodam **uma vez** no agente Research (B.5a), que grava `docs/_shared/codebase-patterns.md`. Writers **não** reexecutam Camada 2 ampla: leem o brief (read-only) e fazem exploração **delta** só no escopo da feature. Se o brief estiver ausente ou stale (`git_sha` ≠ HEAD, Fundação mudou, ou usuário pediu refresh), o writer **não improvisa** Camada 2 — falha de volta ao orquestrador para regenerar Research. Em single-feature: se um brief fresco já existir, delta-only também é permitido; caso contrário execute 1.3 completo inline.
-
 **1.4: Manipulação de codebase vazio**
 
-Se o codebase estiver vazio ou apenas com scaffolding (ex.: apenas `package.json` com defaults, nenhuma implementação `src/` ainda), pule a descoberta Camada 1/Camada 2 e em vez disso planeje perguntar questões de stack transversais inline durante o Passo 2 (estas questões serão perguntadas apenas uma vez — na primeira feature. Features subsequentes encontrarão as respostas no codebase). No EngrenaCode este caso não se aplica mais — a Fundação (F01/F01.1) já está implementada; use-a como referência de padrões.
-
-**Nota de Modo Lote:** Em Modo Lote não há entrevista do Passo 2. Aplique a linha "Empty codebase bootstrap" da Política de Auto-Aceitar: recaia em melhores práticas da indústria para a stack detectada (ou para o scaffolding que existe, se houver), e documente cada escolha de bootstrap explicitamente sob a seção Assumptions/Decisions da spec.
+Se o codebase estiver vazio ou apenas com scaffolding (ex.: apenas `package.json` com defaults, nenhuma implementação `src/` ainda), pule a descoberta Camada 1/Camada 2 e em vez disso planeje perguntar questões de stack transversais inline durante o Passo 2 (estas questões serão perguntadas apenas uma vez — na primeira feature. Features subsequentes encontrarão as respostas no codebase). Em repo com Fundação já implementada este caso não se aplica; use o código existente como referência de padrões.
 
 **1.5: Ler dados da feature do PRD**
 
-Extraia a definição completa da feature-alvo do PRD e carregue como contexto para a spec (usado pela entrevista em modo single-feature, e pela Política de Auto-Aceitar em Modo Lote):
+Extraia a definição completa da feature-alvo do PRD e carregue como contexto para a entrevista e para a spec:
 - Nome e ID da feature
 - Bloco Consome (se presente)
 - Bloco Provê (se presente)
@@ -104,7 +108,7 @@ Extraia a definição completa da feature-alvo do PRD e carregue como contexto p
 
 **1.5b: Ler UI da feature, quando existir**
 
-Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `apps/engrena-code/docs/<feature-id>-*/ui.md` e `apps/engrena-code/docs/<feature-id>-*/copy.md`:
+Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `ui.md` e `copy.md` na pasta da feature (ver `project.md`):
 - Se existirem: leia-os por completo. `ui.md` fornece anatomia, tokens/classes, estados e checklist de aceite visual; `copy.md` fornece o catálogo de strings literais por id. Ambos entram como contexto primário da spec — a spec cita os caminhos e os ids, nunca redescreve o conteúdo.
 - Se não existirem: registre a lacuna para a Seção 3.3 (Assumptions) da spec.
 
@@ -123,11 +127,7 @@ Com base na minha análise, entendo que você quer implementar:
 Preciso esclarecer algumas decisões técnicas que o PRD e codebase não responderam ainda.
 ```
 
-**Nota de Modo Lote:** Sub-agentes pulam este passo — não há usuário interativo para apresentar. O plano consolidado do orquestrador (B.4) cobre entendimento compartilhado para o lote.
-
 ### Passo 2: Entrevista
-
-**Sobrescrita de Modo Lote:** Em Modo Lote, este passo inteiro é substituído pela Política de Auto-Aceitar (veja seção Modo Lote). Sub-agentes pulam o Passo 2 e prosseguem diretamente ao Passo 3 com os padrões de Auto-Aceitar aplicados. Toda instrução "pergunte ao usuário" abaixo se torna "aplique o padrão de Auto-Aceitar e documente a escolha nas assumptions da spec".
 
 Entreviste o usuário implacavelmente sobre cada aspecto deste plano até alcançarmos entendimento compartilhado. Caminhe para baixo cada branch da árvore de design, resolvendo dependências entre decisões uma por uma. Para cada pergunta, forneça sua resposta recomendada.
 
@@ -157,8 +157,6 @@ Após receber respostas:
 - Liste assumptions derivadas do PRD, padrões do codebase, e respostas da entrevista
 - Anote explicitamente quais blocos PRD informaram quais partes da spec (rastreabilidade)
 - Se `ui.md`/`copy.md` não existiam para uma feature com UI (Passo 1.5b), anote isso como assumption/lacuna explícita
-
-**Nota de Modo Lote:** Em Modo Lote não há respostas de entrevista. Trate cada padrão de Auto-Aceitar que foi aplicado como se fosse uma resposta da entrevista — liste sob assumptions, nomeie a linha da política que a produziu, e sinalize para o usuário poder revisar e sobrescrever depois. Rastreabilidade com blocos PRD funciona do mesmo jeito que em modo single-feature.
 
 ### Passo 4: Gerar Documentos
 
@@ -238,7 +236,6 @@ Documento SPEC:
 - [ ] Blocos PRD mapeados corretamente per a tabela PRD → SPEC
 - [ ] Consome/Provê do PRD refletidos em Scope ou API Contracts
 - [ ] Critérios de Integração Cross-Feature do PRD Seção 9 que referenciam esta feature aparecem como testes de integração (ou deferred)
-- [ ] Em Modo Lote: Seção 3.1 cita o brief; 3.3 lista Assumptions Auto-Aceitar; Camada 1 do brief **não** foi recopiada
 - [ ] Features com UI: `ui.md`/`copy.md` citados por path (quando existem) e nunca recopiados; lacuna registrada em Assumptions quando não existem
 
 Documento PLAN:
@@ -249,7 +246,7 @@ Documento PLAN:
 - [ ] Sem estimativas de tempo
 - [ ] Features com UI: fechamento menciona light/dark, anatomia vs `ui.md` e copy vs `copy.md` quando esses arquivos existirem
 
-**Salve ambos arquivos em `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
+**Salve ambos arquivos na pasta da feature declarada em `project.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
 
 ### Passo 6: Resultado de Saída
 
@@ -257,180 +254,20 @@ Informe o caminho dos arquivos spec e plan, o nível de complexidade da feature,
 
 ---
 
-## Modo Lote
-
-Gera specs para múltiplas features da mesma onda em paralelo, auto-aceitando todas as recomendações da entrevista. Este modo usa **Two-phase batch**: (Phase A) um agente Research produz `docs/_shared/codebase-patterns.md` uma vez; (Phase B) N writers geram spec/plan com exploração delta. O orquestrador resolve entrada, valida, despacha Research depois writers, e relata.
-
-### Ativação
-
-A skill entra em Modo Lote automaticamente quando a entrada corresponde a qualquer uma dessas formas:
-- Múltiplos IDs de feature: `F01 F02 F03`
-- Referência a onda: `onda 3`
-- Mistura dentro da mesma onda: `onda 3 F04`
-- Múltiplos nomes de feature, ou nomes misturados com IDs, contanto que todos resolvam para a mesma onda
-
-Entrada single-feature (ex.: `F03`, `Video Upload`) continua usando o fluxo interativo (Passos 1–6).
-
-### Regra same-wave
-
-Todas as features em um lote único devem pertencer à mesma onda (per Seção 8 do PRD).
-
-- Entrada cross-wave (ex.: `onda 3 onda 4`, ou `F04 F05` onde F04 é onda 3 e F05 é onda 4) é rejeitada. Mensagem: "Features de ondas diferentes não podem ser geradas no mesmo lote. Specs de ondas posteriores são mais ricas quando geradas após ondas anteriores serem implementadas, então o codebase tem mais padrões para observar. Execute a onda N primeiro."
-- Misturar `onda N` com nomes/IDs de features extras é permitido apenas se toda feature listada pertence à onda N. Qualquer outlier dispara a mesma rejeição.
-- Número de onda desconhecido → rejeite, listando ondas disponíveis da Seção 8.
-- ID/nome de feature desconhecida → rejeite, listando features disponíveis.
-
-### Fluxo de Orquestração
-
-O Passo 1 (Resolver Entrada e Pré-Análise) é adaptado para o contexto de lote conforme descrito abaixo. Passos 2–6 NÃO são executados pelo orquestrador — eles rodam nos writers (Phase B), um por feature, per a Política de Auto-Aceitar. A Descoberta ampla (1.3 Camada 1+2) roda no Research (B.5a), não em cada writer.
-
-**B.1: Resolver o lote**
-
-- **Localize o PRD** usando regras do Passo 1.1 (`apps/engrena-code/docs/PRD.md` neste repositório). Se nenhum PRD for encontrado, pare e dirija o usuário para `prd-writer`. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar ANTES de continuar — esta é a primeira possível pausa interativa no orquestrador.
-- Analise entrada em uma lista de features-alvo (expanda ondas, mescle listas, deduplicat).
-- Ao expandir uma referência de onda, expanda a partir das Ondas de Execução do PRD §8, nunca do espelho em `apps/engrena-code/docs/PROGRESS.md`. Se alguma feature da tabela de dependências do PRD não aparecer em nenhuma onda, pare e reporte a lacuna — não adivinhe a onda dela nem a exclua silenciosamente do lote.
-- Se o PRD não tem subseção `Ondas de Execução` na Seção 8 e a entrada referencia uma onda (ex.: `onda 3`), rejeite com: "Referências de onda exigem uma subseção 'Ondas de Execução' na Seção 8 do PRD, que este PRD não tem. Use IDs de feature diretamente ou atualize o PRD." Não tente sintetizar ondas.
-- Se qualquer nome de feature na entrada for ambíguo (bate múltiplas features no PRD, ex.: "upload" bate F03 e F11), liste os candidatos ao usuário e peça desambiguação ANTES de prosseguir para o resto de B.1. Esta é a segunda possível pausa interativa antes do plano consolidado.
-- Se qualquer ID ou nome de feature não existir no PRD, rejeite com a lista de features disponíveis.
-- Valide a regra same-wave.
-- Para cada alvo, verifique se `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` já existe. Marque tais features como "already has spec". Verifique também se `ui.md`/`copy.md` já existem por feature (usado em B.5a para popular o brief).
-
-**B.2: Classificação Greenfield e Fundação**
-
-Aplique a detecção de estado de Fundação do Passo 1.2 uma vez para todo o lote. Classifique cada feature-alvo como:
-- **Fundação, não implementada** → deve rodar sequencialmente (scaffolding compartilhado impede paralelismo).
-- **Não-Fundação, ou Fundação já implementada** → elegível para pool paralelo.
-
-**B.3: Disponibilidade de Dependência**
-
-Para cada feature-alvo, verifique suas dependências PRD (Seção 8). Se uma dependência não está implementada E não está ela própria no lote atual, marque a feature como "dependency missing — will abort". Dependências satisfeitas por outras features no mesmo lote são aceitáveis (serão especificadas juntas; ordem de implementação é decisão do usuário).
-
-**B.4: Apresentar plano consolidado e aguardar confirmação**
-
-Mostre o plano e aguarde confirmação explícita. Template padrão:
-
-```
-Plano de lote para <entrada>:
-- F04 Video Library (Central only) — novo
-- F07 Background Processing Pipeline (escopo completo) — já tem spec (pular / regenerar?)
-- F12 Administration Panel (escopo completo — sem divisão Central/Completo) — novo
-
-Modo: Two-phase — Research 1x depois paralelo (N writers)   # ou "sequencial (Fundação detectada)" quando aplicável
-Estado do codebase: Fundação completa   # ou greenfield / Fundação Parcial
-Brief: docs/_shared/codebase-patterns.md (Phase A)
-Auto-aceitar: todas as recomendações de spec-writer serão aplicadas
-Destino: apps/engrena-code/docs/F04-video-library/, apps/engrena-code/docs/F07-background-processing-pipeline/, apps/engrena-code/docs/F12-administration-panel/
-
-OK para prosseguir? (sim/não)
-```
-
-Tag de escopo por feature (escolha o certo per formato PRD):
-- `(Central only)` — feature PRD tem blocos `Escopo Central` e `Adições ao Escopo Completo` (Auto-Aceitar escolhe Central).
-- `(escopo completo)` — feature PRD tem apenas um dos blocos de escopo, então Central e Completo são iguais.
-- `(escopo completo — sem divisão Central/Completo)` — feature PRD não tem nenhum bloco; feature inteira está em escopo.
-
-Tags de status por feature: `novo`, `já tem spec (pular / regenerar?)`, `dependency missing — will abort`, `Fundação, rodará sequencialmente`, `já implementado (Fundação), pulando`.
-
-Prossiga apenas com "sim" explícito. Em "não" ou qualquer resposta negativa/ambígua, aborte limpamente sem dispatch de sub-agentes e sem criar arquivos. Se o usuário quiser mudar o plano, reinvoca a skill com entrada atualizada. Features marcadas "já tem spec" são puladas por padrão; o usuário pode solicitar regeneração na resposta de confirmação (ex.: "sim, regenerar F07").
-
-**B.5a: Research (Phase A) — uma vez**
-
-Antes de qualquer writer:
-
-1. Despache **um** agente Research (não paralelo com writers).
-2. Prompt do Research:
-   - Path do PRD, lista de features do lote, `foundation_state` de B.2
-   - Instrução: executar Passo 1.3 completo (Camada 1 + Camada 2) **uma vez**
-   - Preferir docs canônicos do repo e specs `docs/F*/` existentes antes de varredura ampla
-   - Resolver conflitos de padrão (mais frequente / mais recente) e fixá-los no brief
-   - Escrever `docs/_shared/codebase-patterns.md` seguindo `references/research-brief-template.md`
-   - Header obrigatório: wave, generated_at, git_sha, foundation_state, features_in_batch, status=fresh
-   - Caps: Camada 2 ≤ 15 bullets; sem colar arquivos inteiros
-   - Registrar na seção 5 do brief, por feature, se `ui.md`/`copy.md` já existem
-   - Writers nunca escrevem neste arquivo (Research é o único writer)
-3. Aguarde o brief válido no disco. Se Research falhar ou o arquivo estiver incompleto/stale: **não** despache writers; reporte e aborte o lote (ou regenere Research se o usuário pedir).
-4. Codebase vazio: Research ainda grava o brief com bootstrap/industry defaults (linha Auto-Aceitar Empty codebase).
-
-**B.5: Dispatch de writers (Phase B)**
-
-- **Fase sequencial (Apenas Fundações, quando greenfield ou Fundação Parcial):** dispatch de writers de Fundação um de cada vez, esperando cada um completar antes de iniciar o próximo, na ordem que aparecem na Seção 8 do PRD.
-- **Fase paralela:** dispatch de todos os writers restantes em uma única mensagem com múltiplas chamadas de ferramenta Agent, sem cap de concorrência.
-- Cada prompt de writer usa o **Writer Contract** abaixo (não “releia SKILL inteira”):
-
-```
-Writer Contract — spec-writer Phase B
-- Feature ID: F<ID>
-- PRD path: <path> (leia só o bloco desta feature + Seção 9 que a referencia)
-- Brief path: docs/_shared/codebase-patterns.md (READ-ONLY; autoridade Camada 1/2)
-- Template: references/feature-template.md
-- UI da feature: se brief seção 5 indica ui.md/copy.md existentes, leia apps/engrena-code/docs/<feature-id>-*/ui.md e copy.md (READ-ONLY; fonte de verdade de UX/copy)
-- Auto-Aceitar: [colar política ou path da seção]
-- Passos: 1.5 → 1.5b → (pular 1.1/1.2 avisos) → 1.3 delta-only → 3 → 4 → 5 → 6
-- 1.3: ler brief; explorar só código do escopo da feature; PROIBIDO Camada 2 ampla
-- Se brief ausente/stale: FALHAR (não improvisar); orquestrador regenera Research
-- Salvar apps/engrena-code/docs/<feature-id>-<kebab>/spec.md e plan.md
-- Spec Seção 3.1 herda brief; 3.3 documenta Assumptions Auto-Aceitar (inclui ui.md/copy.md ausente, se for o caso); NÃO recopiar Camada 1 nem anatomia/copy já documentados
-```
-
-Writers compartilham o brief do Research; não executam Descoberta ampla independente.
-
-**B.6: Coletar e Relatar**
-
-Aguarde todos os writers. Reporte resultado consolidado:
-
-```
-Lote completo: 3/4 features geradas com sucesso
-Brief: docs/_shared/codebase-patterns.md
-✓ F04 → apps/engrena-code/docs/F04-video-library/
-✓ F07 → apps/engrena-code/docs/F07-background-processing-pipeline/
-✓ F12 → apps/engrena-code/docs/F12-administration-panel/
-✗ F05 → falhou: <razão>
-```
-
-Falhas de writer são isoladas — outros writers continuam. Features falhadas podem ser re-executadas individualmente. Se o Brief falhou na Phase A, nenhum writer foi despachado.
-
-### Política de Auto-Aceitar
-
-Cada sub-agente pula a entrevista interativa (Passo 2) e aplica estes padrões para as decisões que a entrevista teria identificado:
-
-| Decisão | Padrão |
-|---|---|
-| Escopo (Central vs Central+Completo, quando ambos blocos existem) | Central only |
-| Decisões técnicas com recomendação clara de spec-writer | Aplique a recomendação |
-| Dependência não implementada ainda (aviso Passo 1.2) | Orquestrador trata em B.3 — sub-agente nunca recebe feature com dependência externa não satisfeita; pule o aviso Passo 1.2 inteiramente |
-| Avisos de Fundação Greenfield (Cenários 2/3 Passo 1.2) | Orquestrador trata em B.2 — sub-agente pula esses cenários |
-| Feature exige nova tecnologia não presente no codebase | Auto-confirme; documente a nova dependência em decisions/assumptions da spec |
-| Múltiplos padrões conflitantes no codebase | Research (B.5a) escolhe o mais frequente (ou mais recente quando empatado) e fixa no brief; writer herda — não reescolhe; cite em Assumptions se relevante para a feature |
-| Referência de feature ambígua | Não pode ocorrer — orquestrador pede ao usuário desambiguar em B.1 antes do dispatch |
-| Bootstrap de codebase vazio (Passo 1.4) | Research grava defaults no brief; writer herda e documenta assumptions explicitamente |
-| Especificações PRD parciais (Passo 2 — capacidade mencionada mas detalhe técnico omitido, ex.: "chunked upload" sem tamanho de chunk) | Aplique um padrão da indústria para o detalhe faltante; documente como assumption explícita na spec. NÃO bloqueie. |
-| Descrição muito vaga (definição de feature deixa muitas decisões abertas) | Aplique padrões de best-practice para cada decisão aberta e documente como assumptions explícitas na spec; nunca infira silenciosamente |
-| Sem padrões de codebase encontrados (codebase não vazio mas Descoberta de Padrão retornou nada) | Research documenta industry defaults no brief; writer herda |
-| Brief ausente ou stale no writer | NÃO improvisar Camada 2 — falhar; orquestrador regenera Research (B.5a) |
-| `ui.md`/`copy.md` ausentes para uma feature com UI | Documente a lacuna como assumption explícita; spec cobre só contrato de dados/estado, sem inventar anatomia ou copy |
-
-Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a padrões de codebase, validação SPEC/PLAN, nomenclatura kebab-case, estrutura de arquivo) aplicam inalteradas.
-
-**Requisito de documentação:** toda vez que um sub-agente aplica um padrão de Auto-Aceitar para uma decisão que o PRD não respondeu, ele DEVE registrar essa decisão sob uma subseção "Assumptions" ou "Decisions" da spec, para o usuário poder revisar e corrigir depois.
-
----
-
 ## Regras
 
-**Precedência:** Quando uma feature está rodando em Modo Lote, os grupos de regra `(Modo Lote)` abaixo sobrescrevem qualquer regra conflitante nas listas gerais `Always`/`Never` — notavelmente, Modo Lote sobrescreve regras relacionadas a entrevista ("Preserve iterative interview style", "Skip interview questions...", etc.). Todas as regras não-conflitantes ainda se aplicam.
-
 **Sempre:**
-- Gere DOIS arquivos (spec e plan) em `apps/engrena-code/docs/<feature-id>-<kebab-name>/`
+- Gere DOIS arquivos (spec e plan) na pasta da feature (ver `project.md`)
 - Valide ambos documentos antes de salvar
-- Execute Codebase Pattern Discovery em duas camadas (baseline + broad) antes da entrevista — em Modo Lote isso é satisfeito pelo Research (B.5a); writers fazem delta-only sobre o brief
+- Execute Codebase Pattern Discovery em duas camadas (baseline + broad) antes da entrevista
 - Leia a feature-alvo do PRD e use Consome/Provê/Escopo Central/Escopo Completo/Capacidades/Experiência/Tratamento de Erros/critérios de aceitação como contexto primário
 - Verifique e leia `ui.md`/`copy.md` da feature quando existirem (Passo 1.5b), e trate-os como fonte de verdade de UX/copy
-- Pule perguntas da entrevista cujas respostas já estão no PRD, no codebase, no brief, em `ui.md`/`copy.md`, ou em specs anteriores
+- Pule perguntas da entrevista cujas respostas já estão no PRD, no codebase, em `ui.md`/`copy.md`, ou em specs anteriores
 - Aplique o mapeamento PRD → SPEC consistentemente em todas as features
 - Preserve o estilo iterativo de entrevista: uma pergunta por vez, caminhe pela árvore de decisão, forneça uma resposta recomendada
 - Termine o plan com fase **Validação e fechamento** (O QUÊ verificar / gate de saída; detalhes de teste ficam na spec)
 - Features com UI: o fechamento do plan inclui verificação light/dark, anatomia vs `ui.md` e copy vs `copy.md` quando esses arquivos existirem
-- Spec § Estratégia de Testes inclui unitário/integração com funções nomeadas, smoke/aceitação manual, e cross-feature (ou *deferred* / peer no lote)
+- Spec § Estratégia de Testes inclui unitário/integração com funções nomeadas, smoke/aceitação manual, e cross-feature (ou *deferred* quando a dependência ainda não existe)
 
 **Nunca:**
 - Coloque código real em spec (descreva apenas estrutura)
@@ -440,37 +277,14 @@ Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a pad
 - Inclua metadados de Feature ID/Data/Versão
 - Inclua detalhes de implementação em passos do plan (tipos de dados, colunas, métodos)
 - Prossiga sem um PRD — sempre exija um e dirija o usuário para `prd-writer` se ausente
-- Re-pergunte questões cujas respostas são observáveis no codebase, no brief, em `ui.md`/`copy.md`, ou já mencionadas no PRD
-- Restrinja exploração do codebase ao checklist de baseline — o baseline é piso, não teto (exceto writers em lote com brief fresco, que fazem só delta)
+- Re-pergunte questões cujas respostas são observáveis no codebase, em `ui.md`/`copy.md`, ou já mencionadas no PRD
+- Restrinja exploração do codebase ao checklist de baseline — o baseline é piso, não teto
 - Omita a fase Validação e fechamento do plan (exceto se o usuário pedir explicitamente só a spec)
-- Recopie o checklist Camada 1 do brief na spec — cite o path e documente só o delta
 - Recopie a anatomia/tokens de `ui.md` ou a tabela de strings de `copy.md` na spec — cite os caminhos
-
-**Sempre (Modo Lote):**
-- Valide a regra same-wave antes do dispatch; rejeite lotes cross-wave
-- Apresente um plano consolidado e aguarde confirmação explícita antes de dispatch
-- Execute B.5a Research **antes** de B.5 writers; writers só partem com brief fresco em `docs/_shared/codebase-patterns.md`
-- Writers consomem o brief read-only; Camada 2 completa só no Research (ou single-feature sem brief)
-- Use o Writer Contract no prompt de cada writer (não mandar releitura integral da SKILL)
-- Pule features cujo `spec.md` já existe a menos que o usuário solicite explicitamente regeneração
-- Execute features de Fundação sequencialmente quando o codebase for greenfield ou Fundação Parcial
-- Aplique a Política de Auto-Aceitar dentro de cada writer em vez de executar a entrevista interativa
-
-**Nunca (Modo Lote):**
-- Misture features de ondas diferentes no mesmo lote
-- Dispatch de features de Fundação em paralelo quando qualquer Fundação ainda não estiver implementada
-- Cancele writers em execução porque outro writer falhou
-- Despache writers sem brief fresco válido
-- Deixe writers reexecutarem Camada 2 ampla ou escreverem em `docs/_shared/codebase-patterns.md`
-- Deixe writers improvisarem Camada 2 se o brief estiver ausente/stale
-
----
 
 ## Casos de Borda
 
-**Precedência Modo Lote:** Em Modo Lote, qualquer caso de borda abaixo que instrua o sub-agente a "pergunte ao usuário", "confirme com o usuário", ou "vá mais fundo na entrevista" é sobrescrito pela linha correspondente da Política de Auto-Aceitar (seção Modo Lote). Sub-agentes nunca fazem pausa para perguntar; casos de borda no nível do orquestrador ("Múltiplos arquivos PRD", "Referência de feature ambígua", avisos de dependência) são resolvidos uma vez em B.1–B.3 antes do dispatch.
-
-**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Neste repositório, isso só deveria acontecer se `apps/engrena-code/docs/PRD.md` tiver sido removido.
+**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Num repo que já tinha PRD, isso significa que ele foi removido — confirme antes de gerar outro.
 
 **Feature não encontrada no PRD:** Liste as features disponíveis da Seção 8 do PRD e pergunte ao usuário qual foi a intenção.
 
@@ -480,7 +294,7 @@ Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a pad
 
 **Dependência não ainda implementada:** Avise o usuário (ex.: "F08 depende de F07, que não está implementada ainda. Continuar mesmo assim?") e prossiga apenas se confirmado. A spec ainda pode ser gerada — ordem de implementação é decisão do usuário.
 
-**Codebase vazio/apenas scaffolding (primeira feature):** Em single-feature, pule Descoberta de Padrão e pergunte questões de stack transversais inline no Passo 2. Em Modo Lote, Research grava bootstrap no brief; writers herdam. Features subsequentes lerão o codebase/brief. Não aplicável ao estado atual do EngrenaCode (Fundação já implementada).
+**Codebase vazio/apenas scaffolding (primeira feature):** Pule Descoberta de Padrão e pergunte questões de stack transversais inline no Passo 2. Features subsequentes lerão o codebase.
 
 **PRD sem blocos Escopo Central / Adições ao Escopo Completo para a feature:** Pule a pergunta de escopo; presuma escopo de feature completo.
 
@@ -492,28 +306,8 @@ Todas as outras regras de spec-writer (conteúdo driven by PRD, aderência a pad
 
 **Feature exige novas tecnologias não presentes no codebase:** Liste as novas dependências, pergunte ao usuário para confirmar, documente em decisions.
 
-**Múltiplos padrões conflitantes no codebase:** Em single-feature, apresente ambos, pergunte qual seguir, documente a escolha. Em Modo Lote, Research fixa a escolha no brief (mais frequente / mais recente); writers herdam.
+**Múltiplos padrões conflitantes no codebase:** Apresente ambos, pergunte qual seguir, documente a escolha.
 
 **Sanitizar nome de feature para kebab-case:** minúsculas no nome, substitua espaços por hífens, remova caracteres fora de `[a-z0-9-]`. Exemplo: `F07. Background Video Processing Pipeline` → `F07-background-video-processing-pipeline`.
-
-**Entrada de lote cross-wave:** Rejeite com mensagem apontando Seção 8 do PRD e explicando que ondas rodam sequencialmente para o codebase acumular padrões entre ondas. Não auto-divida em dois lotes — o usuário deve executar onda anterior primeiro, implementar, depois executar a próxima.
-
-**Referência de onda desconhecida:** Liste ondas disponíveis da Seção 8 do PRD e peça ao usuário esclarecer.
-
-**Lote contém feature já spec'd:** O plano consolidado a sinaliza como "já tem spec"; padrão é pular. Usuário pode solicitar regeneração explicitamente na resposta de confirmação.
-
-**Lote contém feature cuja dependência externa não está implementada:** Marque a feature como "dependency missing — will abort" no plano; gere specs para as features restantes e reporte a que foi abortada no resultado final. Dependências satisfeitas por outra feature no mesmo lote não contam como faltando.
-
-**Lote com múltiplas features de Fundação em projeto greenfield:** Fundações rodam sequencialmente na ordem que aparecem na Seção 8 do PRD (após B.5a Research). O plano afirma isto explicitamente ("Mode: Two-phase — sequential Foundation writers"). Features não-Fundação no mesmo lote ainda rodam em paralelo após Fundações terminarem.
-
-**Falha do Research (B.5a):** Não despache writers. Reporte a falha; regenere Research ou aborte o lote. Não caia no caminho antigo de N× Descoberta ampla.
-
-**Brief stale ou ausente no writer:** Writer falha imediatamente sem improvisar Camada 2. Orquestrador regenera Research e redispacha o writer afetado.
-
-**Falha de writer em lote:** Outros writers continuam até conclusão. Relatório final lista sucessos e falhas com razões. Features falhadas podem ser re-executadas individualmente ou como lote menor (Research só precisa rerodar se o brief estiver stale).
-
-**PRD sem subseção "Ondas de Execução" em modo lote:** Referências de onda (`onda N`) exigem esta subseção para expandir em features. Rejeite com: "Referências de onda exigem uma subseção 'Ondas de Execução' na Seção 8 do PRD. Este PRD não tem uma. Use IDs de feature diretamente ou atualize o PRD." Não tente sintetizar ondas.
-
-**Usuário recusa o plano consolidado (responde "não" em B.4):** Aborte limpamente. Sem sub-agentes dispatch, sem arquivos criados, sem estado parcial deixado para trás. Usuário reinvoca a skill com entrada ajustada.
 
 **Feature tem UI mas `ui.md`/`copy.md` ainda não existem:** Não bloqueie a geração da spec técnica. Documente a lacuna em Assumptions e sinalize no relatório final que o processo de design de UI é pré-requisito antes de implementar a superfície visual (ver `CLAUDE.md` → "Design · Processo").

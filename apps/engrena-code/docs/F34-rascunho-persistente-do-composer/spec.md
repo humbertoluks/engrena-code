@@ -47,9 +47,9 @@ graph TD
 
 ## 3. Decisões Técnicas
 
-### 3.1 Herdadas do brief / docs canônicos
+### 3.1 Herdadas dos docs canônicos
 
-`docs/_shared/codebase-patterns.md` não existe (lote inline, sem Research). Padrões da Descoberta 1.3: lógica pura em `*.logic.ts` testada isoladamente, com o efeito (`localStorage`, React) no hook chamador — exatamente a divisão que `messageQueue.logic.ts:29` documenta; chave de storage com prefixo `engrenacode.<dominio>.v<n>.`; `client-localstorage-schema` da skill `vercel-react-best-practices` (versionar e minimizar o que vai para o storage). Desvios desta feature: nenhum.
+O brief compartilhado que o Modo Lote usava existia mas estava stale (`git_sha` anterior à conversão monorepo, declarando-se `fresh`); o Modo Lote e o brief foram removidos em 2026-08-20. Padrões da Descoberta 1.3: lógica pura em `*.logic.ts` testada isoladamente, com o efeito (`localStorage`, React) no hook chamador — exatamente a divisão que `messageQueue.logic.ts:29` documenta; chave de storage com prefixo `engrenacode.<dominio>.v<n>.`; `client-localstorage-schema` da skill `vercel-react-best-practices` (versionar e minimizar o que vai para o storage). Desvios desta feature: nenhum.
 
 ### 3.2 Específicas da feature
 

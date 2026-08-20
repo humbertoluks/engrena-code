@@ -5,7 +5,7 @@ description: |
   iterativo de esclarecimento. Use quando: (1) Iniciar um novo projeto e precisar de
   requisitos estruturados, (2) Criar especificações de produto no formato PRD de 9 seções,
   (3) Definir escopo de produto a partir de uma descrição ou arquivos de contexto,
-  (4) Estender o PRD existente do EngrenaCode (`apps/engrena-code/docs/PRD.md`) com features novas.
+  (4) Estender um PRD existente com features novas.
   Palavras-chave: "prd", "requisitos de produto", "criar PRD", "gerar PRD", "novo produto",
   "documento de requisitos", "estender PRD".
 ---
@@ -14,23 +14,31 @@ description: |
 
 Você gera PRDs (Documentos de Requisitos de Produto) completos e detalhados através de um processo iterativo. Seja direto e objetivo.
 
-## Adaptação ao EngrenaCode
+## Modo extensão
 
-Este repositório já tem um PRD em `apps/engrena-code/docs/PRD.md`, escrito integralmente em português, com features F01–F11 (ver `apps/engrena-code/docs/PROGRESS.md` para status real de implementação — não usar `_reversa_forward` actions como sinal de progresso). Ao ser invocada neste projeto, a skill quase sempre está em modo **extensão**, não criação do zero:
+Quando o projeto **já tem** um PRD (o caso normal em repo maduro), a skill opera em **extensão**, não
+em criação:
 
-- **Sempre** leia `apps/engrena-code/docs/PRD.md` inteiro antes da Fase 1. Trate-o como PRD existente, não como base vazia.
-- Novas features recebem o próximo ID sequencial livre (`F12`, `F13`...) — nunca reutilize ou renumere IDs já usados nas Seções 5, 6, 8, 9.
-- Preserve a estrutura, o tom e o nível de detalhe das seções já escritas. Não reescreva features existentes a menos que o usuário peça explicitamente uma revisão delas.
-- Ao editar a Seção 8 (Grafo de Dependências), insira a(s) feature(s) nova(s) mantendo ordem topológica com as já existentes; recalcule Ondas de Execução só se a nova feature alterar dependências de features já ondeadas. Toda feature nova recebe uma onda — nenhuma feature pode existir na tabela de dependências e ficar fora das Ondas de Execução.
-- `apps/engrena-code/docs/PROGRESS.md` tem uma tabela "Ondas (PRD §8)" que **espelha** as Ondas de Execução da Seção 8. Sempre que esta skill mexer nas ondas (feature nova, dependência alterada, recálculo), sincronize esse espelho na mesma execução — ver FASE 5, passo 2. Sem isso o espelho congela no recorte antigo e o backlog novo só sobrevive em texto solto fora da tabela.
-- Só crie um PRD novo do zero se `apps/engrena-code/docs/PRD.md` genuinamente não existir ou se o usuário pedir explicitamente um documento separado.
+- **Sempre** leia o PRD inteiro antes da Fase 1. Trate-o como base existente, não vazia.
+- Features novas recebem o próximo ID sequencial livre — nunca reutilize nem renumere IDs em uso.
+- Preserve estrutura, tom e nível de detalhe das seções já escritas. Não reescreva feature existente
+  sem pedido explícito.
+- Ao editar a Seção 8, insira as novas mantendo ordem topológica; recalcule Ondas só se a nova
+  feature alterar dependências já ondeadas. **Toda feature nova recebe uma onda.**
+- Se o projeto espelha as ondas num arquivo de progresso, sincronize o espelho na mesma execução —
+  ver `rules/waves-mirror-is-derived.md`.
+- Só crie PRD do zero se ele genuinamente não existir, ou se o usuário pedir documento separado.
+
+**Onde ficam os valores deste repo** (caminho do PRD, do espelho, IDs em uso, convenções de idioma e
+de release gate): [`project.md`](project.md). É o único arquivo a reescrever ao levar esta skill para
+outro projeto.
 
 ## PARÂMETROS DE ENTRADA
 
 Do comando invocador, você recebe:
-- `PROJECT_NAME`: Nome do projeto (EngrenaCode, salvo indicação contrária)
-- `OUTPUT_FOLDER`: Pasta onde salvar o PRD (`apps/engrena-code/docs/`, salvo indicação contrária)
-- `PRD_PATH`: Caminho completo do arquivo do PRD (`apps/engrena-code/docs/PRD.md`, salvo indicação contrária)
+- `PROJECT_NAME`: Nome do projeto (ver `project.md`, salvo indicação contrária)
+- `OUTPUT_FOLDER`: Pasta onde salvar o PRD (ver `project.md`, salvo indicação contrária)
+- `PRD_PATH`: Caminho completo do arquivo do PRD (ver `project.md`, salvo indicação contrária)
 - `PRODUCT_DESCRIPTION`: Conteúdo combinado do contexto (arquivo ou pasta) e/ou descrição
 
 ---
@@ -45,11 +53,10 @@ Do comando invocador, você recebe:
 **Passo 2: Explorar Contexto do Projeto**
 
 Analise o diretório atual do projeto em busca de código existente, documentação e arquitetura:
-- Procure por: PRDs existentes em locais comuns (docs/, .codekit/, etc.) — neste projeto, `apps/engrena-code/docs/PRD.md` existe e deve ser lido por completo (ver "Adaptação ao EngrenaCode" acima)
+- Procure por: PRDs existentes em locais comuns (`docs/`, `.codekit/`, etc.) e no caminho declarado em `project.md`; se existir, leia por completo
 - Extraia: tecnologias em uso, convenções de nomenclatura, personas existentes, regras de negócio, pontos de integração
 - Resuma achados: "Contexto do projeto: [novo projeto / projeto existente com X, Y, Z]"
 - Se o projeto está vazio/novo, anote: "Contexto do projeto: novo projeto - sem contexto existente"
-
 
 ---
 
@@ -77,7 +84,7 @@ Gere o PRD com base nas respostas da FASE 2 + contexto do projeto. Não peça ap
 - IDs são usados nas Seções 5, 6, 8 e 9
 - Seções 1-4 e 7 usam apenas nomes descritivos (sem IDs)
 - PRDs típicos têm 5-15 features. Se menos de 3, features podem estar agrupadas amplamente demais. Se mais de 20, considere consolidar capacidades relacionadas.
-- Em modo extensão: novos IDs continuam a sequência existente sem gap (ver "Adaptação ao EngrenaCode").
+- Em modo extensão: novos IDs continuam a sequência existente sem gap (ver `project.md`).
 
 **As 9 seções do PRD (nesta ordem):**
 
@@ -207,7 +214,7 @@ Estas features configuram infraestrutura compartilhada do projeto. Em um projeto
 ```
 
 Regras:
-- Omita esta parte inteira quando nenhuma feature carrega responsabilidades de fundação (ex.: quando o PRD mira adicionar features a um codebase já maduro — este é o caso normal do EngrenaCode em modo extensão, ver "Adaptação ao EngrenaCode").
+- Omita esta parte inteira quando nenhuma feature carrega responsabilidades de fundação — é o caso normal em codebase já maduro, que é onde o modo extensão opera.
 - **Critério de Fundação:** uma feature é de Fundação se seu **propósito primário** é configurar infraestrutura compartilhada do projeto — layout e roteamento de topo, estilo global, setup de banco/ORM, middleware transversal (auth, logging), ou outro scaffolding sobre o qual toda feature posterior implicitamente dependerá. Uma feature NÃO é de Fundação se seu propósito primário é uma capacidade de domínio voltada ao usuário, mesmo que crie estrutura de UI pelo caminho (ex.: uma página de dashboard que estabelece uma subárvore `/app` ainda é uma feature de produto, não Fundação).
 - Um teste útil: se implementar esta feature significa rodar comandos de bootstrap ou scaffolding de projeto (inicializadores de framework/CLI, inicializadores de ORM, instalar e configurar dependências de nível de framework) ou configurar uma biblioteca central que features subsequentes consomem sem nomeá-la em seu bloco Consome, é Fundação. O critério é agnóstico de stack — aplica-se igualmente a web (Next.js, Rails, Django), serviços backend (Go, Java, FastAPI), CLIs, mobile ou pipelines de dados.
 - Liste features de fundação em ordem topológica (correspondendo à ordem da tabela de dependências).
@@ -268,6 +275,10 @@ Regras:
 - O diagrama é auxílio de visualização — a tabela é a fonte da verdade
 
 #### Seção 9: Critérios de Aceitação
+
+> **Marcação:** `[x]` só com evidência **do mesmo tipo da afirmação** — critério sobre o que o usuário
+> vê exige que alguém tenha visto. Ver `rules/evidence-matches-claim.md`.
+
 Organize por feature usando os IDs de feature. Após todos os critérios por feature, inclua um bloco **Integração Cross-Feature**.
 
 Critérios por feature:
@@ -311,7 +322,7 @@ Integridade das Ondas de Execução:
 - [ ] Cálculo de onda — a onda de cada feature é igual a `max(onda de cada dependência) + 1`; Onda 1 contém exatamente as features sem dependências
 - [ ] Ordenação de onda — dentro de uma onda, features são listadas por prioridade ascendente (1, 2, 3) com desempate por ID de feature (menor primeiro)
 - [ ] Sem feature órfã de onda — nenhuma feature nova entrou na tabela de dependências sem ser atribuída a uma onda, e nenhuma feature aparece só em texto narrativo (release gates, "próxima frente", roadmap) sem a linha de onda correspondente
-- [ ] Espelho de progresso — quando `apps/engrena-code/docs/PROGRESS.md` existe com uma tabela de ondas, ela lista exatamente as mesmas features nas mesmas ondas da Seção 8 (ver FASE 5, passo 2)
+- [ ] Espelho de progresso — quando o projeto tem tabela de ondas espelhada (ver `project.md`), ela lista exatamente as mesmas features nas mesmas ondas da Seção 8
 
 Integridade das Features de Fundação (apenas quando a subseção está presente):
 - [ ] Toda feature listada em Features de Fundação existe na tabela de dependências
@@ -337,13 +348,13 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 
 ### FASE 5: Salvar PRD
 
-1. Salve o PRD em `{PRD_PATH}` — em modo extensão, isso significa reescrever `apps/engrena-code/docs/PRD.md` inteiro com as seções novas/atualizadas mescladas, preservando tudo que não mudou.
+1. Salve o PRD em `{PRD_PATH}` — em modo extensão, isso significa reescrever o arquivo inteiro com as seções novas e atualizadas mescladas, preservando tudo que não mudou.
 
-2. **Sincronize o espelho de ondas em `apps/engrena-code/docs/PROGRESS.md`** (pule só se o arquivo não existir ou não tiver tabela de ondas). O espelho é derivado da Seção 8, nunca uma segunda fonte de verdade:
+2. **Sincronize o espelho de ondas** no arquivo declarado em `project.md` (pule só se não existir ou não tiver tabela de ondas). O espelho é derivado da Seção 8, nunca uma segunda fonte de verdade — ver `rules/waves-mirror-is-derived.md`:
    - Toda feature da tabela de dependências aparece em exatamente uma linha de onda, **incluindo as pendentes** — feature nova nunca fica só num parágrafo de roadmap ("próxima frente", release gate) fora da tabela.
    - Cada linha carrega o paralelismo explícito da onda: se as features daquela onda podem ser construídas em paralelo, e qual serialização se aplica (fundação, ou acoplamento real conhecido no repo).
    - O estado da onda reflete o status real das features nela: uma onda com qualquer feature pendente não é "Completa".
-   - Não invente status de implementação — o status por feature vem da tabela "Resumo por feature" do próprio `PROGRESS.md`; esta skill só reconcilia a composição das ondas e o paralelismo.
+   - Não invente status de implementação — o status por feature vem do próprio arquivo de progresso; esta skill só reconcilia a composição das ondas e o paralelismo.
    - Formato mínimo da linha: `| <onda> | <features> | <paralelismo> | <estado> |`.
 
 3. **Verifique se o arquivo foi escrito:**
@@ -352,7 +363,7 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 4. PRD tem EXATAMENTE 9 seções
 5. NUNCA inclua: "Validação", "Próximos Passos", checklists, cabeçalho de ID, data, versão
 6. PRD começa com o título do produto como H1, depois Seção 1
-7. Informe ao usuário o caminho exato e, quando o espelho de ondas foi sincronizado, cite também `apps/engrena-code/docs/PROGRESS.md`
+7. Informe ao usuário o caminho exato e, quando o espelho de ondas foi sincronizado, cite também o arquivo de progresso
 
 ---
 
@@ -372,8 +383,8 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Mantenha consistência: Problema -> Solução, Feature -> Histórias -> Funcionalidades -> Critérios
 - Valide internamente ANTES de salvar
 - Comece o PRD com o título do produto (H1), sem cabeçalho de ID/data/versão
-- Em modo extensão sobre `apps/engrena-code/docs/PRD.md`: leia o PRD inteiro primeiro, preserve IDs e conteúdo existentes, continue a sequência de IDs sem gap
-- Atribua uma onda a toda feature nova e sincronize o espelho "Ondas" de `apps/engrena-code/docs/PROGRESS.md` na mesma execução, com paralelismo explícito por linha
+- Em modo extensão: leia o PRD inteiro primeiro, preserve IDs e conteúdo existentes, continue a sequência sem gap
+- Atribua uma onda a toda feature nova e sincronize o espelho de ondas na mesma execução, com paralelismo explícito por linha
 
 **NUNCA:**
 - Inclua seções extras
@@ -381,8 +392,8 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Force um número fixo de personas — derive da diversidade real de uso
 - Force um número fixo de histórias por feature — derive da complexidade da feature
 - Inclua referências antecipadas na tabela de dependências (quebra ordem topológica)
-- Renumere ou reescreva silenciosamente uma feature existente do EngrenaCode ao estender o PRD
-- Deixe uma feature nova só em texto narrativo de roadmap (release gate, "próxima frente") sem linha própria nas Ondas de Execução e no espelho de `apps/engrena-code/docs/PROGRESS.md`
+- Renumere ou reescreva silenciosamente uma feature existente ao estender o PRD
+- Deixe uma feature nova só em texto narrativo de roadmap (release gate, "próxima frente") sem linha própria nas Ondas de Execução e no espelho de progresso
 
 ---
 
@@ -414,7 +425,7 @@ Rode o checklist uma vez. Se algum item falhar, corrija o PRD e rode o checklist
 - Verifique se cada dependência é uma exigência funcional de dados genuína, não apenas um "seria bom ter antes" lógico
 - Mantenha apenas dependências em que a feature não pode funcionar sem a saída da outra
 
-**`apps/engrena-code/docs/PRD.md` já existe (caso normal no EngrenaCode):**
+**O PRD já existe (caso normal em repo maduro):**
 - Entre em modo extensão automaticamente — não pergunte se deve sobrescrever, apenas confirme quais features está adicionando/alterando antes de escrever
 
 ## OUTPUT
