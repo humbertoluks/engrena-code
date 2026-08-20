@@ -1,6 +1,6 @@
 # Auditoria PRD §9 — EngrenaCode vs LionCodeLabs
 
-Matriz checkbox a checkbox dos critérios de aceitação em `docs/PRD.md` §9, com evidência no fonte do EngrenaCode e nota de paridade com o produto legado (LionCodeLabs).
+> ⚠️ **Registro histórico.** Auditoria encerrada em 2026-08-07 com **103 critérios `[x]` / 0 critérios `[ ]`**. Matriz completa abaixo reflete o estado de migração de produto. Não reabre.
 
 **Data da auditoria original:** 2026-08-06  
 **Data do fechamento (última passagem):** 2026-08-07 — **AUDITORIA ENCERRADA**  

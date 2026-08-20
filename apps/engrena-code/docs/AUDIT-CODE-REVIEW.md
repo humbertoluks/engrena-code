@@ -1,5 +1,7 @@
 # Auditoria de código — EngrenaCode
 
+> ⚠️ **Registro histórico.** Auditoria encerrada em 2026-08-17 com **zero achados abertos**. Este arquivo documenta o processo e os achados já corrigidos. Não editar.
+
 Artefato vivo das revisões full-base (`audit-full-base` → `review-architecture` → `review-robustness` → `review-delivery`).  
 **Não** substitui [`docs/AUDIT-PRD-S9-MIGRATION.md`](AUDIT-PRD-S9-MIGRATION.md) (matriz de produto §9).
 
