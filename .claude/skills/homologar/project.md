@@ -78,7 +78,8 @@ DELETE FROM threads WHERE title LIKE '[fixture %';
 | Editar arquivo de `src/services/**` com o dev rodando | Vite reinicia o processo main → cofre trava → API responde `423 vault_locked` |
 | `Stop-Process -Name node` / `pkill node` | Derruba Electron, Vite e o editor. Sempre por PID ou por porta |
 | `git add <diretório>` | Varre alteração de terceiro no working tree para dentro do commit; adicione arquivo a arquivo |
-| Emulação de rede do Chromium para derrubar WebSocket | Não corta WS em loopback e a condição gruda na sessão CDP |
+| Emulação de rede do Chromium para derrubar WebSocket | Não corta WS em loopback (só fetch/XHR) e a condição gruda na sessão CDP — nem desfazer resolve, só fechar o browser. Use `addInitScript` com subclasse de `WebSocket` que reescreve a porta |
+| Rodar `pnpm dev` sem `dangerouslyDisableSandbox` | O sandbox bloqueia GPU e network process do Electron; o processo cai em silêncio com exit 0, sem log de erro óbvio |
 | `playwright-cli` em headless quando o usuário precisa digitar | Ele digita numa janela que não existe; use `--headed` |
 
 ## Precedentes vivos
