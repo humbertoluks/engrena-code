@@ -1,560 +1,125 @@
-# EngrenaCode — Setup e Desenvolvimento
+# EngrenaCode — Quick Start
 
-Guia completo para inicializar, configurar e desenvolver EngrenaCode localmente. Inclui correções e validações aplicadas.
-
-## Índice
-
-1. [Pré-requisitos](#pré-requisitos)
-2. [Scaffolding Inicial](#scaffolding-inicial)
-3. [Instalação de Dependências](#instalação-de-dependências)
-4. [Configuração de Ferramentas](#configuração-de-ferramentas)
-5. [Estrutura de Pastas](#estrutura-de-pastas)
-6. [Correções Aplicadas](#correções-aplicadas)
-7. [Rodando o Projeto](#rodando-o-projeto)
-8. [Build para Produção](#build-para-produção)
-9. [Troubleshooting](#troubleshooting)
-
----
+Setup rápido para rodar o app localmente depois de clonar o repositório. Para detalhes de build/release, ver [`docs/RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md).
 
 ## Pré-requisitos
 
 - **Node.js** ≥ 18 (recomendado 20+)
 - **pnpm** ≥ 8 (gerenciador de pacotes)
-- **Git**
+- **Git** ≥ 2.40
 
-### Instalar pnpm
+### Verificar instalação
 
 ```bash
-npm install -g pnpm
-pnpm --version  # Verificar instalação
+node --version      # v18+ ou v20+
+pnpm --version      # 8+
+git --version       # 2.40+
 ```
 
 ---
 
-## Scaffolding Inicial
-
-### 1. Criar Projeto Vite + React + TypeScript
+## 1. Clonar e Instalar
 
 ```bash
-npm create vite@latest engrena-code -- --template react-ts
+git clone https://github.com/seu-org/engrena-code.git
 cd engrena-code
-```
-
-### 2. Trocar para pnpm
-
-```bash
 pnpm install
 ```
 
-Isso remove node_modules de npm e recria com pnpm (mais eficiente).
+Isso instala todas as dependências do monorepo (apps + packages).
 
 ---
 
-## Instalação de Dependências
-
-### Dependências Principais (Production)
+## 2. Setup do App
 
 ```bash
-pnpm add axios crypto-js electron-is-dev react react-dom zustand
+cd apps/engrena-code
+cp .env.example .env.local
 ```
 
-**Notas:**
-- `axios` — HTTP client para MCPs e APIs externas
-- `crypto-js` — Criptografia para vault local
-- `electron-is-dev` — Detectar modo dev vs production
-- `zustand` — State management leve
-- React/ReactDOM — Já instalados via Vite
-
-### Dependências Dev (Electron + Build)
-
-```bash
-pnpm add --save-dev electron electron-builder cross-env
-pnpm add --save-dev typescript ts-node @types/node @types/react @types/react-dom
-pnpm add --save-dev tailwindcss postcss autoprefixer
-pnpm add --save-dev @biomejs/biome
-pnpm add --save-dev vite-plugin-electron vite-plugin-electron-renderer @electron-toolkit/utils
-```
-
-**Notas:**
-- `electron` + `electron-builder` — DEVE estar em devDependencies (não dependencies)
-- `cross-env` — Compatibilidade multiplataforma para env vars
-- `@biomejs/biome` — Linter + formatter (substitui ESLint + Prettier)
-- `vite-plugin-electron*` — Integração Vite com Electron
-
-### ❌ NÃO INSTALAR
-
-- `better-sqlite3` — Native module. Usar SQLite JS ou adiar até F02.
-- `eslint` — Use Biome
-- `prettier` — Use Biome
+Editar `.env.local` se necessário. Porta padrão: `5173` (Vite dev server).
 
 ---
 
-## Configuração de Ferramentas
-
-### 1. Tailwind CSS
+## 3. Rodar em Dev
 
 ```bash
-pnpm exec tailwindcss init -p
-```
+# Na raiz do monorepo, ou...
+pnpm --filter engrena-code dev
 
-Gera `tailwind.config.js` e `postcss.config.js`.
-
-### 2. vite.config.ts
-
-```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
-import path from 'path'
-
-export default defineConfig({
-  plugins: [
-    react(),
-    electron([
-      {
-        entry: 'src/main/index.ts'
-      },
-      {
-        vite: {
-          build: {
-            lib: {
-              entry: 'src/preload/index.ts',
-              formats: ['cjs'],
-              fileName: () => 'preload.cjs'
-            }
-          }
-        }
-      }
-    ]),
-    renderer()
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src')
-    }
-  },
-  server: {
-    port: 5173
-  }
-})
-```
-
-### 3. biome.json
-
-```json
-{
-  "extends": ["@biomejs/biome/recommended"],
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "suspicious": {
-        "noExplicitAny": "warn"
-      },
-      "style": {
-        "useConst": "error"
-      }
-    }
-  },
-  "formatter": {
-    "enabled": true,
-    "lineWidth": 100,
-    "indentStyle": "space",
-    "indentSize": 2
-  },
-  "javascript": {
-    "formatter": {
-      "semicolons": "always",
-      "quoteStyle": "single",
-      "trailingCommas": "es5"
-    }
-  },
-  "json": {
-    "formatter": {
-      "trailingCommas": "none"
-    }
-  }
-}
-```
-
-### 4. .env.example
-
-```env
-# Claude configuration
-CLAUDE_API_KEY=sk-ant-
-
-# Codex configuration
-CODEX_PATH=/path/to/codex
-
-# Kimi configuration
-KIMI_PATH=/path/to/kimi
-
-# GitHub Personal Access Token
-GITHUB_PAT=ghp_
-
-# Development
-VITE_DEV_SERVER_URL=http://localhost:5173
-```
-
-Copiar para `.env.local` (não versionado).
-
-### 5. package.json — Metadata + Scripts
-
-**Adicionar após "type": "module":**
-
-```json
-{
-  "name": "engrena-code",
-  "description": "IDE Local-First para Orquestração de Agentes de IA",
-  "author": "Lukse",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "main": "dist-electron/index.js",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build && electron-builder",
-    "preview": "vite preview",
-    "lint": "biome lint --write .",
-    "format": "biome format --write .",
-    "test": "vitest run"
-  },
-  "build": {
-    "appId": "com.lukse.engrenacode",
-    "productName": "EngrenaCode",
-    "directories": {
-      "output": "release",
-      "buildResources": "assets"
-    },
-    "files": [
-      "dist-electron",
-      "dist/**/*"
-    ],
-    "asarUnpack": [
-      "**/node_modules/node-pty/**/*"
-    ],
-    "npmRebuild": false,
-    "win": {
-      "target": ["nsis", "portable"]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
-  }
-}
-```
-
-**Pontos críticos:**
-- `"type": "module"` — ESM na aplicação
-- `"main": "dist-electron/index.js"` — Electron Builder espera isso
-- `"description"` e `"author"` — Obrigatório para Electron Builder
-- Scripts: `dev` sem orquestração extra (Vite + Electron rodam juntos via plugin)
-- `directories.output: "release"` — nunca usar `"dist"` aqui: é a mesma pasta onde o Vite escreve o renderer (`dist/index.html`, `dist/assets/**`), que `files: ["dist/**/*"]` empacota no asar; se coincidir, o `.exe`/`.blockmap` do instalador cai dentro de `dist/` e o próximo build reempacota o instalador anterior dentro do próprio app
-- `assets/icon.ico` + `assets/icon.png` — BrandMark da unlock (fonte `icon.svg`); o Windows precisa do `.ico` multi-size commitado (`win.icon` + `signAndEditExecutable: true` para o `rcedit` gravar no `.exe`). `extraResources` copia `icon.png` para a janela; `app.setAppUserModelId(appId)` evita cache/agrupamento como Electron genérico na taskbar
-
----
-
-## Estrutura de Pastas
-
-**Decisão oficial: layout híbrido** (não Vertical Slice puro).
-
-Infra compartilhada e shell Electron ficam em camadas (`main` / `preload` / `renderer` / `services` / `db`). Features de produto (F03+) colocalizam UI + client HTTP + hooks em `src/features/<slug>/`. Domínio/HTTP cross-cutting permanece em `src/services/`. Specs e planos devem usar só paths sob `src/` (nunca `packages/`, salvo nota histórica do legado).
-
-```bash
-mkdir -p src/{main,preload,renderer,db,services,features,hooks}
-mkdir -p src/db/{schemas,migrations}
-mkdir -p src/services/{vault,providers,github,mcps,http}
-mkdir -p src/features/{workspace,dashboard,skills,rules,subagents,registros,consumo}
-```
-
-| Pasta | Papel |
-|-------|--------|
-| `src/main/` | Electron main: janela, IPC, bootstrap do HTTP local |
-| `src/preload/` | Bridge IPC (`contextBridge`) |
-| `src/renderer/` | App React: screens de infra, components/tokens/theme do DS (F01.1), hooks compartilhados |
-| `src/renderer/screens/` | Telas de infra já entregues (ex.: Login F01, Configuração F02) |
-| `src/db/` | Schema e migrations |
-| `src/services/` | Infra/domínio compartilhado (vault, handlers HTTP, providers, github, mcps) |
-| `src/features/<slug>/` | Módulo de produto: UI + client + hooks **daquela** feature — não move vault/crypto/HTTP base para dentro da fatia |
-| `src/hooks/` | Hooks React cross-cutting (quando não cabem no DS nem numa feature) |
-
-**Mapa `features/<slug>` → PRD:**
-
-| Slug | Feature |
-|------|---------|
-| `workspace` | F03 |
-| `dashboard` | F04 |
-| `skills` | F05 |
-| `rules` | F06 |
-| `subagents` | F07 |
-| `registros` | F08 |
-| `consumo` | F11 |
-
-F01 (vault/sessão), F01.1 (design system) e F02 (configuração) vivem em `services` + `renderer`, não em `features/`. F09 (MCPs) e F10 (API keys) entram sobretudo em `src/services/` (+ UI em `renderer` ou `features` se houver superfície dedicada). Pastas vazias em `features/` são placeholders até a feature correspondente.
-
-**Checklist para specs/planos:**
-
-1. Listar paths só sob `src/`.
-2. Classificar cada artefato: infra (`services` / `renderer` compartilhado) vs fatia (`features/<slug>`).
-3. Declarar se a feature cria/usa pasta em `features/` ou só estende `services` / `screens`.
-
----
-
-## Correções Aplicadas
-
-### 1. __dirname em ES Modules (Electron Main)
-
-**Problema:** `ReferenceError: __dirname is not defined` quando rodar app.
-
-**Solução:** Em `src/main/index.ts`, adicionar:
-
-```typescript
-import { fileURLToPath } from 'url'
-import path from 'path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-```
-
-### 2. Preload em CommonJS
-
-**Problema:** `SyntaxError: contextBridge is not exported` quando preload tenta `import { contextBridge }`.
-
-**Solução:** `src/preload/index.ts` usa CommonJS (require), não ESM:
-
-```typescript
-const { contextBridge, ipcRenderer } = require('electron')
-
-const api = {
-  invoke: (channel: string, data?: unknown) => ipcRenderer.invoke(channel, data),
-  on: (channel: string, listener: (...args: unknown[]) => void) => {
-    ipcRenderer.on(channel, (_event: any, ...args: unknown[]) => listener(...args))
-  },
-  send: (channel: string, data?: unknown) => ipcRenderer.send(channel, data)
-}
-
-contextBridge.exposeInMainWorld('electronAPI', api)
-```
-
-### 3. Electron + Electron-Builder em devDependencies
-
-**Problema:** Electron-builder recusa se `electron` estiver em `dependencies`.
-
-**Solução:** Ambos em `devDependencies`:
-
-```bash
-pnpm remove electron electron-builder
-pnpm add --save-dev electron electron-builder
-```
-
-### 4. package.json — Campos Obrigatórios
-
-**Problema:** Electron-builder falha se faltar `description` ou `author`.
-
-**Solução:** Adicionar ao package.json:
-
-```json
-{
-  "description": "IDE Local-First para Orquestração de Agentes de IA",
-  "author": "Lukse"
-}
-```
-
-### 5. index.html — Caminho do Entry Point
-
-**Problema:** index.html referencia `/src/main.tsx` mas arquivo está em `/src/renderer/main.tsx`.
-
-**Solução:** Atualizar:
-
-```html
-<script type="module" src="/src/renderer/main.tsx"></script>
-```
-
-### 6. Colisão de saída entre main e preload
-
-**Problema:** `TypeError: Cannot read properties of undefined (reading 'exposeInMainWorld')` ao subir o app.
-
-Com `entry: 'src/main/index.ts'` e `entry: 'src/preload/index.ts'`, o `vite-plugin-electron` usa `[name].js` sobre `build.lib`. Os dois entries se chamam `index`, então o preload sobrescreve `dist-electron/index.js` e o Electron carrega o preload como main process — onde `contextBridge` não existe.
-
-**Solução:** dar nome próprio e formato CommonJS ao preload via `build.lib` (ver `vite.config.ts` acima) e apontar o `BrowserWindow` para o arquivo compilado:
-
-```typescript
-preload: path.join(__dirname, 'preload.cjs')
-```
-
-**Outputs esperados em `dist-electron/`:** `index.js` (main, ESM) e `preload.cjs` (preload, CommonJS).
-
-### 7. Caminho do renderer em produção
-
-**Problema:** janela em branco no app empacotado. O main carregava `file://` + `../../../dist/index.html`, que aponta para fora do `app.asar` (e monta URL inválida no Windows, com backslashes).
-
-**Solução:** com `files: ["dist-electron", "dist/**/*"]`, o HTML fica um nível acima do main. Usar `loadFile`, que resolve o path do asar sem montar URL na mão:
-
-```typescript
-if (isDev) {
-  mainWindow.loadURL('http://localhost:5173')
-  mainWindow.webContents.openDevTools()
-} else {
-  mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
-}
-```
-
----
-
-## Rodando o Projeto
-
-### Dev Mode
-
-```bash
+# ...ou dentro de apps/engrena-code/
 pnpm dev
 ```
 
-**O que acontece:**
-1. Vite inicia servidor em `http://localhost:5173`
-2. Electron abre janela e conecta ao servidor
-3. HMR (Hot Module Reload) atualiza a UI ao salvar código
+Vite sobe em `http://localhost:5173` e Electron abre janela. Backend HTTP/WS roda em `http://127.0.0.1:5174` (loopback, não editável).
 
 **Saída esperada:**
-- Janela Electron abre na tela de unlock do vault (`LoginScreen`: workspace + senha do cofre local)
-- Terminal mostra `[vite] ready in XXXms` e `Unlock server listening on http://127.0.0.1:5174`
-
-### Servidor de unlock (loopback)
-
-Todo o backend HTTP/WS do app (vault, projects, threads, skills, rules, subagents, mcps, logs, metrics) roda em `http://127.0.0.1:5174`, subido por `createUnlockServer` em `src/main/index.ts`. Essa porta é fixa e reservada — **nunca** aponte o Vite para `5174` (ver Troubleshooting).
-
-### Isolar dados de sessão (smoke / testes manuais)
-
-Para rodar o app sem tocar no vault real do usuário (`app.getPath('userData')`), aponte `ENGRENACODE_USER_DATA` para um diretório temporário antes de subir `pnpm dev`:
-
-```bash
-# bash
-ENGRENACODE_USER_DATA="$TEMP/engrena-smoke-<slug>" pnpm dev
-```
-
-```powershell
-# PowerShell
-$env:ENGRENACODE_USER_DATA = "$env:TEMP\engrena-smoke-<slug>"
-pnpm dev
-```
-
-Isso redireciona `vault.enc`, o SQLite (`engrenacode.db`) e os segredos de MCP para o diretório isolado. Ver `docs/F0*-*/smoke-results.md` para o padrão completo de smoke real (Electron + Playwright apontando para `http://localhost:5173`, credenciais de smoke dedicadas, cleanup no final).
-
-**Sandbox de agentes de IA:** se `pnpm dev` for executado a partir de uma ferramenta com sandbox de processo (ex.: Bash tool do Claude Code), o Electron pode falhar ao subir (`Network service crashed`, `GPU process exited unexpectedly`, processo cai com exit 0 sem erro óbvio) porque o sandbox bloqueia os subprocessos GPU/network do Chromium. Solução: desabilitar o sandbox da ferramenta para esse comando específico (não é sandbox do Electron/Chromium em si).
-
-### Build para Desenvolvimento
-
-```bash
-pnpm run build
-```
-
-Compila TypeScript, Vite e gera instaladores. Os caminhos são **relativos ao app**, não à raiz do
-monorepo — escrever só `release/` já fez alguém instalar um binário velho de outra pasta:
-- `apps/engrena-code/release/EngrenaCode Setup 0.0.0.exe` — Instalador NSIS (wizard, não silent; deixa escolher pasta; cria atalho)
-- `apps/engrena-code/release/EngrenaCode 0.0.0.exe` — Portable executável
+- Janela Electron com tela de unlock (workspace + senha do cofre)
+- Terminal: `[vite] ready in XXXms` + `Unlock server listening on 127.0.0.1:5174`
 
 ---
 
-## Build para Produção
-
-Mesmo comando que dev:
+## 4. Rodar Testes
 
 ```bash
-pnpm run build
+pnpm --filter engrena-code test    # Vitest: unit + integração
+pnpm --filter engrena-code exec tsc -b  # Type check
 ```
 
-**Outputs:**
-Todos sob `apps/engrena-code/`:
-- `dist-electron/` — Main + preload compilados
-- `dist/` — React app (renderer, output do Vite)
-- `release/` — Instaladores Windows (NSIS + portable), separado de `dist/` para não colidir com o output do Vite
+---
 
-Instalador sem assinatura de código (sem certificado configurado): Windows SmartScreen avisa "editor desconhecido" no primeiro uso. Não bloqueia a instalação.
+## 5. Build (Produção)
 
-**Customizar Build:**
-- Editar `package.json` → `"build"` para outras plataformas
-- Exemplo macOS:
-
-```json
-"build": {
-  "mac": {
-    "target": ["dmg", "zip"]
-  }
-}
-```
+Ver [`docs/RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md) para instruções de build, empacotamento e artefatos.
 
 ---
 
 ## Troubleshooting
 
-### "Cannot find module 'electron'"
+### "Não posso entrar" / Cofre corrompido
 
-Solução: `pnpm install` novamente
+Limpar dados isolados (não toca dados do usuário):
+
+```bash
+# bash/PowerShell
+rm -r "$TEMP/engrena-*" 
+# ou Windows: del %TEMP%\engrena-*
+```
+
+Depois, rodar `pnpm dev` de novo.
+
+### Porta 5173 ocupada
+
+Trocar em `.env.local`: `VITE_DEV_SERVER_URL=http://localhost:5174` (escolha primeira livre).
+
+**Nunca** use `5174` (reservada ao servidor de unlock).
+
+### "Cannot find module X"
 
 ```bash
 pnpm install
+rm -rf node_modules .pnpm-lock
+pnpm install
 ```
 
-### Vite server não conecta
+### Electron não acha a janela
 
-Porta 5173 pode estar em uso:
+Checkout de novo ou limpar build antigo:
 
 ```bash
-# Liberar porta (Windows PowerShell)
-Get-Process | Where-Object {$_.Port -eq 5173}
-Stop-Process -Id <PID>
+rm -rf dist-electron dist
+pnpm dev
 ```
 
-Ou trocar a porta em `vite.config.ts` (`server.port`) — escolha a primeira porta livre a partir de 5173, **nunca 5174** (reservada ao servidor de unlock, ver acima). Atualize `VITE_DEV_SERVER_URL` em `.env.local` e o `loadURL` do Electron para a mesma porta.
+### GPU/Network crash em Dev
 
-### "contextBridge is not exported"
-
-Preload foi recompilado como ESM. Verificar:
-1. `src/preload/index.ts` usa `require()`, não `import`
-2. Rodar `pnpm run build` novamente
-
-### "Cannot read properties of undefined (reading 'exposeInMainWorld')"
-
-O preload foi carregado como main process. Verificar em `vite.config.ts` se o preload emite `preload.cjs` (e não `index.js`, que é do main). Ver "Correções Aplicadas → 6".
-
-Se sobrou build antigo, apagar `dist-electron/` e rodar `pnpm dev` de novo.
-
-### Electron não acha dist-electron/index.js
-
-`"main"` em package.json pode estar incorreto:
-
-```json
-"main": "dist-electron/index.js"
-```
-
-Remover `.ts` — Electron espera JS compilado.
-
-### Biome recusa formato
-
-Rodar:
-
-```bash
-pnpm lint
-pnpm format
-```
+Se rodar via ferramenta com sandbox (ex.: Bash do Claude Code), pode cair com "Network service crashed". Desabilitar sandbox da ferramenta para `pnpm dev` (não é bug do app).
 
 ---
 
-## Testes
+## Próximos passos
 
-```bash
-pnpm test        # suite Vitest completa (unit + integração)
-pnpm exec tsc -b  # type-check sem emitir (mesmo check do build)
-```
-
-Rode `pnpm test` sempre que alterar código de produção. Para smoke visual real (Electron + Playwright), ver "Isolar dados de sessão" acima e os arquivos `docs/F0*-*/smoke-results.md` já produzidos para cada feature.
-
----
-
-## Status do projeto
-
-Todas as features do MVP (F01–F11) já estão implementadas neste repo. Estado real por feature (feito vs pendente, evidência de teste/smoke): [`docs/PROGRESS.md`](./PROGRESS.md). Visão de produto e critérios de aceitação completos: [`docs/PRD.md`](./PRD.md).
+- **Estrutura do código:** [`docs/README.md`](./README.md) (índice de todos os docs)
+- **Estado real (feito vs pendente):** [`docs/PROGRESS.md`](./PROGRESS.md)
+- **Critérios de aceitação e features:** [`docs/PRD.md`](./PRD.md)
+- **Glossário de termos:** [`docs/GLOSSARY.md`](./GLOSSARY.md)

@@ -34,3 +34,6 @@ release
 
 # Artefatos de smoke (screenshots soltos na raiz)
 login-state.png
+
+# CodeGraph (F19): indice SQLite gerado por projeto, reconstruivel — nunca versionar
+apps/engrena-code/.codegraph/
