@@ -22,8 +22,7 @@ autenticar pela sessão de assinatura e não por API key.
 | F30 — avisos de runtime | ✅ passou | API de config + log do turno |
 | F31 — shell em auto-accept | ✅ passou | log de auto-aprovação + zero gates; borda conferida |
 
-Roteiro E do `RUNBOOK-HOMOLOGACAO.md` fechou **10/12** nesta rodada; os dois abertos (caption em
-`#configuracao` e inbox do Dashboard) estão nomeados lá com o motivo.
+Roteiro E do `RUNBOOK-HOMOLOGACAO.md` fechou **12/12** nesta rodada.
 
 ---
 
@@ -156,7 +155,8 @@ foi validado. Aviso apenas, o turno não foi bloqueado.
 O turno rodou até `idle`. Não há como o aviso aparecer no chat: a variante `cli.version_notice` foi
 removida do union do `ws-hub`, então não existe emissor.
 
-**Não conferido em tela:** a caption na row do Claude em `#configuracao` (E2 do roteiro).
+A caption na row do Claude em `#configuracao` (`2.1.234` em mono muted, com a segunda linha "Ainda
+não conferida nesta versão.") foi conferida em tela — E2 do roteiro.
 
 ## F31 — shell de edição e leitura em auto-accept
 
@@ -190,5 +190,14 @@ então virou correção mais teste (`permission-broker.test.ts`), não só ajust
 - O cofre foi destravado por `POST /api/vault/unlock` (`workspace` só chaveia o backoff) e os turnos
   foram disparados pela API com `x-engrenacode-session`, sem tocar na janela — exceto os checks que
   são visuais por natureza.
-- Resíduos removidos ao fim: a thread de fixture da F33 (com as mensagens e tool calls artificiais) e
-  o diretório `smoke-f31` criado no projeto de homologação.
+- Resíduos removidos ao fim: as threads de fixture (F33 e E12), o diretório `smoke-f31` criado no
+  projeto de homologação e o estado `interrupted` que foi posto à mão numa thread de smoke para o
+  E12 (devolvido a `idle`). O banco terminou com as três threads reais em `idle` e nenhum fixture.
+
+## Precedência da inbox, achada no E12
+
+A inbox do Dashboard classifica por `pendingDiff > error > running > interrupted`, e o primeiro ramo
+vence **qualquer que seja o estado da thread**. Isso é anterior à F35 e não é defeito, mas engana na
+conferência: a primeira tentativa do E12 mostrou a thread interrompida como `pendingDiff`, porque ela
+tinha diffs pendentes. O tier `interrupted` só aparece em thread limpa. Quem repetir o check precisa
+saber disso, senão conclui que a F35 não chegou ao Dashboard.

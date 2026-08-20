@@ -242,7 +242,7 @@ E7–E11 exigem um turno real.
 | ✔   | ID                | Passo                                                                                          | Esperado                                                                                                          |
 | --- | ----------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | ✅   | **E1** (F30)      | Abrir `#configuracao` sem clicar em nada                                                       | Row do Claude **sem** versão: `GET /api/config/status` é PATH-only e não dá spawn de `--version`                   |
-| ☐   | **E2** (F30)      | Clicar em **Testar conexões**                                                                  | Row do Claude passa a mostrar a versão em mono muted; fora da faixa validada, caption discreta, sem alarme         |
+| ✅   | **E2** (F30)      | Clicar em **Testar conexões**                                                                  | Row do Claude passa a mostrar a versão em mono muted; fora da faixa validada, caption discreta, sem alarme         |
 |     |                   | *Exemplo:* com CLI 2.1.234 e faixa 2.1.226–2.1.231, caption “Ainda não conferida nesta versão.” |                                                                                                                   |
 | ✅   | **E3** (F30) · BLOQUEIA | Primeiro turno com CLI fora da faixa validada                                            | Chat **sem tarja âmbar de versão**; a linha técnica aparece só em `#registros`                                     |
 | ✅   | **E4** (F33)      | Abrir thread com mais de 60 mensagens                                                          | Abre no fim da conversa; topo traz **“Carregar mensagens anteriores”**, não o marcador de início                   |
@@ -255,7 +255,7 @@ E7–E11 exigem um turno real.
 | ✅   | **E10** (F31) · BLOQUEIA | Ainda em `auto-accept-edits`, pedir leitura **fora** do projeto                          | Abre card: a borda do projeto vale igual para leitura (`cat ../fora/x`, `cat ~/.ssh/id_rsa`)                       |
 | ✅   | **E11** (F35) · BLOQUEIA | Matar o processo main por PID no meio de um turno e reabrir                              | Thread volta como **interrompida** (badge muted, não vermelho), separador na timeline, e **o composer aceita envio** |
 |     |                   | *Exemplo:* se ela morrer em `waiting_permission`, o gate tem de fechar negando (`app_restarted`) antes do estado |                                                                                              |
-| ☐   | **E12** (F35)     | Abrir `#dashboard` com uma thread interrompida                                                 | Ela **não** entra no contador de erros e aparece na inbox no último tier                                           |
+| ✅   | **E12** (F35)     | Abrir `#dashboard` com uma thread interrompida                                                 | Ela **não** entra no contador de erros e aparece na inbox no último tier                                           |
 
 > **E11 é o check que mais paga.** No smoke de 2026-08-19 ele reprovou: a thread voltava como
 > `interrupted` corretamente, mas o envio era recusado com `thread_busy` — `interrupted` estava fora
@@ -282,17 +282,17 @@ Roteiro A: __/10    Roteiro B: __/16    Roteiro C: __/10    Roteiro D: __/7    R
 Versão empacotada:  não empacotada (dev, pnpm dev)   Commit: 6db47a2+   Data: 2026-08-19
 Executado por:      Luks (janela) + agente (API loopback e leitura do engrenacode.db)
 
-Roteiro E: 10/12
+Roteiro E: 12/12
 ```
 
-Abertos, e o motivo:
+Nenhum aberto. Notas de como dois deles foram fechados:
 
-- **E2** — a versão foi conferida pela API (`POST /api/config/clis/test` devolveu `2.1.234` /
-  `above-max`, e o `GET /api/config/status` seguinte passou a trazê-la sem novo spawn), mas a
-  **caption na row do Claude em `#configuracao`** não foi vista em tela.
-- **E12** — depende de uma thread em `interrupted` no momento da conferência; a do smoke foi retomada
-  e assentou. O comportamento (fora do contador de erros, último tier da inbox) está coberto em
-  unitário, não ao vivo.
+- **E2** — `POST /api/config/clis/test` devolveu `2.1.234` / `above-max` e o `GET /api/config/status`
+  seguinte passou a trazer a versão sem novo spawn; a caption na row do Claude foi conferida em tela.
+- **E12** — a inbox tem precedência `pendingDiff > error > running > interrupted`, então thread com
+  diff pendente aparece como `pendingDiff` qualquer que seja o estado (comportamento anterior à F35).
+  Para ver o tier `interrupted` é preciso uma thread **sem** diff pendente. Com ela: `metrics.errors`
+  em `0` e a linha no fim da inbox, com badge muted.
 
 **E11 reprovou na primeira tentativa** e virou correção mais teste — ver a nota do roteiro e
 `F30-F35-smoke-results.md`.
