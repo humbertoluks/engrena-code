@@ -1,6 +1,6 @@
 ---
 name: spec-writer
-description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Adaptado ao EngrenaCode — integra apps/engrena-code/docs/PRD.md existente e trata ui.md/copy.md por feature como fonte de verdade de UX/copy.
+description: Gera especificação técnica de implementação e plano para uma ou mais features com base no PRD, análise do codebase e esclarecimento iterativo. Trata ui.md/copy.md por feature como fonte de verdade de UX e copy quando existem.
 ---
 
 # Feature Specs Writer
@@ -19,20 +19,25 @@ Opera em **uma feature por vez**, identificada por seu ID de feature do PRD (F01
 1. `spec.md` - Especificação técnica (7 seções)
 2. `plan.md` - Plano de implementação (fases e passos)
 
-**Localização da saída:** `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`
-- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `apps/engrena-code/docs/F03-video-upload/`.
+**Localização da saída:** `<raiz de docs>/<feature-id>-<kebab-name>/{spec.md,plan.md}` — a raiz está em [`project.md`](project.md)
+- O `<kebab-name>` é derivado do nome da feature na Seção 6 do PRD (minúsculas, espaços → hífens, caracteres especiais removidos). Exemplo: `F03. Video Upload` → `<raiz de docs>/F03-video-upload/`.
 
-## Adaptação ao EngrenaCode
+## Bindings do projeto
 
-- `apps/engrena-code/docs/PRD.md` já existe neste repositório (PT-BR, 9 seções, features F01–F11). Use-o diretamente como o PRD — não pergunte onde encontrá-lo.
-- Cada feature pasta (`docs/F<ID>-<kebab-name>/`) pode conter, além de `spec.md`/`plan.md`: `ui.md` (anatomia, tokens, aceite visual) e `copy.md` (catálogo de strings literais por id). Esses dois arquivos são escritos por um processo de design separado (ver `CLAUDE.md` → "Design · Processo") e, quando presentes, são a **fonte de verdade** para qualquer UX/copy que a spec descreva. A skill nunca redefine anatomia ou strings já documentadas ali — só cita os caminhos.
-- Ao trabalhar em uma feature com UI: antes do Passo 2 (Entrevista), verifique se `apps/engrena-code/docs/<feature-id>-*/ui.md` e `copy.md` já existem.
-  - Se existirem, leia-os por completo e trate seu conteúdo (anatomia, tokens, tabela de copy, aceite visual) como respondido — não pergunte sobre isso na entrevista, referencie os ids de copy e a anatomia diretamente na spec.
-  - Se não existirem, anote a lacuna em Assumptions/Decisions ("`ui.md`/`copy.md` ainda não escritos para esta feature") e prossiga com a spec técnica; não invente copy final nem anatomia de tela — descreva o contrato de dados/estado que a UI vai consumir e sinalize que o processo de design de UI é pré-requisito antes da implementação visual.
-- A referência de template usada por esta skill vive em `references/feature-template.md`, dentro desta mesma pasta de skill.
-- **Precedência entre PRD e `PROGRESS.md`:** a composição das ondas e as dependências vêm sempre do PRD §8; o status real de implementação vem da tabela "Resumo por feature" de `apps/engrena-code/docs/PROGRESS.md`. A tabela de Ondas do `PROGRESS.md` é apenas um espelho e pode estar stale — se ela divergir do PRD §8 (feature do PRD ausente da tabela, ou onda marcada "Completa" com feature pendente), **não** use o espelho para resolver ondas nem para julgar dependências: use o PRD, e avise o usuário da divergência no relatório final (Passo 6 / B.6) para que ela seja corrigida.
+Esta skill é method puro. Tudo que é deste repo — caminho do PRD, raiz de docs, pasta por feature,
+gates de tipo/teste/lint, arquivos que são fonte de verdade de UI e copy, precedência de fontes —
+vive em [`project.md`](project.md). É o único arquivo a reescrever ao levar a skill para outro
+projeto.
 
----
+Dois pontos que valem repetir aqui porque mudam o comportamento da skill:
+
+- **`ui.md` / `copy.md` da feature, quando existem, são fonte de verdade.** Leia-os antes da
+  entrevista (Passo 1.5b) e trate anatomia, tokens, estados e strings como já respondidos — a spec
+  cita os caminhos e os ids, nunca redescreve. Quando não existem, registre a lacuna em Assumptions
+  e siga com o contrato de dados; não invente copy final nem layout.
+- **Precedência de fontes:** o status real de implementação vem do arquivo de progresso, mas a
+  composição das ondas e as dependências vêm sempre do PRD. Se o espelho de ondas divergir do PRD,
+  use o PRD e reporte a divergência.
 
 ## Passos de Execução (6 Passos)
 
@@ -42,9 +47,9 @@ Nota: Estes são passos internos de execução do agente. O documento de plano O
 
 **1.1: Identificar o PRD e a feature-alvo**
 
-Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`apps/engrena-code/docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
+Aceite entrada em formato livre do usuário. O usuário pode referenciar a feature por ID (`F03`), por nome (`Video Upload`), por caminho (`docs/PRD.md F03`), ou qualquer combinação. Resolva a referência:
 
-- Localize o arquivo PRD a partir da referência do usuário ou procure por `apps/engrena-code/docs/PRD.md` (neste repositório, é sempre esse — ver "Adaptação ao EngrenaCode"), `PRD.md`, ou locais convencionais similares. Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
+- Localize o arquivo PRD a partir da referência do usuário, do caminho declarado em `project.md`, ou de locais convencionais (`docs/PRD.md`). Se múltiplos PRDs plausíveis existem, pergunte ao usuário qual usar.
 - Identifique a feature-alvo dentro do PRD por ID ou nome.
 - Se a entrada for ambígua (ex.: "upload" bate em múltiplas features), confirme com o usuário antes de prosseguir.
 - Se a feature referenciada não existir no PRD, liste as features disponíveis da Seção 8 e peça ao usuário para esclarecer.
@@ -53,7 +58,7 @@ Aceite entrada em formato livre do usuário. O usuário pode referenciar a featu
 
 **1.2: Verificar disponibilidade de dependências e Features de Fundação (greenfield)**
 
-Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque também `apps/engrena-code/docs/PROGRESS.md`, que é a fonte de status real F01–F11 deste repositório). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
+Leia a Seção 8 do PRD (Grafo de Dependências). Para cada feature na coluna `Dependências` da feature-alvo, verifique se ela parece estar implementada no codebase (arquivos fonte existem correspondendo ao escopo da feature — em caso de dúvida, cheque o arquivo de progresso declarado em `project.md`). Se alguma dependência não estiver implementada, avise o usuário: "F<X> depende de F<Y> (não implementada ainda). Continuar mesmo assim?" Prossiga apenas se confirmado.
 
 Se o PRD contém uma subseção **Features de Fundação** na Seção 8, aplique estas verificações adicionais com base no estado de implementação de cada feature de Fundação:
 
@@ -64,7 +69,7 @@ Se o PRD contém uma subseção **Features de Fundação** na Seção 8, aplique
 - **Cenário 1 — greenfield + feature-alvo É uma Feature de Fundação:** prossiga sem aviso extra. Este é o caminho esperado para um projeto greenfield.
 - **Cenário 2 — greenfield + feature-alvo NÃO está em Features de Fundação:** avise o usuário: "Isto parece ser um projeto greenfield (nenhuma feature de Fundação está implementada ainda). F<alvo> não é uma feature de Fundação. Features de Fundação (F<ID>, ...) configuram a infraestrutura compartilhada e devem ser implementadas primeiro. Recomendo começar com F<primeira-fundacao>. Continuar com F<alvo> mesmo assim?" Prossiga apenas se confirmado.
 - **Cenário 3 — Fundação Parcial (algumas features de Fundação implementadas, outras pendentes) e alvo não é uma das Fundações restantes:** liste as features de Fundação pendentes e avise: "Features de Fundação F<ID1>, F<ID2>... não estão implementadas ainda. Implementar F<alvo> antes destas pode criar conflitos de arquivo no scaffolding. Continuar mesmo assim?" Prossiga apenas se confirmado.
-- **Fundação completa (codebase maduro para fins de Fundação):** pule todas as verificações específicas de Fundação. A verificação normal de disponibilidade de dependências acima é suficiente. Este é o estado atual do EngrenaCode a partir de F01/F01.1 implementadas.
+- **Fundação completa (codebase maduro para fins de Fundação):** pule todas as verificações específicas de Fundação. A verificação normal de disponibilidade de dependências acima é suficiente. É o estado de qualquer repo cuja Fundação já esteja no lugar.
 
 **1.3: Descoberta de Padrões do Codebase (duas camadas)**
 
@@ -85,7 +90,7 @@ Explore o codebase antes da entrevista, para extrair padrões. Isto é obrigató
 
 **1.4: Manipulação de codebase vazio**
 
-Se o codebase estiver vazio ou apenas com scaffolding (ex.: apenas `package.json` com defaults, nenhuma implementação `src/` ainda), pule a descoberta Camada 1/Camada 2 e em vez disso planeje perguntar questões de stack transversais inline durante o Passo 2 (estas questões serão perguntadas apenas uma vez — na primeira feature. Features subsequentes encontrarão as respostas no codebase). No EngrenaCode este caso não se aplica mais — a Fundação (F01/F01.1) já está implementada; use-a como referência de padrões.
+Se o codebase estiver vazio ou apenas com scaffolding (ex.: apenas `package.json` com defaults, nenhuma implementação `src/` ainda), pule a descoberta Camada 1/Camada 2 e em vez disso planeje perguntar questões de stack transversais inline durante o Passo 2 (estas questões serão perguntadas apenas uma vez — na primeira feature. Features subsequentes encontrarão as respostas no codebase). Em repo com Fundação já implementada este caso não se aplica; use o código existente como referência de padrões.
 
 **1.5: Ler dados da feature do PRD**
 
@@ -103,7 +108,7 @@ Extraia a definição completa da feature-alvo do PRD e carregue como contexto p
 
 **1.5b: Ler UI da feature, quando existir**
 
-Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `apps/engrena-code/docs/<feature-id>-*/ui.md` e `apps/engrena-code/docs/<feature-id>-*/copy.md`:
+Se a feature tem qualquer superfície visual (a Experiência do PRD descreve telas/fluxos de usuário), verifique `ui.md` e `copy.md` na pasta da feature (ver `project.md`):
 - Se existirem: leia-os por completo. `ui.md` fornece anatomia, tokens/classes, estados e checklist de aceite visual; `copy.md` fornece o catálogo de strings literais por id. Ambos entram como contexto primário da spec — a spec cita os caminhos e os ids, nunca redescreve o conteúdo.
 - Se não existirem: registre a lacuna para a Seção 3.3 (Assumptions) da spec.
 
@@ -241,7 +246,7 @@ Documento PLAN:
 - [ ] Sem estimativas de tempo
 - [ ] Features com UI: fechamento menciona light/dark, anatomia vs `ui.md` e copy vs `copy.md` quando esses arquivos existirem
 
-**Salve ambos arquivos em `apps/engrena-code/docs/<feature-id>-<kebab-name>/spec.md` e `apps/engrena-code/docs/<feature-id>-<kebab-name>/plan.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
+**Salve ambos arquivos na pasta da feature declarada em `project.md`.** Crie a pasta se não existir. Verifique ambos arquivos com a ferramenta Read.
 
 ### Passo 6: Resultado de Saída
 
@@ -252,7 +257,7 @@ Informe o caminho dos arquivos spec e plan, o nível de complexidade da feature,
 ## Regras
 
 **Sempre:**
-- Gere DOIS arquivos (spec e plan) em `apps/engrena-code/docs/<feature-id>-<kebab-name>/`
+- Gere DOIS arquivos (spec e plan) na pasta da feature (ver `project.md`)
 - Valide ambos documentos antes de salvar
 - Execute Codebase Pattern Discovery em duas camadas (baseline + broad) antes da entrevista
 - Leia a feature-alvo do PRD e use Consome/Provê/Escopo Central/Escopo Completo/Capacidades/Experiência/Tratamento de Erros/critérios de aceitação como contexto primário
@@ -279,7 +284,7 @@ Informe o caminho dos arquivos spec e plan, o nível de complexidade da feature,
 
 ## Casos de Borda
 
-**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Neste repositório, isso só deveria acontecer se `apps/engrena-code/docs/PRD.md` tiver sido removido.
+**Nenhum PRD encontrado:** Pare e instrua o usuário a gerar um primeiro com `prd-writer`. Não execute a skill sem um PRD. Num repo que já tinha PRD, isso significa que ele foi removido — confirme antes de gerar outro.
 
 **Feature não encontrada no PRD:** Liste as features disponíveis da Seção 8 do PRD e pergunte ao usuário qual foi a intenção.
 
