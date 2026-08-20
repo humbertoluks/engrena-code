@@ -2,7 +2,7 @@
 
 Bem-vindo. Este diretório contém toda a documentação de produto, desenvolvimento e auditoria do EngrenaCode.
 
-**Atualizado:** 2026-08-19
+**Atualizado:** 2026-08-20
 
 ---
 
@@ -11,7 +11,7 @@ Bem-vindo. Este diretório contém toda a documentação de produto, desenvolvim
 | Você é... | Comece em | Depois leia |
 |-----------|-----------|-----------|
 | **Novo desenvolvedor** | [`DEVELOPMENT.md`](./DEVELOPMENT.md) | [`GLOSSARY.md`](./GLOSSARY.md) |
-| **Fazendo release** | [`RUNBOOK-HOMOLOGACAO.md`](./RUNBOOK-HOMOLOGACAO.md) | [`RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md) |
+| **Fazendo release** | [`RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md) | [`RUNBOOK-HOMOLOGACAO.md`](./RUNBOOK-HOMOLOGACAO.md) |
 | **Entendendo o produto** | [`PRD.md`](./PRD.md) | [`PROGRESS.md`](./PROGRESS.md) |
 | **Revisor de features** | [`PROGRESS.md`](./PROGRESS.md) | [`PRD.md`](./PRD.md) |
 
@@ -21,7 +21,7 @@ Bem-vindo. Este diretório contém toda a documentação de produto, desenvolvim
 
 ### Produto e Strategy
 
-- **[`PRD.md`](./PRD.md)** — Documento de Requisitos de Produto. Visão, personas, objetivos, funcionalidades (F01–F31), versões 1.0–1.4, roadmap. Fonte de verdade de produto.
+- **[`PRD.md`](./PRD.md)** — Documento de Requisitos de Produto. Visão, personas, objetivos, funcionalidades (F01–F35), versões 1.0–1.5, roadmap. Fonte de verdade de produto.
 
 - **[`PROGRESS.md`](./PROGRESS.md)** — Progresso real do MVP. Tabela de todas as features (feito vs. pendente), ondas de entrega, evidência de testes e smoke. **Leia quando:** precisa saber o estado exato de uma feature ou release.
 
@@ -29,45 +29,51 @@ Bem-vindo. Este diretório contém toda a documentação de produto, desenvolvim
 
 - **[`DEVELOPMENT.md`](./DEVELOPMENT.md)** — Quick Start. Pré-requisitos, instalação, como rodar `pnpm dev`, troubleshooting básico. **Leia primeiro** se está clonando o repo.
 
-- **[`RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md)** — Build, empacotamento e artefatos. Passo a passo de `pnpm build`, electron-builder, geração de `.exe`, validação. **Leia se:** está preparando um release.
+- **[`RUNBOOK-BUILD.md`](./RUNBOOK-BUILD.md)** — Build, empacotamento e artefatos. Passo a passo de `pnpm build`, electron-builder, geração de `.exe`. **Leia se:** está preparando um release.
 
 ### Validação
 
-- **[`RUNBOOK-HOMOLOGACAO.md`](./RUNBOOK-HOMOLOGACAO.md)** — Checklist manual de validação. Roteiros A–D (fumaça, turno real, Git, voz), critério de aprovação, troubleshooting. Cobre F01–F30. **Leia se:** está fazendo homologação antes de liberar.
+- **[`RUNBOOK-HOMOLOGACAO.md`](./RUNBOOK-HOMOLOGACAO.md)** — Checklist manual de validação. Roteiros A–E (fumaça, turno real, Git, voz, F30–F35), critério de aprovação, troubleshooting. Cobre F01–F35. **Leia se:** está fazendo homologação antes de liberar.
 
 ### Histórico e Arquivos
 
-- **[`AUDIT-CODE-REVIEW.md`](./AUDIT-CODE-REVIEW.md)** — Registro de auditoria de código. Passagem 2026-08-12 + remediação 2026-08-13. **Status:** Encerrado em 2026-08-17 (zero achados abertos). Não editar.
+- **[`AUDIT-CODE-REVIEW.md`](./AUDIT-CODE-REVIEW.md)** — Registro de auditoria de código. **Status:** Encerrado em 2026-08-17 (zero achados abertos). Não editar.
 
-- **[`AUDIT-PRD-S9-MIGRATION.md`](./AUDIT-PRD-S9-MIGRATION.md)** — Matriz checkbox dos critérios de aceitação PRD §9. 103 `[x]` / 0 `[ ]`. **Status:** Auditoria encerrada 2026-08-07. Não reabre.
+- **[`AUDIT-PRD-S9-MIGRATION.md`](./AUDIT-PRD-S9-MIGRATION.md)** — Matriz checkbox dos critérios de aceitação PRD §9. **Status:** Auditoria encerrada 2026-08-07. Não reabre.
+
+Detalhe do que cada auditoria fechou: seção [Documentos históricos](#documentos-históricos-não-editar) abaixo.
 
 ---
 
 ## 📚 Referência
 
 - **[`GLOSSARY.md`](./GLOSSARY.md)** — Glossário de termos técnicos (worktree, lease, dispatch, MCP, supervisado vs auto-accept, smoke, feature, onda, etc.). Leia quando encontrar jargão.
+- **[`workspace-glossary.png`](./workspace-glossary.png)** — Glossário visual do workspace (contrato de permissão).
 
 ---
 
 ## 🗂️ Subpastas de features
 
-Documentação por feature (F01–F31):
+Documentação por feature (F01–F35). Pastas no disco:
 
 ```
-F01-vault-e-sessao-local/        F02-configuracao-mvp/
-F03-workspace/                   F04-dashboard/
-F05-skills/                      F06-rules/
-...
-F28-chat-parity/                 F29-monitor-de-execucao/
+F01-vault-e-sessao-local/        F01.1-design-system/
+F02-configuracao-mvp/            F03-workspace/
+…
 F30-avisos-de-runtime-e-permissao/   F31-shell-de-edicao-em-auto-accept/
+F32-prazo-do-pedido-de-permissao/    F33-historico-de-chat-paginado/
+F34-rascunho-persistente-do-composer/ F35-estado-honesto-de-thread-interrompida/
 ```
 
-Cada pasta contém:
+O que cada pasta **pode** conter (nem toda feature tem os cinco):
+
 - `spec.md` — Especificação técnica de implementação
 - `plan.md` — Plano de execução
-- `ui.md` — Anatomia de UI e tokens
-- `copy.md` — Textos de UI (labels, mensagens, hints)
+- `ui.md` — Anatomia de UI e tokens (quando há superfície)
+- `copy.md` — Textos de UI (quando há superfície)
 - `smoke-results.md` — Evidência de validação manual/E2E (quando aplicável)
+
+Smoke agregado F30–F35: [`F30-F35-smoke-results.md`](./F30-F35-smoke-results.md).
 
 ---
 
@@ -91,12 +97,15 @@ docs/
 ├── RUNBOOK-HOMOLOGACAO.md           (checklist de validação)
 ├── RUNBOOK-BUILD.md                 (build/release)
 ├── GLOSSARY.md                      (termos técnicos)
+├── workspace-glossary.png           (glossário visual do workspace)
 ├── AUDIT-CODE-REVIEW.md             (auditoria de código, histórico)
 ├── AUDIT-PRD-S9-MIGRATION.md        (auditoria de produto, histórico)
+├── F30-F35-smoke-results.md         (smoke agregado da 1.4/1.5)
+├── _shared/                         (padrões de codebase)
+├── archived/                        (regras/docs fora do ciclo vivo)
 ├── F01-vault-e-sessao-local/        (specs de features)
-├── F02-configuracao-mvp/
-├── ... (F03–F30)
-└── F31-shell-de-edicao-em-auto-accept/
+├── … (F01.1–F34)
+└── F35-estado-honesto-de-thread-interrompida/
 ```
 
 ---
@@ -112,17 +121,14 @@ R: [PROGRESS.md](./PROGRESS.md) — tabela com status, evidência e próximos pa
 **P: Como faço release?**  
 R: [RUNBOOK-BUILD.md](./RUNBOOK-BUILD.md) (build) → [RUNBOOK-HOMOLOGACAO.md](./RUNBOOK-HOMOLOGACAO.md) (validação).
 
-**P: Qual é o status de F30?**  
-R: [PROGRESS.md](./PROGRESS.md) linha "F30" — completo em 2026-08-19.
-
-**P: F31 está pronto?**  
-R: Especificado em 2026-08-18, implementação pendente. Ver [PROGRESS.md](./PROGRESS.md) linha "F31".
+**P: Qual é o status de F30? E F31?**  
+R: Ambos completos em 2026-08-19. Ver [PROGRESS.md](./PROGRESS.md) nas linhas "F30" e "F31". F32–F35 (versão 1.5) também: mesma tabela, smoke em [F30-F35-smoke-results.md](./F30-F35-smoke-results.md).
 
 ---
 
 ## 🗑️ Documentos históricos (não editar)
 
-- `AUDIT-CODE-REVIEW.md` — Zero achados abertos desde 2026-08-17. Registro de processo.
-- `AUDIT-PRD-S9-MIGRATION.md` — Auditoria completa em 2026-08-07. Snapshot do estado de migração.
+- `AUDIT-CODE-REVIEW.md` — Encerrado em 2026-08-17, zero achados abertos. Registro de processo.
+- `AUDIT-PRD-S9-MIGRATION.md` — Encerrado em 2026-08-07. Snapshot da migração de critérios §9.
 
-Ambos continuam no repo como registro, mas não se abrem para nova auditoria a menos que instruções de `docs/PROGRESS.md` indicarem gap novo.
+Não reabrem a menos que [`PROGRESS.md`](./PROGRESS.md) indique gap novo.
